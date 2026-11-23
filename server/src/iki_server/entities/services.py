@@ -267,7 +267,10 @@ def create(
     with transaction.atomic(), _unique_values():
         saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
-            _hold(saved, holding, user, hold_reason, saved.revision.number)
+            entry_number = (
+                saved.entry_revision.number if saved.registered and saved.entry_revision else None
+            )
+            _hold(saved, holding, user, hold_reason, saved.revision.number, entry_number)
         if given_amount is not None and not saved.reused:
             record = Entity.objects.get(pk=saved.entity.pk)
             amounts.record(user, record, given_amount, reason=reason)
@@ -338,9 +341,12 @@ def _hold(
     user: User,
     reason: str,
     revision: int,
+    entry_revision: int | None,
 ) -> None:
     entity = Entity.objects.select_related("owner_project").get(pk=saved.entity.pk)
-    holds.hold(entity, holding, user=user, reason=reason, revision=revision)
+    holds.hold(
+        entity, holding, user=user, reason=reason, revision=revision, entry_revision=entry_revision
+    )
     saved.held = [b.rule.key for b in holding]
 
 
@@ -826,6 +832,16 @@ def update(
         fields = form.fields()
         owner = registry.identity_owner(registry.types()[locked.type])
         identifying = set(owner.identity) if owner is not None else set()
+        checked_entry_revision = None
+        if locked.entry_id is not None and any(
+            rule.hold for rule in checking.checks_of(locked.type)
+        ):
+            # A held observation names the entry revision read when the rule was checked.
+            checked_entry_revision = (
+                Entity.objects.select_for_update(no_key=True)
+                .values_list("revision", flat=True)
+                .get(pk=locked.entry_id)
+            )
         instance = _specific(locked)
         rows = Rows.of(instance)
         project = owner_of(locked)
@@ -966,12 +982,13 @@ def update(
                 by_run=by_run,
                 explicit=not by_run,
             )
+        held_entry_revision = entry_revision.number if entry_revision else checked_entry_revision
         if not new:
             saved = Saved(_specific(locked), entry_revision=entry_revision)
             checking.kept(locked, changed, found)
             if holding:
                 # Its registry entry's values held it: by the record as it is.
-                _hold(saved, holding, user, hold_reason, locked.revision)
+                _hold(saved, holding, user, hold_reason, locked.revision, held_entry_revision)
             return saved
         was = {n: rows.get(n) for n in new}
         before = {n: v for n, v in was.items() if names_people(fields[n])}
@@ -991,7 +1008,7 @@ def update(
         saved = Saved(_specific(locked), revision, entry_revision=entry_revision)
         checking.kept(locked, changed, found)
         if holding:
-            _hold(saved, holding, user, hold_reason, revision.number)
+            _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
         declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
     return saved
 

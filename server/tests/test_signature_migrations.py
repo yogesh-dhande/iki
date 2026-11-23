@@ -325,7 +325,15 @@ def _dependencies(migration: str) -> list[tuple[str, str]]:
 def test_signing_checks_the_registry_entry_revision_the_signer_read(
     lab: Path, database: str
 ) -> None:
-    (lab / "types" / "reagent.yaml").write_text(REAGENT)
+    (lab / "types" / "reagent.yaml").write_text(
+        REAGENT
+        + """\
+      approved:
+        label: Approved
+        set_by: [analyst]
+        signatures: [{ meaning: review }, { meaning: approval }]
+"""
+    )
     made("lab", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
@@ -408,6 +416,20 @@ done = reauthenticate(analyst, Signing.objects.get(pk=started.json()["id"]))
 assert done.status == "signed", done.message
 assert done.signature.entry_revision == current.json()["entry"]["revision"]
 assert all(c.ok for c in signatures.verify(done.signature))
+
+body.update(state="approved", index=0)
+current = api.get(path)
+started = start(current)
+assert started.status_code == 201, started.content
+pending = reauthenticate(analyst, Signing.objects.get(pk=started.json()["id"]))
+assert pending.status == "signed" and pending.signature is not None
+assert api.get(path).json()["values"]["status"] == "in_review"
+entries.curate(
+    curator, entry, {"cas": "7758-02-3"}, expected_revision=current.json()["entry"]["revision"],
+    reason="Correct the registry fact again",
+)
+withdrawal = api.post(f"/signatures/{pending.signature_id}/withdrawal", {"reason": "Withdraw"})
+assert "lapsed" in problem(withdrawal, 409, "refused")["detail"]
 result = None
 """,
     )

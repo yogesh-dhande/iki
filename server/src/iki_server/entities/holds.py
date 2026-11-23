@@ -30,7 +30,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from iki_server.audit import log
-from iki_server.entities.models import Entity, RuleHold, RulesChecked
+from iki_server.entities.models import Entity, Revision, RuleHold, RuleHoldOccurrence, RulesChecked
 from iki_server.entities.values import Invalid
 from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
@@ -87,31 +87,43 @@ def hold(
     user: User | None,
     reason: str,
     revision: int,
+    entry_revision: int | None = None,
     tell: bool = True,
 ) -> list[RuleHold]:
     """Holds the record by each of ``broken``'s rules, for the save that made revision
     ``revision``: a new hold, or an open one it adds to. Call it in the save's transaction.
-    Tells the audit log, and unless not to ``tell``, the rules' reviewers."""
+    Tells the audit log, and unless not to ``tell``, the rules' reviewers. Only pass
+    ``entry_revision`` when the check used that exact revision's values."""
     reason = reason.strip()
     assert reason, "A hold needs a reason."  # noqa: S101 - the services ask for one first
     agent = log.current_agent() if user is not None else None
     out = []
     for b in broken:
         current = open_holds(entity).filter(rule=b.rule.key).select_for_update().first()
-        if current is not None:
-            current.last_revision = revision
-            current.message = b.message
-            current.save(update_fields=["last_revision", "message"])
-            out.append(current)
-            continue
-        made = RuleHold.objects.create(
-            entity=entity,
-            rule=b.rule.key,
+        if current is None:
+            made = RuleHold.objects.create(
+                entity=entity,
+                rule=b.rule.key,
+                label=b.rule.label[:100],
+                message=b.message,
+                roles=list(b.rule.hold),
+                revision=revision,
+                last_revision=revision,
+                held_by=user,
+                held_agent=agent,
+                reason=reason,
+            )
+        else:
+            made = current
+            made.last_revision = revision
+            made.save(update_fields=["last_revision"])
+        occurrence = RuleHoldOccurrence.objects.create(
+            hold=made,
+            revision=revision,
+            entry_id=entity.entry_id,
+            entry_revision=entry_revision,
             label=b.rule.label[:100],
             message=b.message,
-            roles=list(b.rule.hold),
-            revision=revision,
-            last_revision=revision,
             held_by=user,
             held_agent=agent,
             reason=reason,
@@ -124,15 +136,18 @@ def hold(
             project=entity.owner_project,
             data={
                 "hold": str(made.pk),
+                "occurrence": str(occurrence.pk),
                 "rule": made.rule,
-                "label": made.label,
-                "message": made.message,
+                "label": occurrence.label,
+                "message": occurrence.message,
                 "revision": revision,
                 "reason": reason,
+                "entry": str(entity.entry_id) if entity.entry_id is not None else None,
+                "entry_revision": entry_revision,
             },
         )
-        _emit("entity.held", entity, made, user)
-        if tell:
+        _emit("entity.held", entity, made, user, occurrence=occurrence)
+        if tell and current is None:
             _tell(entity, made, user)
     return out
 
@@ -153,7 +168,14 @@ def hold_data(made: RuleHold) -> dict[str, Any]:
     }
 
 
-def _emit(event: str, entity: Entity, made: RuleHold, user: User | None) -> None:
+def _emit(
+    event: str,
+    entity: Entity,
+    made: RuleHold,
+    user: User | None,
+    *,
+    occurrence: RuleHoldOccurrence | None = None,
+) -> None:
     from iki_server.webhooks import events
     from iki_server.webhooks.services import emit
 
@@ -163,6 +185,13 @@ def _emit(event: str, entity: Entity, made: RuleHold, user: User | None) -> None
         "actor": events.actor_data(user),
         "agent": log.agent_data(log.current_agent() if user is not None else None),
     }
+    if occurrence is not None:
+        data["occurrence"] = {
+            "id": str(occurrence.pk),
+            "revision": occurrence.revision,
+            "entry_revision": occurrence.entry_revision,
+            "reason": occurrence.reason,
+        }
     emit(event, data, project=entity.owner_project)
 
 
@@ -199,7 +228,9 @@ def reviewers(project: Any, roles: Iterable[str]) -> QuerySet[Any]:  # noqa: ANN
     return found.distinct()
 
 
-def why_not_review(user: User, entity: Entity, made: RuleHold) -> tuple[str, bool] | None:
+def why_not_review(
+    user: User, entity: Entity, made: RuleHold, occurrences: Sequence[RuleHoldOccurrence]
+) -> tuple[str, bool] | None:
     """Why ``user`` may not review the hold, and whether it's for who they are (True)
     rather than the hold's own condition (False); None if they may."""
     if made.reviewed_at is not None:
@@ -218,11 +249,64 @@ def why_not_review(user: User, entity: Entity, made: RuleHold) -> tuple[str, boo
         return f"It needs someone with the {roles} role in {project.name}.", True
     if made.held_by_id is not None and made.held_by_id == user.pk:
         return "Someone else reviews it: you saved what held it.", True
+    if any(o.held_by_id == user.pk for o in occurrences):
+        return "Someone else reviews it: you saved a reading that broke this rule.", True
+    gap = next((o for o in occurrences if o.legacy_gap_ended_at is not None), None)
+    if _may_have_contributed(user, entity, made, occurrences, gap):
+        return (
+            "Someone else reviews it: you made changes while earlier evidence was incomplete.",
+            True,
+        )
     return None
 
 
+def _may_have_contributed(
+    user: User,
+    entity: Entity,
+    made: RuleHold,
+    occurrences: Sequence[RuleHoldOccurrence],
+    gap: RuleHoldOccurrence | None,
+) -> bool:
+    """Old repeated holds only kept their last offending revision. Exclude potential
+    contributors to those missing observations without attributing them to anyone.
+    """
+    # Old web pods can still save holds while the deployment replaces them.
+    recorded = max((o.revision for o in occurrences), default=made.revision)
+    if (
+        made.last_revision > recorded
+        and Revision.objects.filter(
+            entity=entity, number__gt=recorded, number__lte=made.last_revision, user=user
+        ).exists()
+    ):
+        return True
+    if gap is None:
+        return False
+    assert gap.legacy_gap_ended_at is not None  # noqa: S101 - only an incomplete occurrence
+    if Revision.objects.filter(
+        entity=entity, number__gt=made.revision, number__lte=gap.revision, user=user
+    ).exists():
+        return True
+    entries = set(
+        Revision.objects.filter(entity=entity, moved_from__isnull=False).values_list(
+            "moved_from_id", flat=True
+        )
+    )
+    if entity.entry_id is not None:
+        entries.add(entity.entry_id)
+    return Revision.objects.filter(
+        entity_id__in=entries,
+        user=user,
+        created_at__gte=made.held_at,
+        created_at__lte=gap.legacy_gap_ended_at,
+    ).exists()
+
+
 def review_version(
-    made: RuleHold, revision: int, entry_revision: int | None, rules: RulesChecked | None
+    made: RuleHold,
+    revision: int,
+    entry_revision: int | None,
+    rules: RulesChecked | None,
+    occurrences: Sequence[RuleHoldOccurrence],
 ) -> str:
     """The hold evidence and deployed rule generation the reviewer saw."""
     data = {
@@ -240,6 +324,7 @@ def review_version(
         "revision": revision,
         "entry_revision": entry_revision,
         "rules": [rules.digest, rules.checked_at.isoformat()] if rules is not None else None,
+        "occurrences": [str(o.pk) for o in occurrences],
     }
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
@@ -284,7 +369,8 @@ def review(
         made = RuleHold.objects.select_for_update().filter(entity=locked, pk=hold_id).first()
         if made is None:
             raise RuleHold.DoesNotExist("It has no such hold.")
-        refusal = why_not_review(user, locked, made)
+        occurrences = list(made.occurrences.all())
+        refusal = why_not_review(user, locked, made, occurrences)
         if refusal is not None:
             why, forbidden = refusal
             raise PermissionDenied(why) if forbidden else Refused(why)
@@ -298,7 +384,10 @@ def review(
                 .get(pk=locked.entry_id)
             )
         rules = RulesChecked.objects.filter(pk=locked.type).first()
-        if review_version(made, locked.revision, entry_revision, rules) != expected_version:
+        if (
+            review_version(made, locked.revision, entry_revision, rules, occurrences)
+            != expected_version
+        ):
             raise ReviewChanged(locked.revision)
         made.reviewed_by = user
         made.reviewed_at = timezone.now()
@@ -318,6 +407,7 @@ def review(
                 "revision": locked.revision,
                 "entry_revision": entry_revision,
                 "hold_last_revision": made.last_revision,
+                "occurrences": [str(o.pk) for o in occurrences],
                 "review_version": expected_version,
                 "rule_digest": rules.digest if rules is not None else None,
                 "rules_checked_at": rules.checked_at.isoformat() if rules is not None else None,

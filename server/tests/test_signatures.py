@@ -350,7 +350,11 @@ def test_a_signer_withdraws_a_pending_signature(lab: World) -> None:
     signing = signed(lab, "admin", made["id"], "approved")
     path = f"/signatures/{signing.signature_id}/withdrawal"
     assert api_as(lab, "viewer").post(path, {"reason": ""}).status_code == 403
-    answer = api_as(lab, "admin").post(path, {"reason": "Wrong lot"})
+    admin = api_as(lab, "admin")
+    blank = problem(admin.post(path, {"reason": "  "}), 422, "validation_failed")
+    assert blank["errors"][0]["pointer"] == "#/reason"
+    assert "needs a reason" in blank["errors"][0]["detail"]
+    answer = admin.post(path, {"reason": "Wrong lot"})
     assert answer.status_code == 200, answer.content
     assert answer.json()["status"] == "withdrawn"
     assert "Wrong lot" in answer.json()["status_detail"]
@@ -359,6 +363,24 @@ def test_a_signer_withdraws_a_pending_signature(lab: World) -> None:
     [submitted] = [s for s in standing(lab, made["id"]) if s["change"]["to"] == "in_review"]
     path = f"/signatures/{submitted['id']}/withdrawal"
     problem(api_as(lab, "editor").post(path, {"reason": ""}), 409, "refused")
+
+
+def test_a_withdrawal_does_not_count_after_another_person_edits(lab: World) -> None:
+    made = lot(lab)
+    ref = made["id"]
+    signed(lab, "editor", ref, "in_review")
+    signing = signed(lab, "admin", ref, "approved")
+    reviewer = api_as(lab, "admin")
+    seen = reviewer.get(f"/entities/{ref}")
+    editor = api_as(lab, "editor")
+    assert patch(editor, ref, {"values": {"yield_mg": 12.5}}, seen["ETag"]).status_code == 200
+    refused = problem(
+        reviewer.post(f"/signatures/{signing.signature_id}/withdrawal", {"reason": "Wrong lot"}),
+        409,
+        "refused",
+    )
+    assert "lapsed" in refused["detail"] and "changed" in refused["detail"]
+    assert not AuditEvent.objects.filter(action="signature.withdrawn").exists()
 
 
 def test_a_reason_the_state_requires_is_each_signers(lab: World) -> None:

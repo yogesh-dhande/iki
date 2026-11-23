@@ -994,8 +994,12 @@ def withdraw(user: User, signature: Signature, reason: str) -> Withdrawal:
                 "The state it signed for was set with it, so it stays: setting another state "
                 "reverses it."
             )
-        if locked.revision != signature.revision:
+        if locked.revision != signature.revision or (
+            _locked_entry_revision(locked) != signature.entry_revision
+        ):
             raise Refused(f"It lapsed when {locked.hrid} changed: it counts for nothing now.")
+        if not reason:
+            raise Invalid({"reason": ["Withdrawing a signature needs a reason."]})
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in at most {MAX_REASON} characters."]})
         withdrawal = Withdrawal.objects.create(signature=signature, by=user, reason=reason)

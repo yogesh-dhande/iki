@@ -8418,7 +8418,7 @@
         "type": "object"
       },
       "HeldOut": {
-        "description": "A hold a revision opened (ADR 0127), as the record's history keeps it: why the save\nwas kept, and its review, once someone has reviewed it.",
+        "description": "Evidence of a rule that a revision broke (ADR 0127), with the hold's review.",
         "properties": {
           "agent": {
             "anyOf": [
@@ -8432,10 +8432,42 @@
             "description": "The app or agent that saved it for them.",
             "title": "Agent"
           },
+          "entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry read with the record.",
+            "title": "Entry Id"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry revision, if known.",
+            "title": "Entry Revision"
+          },
           "held_at": {
-            "format": "date-time",
-            "title": "Held At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held At"
           },
           "held_by": {
             "anyOf": [
@@ -8446,7 +8478,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who saved it; null for a deploy's check."
+            "description": "Who saved it, when known."
           },
           "id": {
             "format": "uuid",
@@ -8462,15 +8494,40 @@
             "title": "Last Revision",
             "type": "integer"
           },
+          "legacy_gap": {
+            "default": false,
+            "description": "Earlier repeated failures have incomplete evidence.",
+            "title": "Legacy Gap",
+            "type": "boolean"
+          },
           "message": {
-            "description": "What the save that held it was told.",
-            "title": "Message",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the save was told, when kept in the evidence.",
+            "title": "Message"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
             "type": "string"
           },
           "reason": {
-            "description": "Why it was saved anyway.",
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was saved anyway, when recorded.",
+            "title": "Reason"
           },
           "review_reason": {
             "description": "Why the reviewer let it stand.",
@@ -8501,7 +8558,7 @@
             "description": "Who reviewed it; null while it's held."
           },
           "revision": {
-            "description": "The revision that held it.",
+            "description": "The record revision this evidence is about.",
             "title": "Revision",
             "type": "integer"
           },
@@ -8512,6 +8569,7 @@
         },
         "required": [
           "id",
+          "occurrence_id",
           "rule",
           "label",
           "message",
@@ -8811,6 +8869,127 @@
         "title": "HelmReadingOut",
         "type": "object"
       },
+      "HoldOccurrenceOut": {
+        "description": "Evidence of one save that broke the rule and was kept under a hold (ADR 0127).",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app or agent that saved it for them.",
+            "title": "Agent"
+          },
+          "entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry read with the record.",
+            "title": "Entry Id"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry revision, if known.",
+            "title": "Entry Revision"
+          },
+          "held_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the save was held, when known.",
+            "title": "Held At"
+          },
+          "held_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who saved it, when known."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "legacy_gap": {
+            "default": false,
+            "description": "Earlier repeated failures have incomplete evidence.",
+            "title": "Legacy Gap",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the save was told, when kept in the evidence.",
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was saved anyway, when recorded.",
+            "title": "Reason"
+          },
+          "revision": {
+            "description": "The record revision this evidence is about.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "message",
+          "held_by",
+          "held_at",
+          "reason",
+          "revision"
+        ],
+        "title": "HoldOccurrenceOut",
+        "type": "object"
+      },
       "HoldOut": {
         "description": "A rule holding the record for review (ADR 0127): a save broke it, and was kept\nwith a reason.",
         "properties": {
@@ -8862,9 +9041,24 @@
             "type": "integer"
           },
           "message": {
-            "description": "What the save that held it was told.",
-            "title": "Message",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the opening save was told, when known.",
+            "title": "Message"
+          },
+          "occurrences": {
+            "description": "The observations that broke the rule, in the order they were saved.",
+            "items": {
+              "$ref": "#/components/schemas/HoldOccurrenceOut"
+            },
+            "title": "Occurrences",
+            "type": "array"
           },
           "reason": {
             "description": "Why it was saved anyway.",
@@ -8917,6 +9111,7 @@
           "reason",
           "revision",
           "last_revision",
+          "occurrences",
           "review_version",
           "can_review"
         ],
@@ -27256,12 +27451,15 @@
       "WithdrawalIn": {
         "properties": {
           "reason": {
-            "default": "",
+            "description": "Why you withdraw the pending signature.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
           }
         },
+        "required": [
+          "reason"
+        ],
         "title": "WithdrawalIn",
         "type": "object"
       },
@@ -42384,7 +42582,7 @@
     },
     "/api/v1/signatures/{signature_id}/withdrawal": {
       "post": {
-        "description": "Takes back your signature while setting the state waits for others. Once the\nstate is set with it, it stays.",
+        "description": "Takes back your signature, with a reason, while setting the state waits for others.\nOnce the state is set with it, it stays.",
         "operationId": "iki_server_api_signatures_withdraw_signature",
         "parameters": [
           {

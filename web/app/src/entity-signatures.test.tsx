@@ -500,8 +500,10 @@ describe("a record's signatures", () => {
     const dialog = await screen.findByRole("alertdialog", {
       name: "Withdraw your signature on LOT-000001?",
     });
+    const withdraw = within(dialog).getByRole("button", { name: "Withdraw" });
+    expect(withdraw).toHaveAttribute("aria-disabled", "true");
     await user.type(within(dialog).getByRole("textbox", { name: /^Reason/ }), "Wrong lot");
-    await user.click(within(dialog).getByRole("button", { name: "Withdraw" }));
+    await user.click(withdraw);
     expect(await screen.findByText("You withdrew your signature on LOT-000001.")).toBeVisible();
     expect(calls("POST", `/api/v1/signatures/${SIGNATURE_ID}/withdrawal`).at(-1)?.body).toEqual({
       reason: "Wrong lot",

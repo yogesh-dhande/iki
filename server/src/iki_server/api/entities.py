@@ -76,6 +76,7 @@ from iki_server.entities.models import (
     RevisionKind,
     RuleBreach,
     RuleHold,
+    RuleHoldOccurrence,
     RulesChecked,
 )
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
@@ -789,6 +790,24 @@ class EntryRefOut(Schema):
     )
 
 
+class HoldOccurrenceOut(Schema):
+    """Evidence of one save that broke the rule and was kept under a hold (ADR 0127)."""
+
+    id: UUID
+    label: str
+    message: str | None = Field(description="What the save was told, when kept in the evidence.")
+    held_by: UserOut | None = Field(description="Who saved it, when known.")
+    agent: str | None = Field(None, description="The app or agent that saved it for them.")
+    held_at: datetime | None = Field(description="When the save was held, when known.")
+    reason: str | None = Field(description="Why it was saved anyway, when recorded.")
+    revision: int = Field(description="The record revision this evidence is about.")
+    entry_id: UUID | None = Field(None, description="The registry entry read with the record.")
+    entry_revision: int | None = Field(None, description="The registry entry revision, if known.")
+    legacy_gap: bool = Field(
+        False, description="Earlier repeated failures have incomplete evidence."
+    )
+
+
 class HoldOut(Schema):
     """A rule holding the record for review (ADR 0127): a save broke it, and was kept
     with a reason."""
@@ -796,7 +815,7 @@ class HoldOut(Schema):
     id: UUID
     rule: str
     label: str
-    message: str = Field(description="What the save that held it was told.")
+    message: str | None = Field(description="What the opening save was told, when known.")
     reviewed_by: list[str] = Field(description="The lab roles whose holders may review it.")
     held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
     agent: str | None = Field(None, description="The app or agent that saved it for them.")
@@ -804,24 +823,32 @@ class HoldOut(Schema):
     reason: str = Field(description="Why it was saved anyway.")
     revision: int = Field(description="The revision that held it.")
     last_revision: int = Field(description="The latest revision that broke the rule again.")
+    occurrences: list[HoldOccurrenceOut] = Field(
+        description="The observations that broke the rule, in the order they were saved."
+    )
     review_version: str = Field(description="The version of the hold and record you reviewed.")
     can_review: bool = Field(description="You may review it now.")
     why_not: str | None = Field(None, description="Why you may not, when you may not.")
 
 
 class HeldOut(Schema):
-    """A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
-    was kept, and its review, once someone has reviewed it."""
+    """Evidence of a rule that a revision broke (ADR 0127), with the hold's review."""
 
     id: UUID
+    occurrence_id: UUID
     rule: str
     label: str
-    message: str = Field(description="What the save that held it was told.")
-    held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
+    message: str | None = Field(description="What the save was told, when kept in the evidence.")
+    held_by: UserOut | None = Field(description="Who saved it, when known.")
     agent: str | None = Field(None, description="The app or agent that saved it for them.")
-    held_at: datetime
-    reason: str = Field(description="Why it was saved anyway.")
-    revision: int = Field(description="The revision that held it.")
+    held_at: datetime | None
+    reason: str | None = Field(description="Why it was saved anyway, when recorded.")
+    revision: int = Field(description="The record revision this evidence is about.")
+    entry_id: UUID | None = Field(None, description="The registry entry read with the record.")
+    entry_revision: int | None = Field(None, description="The registry entry revision, if known.")
+    legacy_gap: bool = Field(
+        False, description="Earlier repeated failures have incomplete evidence."
+    )
     last_revision: int = Field(description="The latest revision that broke the rule again.")
     reviewer: UserOut | None = Field(description="Who reviewed it; null while it's held.")
     reviewed_at: datetime | None
@@ -1802,15 +1829,21 @@ def _holds_of(
         .order_by("held_at")
     )
     generations = RulesChecked.objects.in_bulk({by_id[row.entity_id].type for row in rows})
+    occurrences: dict[UUID, list[RuleHoldOccurrence]] = defaultdict(list)
+    for occurrence in RuleHoldOccurrence.objects.filter(hold__in=rows).select_related(
+        "held_by", "held_agent"
+    ):
+        occurrences[occurrence.hold_id].append(occurrence)
     for row in rows:
         entity = by_id[row.entity_id]
-        refusal = holds.why_not_review(user, entity, row)
+        evidence = occurrences[row.pk]
+        refusal = holds.why_not_review(user, entity, row, evidence)
         held[row.entity_id].append(
             {
                 "id": row.pk,
                 "rule": row.rule,
                 "label": row.label,
-                "message": row.message,
+                "message": evidence[0].message if evidence else row.message,
                 "reviewed_by": list(row.roles),
                 "held_by": row.held_by,
                 "agent": row.held_agent.client_name if row.held_agent is not None else None,
@@ -1818,11 +1851,13 @@ def _holds_of(
                 "reason": row.reason,
                 "revision": row.revision,
                 "last_revision": row.last_revision,
+                "occurrences": [_hold_occurrence(occurrence) for occurrence in evidence],
                 "review_version": holds.review_version(
                     row,
                     entity.revision,
                     entries.get(entity.entry_id, {}).get("revision"),
                     generations.get(entity.type),
+                    evidence,
                 ),
                 "can_review": refusal is None,
                 "why_not": refusal[0] if refusal is not None else None,
@@ -1838,6 +1873,22 @@ def _holds_of(
             }
         )
     return held, breaches
+
+
+def _hold_occurrence(occurrence: RuleHoldOccurrence) -> dict[str, Any]:
+    return {
+        "id": occurrence.pk,
+        "label": occurrence.label,
+        "message": occurrence.message,
+        "held_by": occurrence.held_by,
+        "agent": occurrence.held_agent.client_name if occurrence.held_agent is not None else None,
+        "held_at": occurrence.held_at,
+        "reason": occurrence.reason,
+        "revision": occurrence.revision,
+        "entry_id": occurrence.entry_id,
+        "entry_revision": occurrence.entry_revision,
+        "legacy_gap": occurrence.legacy_gap_ended_at is not None,
+    }
 
 
 def _can_correct(
@@ -3060,32 +3111,26 @@ def project_changes(
 
 
 def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
-    """The holds each of a record's revisions opened (ADR 0127), as ``HeldOut``, by
-    revision number: reviewed or not, as its history keeps them."""
+    """The hold evidence of each revision (ADR 0127), as ``HeldOut``, with the hold's
+    review when it is available."""
     numbers = [r.number for r in revisions if r.entity_id == entity.pk]
     if not numbers or entity.registry_id is not None:
         return {}
     out: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in (
-        RuleHold.objects.filter(entity_id=entity.pk, revision__in=numbers)
-        .select_related("held_by", "held_agent", "reviewed_by")
-        .order_by("held_at", "pk")
-    ):
-        out[row.revision].append(
+    for occurrence in RuleHoldOccurrence.objects.filter(
+        hold__entity=entity, revision__in=numbers
+    ).select_related("hold__reviewed_by", "held_by", "held_agent"):
+        hold = occurrence.hold
+        out[occurrence.revision].append(
             {
-                "id": row.pk,
-                "rule": row.rule,
-                "label": row.label,
-                "message": row.message,
-                "held_by": row.held_by,
-                "agent": row.held_agent.client_name if row.held_agent is not None else None,
-                "held_at": row.held_at,
-                "reason": row.reason,
-                "revision": row.revision,
-                "last_revision": row.last_revision,
-                "reviewer": row.reviewed_by,
-                "reviewed_at": row.reviewed_at,
-                "review_reason": row.review_reason,
+                **_hold_occurrence(occurrence),
+                "id": hold.pk,
+                "occurrence_id": occurrence.pk,
+                "rule": hold.rule,
+                "last_revision": hold.last_revision,
+                "reviewer": hold.reviewed_by,
+                "reviewed_at": hold.reviewed_at,
+                "review_reason": hold.review_reason,
             }
         )
     return out

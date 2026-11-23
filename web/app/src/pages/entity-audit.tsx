@@ -300,21 +300,25 @@ function submittedText(value: unknown): string {
   return text.length > 80 ? `${text.slice(0, 80)}…` : text;
 }
 
-/** The holds a revision opened (ADR 0127), kept after they're reviewed: an out-of-
- * specification result stays visible, with why it was saved and who reviewed it. */
+/** Failing observations from this revision (ADR 0127) and the hold review. */
 function HoldsOpened({ revision }: { revision: Revision }) {
   const holds = revision.holds ?? [];
   if (!holds.length) return null;
   return (
-    <ul className="row-holds" aria-label={`Holds revision ${String(revision.number)} opened`}>
+    <ul className="row-holds" aria-label={`Holds at revision ${String(revision.number)}`}>
       {holds.map((h) => (
-        <li key={h.id}>
+        <li key={h.occurrence_id}>
           Held for review: {h.label}. {h.message}{" "}
-          {h.held_by ? "Saved anyway" : "Held by Iki’s check of its plugins’ rules"}
-          {h.agent ? `, through ${h.agent}` : ""}: “{h.reason}”
-          {h.last_revision !== h.revision
-            ? ` Revision ${String(h.last_revision)} broke it again.`
-            : ""}{" "}
+          {h.legacy_gap
+            ? "Earlier hold evidence is incomplete"
+            : h.held_by
+              ? `Saved anyway by ${personName(h.held_by)}`
+              : "Held by Iki’s check of its plugins’ rules"}
+          {h.agent ? `, through ${h.agent}` : ""}
+          {h.reason === null ? ". Reason unavailable." : <>: “{h.reason}”</>}
+          {h.entry_revision == null
+            ? ""
+            : ` Registry entry revision ${String(h.entry_revision)}.`}{" "}
           {h.reviewer && h.reviewed_at ? (
             <>
               Reviewed by {personName(h.reviewer)} <RelativeTime value={h.reviewed_at} />: “

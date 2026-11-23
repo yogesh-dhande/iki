@@ -54,6 +54,17 @@ vi.mock("./apps", async (original) => {
 
 const LOT_ID = "00000000-0000-7000-8000-00000000c001";
 const HOLD_ID = "00000000-0000-7000-8000-00000000c101";
+const OBSERVATION = {
+  id: "00000000-0000-7000-8000-00000000c201",
+  label: "Purity in specification",
+  message: "Its purity, 88.5%, is under 90%.",
+  held_by: ALICE,
+  agent: null,
+  held_at: "2026-11-18T09:00:00Z",
+  reason: "Retested.",
+  revision: 2,
+  legacy_gap: false,
+};
 
 function rule(more: Partial<Schemas["RuleOut"]> & Pick<Schemas["RuleOut"], "name">) {
   return {
@@ -311,6 +322,7 @@ describe("holds and breaches", () => {
     reason: "Retested.",
     revision: 2,
     last_revision: 2,
+    occurrences: [OBSERVATION],
     review_version: "a".repeat(64),
     can_review: true,
     why_not: null,
@@ -359,7 +371,19 @@ describe("holds and breaches", () => {
     const reason = within(dialog).getByRole("textbox", { name: "Why it may stand" });
     const clear = within(dialog).getByRole("button", { name: "Clear the hold" });
     await user.type(reason, "Reviewed the original measurement.");
-    const updated = { ...HOLD, message: "Retest under 90%.", review_version: "b".repeat(64) };
+    const retest = {
+      ...OBSERVATION,
+      id: "00000000-0000-7000-8000-00000000c202",
+      message: "Retest under 90%.",
+      reason: "As measured on the SEC.",
+      revision: 3,
+    };
+    const updated = {
+      ...HOLD,
+      last_revision: 3,
+      occurrences: [OBSERVATION, retest],
+      review_version: "b".repeat(64),
+    };
     answer(`GET ${record}`, lot({ revision: 3, holds: [updated] }));
     answer(`POST ${route}`, problem(412, "hold_changed", "The hold changed. Read it again."));
     await user.click(clear);
@@ -369,10 +393,12 @@ describe("holds and breaches", () => {
     expect(calls("POST", route)[0]?.headers.get("If-Match")).toBe('"2"');
 
     await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await within(held).findByText(updated.message);
+    await within(held).findByText(retest.message);
     await user.click(within(held).getByRole("button", { name: "Review" }));
     const refreshed = await screen.findByRole("alertdialog");
     expect(refreshed).toHaveTextContent("You’re reviewing record revision 3.");
+    expect(refreshed).toHaveTextContent("As measured on the SEC.");
+    expect(refreshed).toHaveTextContent("Its purity, 88.5%, is under 90%.");
     const nextReason = within(refreshed).getByRole("textbox", { name: "Why it may stand" });
     expect(nextReason).toHaveValue("");
     await user.type(nextReason, "Reviewed the retest.");
@@ -541,6 +567,7 @@ describe("finding what rules caught", () => {
     reason: "Retested.",
     revision: 2,
     last_revision: 2,
+    occurrences: [OBSERVATION],
     review_version: "a".repeat(64),
     can_review: true,
     why_not: null,

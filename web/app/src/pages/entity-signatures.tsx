@@ -481,6 +481,7 @@ function WithdrawDialog({
       isOpen
       title={`Withdraw your signature on ${entity.hrid}?`}
       confirmLabel="Withdraw"
+      confirmDisabled={!reason.trim()}
       busy={withdraw.isPending}
       problem={withdraw.error ? problemOf(withdraw.error) : undefined}
       onCancel={onClose}
@@ -502,7 +503,6 @@ function WithdrawDialog({
         value={reason}
         onChange={setReason}
         maxLength={2000}
-        optional
         multiline
         help="Why, for the record."
       />

@@ -231,7 +231,7 @@ class SigningKeysOut(Schema):
 
 
 class WithdrawalIn(Schema):
-    reason: str = Field("", max_length=2000)
+    reason: str = Field(max_length=2000, description="Why you withdraw the pending signature.")
 
 
 # --- The organization ---------------------------------------------------------------------------
@@ -420,8 +420,8 @@ def verify_signature(request: HttpRequest, signature_id: UUID) -> dict[str, Any]
 def withdraw_signature(
     request: HttpRequest, signature_id: UUID, payload: WithdrawalIn
 ) -> dict[str, Any]:
-    """Takes back your signature while setting the state waits for others. Once the
-    state is set with it, it stays."""
+    """Takes back your signature, with a reason, while setting the state waits for others.
+    Once the state is set with it, it stays."""
     me = caller(request)
     found = _signature(me, signature_id)
     try:

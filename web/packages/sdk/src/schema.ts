@@ -4064,8 +4064,8 @@ export interface paths {
         put?: never;
         /**
          * Withdraw your signature
-         * @description Takes back your signature while setting the state waits for others. Once the
-         *     state is set with it, it stays.
+         * @description Takes back your signature, with a reason, while setting the state waits for others.
+         *     Once the state is set with it, it stays.
          */
         post: operations["iki_server_api_signatures_withdraw_signature"];
         delete?: never;
@@ -9163,8 +9163,7 @@ export interface components {
         };
         /**
          * HeldOut
-         * @description A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
-         *     was kept, and its review, once someone has reviewed it.
+         * @description Evidence of a rule that a revision broke (ADR 0127), with the hold's review.
          */
         HeldOut: {
             /**
@@ -9173,11 +9172,18 @@ export interface components {
              */
             agent?: string | null;
             /**
-             * Held At
-             * Format: date-time
+             * Entry Id
+             * @description The registry entry read with the record.
              */
-            held_at: string;
-            /** @description Who saved it; null for a deploy's check. */
+            entry_id?: string | null;
+            /**
+             * Entry Revision
+             * @description The registry entry revision, if known.
+             */
+            entry_revision?: number | null;
+            /** Held At */
+            held_at: string | null;
+            /** @description Who saved it, when known. */
             held_by: components["schemas"]["UserOut"] | null;
             /**
              * Id
@@ -9192,15 +9198,26 @@ export interface components {
              */
             last_revision: number;
             /**
-             * Message
-             * @description What the save that held it was told.
+             * Legacy Gap
+             * @description Earlier repeated failures have incomplete evidence.
+             * @default false
              */
-            message: string;
+            legacy_gap: boolean;
+            /**
+             * Message
+             * @description What the save was told, when kept in the evidence.
+             */
+            message: string | null;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
             /**
              * Reason
-             * @description Why it was saved anyway.
+             * @description Why it was saved anyway, when recorded.
              */
-            reason: string;
+            reason: string | null;
             /**
              * Review Reason
              * @description Why the reviewer let it stand.
@@ -9212,7 +9229,7 @@ export interface components {
             reviewer: components["schemas"]["UserOut"] | null;
             /**
              * Revision
-             * @description The revision that held it.
+             * @description The record revision this evidence is about.
              */
             revision: number;
             /** Rule */
@@ -9375,6 +9392,62 @@ export interface components {
             version1: boolean;
         };
         /**
+         * HoldOccurrenceOut
+         * @description Evidence of one save that broke the rule and was kept under a hold (ADR 0127).
+         */
+        HoldOccurrenceOut: {
+            /**
+             * Agent
+             * @description The app or agent that saved it for them.
+             */
+            agent?: string | null;
+            /**
+             * Entry Id
+             * @description The registry entry read with the record.
+             */
+            entry_id?: string | null;
+            /**
+             * Entry Revision
+             * @description The registry entry revision, if known.
+             */
+            entry_revision?: number | null;
+            /**
+             * Held At
+             * @description When the save was held, when known.
+             */
+            held_at: string | null;
+            /** @description Who saved it, when known. */
+            held_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Legacy Gap
+             * @description Earlier repeated failures have incomplete evidence.
+             * @default false
+             */
+            legacy_gap: boolean;
+            /**
+             * Message
+             * @description What the save was told, when kept in the evidence.
+             */
+            message: string | null;
+            /**
+             * Reason
+             * @description Why it was saved anyway, when recorded.
+             */
+            reason: string | null;
+            /**
+             * Revision
+             * @description The record revision this evidence is about.
+             */
+            revision: number;
+        };
+        /**
          * HoldOut
          * @description A rule holding the record for review (ADR 0127): a save broke it, and was kept
          *     with a reason.
@@ -9411,9 +9484,14 @@ export interface components {
             last_revision: number;
             /**
              * Message
-             * @description What the save that held it was told.
+             * @description What the opening save was told, when known.
              */
-            message: string;
+            message: string | null;
+            /**
+             * Occurrences
+             * @description The observations that broke the rule, in the order they were saved.
+             */
+            occurrences: components["schemas"]["HoldOccurrenceOut"][];
             /**
              * Reason
              * @description Why it was saved anyway.
@@ -17751,7 +17829,7 @@ export interface components {
         WithdrawalIn: {
             /**
              * Reason
-             * @default
+             * @description Why you withdraw the pending signature.
              */
             reason: string;
         };

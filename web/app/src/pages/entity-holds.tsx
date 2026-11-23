@@ -26,6 +26,41 @@ function roles(names: string[], declared: readonly LabRole[]): string {
   return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1] ?? ""}`;
 }
 
+function Observations({ hold }: { hold: Hold }) {
+  const evidence = hold.occurrences ?? [];
+  const latest = evidence.at(-1);
+  return (
+    <ul className="row-holds" aria-label="Failing observations">
+      {evidence.map((o) => (
+        <li key={o.id}>
+          {o.message ? (
+            <>
+              <span>{o.message}</span>{" "}
+            </>
+          ) : null}
+          {o.legacy_gap
+            ? "Earlier hold evidence is incomplete"
+            : o.held_by
+              ? personName(o.held_by)
+              : "Iki’s check of its plugins’ rules"}
+          {o.agent ? `, through ${o.agent}` : ""}
+          {o.held_at ? (
+            <>
+              , <RelativeTime value={o.held_at} />
+            </>
+          ) : null}{" "}
+          (revision {o.revision}
+          {o.entry_revision == null ? "" : `, registry entry revision ${String(o.entry_revision)}`}
+          ): {o.reason === null ? "Reason unavailable." : <>“{o.reason}”</>}
+        </li>
+      ))}
+      {!latest || latest.revision < hold.last_revision ? (
+        <li>Earlier hold evidence is incomplete.</li>
+      ) : null}
+    </ul>
+  );
+}
+
 export function EntityHolds({ entity }: { entity: Entity }) {
   const [reviewing, setReviewing] = useState<{ entity: Entity; hold: Hold } | null>(null);
   const id = useId();
@@ -52,15 +87,7 @@ export function EntityHolds({ entity }: { entity: Entity }) {
               <li key={h.id} className="row">
                 <div className="row-main">
                   <span className="row-title">{h.label}</span>
-                  <span className="row-meta">{h.message}</span>
-                  <span className="row-meta">
-                    {h.held_by ? personName(h.held_by) : "Iki’s check of its plugin’s rules"}
-                    {h.agent ? `, through ${h.agent}` : ""}, <RelativeTime value={h.held_at} />{" "}
-                    (revision {h.revision}): “{h.reason}”
-                  </span>
-                  {h.last_revision !== h.revision ? (
-                    <span className="row-meta">Revision {h.last_revision} broke it again.</span>
-                  ) : null}
+                  <Observations hold={h} />
                   {!h.can_review && h.why_not ? (
                     <span className="row-meta" id={`${id}-${h.id}-why`}>
                       {h.why_not}
@@ -185,10 +212,7 @@ function ReviewDialog({
       }}
     >
       <p>You’re reviewing record revision {entity.revision}.</p>
-      <p>
-        {hold.message} {hold.held_by ? personName(hold.held_by) : "Iki"} saved it, saying: “
-        {hold.reason}”.
-      </p>
+      <Observations hold={hold} />
       <p>
         As one of its {roles(hold.reviewed_by, declared)} reviewers, you say why it may stand as it
         is. Your name and reason are kept in its history, and the hold is cleared.
