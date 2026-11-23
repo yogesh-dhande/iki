@@ -1266,7 +1266,10 @@ def strain_stocks(
         or movement["confirmed"] != barcode
     ):
         fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
-    graph = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0").json()
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
     ancestors = {entity["id"] for entity in graph["entities"]}
     if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
         fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
