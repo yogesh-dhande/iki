@@ -722,6 +722,11 @@ def storage_moves(w: World) -> tuple[Any, ...]:
     return "/storage/moves", {"items": items, "reason": "Put away"}
 
 
+def storage_scan_preview(w: World) -> tuple[Any, ...]:
+    container = _box(w)
+    return "/storage/scan/resolve", {"scope": "box", "container": str(container.pk), "code": "T-1"}
+
+
 def storage_check_out(w: World) -> tuple[Any, ...]:
     tube = _tube(w, into=_box(w))
     return "/storage/check-out", {"records": [str(tube.pk)], "reason": "Thawing"}
@@ -1289,6 +1294,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
     ),
     ("GET", "/storage/scan", fixed("/storage/scan?code=T-1"), row(200)),
+    ("POST", "/storage/scan/resolve", storage_scan_preview, readers(200)),
     ("GET", "/storage/checked-out", fixed("/storage/checked-out"), row(200)),
     ("GET", "/storage/labels", fixed("/storage/labels"), row(200)),
     ("POST", "/storage/labels", storage_labels, readers(200)),

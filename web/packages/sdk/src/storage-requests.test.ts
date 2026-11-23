@@ -2,6 +2,23 @@ import { assertType, expectTypeOf, it } from "vitest";
 
 import type { Schemas } from "./index.js";
 
+it("accepts ordinary storage labels without an explicit scan mode or a vendor symbol", () => {
+  assertType<Schemas["ReceiptScanIn"]>({ code: "tube-1" });
+  assertType<Schemas["ScanResolveIn"]>({ scope: "destination", code: "box-1" });
+  assertType<Schemas["PutAwayIn"]>({ line: "line-1", to: "box-1" });
+  assertType<Schemas["MoveItemIn"]>({ record: "tube-1", to: "box-1" });
+  assertType<Schemas["CheckInItemIn"]>({ record: "tube-1" });
+  assertType<Schemas["LabelsIn"]>({
+    records: ["tube-1"],
+    size: "cryo",
+    format: "print",
+    symbology: "datamatrix",
+    dpi: 203,
+    copies: 1,
+    preview: true,
+  });
+});
+
 it("accepts receipt and count requests with omitted or explicit defaults", () => {
   const plan = { plan_revision: 1 };
   assertType<Schemas["ReceiptIn"]>(plan);

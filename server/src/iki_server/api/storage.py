@@ -22,12 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
+from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller
@@ -39,7 +40,7 @@ from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.storage import labels as labelling
-from iki_server.storage import receipts, reconciliations
+from iki_server.storage import receipts, reconciliations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.grids import Shape
 from iki_server.storage.models import (
@@ -176,6 +177,25 @@ def _container(me: User, ref: str) -> Entity:
     if not storage.is_container(entity.type):
         raise Problem(404, f"{entity.hrid} is a {entity.type}, which holds nothing.")
     return entity
+
+
+def _destination(
+    index: scan_identity.ScanIndex,
+    raw: str,
+    *,
+    mode: scan_identity.ScanMode = "label",
+    choice: UUID | None = None,
+) -> Entity:
+    match = index.resolve(raw, mode=mode, choice=choice, containers_only=True, direct_id=True)
+    if match.status == "ambiguous":
+        raise index.ambiguity(match)
+    if match.record is not None:
+        return match.record
+    # Older API callers pass a record UUID. Keep row-level plan errors for a
+    # readable record that holds nothing, after checking all eligible box labels.
+    if mode == "label" and choice is None and (record_id := scan_identity.direct_uuid(raw)):
+        return _find(index.user, str(record_id))
+    raise Problem(404, "No such container, or you can’t read it.")
 
 
 def _occupants(me: User, places: Sequence[Place], shape: Shape | None) -> list[dict[str, Any]]:
@@ -393,8 +413,11 @@ def list_events(request: HttpRequest, ref: str, params: Query[PageParams]) -> di
 class MoveItemIn(Schema):
     record: str = Field(max_length=64, description="By ID or HRID.")
     to: str | None = Field(
-        max_length=64, description="The container it goes in, by ID or HRID; null: out of storage."
+        max_length=200,
+        description="Destination container ID, label or entity link; null: out of storage.",
     )
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(
         None,
         max_length=8,
@@ -403,13 +426,25 @@ class MoveItemIn(Schema):
     )
 
 
+class IkiIdConfirmationIn(Schema):
+    """The operator independently entered the HRID printed on the selected record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["iki_id"]
+    code: str = Field(min_length=1, max_length=200)
+
+
+ConfirmationIn = Annotated[str, Field(max_length=200)] | IkiIdConfirmationIn
+
+
 class MovesIn(Schema):
     items: list[MoveItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000, description="Why: required to change anything.")
-    confirmations: dict[str, str] = Field(
+    confirmations: dict[str, ConfirmationIn] = Field(
         default_factory=dict,
-        description="The code scanned from each record, by its ID or HRID, for a type that "
-        "asks for one before a move.",
+        description="Proof for each selected record that requires confirmation, keyed by its ID or "
+        "HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
     )
     preview: bool = Field(False, description="Say what each move would do, changing nothing.")
 
@@ -434,21 +469,39 @@ def _records(me: User, refs: Sequence[str]) -> list[Entity]:
     return [_find(me, ref) for ref in refs]
 
 
-def _wanted(me: User, items: Sequence[MoveItemIn]) -> list[storage.Wanted]:
+def _wanted(me: User, items: Sequence[MoveItemIn | CheckInItemIn]) -> list[storage.Wanted]:
     records = _records(me, [i.record for i in items])
-    return [
-        storage.Wanted(record, _find(me, item.to) if item.to is not None else None, item.position)
-        for item, record in zip(items, records, strict=True)
-    ]
+    boxes = scan_identity.ScanIndex(me, (item.to for item in items if item.to is not None))
+    wanted = []
+    for i, (item, record) in enumerate(zip(items, records, strict=True)):
+        destination = None
+        if item.to is not None:
+            destination = _destination(boxes, item.to, mode=item.to_mode, choice=item.to_choice)
+        elif item.to_choice is not None or item.to_mode != "label":
+            raise _invalid(storage.Wrong({f"items/{i}/to": ["Supply the destination code."]}))
+        wanted.append(storage.Wanted(record, destination, item.position))
+    return wanted
 
 
-def _confirmations(me: User, given: dict[str, str]) -> dict[Any, str]:
-    out: dict[Any, str] = {}
-    for ref, code in given.items():
+def _confirmations(
+    wanted: Sequence[storage.Wanted], given: dict[str, ConfirmationIn]
+) -> dict[UUID, storage.Confirmation | str]:
+    out: dict[UUID, storage.Confirmation | str] = {}
+    ids = {w.record.pk for w in wanted}
+    hrids = {w.record.hrid: w.record.pk for w in wanted}
+    for ref, proof in given.items():
+        pk: UUID | None
         try:
-            out[_find(me, ref).pk] = code
-        except Problem:
-            continue
+            pk = UUID(ref)
+        except ValueError:
+            pk = hrids.get(ref.upper())
+        if pk is None or pk not in ids:
+            raise _invalid(
+                storage.Wrong({"confirmations": ["Supply proof only for selected records."]})
+            )
+        if pk in out:
+            raise _invalid(storage.Wrong({"confirmations": ["Supply one proof per record."]}))
+        out[pk] = proof if isinstance(proof, str) else storage.Confirmation(proof.code, proof.mode)
     return out
 
 
@@ -493,7 +546,7 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
     nothing. Needs Editor in the project of each container a record goes into or leaves."""
     me = caller(request)
     wanted = _wanted(me, payload.items)
-    confirmations = _confirmations(me, payload.confirmations)
+    confirmations = _confirmations(wanted, payload.confirmations)
     if payload.preview:
         planned = storage.plan(me, wanted, confirmations=confirmations)
         return {"items": _planned_out(me, planned), "done": False, "operation": None}
@@ -530,15 +583,19 @@ class CheckOutIn(Schema):
 class CheckInItemIn(Schema):
     record: str = Field(max_length=64)
     to: str | None = Field(
-        None, max_length=64, description="Another container to put it in; null: where it was."
+        None,
+        max_length=200,
+        description="Destination container ID, label or entity link; null: where it was.",
     )
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(None, max_length=8)
 
 
 class CheckInIn(Schema):
     items: list[CheckInItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000)
-    confirmations: dict[str, str] = Field(default_factory=dict)
+    confirmations: dict[str, ConfirmationIn] = Field(default_factory=dict)
 
 
 class HandOverIn(Schema):
@@ -595,15 +652,13 @@ def check_in(request: HttpRequest, payload: CheckInIn) -> dict[str, Any]:
     """Each goes back to the position it kept, or to ``to`` and ``position``, in the same
     change."""
     me = caller(request)
-    wanted = _wanted(
-        me, [MoveItemIn(record=i.record, to=i.to, position=i.position) for i in payload.items]
-    )
+    wanted = _wanted(me, payload.items)
     try:
         events = storage.check_in(
             me,
             wanted,
             reason=payload.reason,
-            confirmations=_confirmations(me, payload.confirmations),
+            confirmations=_confirmations(wanted, payload.confirmations),
         )
     except Invalid as error:
         raise _invalid(error) from None
@@ -743,8 +798,12 @@ def _observation_history(
             return None
         public = snapshot.copy()
         entity_id = public.pop("entity_id", None)
-        if entity_id is not None and entity_id not in readable and "code" in public:
-            public["code"] = ""
+        if entity_id is not None and entity_id not in readable:
+            if "code" in public:
+                public["code"] = ""
+            public.pop("scan", None)
+        elif entity_id is not None and isinstance(parent, Receipt) and "scan" in public:
+            public["entity_id"] = entity_id
         return public
 
     result["items"] = [
@@ -848,14 +907,14 @@ def _receipt_out(
     removed: list[dict[str, Any]] = []
     for line in lines:
         ref = refs.get(line.entity_id)
-        if line.removed and ref and ref["purged"]:
+        if ref and ref["purged"]:
             ref = None
         item = {
             "id": line.pk,
             "line_revision": line.line_revision,
             "entity": line.entity_id if ref else None,
             "ref": ref,
-            "code": "" if line.removed and line.entity_id and ref is None else line.code,
+            "code": "" if line.entity_id and ref is None else line.code,
             "expected": line.expected,
             "outcome": line.outcome,
             "note": line.note,
@@ -1021,13 +1080,16 @@ def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -
 
 
 class ReceiptScanIn(Schema):
-    code: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=receipts.MAX_SCAN_CODE)
+    mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    choice: UUID | None = None
 
 
 class ReceiptScanOut(Schema):
-    found: Literal["matched", "again", "extra", "removed"] = Field(
+    found: Literal["matched", "again", "extra", "ambiguous_extra", "removed"] = Field(
         description="`matched`: an expected line ticked; `again`: one already checked; "
-        "`extra`: what wasn't expected; `removed`: a removed extra that can be restored."
+        "`extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because "
+        "several readable records share its label; `removed`: an extra that can be restored."
     )
     line: UUID
     receipt: ReceiptOut
@@ -1039,7 +1101,11 @@ def scan_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptScanIn)
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     with transaction.atomic():
-        scanned = _receiving(lambda: receipts.scan(me, receipt, payload.code))
+        scanned = _receiving(
+            lambda: receipts.scan(
+                me, receipt, payload.code, mode=payload.mode, choice=payload.choice
+            )
+        )
         return {
             "found": scanned.found,
             "line": scanned.line.pk,
@@ -1162,7 +1228,9 @@ def restore_line(
 
 class PutAwayIn(Schema):
     line: UUID
-    to: str = Field(max_length=64, description="The container, by ID or HRID.")
+    to: str = Field(max_length=200, description="The destination container's ID, HRID or label.")
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
@@ -1182,8 +1250,14 @@ def complete_receipt(
     requester of anything missing, extra, damaged or rejected: all of it, or none."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    put = [receipts.PutAway(p.line, _find(me, p.to), p.position) for p in payload.put_away]
     with transaction.atomic():
+        boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
+        put = [
+            receipts.PutAway(
+                p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+            )
+            for p in payload.put_away
+        ]
         changed = _receiving(
             lambda: receipts.complete(
                 me,
@@ -1220,6 +1294,12 @@ def cancel_receipt(
 
 
 class CountScanEvidenceOut(Schema):
+    identity_basis: scan_identity.IdentityBasis | None = Field(
+        description=(
+            "How the record was identified. A shared label at its expected slot uses position. "
+            "Null for an unidentified, empty or older scan."
+        )
+    )
     id: UUID = Field(description="The immutable scan event.")
     line_id: UUID = Field(description="The physical scan line, usable as a history filter.")
     position: str
@@ -1307,6 +1387,7 @@ def _count_scan(
     return {
         "id": event.pk,
         "line_id": event.line_id,
+        "identity_basis": snapshot.get("identity_basis"),
         "position": snapshot["position"],
         "code": code,
         "scanned_by": event.actor,
@@ -1341,6 +1422,7 @@ def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) ->
         UUID(e.after["entity_id"]) for e in events.values() if e.after and e.after.get("entity_id")
     }
     refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found), *ids})
+    readable_codes = {pk for pk, ref in refs.items() if not ref["purged"]}
     evidence: dict[UUID | None, dict[str, Any] | None] = {
         pk: _count_scan(e, refs) for pk, e in events.items()
     }
@@ -1365,7 +1447,7 @@ def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) ->
                 "id": x.pk,
                 "entity": x.entity_id if x.entity_id in refs else None,
                 "ref": refs.get(x.entity_id),
-                "code": x.code if x.entity_id is None or x.entity_id in refs else "",
+                "code": x.code if x.entity_id is None or x.entity_id in readable_codes else "",
                 "expected": storage.label(shape, x.expected_row, x.expected_column),
                 "found": storage.label(shape, x.found_row, x.found_column),
                 "finding": what,
@@ -1447,6 +1529,13 @@ def reconciliation_history(
 class ScanIn(Schema):
     position: str = Field(max_length=8)
     code: str | None = Field(None, max_length=200, description="Null: it's empty.")
+    mode: scan_identity.ScanMode = Field(
+        default_factory=lambda: "label",
+        description="Defaults to label. Use iki_id for a printed Iki ID.",
+    )
+    choice: UUID | None = Field(
+        None, description="The readable candidate selected for this scanned label."
+    )
 
 
 class ReviewedReconciliationIn(Schema):
@@ -1489,7 +1578,10 @@ def scan_positions(
     """Record the scans in one transaction. Fresh positions and tubes need no precondition.
     Supply the reviewed line revisions for observations being replaced or repeated.
     A change of slot or contents also needs a reason. A conflict returns 409 with the
-    currently affected line IDs and versions in `affected_lines`."""
+    currently affected line IDs and versions in `affected_lines`. A shared label at its
+    expected slot records a positional match. An ambiguous label elsewhere returns 409
+    with the readable candidates and the zero-based scan index. A selected candidate
+    is rechecked against the original label when the rack is submitted again."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
     with transaction.atomic():
@@ -1497,7 +1589,7 @@ def scan_positions(
             lambda: reconciliations.scan(
                 me,
                 r,
-                [reconciliations.Scan(s.position, s.code) for s in payload.scans],
+                [reconciliations.Scan(s.position, s.code, s.mode, s.choice) for s in payload.scans],
                 reviewed_lines=[
                     (line.line_id, line.line_revision) for line in payload.reviewed_lines
                 ],
@@ -1618,7 +1710,9 @@ class LabelSizeOut(Schema):
     label: str
     width_mm: float
     height_mm: float
-    code128: bool = Field(description="It has room for a Code 128 beside the 2D code.")
+    code128: bool = Field(
+        description="This stock supports an additional vendor Code 128 if it fits."
+    )
 
 
 class LabelSizesOut(Schema):
@@ -1641,6 +1735,10 @@ class LabelsIn(Schema):
     symbology: Literal["datamatrix", "qr"] = "datamatrix"
     dpi: int = Field(203, description="For ZPL: the printer's resolution, 203 or 300 dpi.")
     copies: int = Field(1, ge=1, le=labelling.MAX_COPIES)
+    include_vendor_code: bool = Field(
+        default_factory=bool,
+        description="Also print the vendor barcode as Code 128 when it fits. Defaults to false.",
+    )
     preview: bool = Field(
         False, description="Only to show them: not recorded as prepared, and with no ZPL."
     )
@@ -1651,7 +1749,10 @@ class LabelOut(Schema):
     hrid: str
     title: str
     line: str
-    code: str = Field(description="What its barcodes encode: its barcode, or its HRID.")
+    code: str = Field(description="Unique Iki record identity encoded in the Data Matrix or QR.")
+    vendor_code: str | None = Field(
+        description="Additional vendor Code 128 requested for this print, otherwise null."
+    )
 
 
 class LabelsOut(Schema):
@@ -1676,18 +1777,31 @@ def prepare_labels(request: HttpRequest, payload: LabelsIn) -> dict[str, Any]:
             raise _invalid(
                 storage.Wrong({f"records/{index}": [f"{r.hrid} isn't kept anywhere to label."]})
             )
-    made = labelling.labels_of(records)
+    try:
+        made = labelling.labels_of(
+            records, size=size, dpi=payload.dpi, include_vendor_code=payload.include_vendor_code
+        )
+    except storage.Wrong as error:
+        raise _invalid(error) from None
+    zpl = None
+    if payload.format == "zpl" and not payload.preview:
+        zpl = labelling.zpl(
+            made, size=size, dpi=payload.dpi, symbology=payload.symbology, copies=payload.copies
+        )
     if not payload.preview:
         labelling.recorded(me, made, size=size, how=payload.format, copies=payload.copies)
     return {
         "labels": [
-            {"id": x.entity.pk, "hrid": x.hrid, "title": x.title, "line": x.line, "code": x.code}
+            {
+                "id": x.entity.pk,
+                "hrid": x.hrid,
+                "title": x.title,
+                "line": x.line,
+                "code": x.code,
+                "vendor_code": x.vendor_code,
+            }
             for x in made
         ],
         "size": labelling.describe({size.key: size})[0],
-        "zpl": labelling.zpl(
-            made, size=size, dpi=payload.dpi, symbology=payload.symbology, copies=payload.copies
-        )
-        if payload.format == "zpl" and not payload.preview
-        else None,
+        "zpl": zpl,
     }

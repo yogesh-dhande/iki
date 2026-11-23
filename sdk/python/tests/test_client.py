@@ -352,6 +352,14 @@ def test_draw_records_what_received_the_material_and_the_scanned_source(
     }
 
 
+def test_draw_passes_an_explicitly_entered_iki_id(fake: FakeIki, client: Client) -> None:
+    ref = "TUB-000001"
+    path = f"/api/v1/entities/{ref}/amount/draw"
+    fake.on("POST", path, {})
+    client.entities.draw(ref, (1, "uL"), confirm={"mode": "iki_id", "code": ref})
+    assert fake.body("POST", path)["confirm"] == {"mode": "iki_id", "code": ref}
+
+
 def test_read_the_revision_a_result_release_identifies(fake: FakeIki, client: Client) -> None:
     ref = entity("ANR-000012")["id"]
     release = {"entity": ref, "reviewed_revision": 4, "signed_revision": 5, "released_revision": 6}

@@ -1059,7 +1059,8 @@ def test_a_draw_from_a_tube_is_scanned_and_linked_to_its_sample_and_experiment(
         "#/confirm": f"Scan {tb['hrid']} to confirm it's the one you're drawing from."
     }
     assert errors(api.post(draw, {**body, "confirm": "DR-002"})) == {
-        "#/confirm": f"“DR-002” isn't {tb['hrid']}: check you have the right one."
+        "#/confirm": "This scan can’t identify a tube here. "
+        "Use its printed Iki ID or ask an authorized reviewer."
     }
     answer = api.post(draw, {**body, "confirm": "DR-001"})
     assert answer.status_code == 200, answer.content
@@ -1121,30 +1122,71 @@ def test_labels_are_zpl_with_the_printers_own_barcodes_and_are_audited(world: Wo
     )
     assert answer.status_code == 200, answer.content
     body = answer.json()
-    assert [(x["hrid"], x["code"]) for x in body["labels"]] == [
-        (t["hrid"], "LB-0042"),
-        (cryo["hrid"], cryo["hrid"]),
-    ]
+    for record, label in zip((t, cryo), body["labels"], strict=True):
+        assert (label["hrid"], label["code"], label["vendor_code"]) == (
+            record["hrid"],
+            "IKI:" + record["id"].replace("-", "").upper(),
+            None,
+        )
+        assert label["code"] in body["zpl"]
     zpl = body["zpl"]
     assert zpl.count("^XA") == 2 and zpl.count("^XZ") == 2
-    # 50.8 x 25.4 mm at 300 dpi; a DataMatrix and a Code 128 of its barcode.
     assert "^PW600" in zpl and "^LL300" in zpl
-    assert "^BXN" in zpl and "^FDLB-0042^FS" in zpl and "^BCN" in zpl
-    # ZPL's own control characters in a name are escaped, not read as commands.
-    assert "Plasmid preps \\5E \\7E" in zpl
+    assert zpl.count("^BXN") == 2 and "^BCN" not in zpl
+    # ZPL's own control characters in a title are escaped, not read as commands.
+    assert r"\5E" in zpl and r"\7E" in zpl
+
+    vendor = api.post(
+        "/storage/labels",
+        {"records": [t["id"]], "size": "standard", "format": "zpl", "include_vendor_code": True},
+    )
+    assert vendor.status_code == 200, vendor.content
+    both = vendor.json()
+    assert both["labels"][0]["vendor_code"] == "LB-0042"
+    assert both["labels"][0]["code"] in both["zpl"]
+    assert "LB-0042" in both["zpl"] and "^BCN" in both["zpl"]
+    prepared = AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"])
+    assert prepared.count() == 2
+    assert prepared.latest("occurred_at").data["vendor_code"] == "LB-0042"
     cryo_label = api.post(
         "/storage/labels",
         {"records": [t["id"]], "size": "cryo", "format": "zpl", "symbology": "qr"},
     ).json()["zpl"]
-    assert "^BQN" in cryo_label and "^BCN" not in cryo_label
-    assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
-    # A preview shows what would print, and records nothing.
-    shown = api.post(
+    assert (
+        "^BQN" in cryo_label
+        and both["labels"][0]["code"] in cryo_label
+        and "^BCN" not in cryo_label
+    )
+    for how in ["print", "zpl"]:
+        for preview in [True, False]:
+            for records, size, message in [
+                ([t["id"]], "cryo", "Code 128"),
+                ([t["id"], cryo["id"]], "standard", "vendor barcode"),
+            ]:
+                refused = api.post(
+                    "/storage/labels",
+                    {
+                        "records": records,
+                        "size": size,
+                        "format": how,
+                        "preview": preview,
+                        "include_vendor_code": True,
+                    },
+                )
+                assert refused.status_code == 422, refused.content
+                assert message in refused.content.decode()
+    previewed = api.post(
         "/storage/labels",
-        {"records": [t["id"]], "size": "cryo", "format": "zpl", "preview": True},
+        {
+            "records": [t["id"]],
+            "size": "box",
+            "format": "print",
+            "preview": True,
+            "include_vendor_code": True,
+        },
     ).json()
-    assert shown["labels"][0]["code"] == "LB-0042" and shown["zpl"] is None
-    assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
+    assert previewed["labels"][0]["vendor_code"] == "LB-0042" and previewed["zpl"] is None
+    assert prepared.count() == 3
     assert labels.code128_modules("LB-0042") < labels.code128_modules("LB-0042-LONGER-CODE")
     assert errors(
         api.post("/storage/labels", {"records": [t["id"]], "size": "a4", "format": "print"})
@@ -1158,6 +1200,5 @@ def test_services_find_by_barcode_hrid_or_link(world: World) -> None:
     user = world.users["editor"]
     for code in ("FN-1", t["hrid"], f"https://iki.example.com/entities/{t['id']}"):
         assert [e.pk for e in services.find(user, code)] == [record.pk], code
-        assert services.confirms(record, code)
     assert services.find(world.users["viewer"], "FN-1") == [record]
     assert not Place.objects.filter(pk=record.pk).exists()

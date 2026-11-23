@@ -42,6 +42,7 @@ from iki_server.api import (
     spreadsheets,
     starters,
     storage,
+    storage_scan,
     teams,
     trails,
     triggers,
@@ -54,6 +55,7 @@ from iki_server.api.problems import Problem, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.files.storage import StorageError
 from iki_server.org.services import Refused
+from iki_server.storage.scan_identity import ScanAmbiguous, ScanRefused
 
 logger = structlog.get_logger("iki.api")
 
@@ -84,6 +86,7 @@ for module in (
     requests,
     amounts,
     storage,
+    storage_scan,
     graph,
     trails,
     signatures,
@@ -141,6 +144,19 @@ def _refused(request: HttpRequest, exc: Refused) -> HttpResponse:
     code = getattr(exc, "code", "refused")
     extensions = getattr(exc, "extensions", None)
     return response(Problem(409, str(exc), code=code, errors=errors, extensions=extensions))
+
+
+@api.exception_handler(ScanRefused)
+def _scan_unavailable(request: HttpRequest, exc: ScanRefused) -> HttpResponse:
+    return response(Problem(409, str(exc), code="scan_unavailable"))
+
+
+@api.exception_handler(ScanAmbiguous)
+def _scan_ambiguous(request: HttpRequest, exc: ScanAmbiguous) -> HttpResponse:
+    extensions: dict[str, Any] = {"candidates": exc.candidates}
+    if exc.index is not None:
+        extensions["index"] = exc.index
+    return response(Problem(409, str(exc), code="scan_ambiguous", extensions=extensions))
 
 
 @api.exception_handler(Http404)

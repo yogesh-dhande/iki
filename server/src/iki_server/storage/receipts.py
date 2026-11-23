@@ -28,7 +28,7 @@ from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.storage import observations
+from iki_server.storage import observations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.models import Outcome, Place, Receipt, ReceiptLine, ReceiptStatus
 from iki_server.storage.services import Wrong
@@ -40,6 +40,7 @@ DISCREPANCIES = (Outcome.MISSING, Outcome.EXTRA, Outcome.DAMAGED, Outcome.REJECT
 #: What needs a note saying what was wrong.
 NOTED = (Outcome.DAMAGED, Outcome.REJECTED, Outcome.EXTRA)
 MAX_NOTE = 2000
+MAX_SCAN_CODE = 200
 
 DISCREPANCY = kinds.register(
     kinds.Kind(
@@ -197,13 +198,29 @@ def _record_line(
     before: dict[str, Any] | None,
     reason: str,
     operation: UUID,
+    *,
+    scan: dict[str, str | bool] | None = None,
 ) -> None:
+    after = _line_state(line)
+    if scan is not None:
+        after["scan"] = scan
+    if before is not None and before["outcome"] is not None:
+        # Evidence belongs to the original observation. Its amendment shows it in
+        # "before"; the new manual observation makes no claim to have scanned it.
+        earlier_scan = (
+            receipt.observations.filter(line_id=line.pk, kind="outcome")
+            .order_by("-revision", "-id")
+            .values_list("after__scan", flat=True)
+            .first()
+        )
+        if earlier_scan is not None:
+            before["scan"] = earlier_scan
     observations.record(
         receipt,
         line_id=line.pk,
         kind="outcome",
         before=before,
-        after=_line_state(line),
+        after=after,
         user=user,
         reason=reason,
         revision=receipt.plan_revision,
@@ -219,6 +236,8 @@ def _checked(
     note: str,
     reason: str,
     operation: UUID,
+    *,
+    scan: dict[str, str | bool] | None = None,
 ) -> None:
     before = None if line._state.adding else _line_state(line)
     # Editing the note alone does not change who observed this outcome. The history
@@ -230,7 +249,7 @@ def _checked(
     if before is not None:
         line.line_revision += 1
     line.save()
-    _record_line(user, receipt, line, before, reason, operation)
+    _record_line(user, receipt, line, before, reason, operation, scan=scan)
 
 
 @dataclass(frozen=True)
@@ -242,38 +261,71 @@ class CheckedLine:
     receipt: Receipt
 
 
-def scan(user: User, receipt: Receipt, code: str) -> CheckedLine:
-    """Tick an expected line or record an extra. A removed extra needs explicit restoration."""
+def scan(
+    user: User,
+    receipt: Receipt,
+    code: str,
+    *,
+    mode: scan_identity.ScanMode = "label",
+    choice: UUID | None = None,
+) -> CheckedLine:
+    """Tick an identified line or record an unexpected label during receiving."""
+    if len(code) > MAX_SCAN_CODE:
+        raise Wrong({"code": [f"is longer than {MAX_SCAN_CODE} characters."]})
     text = code.strip()
     if not text:
         raise Wrong({"code": ["is empty: scan a tube's code."]})
     with transaction.atomic():
         receipt = _open(user, receipt)
-        for line in receipt.lines.select_related("entity").order_by("-expected", "id"):
-            if (line.entity is not None and storage.confirms(line.entity, text)) or (
-                not line.expected and line.code == text
-            ):
-                if line.removed:
-                    return CheckedLine(line, "removed", receipt)
-                if line.outcome is not None:
-                    return CheckedLine(line, "again", receipt)
-                _advance(receipt)
-                _checked(
-                    user,
-                    receipt,
-                    line,
-                    Outcome.MATCHED if line.expected else Outcome.EXTRA,
-                    line.note,
-                    "",
-                    uuid7(),
-                )
-                return CheckedLine(line, "matched" if line.expected else "extra", receipt)
-        found = [e for e in storage.find(user, text) if storage.spec(e.type) is not None]
-        known = found[0] if len(found) == 1 else None
-        line = ReceiptLine(receipt=receipt, entity=known, code=text, expected=False)
+        lines = list(receipt.lines.order_by("id"))
+        linked = {line.entity_id: line for line in lines if line.entity_id is not None}
+        index = scan_identity.ScanIndex(user, [text], scope_ids=linked.keys())
+        if scan_identity.is_explicit(text, mode):
+            match = index.resolve(text, mode=mode, choice=choice)
+        else:
+            match = index.resolve(
+                text,
+                mode=mode,
+                choice=choice,
+                candidates=linked.keys(),
+                protected=bool(linked.keys() - index.readable_ids),
+            )
+        if match.status == "ambiguous":
+            raise index.ambiguity(match)
+        line = linked.get(match.record.pk) if match.record is not None else None
+        if line is None and match.status == "none":
+            line = next(
+                (item for item in lines if item.entity_id is None and item.code == text), None
+            )
+        scope = "receipt" if line is not None else "inventory"
+        if line is not None:
+            if line.removed:
+                return CheckedLine(line, "removed", receipt)
+            if line.outcome is not None:
+                return CheckedLine(line, "again", receipt)
+            found = "matched" if line.expected else "extra"
+        else:
+            if match.status == "none":
+                match = index.resolve(text, mode=mode, choice=choice)
+            found = "ambiguous_extra" if match.status == "ambiguous" else "extra"
+            line = ReceiptLine(receipt=receipt, entity=match.record, code=text, expected=False)
         _advance(receipt)
-        _checked(user, receipt, line, Outcome.EXTRA, "", "", uuid7())
-        return CheckedLine(line, "extra", receipt)
+        _checked(
+            user,
+            receipt,
+            line,
+            Outcome.MATCHED if line.expected else Outcome.EXTRA,
+            line.note,
+            "",
+            uuid7(),
+            scan={
+                "code": code,
+                "identity_basis": index.evidence_basis(code, mode, match),
+                "scope": scope,
+                "chosen": choice is not None,
+            },
+        )
+        return CheckedLine(line, found, receipt)
 
 
 def _line(receipt: Receipt, line_id: UUID | str) -> ReceiptLine:

@@ -2693,7 +2693,15 @@
         "properties": {
           "confirmations": {
             "additionalProperties": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/IkiIdConfirmationIn"
+                }
+              ]
             },
             "title": "Confirmations",
             "type": "object"
@@ -2742,15 +2750,34 @@
           "to": {
             "anyOf": [
               {
-                "maxLength": 64,
+                "maxLength": 200,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Another container to put it in; null: where it was.",
+            "description": "Destination container ID, label or entity link; null: where it was.",
             "title": "To"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -4033,6 +4060,17 @@
             "title": "Id",
             "type": "string"
           },
+          "identity_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityBasis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the record was identified. A shared label at its expected slot uses position. Null for an unidentified, empty or older scan."
+          },
           "line_id": {
             "description": "The physical scan line, usable as a history filter.",
             "format": "uuid",
@@ -4053,6 +4091,7 @@
           }
         },
         "required": [
+          "identity_basis",
           "id",
           "line_id",
           "position",
@@ -4737,11 +4776,18 @@
             "description": "How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass."
           },
           "confirm": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/IkiIdConfirmationIn"
+              }
+            ],
             "default": "",
-            "description": "The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.",
-            "maxLength": 200,
-            "title": "Confirm",
-            "type": "string"
+            "description": "For a type that requires a scan: its unique label or printed Iki code, a link to the record, or its HRID explicitly entered from the tube.",
+            "title": "Confirm"
           },
           "purpose": {
             "allOf": [
@@ -9231,6 +9277,39 @@
         "title": "HoldingRecordOut",
         "type": "object"
       },
+      "IdentityBasis": {
+        "enum": [
+          "record_link",
+          "iki_id",
+          "position",
+          "choice",
+          "label"
+        ],
+        "type": "string"
+      },
+      "IkiIdConfirmationIn": {
+        "additionalProperties": false,
+        "description": "The operator independently entered the HRID printed on the selected record.",
+        "properties": {
+          "code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "mode": {
+            "const": "iki_id",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "code"
+        ],
+        "title": "IkiIdConfirmationIn",
+        "type": "object"
+      },
       "ImportCounts": {
         "properties": {
           "conflict": {
@@ -10699,7 +10778,7 @@
       "LabelOut": {
         "properties": {
           "code": {
-            "description": "What its barcodes encode: its barcode, or its HRID.",
+            "description": "Unique Iki record identity encoded in the Data Matrix or QR.",
             "title": "Code",
             "type": "string"
           },
@@ -10719,6 +10798,18 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "vendor_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional vendor Code 128 requested for this print, otherwise null.",
+            "title": "Vendor Code"
           }
         },
         "required": [
@@ -10726,7 +10817,8 @@
           "hrid",
           "title",
           "line",
-          "code"
+          "code",
+          "vendor_code"
         ],
         "title": "LabelOut",
         "type": "object"
@@ -10734,7 +10826,7 @@
       "LabelSizeOut": {
         "properties": {
           "code128": {
-            "description": "It has room for a Code 128 beside the 2D code.",
+            "description": "This stock supports an additional vendor Code 128 if it fits.",
             "title": "Code128",
             "type": "boolean"
           },
@@ -10812,6 +10904,11 @@
             ],
             "title": "Format",
             "type": "string"
+          },
+          "include_vendor_code": {
+            "description": "Also print the vendor barcode as Code 128 when it fits. Defaults to false.",
+            "title": "Include Vendor Code",
+            "type": "boolean"
           },
           "preview": {
             "default": false,
@@ -11511,15 +11608,34 @@
           "to": {
             "anyOf": [
               {
-                "maxLength": 64,
+                "maxLength": 200,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The container it goes in, by ID or HRID; null: out of storage.",
+            "description": "Destination container ID, label or entity link; null: out of storage.",
             "title": "To"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -11964,9 +12080,17 @@
         "properties": {
           "confirmations": {
             "additionalProperties": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/IkiIdConfirmationIn"
+                }
+              ]
             },
-            "description": "The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.",
+            "description": "Proof for each selected record that requires confirmation, keyed by its ID or HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
             "title": "Confirmations",
             "type": "object"
           },
@@ -16467,10 +16591,29 @@
             "title": "Position"
           },
           "to": {
-            "description": "The container, by ID or HRID.",
-            "maxLength": 64,
+            "description": "The destination container's ID, HRID or label.",
+            "maxLength": 200,
             "title": "To",
             "type": "string"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -17275,11 +17418,30 @@
       },
       "ReceiptScanIn": {
         "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice"
+          },
           "code": {
             "maxLength": 200,
             "minLength": 1,
             "title": "Code",
             "type": "string"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -17291,11 +17453,12 @@
       "ReceiptScanOut": {
         "properties": {
           "found": {
-            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `removed`: a removed extra that can be restored.",
+            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because several readable records share its label; `removed`: an extra that can be restored.",
             "enum": [
               "matched",
               "again",
               "extra",
+              "ambiguous_extra",
               "removed"
             ],
             "title": "Found",
@@ -21342,8 +21505,127 @@
         "title": "SavedSearchPatch",
         "type": "object"
       },
+      "ScanCandidateBoxOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title"
+        ],
+        "title": "ScanCandidateBoxOut",
+        "type": "object"
+      },
+      "ScanCandidateOut": {
+        "properties": {
+          "box": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanCandidateBoxOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanCandidateProjectOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "owner_project",
+          "box",
+          "position"
+        ],
+        "title": "ScanCandidateOut",
+        "type": "object"
+      },
+      "ScanCandidateProjectOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScanCandidateProjectOut",
+        "type": "object"
+      },
       "ScanIn": {
         "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The readable candidate selected for this scanned label.",
+            "title": "Choice"
+          },
           "code": {
             "anyOf": [
               {
@@ -21356,6 +21638,14 @@
             ],
             "description": "Null: it's empty.",
             "title": "Code"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ],
+            "description": "Defaults to label. Use iki_id for a printed Iki ID."
           },
           "position": {
             "maxLength": 8,
@@ -21454,6 +21744,13 @@
         "title": "ScanMatchOut",
         "type": "object"
       },
+      "ScanMode": {
+        "enum": [
+          "label",
+          "iki_id"
+        ],
+        "type": "string"
+      },
       "ScanOut": {
         "properties": {
           "code": {
@@ -21490,6 +21787,138 @@
           "code"
         ],
         "title": "ScanParams",
+        "type": "object"
+      },
+      "ScanResolveIn": {
+        "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A readable candidate chosen for navigation.",
+            "title": "Choice"
+          },
+          "code": {
+            "description": "The label, printed Iki ID or record link read.",
+            "maxLength": 200,
+            "title": "Code",
+            "type": "string"
+          },
+          "container": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The container to search for a box scan.",
+            "title": "Container"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the usable occupant at this position.",
+            "title": "Position"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record whose identity is being confirmed.",
+            "title": "Record"
+          },
+          "records": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 1536,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "All records participating in this confirmation, including the target.",
+            "title": "Records"
+          },
+          "scope": {
+            "enum": [
+              "box",
+              "confirmation",
+              "destination"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "code"
+        ],
+        "title": "ScanResolveIn",
+        "type": "object"
+      },
+      "ScanResolveOut": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ScanCandidateOut"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "one",
+              "ambiguous",
+              "none"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "candidates"
+        ],
+        "title": "ScanResolveOut",
         "type": "object"
       },
       "ScansIn": {
@@ -41397,7 +41826,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
       "post": {
-        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`.",
+        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`. A shared label at its\nexpected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.",
         "operationId": "iki_server_api_storage_scan_positions",
         "parameters": [
           {
@@ -44838,6 +45267,47 @@
           }
         ],
         "summary": "Find what a code names",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/scan/resolve": {
+      "post": {
+        "description": "Preview a box search, a destination, or the evidence for confirming a selected record.\nEach candidate names the record, project and placement that the caller may read.",
+        "operationId": "iki_server_api_storage_scan_resolve_storage_scan",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResolveOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Identify a scan in its storage context",
         "tags": [
           "storage"
         ]

@@ -4,10 +4,12 @@ from typing import Any
 
 import pytest
 from api_client import Api
+from django.utils import timezone
 from org_world import World
 from test_storage import box, contents, errors, moved, tube, world
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities.models import Entity
 
 pytestmark = pytest.mark.django_db
 
@@ -560,3 +562,131 @@ def test_count_completion_accepts_an_optional_note(
     )
     assert finished.status_code == 200, finished.content
     assert finished.json()["status"] == "completed" and finished.json()["note"] == ""
+
+
+def test_count_evidence_records_which_identifier_was_reviewed(world: World) -> None:
+    api = Api(world.browser("editor"))
+    path, _, opened = begin(api, world)
+    expected = opened["lines"][0]
+    hrid = expected["ref"]["hrid"]
+    # A supplier can print another record's Iki ID as its own vendor label.
+    tube(api, world.project, hrid)
+    variants = (
+        ({"code": hrid, "mode": "iki_id"}, "iki_id"),
+        ({"code": f"/entities/{hrid}/"}, "record_link"),
+        ({"code": f"/entities/{expected['entity']}/"}, "record_link"),
+        ({"code": "COUNT-A"}, "label"),
+    )
+    previous = None
+    for scan, basis in variants:
+        req: dict[str, Any] = {"scans": [{"position": "A1", **scan}]}
+        if previous is not None:
+            req["reviewed_lines"] = [review(previous)]
+        answer = api.post(f"{path}/scans", req)
+        assert answer.status_code == 200, answer.content
+        current = answer.json()["lines"][0]
+        observed = current["observation"]
+        assert current["entity"] == expected["entity"] and current["finding"] == "matched"
+        assert (observed["code"], observed["identity_basis"]) == (scan["code"], basis)
+        event = history(api, path)[-1]
+        assert event["after"]["identity_basis"] == basis and event["after"]["code"] == scan["code"]
+        if previous is not None:
+            assert event["before"]["identity_basis"] == previous["observation"]["identity_basis"]
+        previous = current
+
+
+def test_count_line_and_observation_hide_a_purged_tubes_label(world: World) -> None:
+    api = Api(world.browser("editor"))
+    path, _, opened = begin(api, world)
+    (expected,) = opened["lines"]
+    observed = api.post(f"{path}/scans", {"scans": [{"position": "A1", "code": "COUNT-A"}]})
+    assert observed.status_code == 200, observed.content
+    (line,) = observed.json()["lines"]
+    assert line["code"] == line["observation"]["code"] == "COUNT-A"
+    Entity.objects.filter(pk=expected["entity"]).update(purged_at=timezone.now())
+
+    current = api.get(path)
+    assert current.status_code == 200, current.content
+    (redacted,) = current.json()["lines"]
+    assert redacted["id"] == expected["id"]
+    assert redacted["observation"]["code"] == "" and history(api, path)[0]["after"]["code"] == ""
+    assert redacted["code"] == ""
+
+
+def test_counts_return_the_same_refusal_for_every_input_at_a_concealed_slot(world: World) -> None:
+    from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+    a, b = Api(world.browser("editor")), Api(world.browser("admin"))
+    external = Project.objects.create(team=world.team, name="Other store")
+    ProjectMembership.objects.create(
+        project=external, user=world.users["admin"], role=ProjectRole.EDITOR
+    )
+    sample = tube(b, external, "OWNER-LABEL")
+    other = tube(b, external, "RECENT-LABEL")
+    own = tube(a, world.project, "SERVICE-LABEL")
+    container = box(a, world.project, rows=1, columns=3)
+    link = f"/entities/{sample['id']}/projects/{world.project.pk}"
+    assert b.put(link).status_code == 201
+    moved(b, (sample, container, "A1"))
+    count = a.post(f"/storage/containers/{container['id']}/reconciliations").json()
+    path = f"/reconciliations/{count['id']}"
+    positive = b.post(f"{path}/scans", {"scans": [{"position": "A2", "code": "RECENT-LABEL"}]})
+    assert positive.status_code == 200
+    assert b.delete(link).status_code == 204
+    old = a.get(path).json()
+    assert all(x["ref"] is None for x in old["lines"])
+    original_history, audits = history(a, path), AuditEvent.objects.count()
+    # A1's expected record and A2's previously observed record have limited visibility.
+    # The service operator submits only the service's own identifiers and an empty scan.
+    for pos in ("A1", "A2"):
+        for data in ({}, {"code": "SERVICE-LABEL"}, {"code": own["hrid"], "mode": "iki_id"}):
+            resp = a.post(f"{path}/scans", {"scans": [{"position": pos, **data}]})
+            assert resp.status_code == 409, resp.content
+            reply = resp.json()
+            assert reply["code"] == "scan_unavailable" and "candidates" not in reply
+            assert reply["detail"] == (
+                "This scan can’t identify a tube here. "
+                "Use its printed Iki ID or ask an authorized reviewer."
+            )
+    assert a.get(path).json() == old
+    assert history(a, path) == original_history and AuditEvent.objects.count() == audits
+    assert b.get(f"/entities/{sample['id']}/location").json()["position"] == "A1"
+    assert not b.get(f"/entities/{other['id']}/location").json()["stored"]
+    # A different, ordinary open position remains usable.
+    ok = a.post(
+        f"{path}/scans", {"scans": [{"position": "A3", "code": own["hrid"], "mode": "iki_id"}]}
+    )
+    assert ok.status_code == 200, ok.content
+
+
+def test_a_scan_from_before_identity_basis_retains_its_original_evidence(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.storage import observations
+
+    api = Api(world.browser("editor"))
+    path, _, _ = begin(api, world)
+    original_writer = observations.record
+
+    def older_snapshot(*args: Any, **kwargs: Any) -> Any:
+        # Model the immutable scan snapshot emitted by the previous writer.
+        kwargs["after"].pop("identity_basis")
+        return original_writer(*args, **kwargs)
+
+    with monkeypatch.context() as old:
+        old.setattr(observations, "record", older_snapshot)
+        answer = api.post(f"{path}/scans", {"scans": [{"position": "A1", "code": "COUNT-A"}]})
+    assert answer.status_code == 200, answer.content
+    observed = api.get(path).json()["lines"][0]
+    assert observed["observation"]["identity_basis"] is None
+    earlier = history(api, path)
+    assert len(earlier) == 1 and "identity_basis" not in earlier[0]["after"]
+
+    repeated = api.post(
+        f"{path}/scans",
+        {"scans": [{"position": "A1", "code": "COUNT-A"}], "reviewed_lines": [review(observed)]},
+    )
+    assert repeated.status_code == 200, repeated.content
+    original, newer = history(api, path)
+    assert earlier == [original] and newer["before"] == original["after"]
+    assert newer["after"]["identity_basis"] == "label"

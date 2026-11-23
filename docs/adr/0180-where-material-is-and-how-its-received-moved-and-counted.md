@@ -240,23 +240,74 @@ note. It's a notification kind of its own, which nobody turns off.
 
 ### Labels and scanning
 
-**What's scanned is a record's code: its barcode, or its HRID.** A type's
-`storage.barcode` names a unique string field holding a code already on the
-tube, such as a vendor's 2D code on a pre-barcoded tube; a record without
-one is labelled and scanned by its HRID. `GET /storage/scan?code=` finds the
-records a code names, among those the caller can read: by HRID, by a
-storable type's barcode, or by an Iki link to a record.
+**A vendor code identifies a record within its owning project and the field
+that defines the code.** A service can receive tubes from several projects
+and a box can hold several types. Two records in the same box can therefore
+have identical vendor labels. A typed Iki ID is looked up only as an HRID.
+An Iki machine symbol encodes `IKI:` followed by the record UUID's 32
+uppercase hexadecimal digits, without hyphens. This compact payload lets a
+reader identify the record without knowing a deployment's hostname.
+Existing Iki record links still identify the record. Any scan beginning
+with `IKI:`, in any letter case, is reserved for Iki identity. A malformed
+payload or an unavailable record is refused. Entry and import reject a
+vendor code using this prefix, including when a client sends it through
+the API or SDK.
 
-**A label is printed from Iki, and each print is recorded.** A label has the
-record's code as a DataMatrix or QR code and as Code 128, its HRID, its
-title, and the type's `storage.label` line. Iki lays labels out for common
-sizes (a cryo tube label of 32.5 × 12.7 mm, 50.8 × 25.4 mm, and a box label
-of 76.2 × 25.4 mm), for the browser to print to a label printer's driver, or
-as ZPL for Zebra printers at 203 or 300 dpi, using the printer's own barcode
-commands. The smallest has no room for a Code 128 a scanner reads, so it has
-the 2D code alone. Each label prepared is an audit event, `entity.labelled`,
-on the record: its size, format and copies. The browser draws barcodes with
-bwip-js (MIT).
+Receiving, counting, box-map selection and movement confirmation use one
+resolver. It checks the scope of the operation and the identity represented
+by the input. On a positional count, a matching readable occupant at the
+scanned position supplies evidence of that label at that slot. If two
+physical tubes bearing identical vendor labels are swapped, a vendor scan
+alone cannot distinguish them. An independent Iki label can. An explicit
+observation of a different identifiable tube at that position records what
+the operator found.
+An observation recorded before identity evidence existed has `identity_basis: null`
+and cannot establish a unique identity.
+
+When a label identifies several readable candidates, a choice shows their
+owning projects and their recorded positions where those are readable. A
+concealed occupant is never listed. A scan at its slot gets the same
+neutral refusal whatever vendor code was supplied. An ambiguous scan
+cannot mark a receipt line or a movement confirmation. If a receipt scan
+misses the checklist and the vendor code has several readable matches, the
+receiver can record an unlinked extra. The receipt explains why it has no
+record link.
+
+The receipt's observation history keeps the text the scanner actually sent
+alongside the resolved record. The event says whether the operator used a
+compact Iki symbol, a record URL, an explicit Iki ID, a vendor label or
+an HRID. It records the scope and any deliberate selection. If the input
+matched both HRID and vendor code, history preserves both. An unlinked
+extra records whether the label had no match or several. Manual and older
+observations have no scanner input to report. Readers who lose access to
+a linked tube cannot read its scanned text from the receipt's history.
+
+**Every Iki label carries the record's unique symbol and the human-readable
+HRID.** A configured vendor code can also be printed as an additional
+symbol for instruments. The preview and the print request check that the
+requested symbols, their quiet zones and the HRID fit the selected stock.
+An option that does not fit is refused before a print audit is written.
+
+| Stock                    | Unique symbol (default)   | Alternative | Additional vendor symbol     |
+| ------------------------ | ------------------------- | ----------- | ---------------------------- |
+| Cryo, 32.5 × 12.7 mm     | Square ECC200 Data Matrix | QR, level Q | None                         |
+| Standard, 50.8 × 25.4 mm | Square ECC200 Data Matrix | QR, level Q | Optional Code 128 if it fits |
+| Box, 76.2 × 25.4 mm      | Square ECC200 Data Matrix | QR, level Q | Optional Code 128 if it fits |
+
+The engineering minimum is **0.25 mm per module**, with a whole number of
+printer dots per module. Reserve 24 × 24 modules for the Data Matrix plus
+a one-module quiet zone on each side. On cryo stock this gives three dots
+at 203 dpi (0.375 mm) or five at 300 dpi (0.423 mm). QR uses a four-module
+quiet zone on each side. It fits the same compact payload on cryo stock at
+two dots (0.250 mm) or three dots (0.254 mm), respectively. Keeping the
+larger pitch is why cryo defaults to Data Matrix. [GS1 verification guidance](https://ref.gs1.org/guidelines/barcode-verification/2D/)
+
+The browser draws codes with bwip-js. ZPL uses the printer's native
+barcode commands. Checking symbol bounds, integer-dot pitch and
+software decoding is **layout validation, not scanner qualification**.
+Qualification exercises printed stock with the bench reader. Each
+prepared label records its format, size and copies in an
+`entity.labelled` audit event.
 
 **Scanning works with what labs have.** A USB or Bluetooth scanner types the
 code and a final Enter or Tab as a keyboard does. On Iki's storage, receiving
@@ -284,10 +335,12 @@ keyboard behavior.
 On a tablet, the camera reads codes where the browser has `BarcodeDetector`.
 Elsewhere, Iki offers the typed code.
 
-**A type can require a scan before a draw or a move.** `storage.confirm:
-[draw, move]`: the code scanned is sent with the change, Iki checks it names
-the record, and the movement keeps it. A mismatch is refused before anything
-changes: the tube in someone's hand isn't the one they chose.
+**A type can require a scan before a draw or a move.** The
+`storage.confirm` setting names the operations that require proof. The
+server checks the scanned identity in the context of the selected records
+and their source. When the vendor label could confirm more than one tube,
+the operator scans the unique symbol or explicitly enters the tube's Iki
+ID. The movement retains the confirmation used for the write.
 
 ### A container's amount, and what a draw went into
 
