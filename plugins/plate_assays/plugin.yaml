@@ -6,6 +6,7 @@ title: Plate assays
 description: Map endpoint reader files to a plate, fit the measured response and sign the result.
 license: Apache-2.0
 iki: ">=0.1"
+starters: { dose-response: "1.0.0" }
 dependencies:
   iki/example_lims: { types: { AnalysisRequest: ">=1" } }
 settings:

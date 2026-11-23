@@ -40,6 +40,7 @@ from iki_server.api import (
     setups,
     signatures,
     spreadsheets,
+    starters,
     storage,
     teams,
     trails,
@@ -74,6 +75,7 @@ for module in (
     users,
     service_accounts,
     plugins,
+    starters,
     teams,
     projects,
     # Before entities: its `/entities/assign` would otherwise be read as `/entities/{ref}`.

@@ -32,6 +32,6 @@ fields:
   qualifier:
     { type: enum, computed: true, values: [within_range, above_range, below_range, unavailable] }
   point_count: { type: int, computed: true, min: 0 }
-  review_flow: { type: enum, values: [research, regulated_qc], computed: true }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
   notes: { type: text, description: Interpretation and review notes. }
 display: { title: "{{ endpoint_kind or hrid }} · {{ fit_status or 'recorded' }}" }
