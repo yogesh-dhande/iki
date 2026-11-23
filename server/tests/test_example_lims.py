@@ -21,13 +21,15 @@ from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
 PLUGIN = PLUGINS / "example_lims"
+#: What it depends on, directly or through iki/lots.
+DEPENDENCIES = [PLUGINS / p for p in ("protein", "dna", "lots", "oligo", "plasmid")]
 SCRIPTS = PLUGIN / "scripts"
 HOST = "lims.acme.example"
 TOKEN = "lims-test-token"
 
 
 def test_the_plugin_is_valid() -> None:
-    result = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    result = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
     assert result.problems == []
     assert result.plugin is not None
     actions = result.plugin.actions
@@ -106,11 +108,35 @@ def test_the_plugin_is_valid() -> None:
     assert (down.ref, down.target, down.to_values) == ("instrument", "service", ("out_of_service",))
     assert down.tell_fields == ("booked_by",)
     assert down.where == {"field": "ends_at", "op": "gte", "value": "{{ now }}"}
+    # Where its material is kept (ADR 0180): freezer, shelf, rack, box, tube.
+    lims = "iki/example_lims."
+    holds = {
+        name.removeprefix(lims): t.storage.holds
+        for name, t in types.items()
+        if t.storage is not None and t.storage.holds
+    }
+    assert holds == {
+        "Freezer": (f"{lims}Shelf",),
+        "Shelf": (f"{lims}Rack", f"{lims}Box"),
+        "Rack": (f"{lims}Box",),
+        "Box": (f"{lims}Tube",),
+    }
+    box, rack, tube = (types[f"{lims}{n}"] for n in ("Box", "Rack", "Tube"))
+    assert box.storage is not None and box.storage.grid is not None
+    assert (box.storage.grid.rows, box.storage.grid.columns) == ("rows", "columns")
+    assert rack.storage is not None and rack.storage.grid is not None
+    assert (rack.storage.grid.rows, rack.storage.grid.labels) == (5, "number")
+    assert tube.storage is not None and tube.amount is not None
+    assert (tube.storage.barcode, tube.storage.confirm) == ("barcode", ("draw",))
+    assert tube.amount.follows == ("lot", "sample")
+    asked = types[f"{lims}AnalysisRequest"].request
+    assert asked is not None
+    assert (asked.receives, asked.receives_by) == ("tubes", (f"{lims}coordinator",))
 
 
 @pytest.fixture(scope="module")
 def analysis_result() -> EntityType:
-    loaded = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    loaded = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
     assert loaded.problems == []
     assert loaded.plugin is not None
     return loaded.plugin.types["iki/example_lims.AnalysisResult"]

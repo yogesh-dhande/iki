@@ -6,41 +6,55 @@ label: Tube
 label_plural: Tubes
 schema_version: 1
 description: >-
-  A tube of a sample, stored at a position in a box. No two stored tubes share
-  a position.
+  A tube of a sample or a lot, kept at a position in a box (ADR 0180). Its
+  volume is drawn at the bench, each draw saying what it went into. Its
+  sample's and lot's holds apply to it: a tube of an expired lot gives none,
+  and one of a lot due for retest only to QA sampling. Its barcode is scanned
+  before each draw, so it's the right tube.
 hrid: { prefix: TUB }
+amount:
+  unit: uL
+  label: Volume
+  description: How much is left in the tube.
+  concentration: concentration
+  follows: [lot, sample]
+storage:
+  barcode: barcode
+  confirm: [draw]
 fields:
-  sample: { type: ref, to: Sample, description: What's in it. }
-  box: { type: ref, to: Box, required: true }
-  position:
+  name:
     type: string
-    required: true
-    max_length: 4
-    pattern: "^[A-Z][0-9]{1,2}$"
-    description: Where it is in its box, such as A1.
-  volume:
+    max_length: 40
+    description: >-
+      Its short name, as written on its label, such as "mAb-17 2 mg/mL".
+  barcode:
+    type: string
+    max_length: 64
+    unique: true
+    indexed: true
+    description: The 2D code on its base or label, if it has one; its HRID otherwise.
+  sample:
+    type: ref
+    to: Sample
+    description: The sample it holds, if it's of one.
+  lot:
+    type: ref
+    to: iki/lots.Lot
+    description: The lot it was aliquoted from, whose expiry and retest dates apply to it.
+  concentration:
     type: quantity
-    unit: uL
+    unit: mg/mL
     min: 0
-    description: How much is left.
-  stored:
-    type: bool
-    default: true
-    description: >-
-      It's in its box. A tube that's used up, or thrown away, is kept, and
-      frees its position.
+    description: How much protein each volume holds.
+  prepared_on:
+    type: date
+    label: Prepared
+    description: When it was filled.
+  # Its box, position, volume and whether it was stored, as fields, before where it is
+  # was kept by Iki and its volume as its amount: one ledger, never below zero.
+  box: { type: ref, to: Box, removed: true }
+  position: { type: string, removed: true }
+  volume: { type: quantity, unit: uL, removed: true }
+  stored: { type: bool, removed: true }
 display:
-  title: "{{ position }}"
-rules:
-  one_per_position:
-    label: One tube per position
-    description: >-
-      The database refuses a second stored tube at a position in a box.
-    unique: [box, position]
-    while: { stored: [true] }
-    message: "{{ record.box.name }} has a tube at {{ record.position }} already."
-  stored_has_volume:
-    label: A stored tube isn't empty
-    check: "!record.stored || record.volume > 0.0"
-    message: A tube that's empty isn't stored.
-    fields: [volume]
+  title: "{{ name or hrid }}"

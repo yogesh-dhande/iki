@@ -179,10 +179,32 @@ It also books instruments, to show a component that shows many entities
 A booking that starts in one month and ends in the next shows on the day it
 starts.
 
-And it keeps tubes in boxes: **`Box`** and **`Tube`**, a tube of a sample at
-a `position` in a box, such as A1. No two stored tubes share a box's position
-(`unique: [box, position]`, `while: {stored: [true]}`): the database refuses a
-second, and a tube that's used up frees its position once it isn't `stored`.
+And it keeps material where it is
+([ADR 0180](../../docs/adr/0180-where-material-is-and-how-its-received-moved-and-counted.md)):
+**`Freezer`**, **`Shelf`**, **`Rack`**, **`Box`** and **`Tube`**, each declaring
+`storage:`, what it holds and its positions.
+
+- A rack's 20 slots are numbered 1 to 20 (`grid: {rows: 5, columns: 4, labels:
+  number}`); a box's rows and columns are fields set as it's made and never
+  changed (`immutable: true`), so a 9 × 9 box's positions are A1 to I9. Iki
+  refuses a position outside the grid, or one that's taken, and a swap is one
+  change. Each move says why, and is in the tube's location history and the
+  audit trail.
+- A freezer's asset tag, a box's or rack's barcode and a tube's 2D code are what
+  a scanner reads (`barcode:`): a scan anywhere on the storage pages opens it.
+  Labels print with them as DataMatrix or QR codes and Code 128, from the
+  browser or as ZPL for a Zebra printer.
+- A tube's volume is its amount (`amount: {unit: uL}`), drawn at the bench.
+  `confirm: [draw]` asks for its barcode to be scanned first, and each draw
+  names what it went into. `follows: [lot, sample]` makes its lot's draw
+  guards and its sample's holds its own: a tube of an expired
+  [`iki/lots`](../lots/README.md) lot gives nothing, and one due for retest
+  only a QA sampling draw.
+- An **`AnalysisRequest`** sends its `tubes` with it, and the core's
+  Coordinators receive them against that list (`receives: {field: tubes, by:
+  [coordinator]}`): each matched, missing, extra, damaged or rejected, put away
+  into the next free positions, and whoever asked is told of anything that
+  didn't arrive as expected.
 
 ## Setting it up
 
