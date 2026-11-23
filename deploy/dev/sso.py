@@ -1195,6 +1195,7 @@ def actions() -> None:
     compounds(alice, project)
     oligonucleotides(alice, project)
     conjugates(alice, project)
+    polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
 
@@ -2448,6 +2449,72 @@ def conjugates(alice: requests.Session, project: dict[str, Any]) -> None:
     if record(alice, lot["id"])["values"]["conjugate"] != entry_of(conjugate):
         fail(f"{lot['hrid']} did not retain its reference to {conjugate['hrid']}")
     ok(f"{lot['hrid']} links to {conjugate['hrid']}, the adenylated strand at 2530.62 u")
+
+
+def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Register the polystyrene design and the certified measurements of NIST SRM 1478."""
+    # Styrene, PubChem CID 7501: https://pubchem.ncbi.nlm.nih.gov/compound/7501
+    registered = launch(
+        alice,
+        project,
+        "iki/small_molecule.register_compounds",
+        {},
+        {"smiles": "C=Cc1ccccc1 styrene"},
+    )
+    (styrene,) = [
+        e["entity"] for e in registered["effects"] if e["type"] == "iki/small_molecule.Compound"
+    ]
+    precursor = entry_of(record(alice, styrene))
+    # A representative uncapped, head-to-tail polystyrene fragment. The certificate
+    # reports the bulk sample's averages. It does not identify its end groups.
+    formulation = "{[][<]CC(c1ccccc1)[>][]}"
+    polymer = created(
+        alice,
+        project,
+        "iki/polymer.Polymer",
+        {
+            "name": "Polystyrene",
+            "bigsmiles": formulation,
+            "monomers": [precursor],
+            "architecture": "linear",
+            "sequence_distribution": "homopolymer",
+        },
+    )
+    if not polymer.get("entry"):
+        fail(f"{polymer['hrid']} has no registry entry for the polystyrene design")
+    inspection = launch(alice, project, "iki/polymer.inspect_bigsmiles", {"polymer": polymer["id"]})
+    design = record(alice, polymer["id"])["values"]
+    expected = {
+        "bigsmiles": formulation,
+        "monomers": [precursor],
+        "notation_status": "checked",
+        "stochastic_objects": 1,
+        "repeat_units": [{"object": 1, "fragment": "[<]CC(c1ccccc1)[>]"}],
+    }
+    if any(design.get(k) != v for k, v in expected.items()):
+        fail(f"{inspection['hrid']} read {polymer['hrid']} as {design}, expected {expected}")
+    # https://tsapps.nist.gov/srmext/certificates/1478.pdf, July 1992, certified values.
+    lot = created(
+        alice,
+        project,
+        "iki/lots.PolymerLot",
+        {
+            "polymer": polymer["id"],
+            "catalogue_number": "SRM 1478",
+            "supplier": "National Institute of Standards and Technology",
+            "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
+            "mn": 35800,
+            "mn_method": "membrane_osmometry",
+            "mw": 37400,
+            "mw_method": "sedimentation_equilibrium",
+        },
+    )
+    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    measured = record(alice, lot["id"])["values"]
+    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
+    if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
+        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+    ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 
 #: Cloning vector pUC19, 2,686 bp, as INSDC record L09137.2 gives it: the vector most
