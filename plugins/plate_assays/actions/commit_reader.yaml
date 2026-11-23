@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Action
+name: commit_reader
+label: Commit previewed measurements
+description: >-
+  Validate the current export and layout against their clean preview, then
+  create a committed read and a measurement record per well in one transaction.
+inputs: { plate: { type: AssayPlate, schema: ">=1" } }
+effects:
+  creates:
+    - { type: WellMeasurement, cardinality: many, derived_from: [plate] }
+    - { type: PlateRead, derived_from: [plate] }
+  updates: [{ input: plate, fields: [committed] }]
+runs_on: { tier: backend, environment: assay-tools }
+command: [python, ./scripts/assays.py, commit]
+timeout: 5m
