@@ -37,12 +37,15 @@ describe("the keyboard wedge", () => {
   });
 
   it("rejects a short scanner-like burst and consumes its terminator", () => {
-    expect(feedAll(new Wedge(), "A1", 5).at(-1)).toEqual({ kind: "rejected" });
+    expect(feedAll(new Wedge(), "A1", 5).at(-1)).toEqual({
+      kind: "rejected",
+      reason: "unreadable",
+    });
   });
 
   it.each([
     { gap: 250, expected: { kind: "scan", code: "XBOX-000014" } },
-    { gap: 251, expected: { kind: "rejected" } },
+    { gap: 251, expected: { kind: "rejected", reason: "early-key" } },
   ])("judges the first $gap ms interval as part of the whole label", ({ gap, expected }) => {
     const wedge = new Wedge();
     wedge.feed("X", 0);
@@ -56,7 +59,7 @@ describe("the keyboard wedge", () => {
     const wedge = new Wedge();
     times.forEach((at) => wedge.feed("X", at));
     Array.from("BOX-000014").forEach((key, i) => wedge.feed(key, 2000 + i * 6));
-    expect(wedge.feed("Tab", 2060)).toEqual({ kind: "rejected" });
+    expect(wedge.feed("Tab", 2060)).toEqual({ kind: "rejected", reason: "early-key" });
     expect(feedAll(wedge, "BOX-000014", 6, 2400).at(-1)).toEqual({
       kind: "scan",
       code: "BOX-000014",
@@ -124,7 +127,7 @@ describe("useScanner", () => {
     act(() => {
       scan("TUBE-000012", button);
     });
-    expect(heard).toHaveBeenCalledWith("TUBE-000012");
+    expect(heard).toHaveBeenCalledWith({ kind: "scan", code: "TUBE-000012" });
     const input = document.createElement("input");
     document.body.append(input);
     act(() => {
@@ -161,13 +164,13 @@ describe("useScanner", () => {
     act(() => {
       scan("BOX-000014");
     });
-    expect(dialog).toHaveBeenCalledWith("BOX-000014");
+    expect(dialog).toHaveBeenCalledWith({ kind: "scan", code: "BOX-000014" });
     expect(page).not.toHaveBeenCalled();
     open.unmount();
     act(() => {
       scan("BOX-000015");
     });
-    expect(page).toHaveBeenCalledWith("BOX-000015");
+    expect(page).toHaveBeenCalledWith({ kind: "scan", code: "BOX-000015" });
   });
 
   it("hears nothing while it's turned off", () => {

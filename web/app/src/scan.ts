@@ -11,17 +11,19 @@ const MAX_STALL_MS = 250;
 /** The shortest code taken as a scan: an HRID or a barcode is longer. */
 export const MIN_LENGTH = 4;
 
+export type ScanRejection = "early-key" | "unreadable";
+type ScanResult = { kind: "scan"; code: string } | { kind: "rejected"; reason: ScanRejection };
+
 export type Fed =
   | { kind: "none" }
   /** Part of what may be a scan: `swallow` once it's fast enough not to be typing. */
   | { kind: "char"; swallow: boolean }
-  | { kind: "scan"; code: string }
-  | { kind: "rejected" };
+  | ScanResult;
 
 /** Tells a scanner's keystrokes from a person's, a key at a time. */
 export class Wedge {
-  // null discards a mistimed sequence's text until its terminator.
-  private chars: string[] | null = [];
+  private chars: string[] = [];
+  private rejection: ScanRejection | null = null;
   private last = Number.NEGATIVE_INFINITY;
   private usedStall = false;
   private plausible = false;
@@ -41,7 +43,9 @@ export class Wedge {
     const gap = at - this.last;
     if (this.last !== Number.NEGATIVE_INFINITY) {
       if (gap > MAX_GAP_MS) {
-        if (this.usedStall || gap > MAX_STALL_MS) this.chars = null;
+        if (this.usedStall || gap > MAX_STALL_MS) {
+          this.rejection ??= this.plausible ? "unreadable" : "early-key";
+        }
         this.usedStall = true;
       } else if (!end) this.plausible = true;
     }
@@ -49,23 +53,24 @@ export class Wedge {
     if (end) {
       let result: Fed = { kind: "none" };
       if (this.plausible) {
-        result =
-          this.chars && this.chars.length >= MIN_LENGTH
-            ? { kind: "scan", code: this.chars.join("") }
-            : { kind: "rejected" };
+        const reason = this.rejection ?? (this.chars.length < MIN_LENGTH ? "unreadable" : null);
+        result = reason
+          ? { kind: "rejected", reason }
+          : { kind: "scan", code: this.chars.join("") };
       }
       this.reset();
       return result;
     }
 
     // A fast pair owns the terminator even if an earlier gap already ruled out the scan.
-    this.chars?.push(key);
+    if (!this.rejection) this.chars.push(key);
     this.last = at;
     return { kind: "char", swallow: this.plausible };
   }
 
   reset(): void {
     this.chars = [];
+    this.rejection = null;
     this.last = Number.NEGATIVE_INFINITY;
     this.usedStall = false;
     this.plausible = false;
@@ -87,7 +92,7 @@ export function isEditable(target: EventTarget | null): boolean {
 }
 
 /** Who's listening, the latest last: a dialog's scan box, over its page's, takes the scans. */
-const listeners: { current: (code: string | null) => void }[] = [];
+const listeners: { current: (result: ScanResult) => void }[] = [];
 let wedge: Wedge | null = null;
 
 function onKeyDown(event: KeyboardEvent) {
@@ -104,16 +109,16 @@ function onKeyDown(event: KeyboardEvent) {
   if (fed.kind === "none" || (fed.kind === "char" && !fed.swallow)) return;
   event.preventDefault();
   event.stopPropagation();
-  if (fed.kind !== "char") listeners.at(-1)?.current(fed.kind === "scan" ? fed.code : null);
+  if (fed.kind !== "char") listeners.at(-1)?.current(fed);
 }
 
 /**
  * Calls `onScan` with each code a keyboard-mode scanner types while focus isn't in a text
  * field: on a box's map, a button, or the page itself. Its keys go no further, so a scan's
- * Enter doesn't press the button that has focus. A rejected burst reports null.
+ * Enter doesn't press the button that has focus. A rejected burst reports its reason.
  * The most recent listener receives it, so a dialog takes precedence over its page.
  */
-export function useScanner(onScan: (code: string | null) => void, enabled = true): void {
+export function useScanner(onScan: (result: ScanResult) => void, enabled = true): void {
   const latest = useRef(onScan);
   useEffect(() => {
     latest.current = onScan;
@@ -121,8 +126,8 @@ export function useScanner(onScan: (code: string | null) => void, enabled = true
   useEffect(() => {
     if (!enabled) return;
     const me = {
-      current: (code: string | null) => {
-        latest.current(code);
+      current: (result: ScanResult) => {
+        latest.current(result);
       },
     };
     listeners.push(me);

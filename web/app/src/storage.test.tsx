@@ -152,7 +152,9 @@ describe("a container's page", () => {
       expect(await screen.findByText("TUBE-000023 is at B3.")).toBeInTheDocument();
     } else {
       expect(button).toHaveFocus();
-      expect(screen.getByRole("alert")).toHaveTextContent("Scan again or type the code.");
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Couldn’t read the scan. Scan again or type the code.",
+      );
       expect(screen.queryByText("TUBE-000023 is at B3.")).toBeNull();
     }
   });
@@ -189,7 +191,9 @@ describe("a container's page", () => {
       expect(button).toHaveAttribute("aria-pressed", "false");
       if (!accepted) {
         expect(button).toHaveFocus();
-        expect(screen.getByRole("alert")).toHaveTextContent("Scan again or type the code.");
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          "A key arrived before the rest of the scan. Scan again or type the code.",
+        );
         expect(screen.queryByText("TUBE-000023 is at B3.")).toBeNull();
         act(() => {
           expect(wedge(code, [], 3000)).toBe(true);

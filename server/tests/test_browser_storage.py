@@ -5,6 +5,7 @@ request's tubes with one of each outcome; labels' print preview and ZPL; and rec
 box by scan. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
 import re
+from itertools import pairwise
 from typing import Any
 
 import pytest
@@ -239,7 +240,10 @@ def outcome(page: Page, code: str, name: str) -> None:
     ).click()
 
 
-def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(open_as: Any, world: World) -> None:
+@pytest.mark.parametrize("prefix_gap", [250, 251, 350, 5000])
+def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(
+    open_as: Any, world: World, prefix_gap: int
+) -> None:
     sent = sent_to_a_core(world, ("XRC000", "RC000"))
     ask = sent["ask"]
     page = open_as("tech", f"/storage/receive/{ask['hrid']}/")
@@ -254,12 +258,22 @@ def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(open_as: Any, wor
     suffix.focus()
     expect(suffix).to_be_focused()
     receipt = Receipt.objects.get(request_id=ask["id"])
-    scan_path = f"/api/v1/receipts/{receipt.pk}/scan"
+    receipt_path = f"/api/v1/receipts/{receipt.pk}"
+    scan_path = f"{receipt_path}/scan"
     submitted: list[object] = []
 
     def record_scan(request: Request) -> None:
         if request.method == "POST" and request.url.endswith(scan_path):
             submitted.append(request.post_data_json)
+
+    def read_outcomes() -> dict[str, str | None]:
+        response = page.request.get(receipt_path)
+        assert response.ok, response.status
+        body = response.json()
+        assert body["status"] == "open" and body["completed_at"] is None
+        outcomes = {line["code"]: line["outcome"] for line in body["lines"]}
+        assert outcomes == dict(receipt.lines.values_list("code", "outcome"))
+        return outcomes
 
     def scan_with_prefix_gap(code: str, gap_ms: int) -> None:
         # Keep the browser's genuine key events and native button activation. Only the
@@ -268,12 +282,12 @@ def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(open_as: Any, wor
         seen = page.evaluate_handle(
             """({keys, gap}) => {
                 const seen = [];
-                let at = performance.now();
+                let at = Math.ceil(performance.now());
                 function stamp(event) {
                     if (event.key !== keys[seen.length]) return;
                     at += seen.length === 1 ? gap : 5;
                     Object.defineProperty(event, "timeStamp", {value: at});
-                    seen.push(event.isTrusted ? event.key : null);
+                    seen.push([event.isTrusted ? event.key : null, event.timeStamp]);
                     if (event.key === "Enter") window.removeEventListener("keydown", stamp, true);
                 }
                 window.addEventListener("keydown", stamp, true);
@@ -284,26 +298,34 @@ def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(open_as: Any, wor
         page.keyboard.type(code[0])
         page.wait_for_timeout(gap_ms)
         scan_label(page, code[1:])
-        assert seen.json_value() == keys
+        events = seen.json_value()
+        assert [key for key, _ in events] == keys
+        intervals = [b[1] - a[1] for a, b in pairwise(events)]
+        assert intervals == [gap_ms] + [5] * (len(keys) - 2)
         seen.dispose()
 
     page.on("request", record_scan)
-    scan_with_prefix_gap("XRC000", 350)
+    scan_with_prefix_gap("XRC000", prefix_gap)
     retry = page.get_by_role("alert").filter(has_text="Scan again or type the code.")
-    expect(retry).to_be_visible()
-    assert submitted == []
-    expect(suffix).to_have_attribute("aria-pressed", "false")
-    assert not receipt.lines.filter(outcome__isnull=False).exists()
-
-    scan_with_prefix_gap("XRC000", 5)
+    matched = checklist.get_by_role("button", name=re.compile(r"\bMatched$"), pressed=True)
+    retry.or_(matched).first.wait_for()
+    first_requests = submitted.copy()
+    after_gap = read_outcomes()
+    message = retry.inner_text() if retry.is_visible() else None
+    if prefix_gap > 250:
+        scan_with_prefix_gap("XRC000", 5)
     expect(full).to_have_attribute("aria-pressed", "true")
-    expect(suffix).to_have_attribute("aria-pressed", "false")
     expect(retry).to_be_hidden()
-    assert submitted == [{"code": "XRC000"}]
-    assert dict(receipt.lines.values_list("code", "outcome")) == {
-        "XRC000": "matched",
-        "RC000": None,
-    }
+    final = read_outcomes()
+    expected = {"XRC000": "matched", "RC000": None}
+    if prefix_gap == 250:
+        assert first_requests == [{"code": "XRC000"}] and after_gap == expected
+        assert message is None
+    else:
+        assert first_requests == [] and after_gap == {"XRC000": None, "RC000": None}
+        assert message == "A key arrived before the rest of the scan. Scan again or type the code."
+    assert submitted == [{"code": "XRC000"}] and final == expected
+    expect(suffix).to_have_attribute("aria-pressed", "false")
     page.context.close()
 
 
