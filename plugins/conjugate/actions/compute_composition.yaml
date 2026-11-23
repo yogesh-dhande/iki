@@ -1,0 +1,29 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: compute_composition
+label: Compute conjugate composition
+description: >-
+  Use the registered carrier, attachment formulas, copy counts and atom losses
+  to calculate a defined species' theoretical formula and masses. Report the
+  carrier basis or missing information. An antibody's chain copies also let
+  its physical lots interpret a measured distribution from reduced chains.
+inputs:
+  conjugate: { type: Conjugate, schema: ">=1", include: [carrier.molecule, attachments.part] }
+effects:
+  updates:
+    - input: conjugate
+      fields:
+        [
+          molecular_formula,
+          molecular_weight,
+          monoisotopic_mass,
+          composition_note,
+          carrier_heavy_copies,
+          carrier_light_copies,
+        ]
+runs_on: { tier: backend, environment: conjugate-tools }
+command: [python, ./scripts/composition.py]
+deterministic: true
+batchable: 100
+timeout: 5m
