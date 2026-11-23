@@ -5,7 +5,7 @@
  */
 
 import { useParams } from "@tanstack/react-router";
-import { createElement, useCallback, useEffect, useMemo, useRef } from "react";
+import { createElement, useCallback, useMemo, useRef } from "react";
 import "@ikisci/science/sequence-viewer";
 import type {
   SequenceViewerElement,
@@ -115,7 +115,6 @@ function SequenceViewer({
   feature?: FeatureRef | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
-  const ref = useRef<SequenceViewerElement | null>(null);
   const data = useMemo((): SequenceData => {
     const value = source.values[viewer.sequence];
     const strands = viewer.strands ? source.values[viewer.strands] : undefined;
@@ -141,15 +140,18 @@ function SequenceViewer({
       })),
     };
   }, [source, type, viewer, feature]);
-  useEffect(() => {
-    if (!onCapture) return;
-    onCapture(() => {
-      const shown = ref.current?.shownFeature;
-      return Promise.resolve({ targets: [shown ? { feature: shown } : {}] });
-    });
-    return () => {
-      onCapture(null);
-    };
-  }, [onCapture]);
-  return createElement("iki-sequence-viewer", { data, ref });
+  const setViewer = useCallback(
+    (element: SequenceViewerElement | null) => {
+      if (!element) {
+        onCapture?.(null);
+        return;
+      }
+      onCapture?.(() => {
+        const shown = element.shownFeature;
+        return Promise.resolve({ targets: [shown ? { feature: shown } : {}] });
+      });
+    },
+    [onCapture],
+  );
+  return createElement("iki-sequence-viewer", { data, ref: setViewer });
 }

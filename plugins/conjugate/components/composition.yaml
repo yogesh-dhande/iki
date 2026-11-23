@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: composition
+label: Composition
+description: The carrier and its attached parts at each site, with the formula and masses of a defined species.
+module: ./components/composition.js
+element: conjugate-composition
+slots: [{ slot: entity.tab, type: Conjugate }]
+events: { run: { actions: [compute_composition] } }
