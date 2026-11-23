@@ -31,60 +31,28 @@ import {
 } from "react-aria-components";
 
 import type { Problem } from "@ikisci/sdk";
+import { buttonState, type ButtonOptions } from "@ikisci/ui/button";
+
+export { buttonClass } from "@ikisci/ui/button";
 
 import { PhoneActions, TopBar, usePhone } from "./page-top";
 
 // --- Buttons ---------------------------------------------------------------------
 
-type Variant = "primary" | "quiet" | "danger";
-
-export function buttonClass(variant?: Variant): string {
-  if (variant === "primary") return "button button-primary";
-  if (variant === "danger") return "button button-quiet button-danger";
-  if (variant === "quiet") return "button button-quiet";
-  return "button";
-}
-
 export function Button({
-  variant,
-  busy = false,
-  busyText,
   children,
-  type = "button",
   onClick,
-  disabled = false,
-  label,
-  describedBy,
-}: {
-  /** A fuller name for screen readers, starting with the visible text (WCAG 2.5.3). */
-  label?: string;
-  /** The ID of what says more about it, such as why it's disabled. */
-  describedBy?: string | undefined;
-  variant?: Variant;
-  busy?: boolean;
-  busyText?: string;
-  children: ReactNode;
-  type?: "button" | "submit";
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
+  ...options
+}: ButtonOptions & { children: ReactNode; onClick?: () => void }) {
+  const { attributes, content, press } = buttonState(options, children);
   return (
     <button
-      className={buttonClass(variant)}
-      type={type}
-      aria-label={label && !(busy && busyText) ? label : undefined}
-      aria-describedby={describedBy}
-      aria-disabled={busy || disabled ? "true" : undefined}
-      aria-busy={busy ? "true" : undefined}
+      {...attributes}
       onClick={(event) => {
-        if (busy || disabled) {
-          event.preventDefault();
-          return;
-        }
-        onClick?.();
+        press(event, onClick);
       }}
     >
-      {busy && busyText ? busyText : children}
+      {content}
     </button>
   );
 }
@@ -539,7 +507,7 @@ export function ConfirmDialog({
   /** For when "Cancel" would be ambiguous, such as when cancelling a run. */
   cancelLabel?: string;
   /** Danger for what's hard to undo; primary for what isn't, such as restoring. */
-  confirmVariant?: Variant;
+  confirmVariant?: ButtonOptions["variant"];
   busy: boolean;
   problem?: Problem | undefined;
 }) {

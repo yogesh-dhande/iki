@@ -4620,14 +4620,23 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
-    script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet, react_aria = (
-        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    script = page.locator('script[type=module][src^="/static/app/assets/main-"]').get_attribute(
+        "src"
     )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
-    assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
-    for url in (script, stylesheet, react_aria):
+
+    assets = [script]
+    styles = set()
+    for link in page.locator("link[rel=stylesheet]").all():
+        href = link.get_attribute("href")
+        assert href
+        name = re.fullmatch(r"/static/iki/([\w-]+)\.[0-9a-f]{12}\.css", href)
+        assert name, href
+        styles.add(name[1])
+        assets.append(href)
+    assert {"iki", "react-aria", "tokens", "fonts", "button"} <= styles
+
+    for url in assets:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/booking-calendar.ts"],
+  "exclude": ["src/**/*.test.ts"]
+}
