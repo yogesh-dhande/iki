@@ -91,7 +91,11 @@ export function FlowDiagram({
   const beside =
     words === "shown" && placed.orientation === "column" && width - placed.width >= 440;
   const active = pointed ?? selected;
-  const allowed = new Set((options ?? []).filter((o) => o.allowed).map((o) => o.name));
+  // What the reader may set next: what Iki allows them, where the flow goes from here.
+  const allowed = useMemo(() => {
+    const next = current ? new Set(nextFrom(model, current).map((n) => n.name)) : new Set();
+    return new Set((options ?? []).filter((o) => o.allowed && next.has(o.name)).map((o) => o.name));
+  }, [model, current, options]);
   const choose = (name: string | null) => {
     setSelected(name);
     onSelect?.(name);
@@ -401,7 +405,7 @@ function FlowWords({
         const yours =
           node.name === current
             ? "It’s in this state now."
-            : option?.allowed
+            : option?.allowed && next?.has(node.name)
               ? "You can set it to this now."
               : option?.why_not && next?.has(node.name)
                 ? `You can’t set it to this now: ${option.why_not}`

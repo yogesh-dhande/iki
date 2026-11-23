@@ -3991,17 +3991,18 @@ def test_a_type_s_page_draws_how_its_records_move(open_as: Any, color_scheme: st
     states.wait_for()
     assert states.get_by_role("button").count() == 5
     # Side by side once the page is wide: it lays out again as its width changes.
-    page.locator(".flow-row", has=states).wait_for()
+    named = page.get_by_role("list", name="Status’s states", exact=True)
+    section.locator(".flow-row", has=named).wait_for()
     # Each state's name is what it shows, its marks in words.
     approved = states.get_by_role(
-        "button", name=re.compile(r"^Approved, locks it\.\s*Set by Reviewer$")
+        "button", name=re.compile(r"^Approved\s*,\s*locks it\s*\.\s*Set by Reviewer$")
     )
     approved.wait_for()
     states.get_by_role(
         "button",
         name=re.compile(
-            r"^Certified\.\s*Set by Reviewer or QA · from any state\s*, "
-            r"signed: Review and Approval$"
+            r"^Certified\s*\.\s*Set by Reviewer or QA · from any state\s*,\s*"
+            r"signed:\s*Review and Approval$"
         ),
     ).wait_for()
     words = section.get_by_role("list", name="Status’s states in words")
@@ -4027,7 +4028,7 @@ def test_a_type_s_page_draws_how_its_records_move(open_as: Any, color_scheme: st
 
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
-    page.locator(".flow-column", has=states).wait_for()
+    section.locator(".flow-column", has=named).wait_for()
     assert_clean(page)
     page.context.close()
 
@@ -4059,7 +4060,8 @@ def test_a_record_shows_where_it_is_in_its_flow(
     now = flow.locator("[aria-current='step']")
     assert (now.text_content() or "").startswith("In testing, where records start, Now")
     flow.get_by_role(
-        "button", name=re.compile(r"^In review, You can\.\s*Set by Analyst · from any state$")
+        "button",
+        name=re.compile(r"^In review\s*,\s*You can\s*\.\s*Set by Analyst · from any state$"),
     ).wait_for()
     assert_clean(page)
 
