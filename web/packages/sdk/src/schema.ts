@@ -4150,7 +4150,8 @@ export interface paths {
          * Import a previewed spreadsheet
          * @description Writes its rows as records, all of them or none, as a run of
          *     ``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with
-         *     problems stop it, unless ``skip_problems`` leaves them out.
+         *     problems stop it, unless ``skip_problems`` leaves them out. Approve the round
+         *     shown in the preview. If it has changed, review the new preview first.
          */
         post: operations["iki_server_api_spreadsheets_commit_import"];
         delete?: never;
@@ -16193,6 +16194,11 @@ export interface components {
         /** SpreadsheetCommitIn */
         SpreadsheetCommitIn: {
             /**
+             * Preview Round
+             * @description The round of the preview being approved.
+             */
+            preview_round: number;
+            /**
              * Reason
              * @description Why, for its run and the audit trail.
              * @default
@@ -16373,6 +16379,11 @@ export interface components {
             phase: string;
             /** Progress */
             progress: number;
+            /**
+             * Round
+             * @description Identifies this preview within the import.
+             */
+            round: number;
         };
         /** StartedOut */
         StartedOut: {

@@ -1211,6 +1211,9 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
       <h3 className="section-title" id={`${id}-title`}>
         {made.kind === "csv" ? "Rows" : `Rows of ${made.sheet}`}
       </h3>
+      <p className="field-help">
+        {made.header_row ? `Header row ${String(made.header_row)}` : "No header row"}
+      </p>
       <SelectField
         label="Show"
         value={outcome}
@@ -1308,7 +1311,7 @@ export function CommitImport({
   onCommitted,
 }: {
   made: SheetImport;
-  onCommitted?: (made: SheetImport) => void;
+  onCommitted: (made: SheetImport) => void;
 }) {
   const id = useId();
   const problems = made.preview?.counts["problem"] ?? 0;
@@ -1317,29 +1320,50 @@ export function CommitImport({
   const typeLabel = type ? inSentence(type.label_plural) : made.type;
   const [leaveOut, setLeaveOut] = useState(false);
   const [reason, setReason] = useState("");
+  // Keep this approval tied to the rows on screen when the form opened. A
+  // background refresh can replace them with a different, equally sized preview.
+  const [reviewedRound] = useState(made.preview?.round);
   const commit = useApiMutation(
-    () => commitImport(made.id, { skip_problems: leaveOut, reason: reason.trim() }),
-    [[SPREADSHEETS, made.id]],
+    (approval: Parameters<typeof commitImport>[1]) => commitImport(made.id, approval),
+    [],
   );
-  const blocked = (problems > 0 && !leaveOut) || rows === 0;
+  const problem = commit.error ? problemOf(commit.error) : undefined;
+  if (reviewedRound !== made.preview?.round || problem?.status === 409) {
+    return (
+      <section className="card sheet-card" aria-labelledby={`${id}-title`}>
+        <h3 className="section-title" id={`${id}-title`}>
+          Import
+        </h3>
+        <ProblemAlert problem={problem} />
+        <p role="status">Review the current sheet and rows before approving this import.</p>
+        <Button
+          onClick={() => {
+            window.location.reload();
+          }}
+        >
+          Review latest preview
+        </Button>
+      </section>
+    );
+  }
+  const blocked = reviewedRound === undefined || (problems > 0 && !leaveOut) || rows === 0;
   return (
     <form
       className="card sheet-card"
       aria-labelledby={`${id}-title`}
       onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (blocked) return;
-        commit.mutate(undefined, {
-          onSuccess: (next) => {
-            onCommitted?.(next);
-          },
-        });
+        if (blocked || commit.isPending) return;
+        commit.mutate(
+          { preview_round: reviewedRound, skip_problems: leaveOut, reason: reason.trim() },
+          { onSuccess: onCommitted },
+        );
       }}
     >
       <h3 className="section-title" id={`${id}-title`}>
         Import
       </h3>
-      <ProblemAlert problem={commit.error ? problemOf(commit.error) : undefined} />
+      <ProblemAlert problem={problem} />
       {problems ? (
         <CheckboxField
           label={`Leave out the ${plural(problems, "row", "rows")} with problems`}

@@ -121,7 +121,10 @@ def rows(world: World, imported: dict[str, Any], *outcomes: str) -> list[dict[st
 
 def committed(world: World, imported: dict[str, Any], **body: Any) -> dict[str, Any]:
     api = api_as(world)
-    asked = api.post(f"/spreadsheet-imports/{imported['id']}/commit", body)
+    asked = api.post(
+        f"/spreadsheet-imports/{imported['id']}/commit",
+        {"preview_round": imported["preview"]["round"], **body},
+    )
     assert asked.status_code == 202, asked.content
     settle()
     out: dict[str, Any] = api.get(f"/spreadsheet-imports/{imported['id']}").json()
@@ -246,7 +249,8 @@ def test_a_sheet_switch_uses_its_own_rows_columns_and_locale(world: World) -> No
     assert saved.status_code == 201, saved.content
     applied = api.patch(url, {"sheet": "Long", "mapping": saved.json()["id"]})
     assert applied.json()["mapping"]["name"] == "Long batch"
-    assert previewed(world, imported)["preview"]["counts"]["create"] == 1
+    checked = previewed(world, imported)
+    assert checked["preview"]["counts"]["create"] == 1
 
     # A stale or invalid change must preserve the preview and every stored setting.
     before = SpreadsheetImport.objects.filter(pk=imported["id"]).values().get()
@@ -262,7 +266,9 @@ def test_a_sheet_switch_uses_its_own_rows_columns_and_locale(world: World) -> No
     assert mapped(body) == {"Tags": "tags", "Label": "label"}
     assert body["state"] == "mapping" and body["preview"] is None
     assert api.get(url).json() == body
-    assert api.post(f"{url}/commit", {}).status_code == 409
+    assert (
+        api.post(f"{url}/commit", {"preview_round": checked["preview"]["round"]}).status_code == 409
+    )
     assert not records(world)
 
     padded = api.patch(url, {"sheet": "Padded"}).json()
@@ -328,12 +334,95 @@ def test_sheet_relative_edits_require_the_sheet_and_reject_stale_headers(world: 
     assert not records(world)
     fresh = api.patch(url, {"basis": {"sheet": "B", "header_row": 2}, "skip": []})
     assert fresh.status_code == 200 and fresh.json()["preview"] is None
-    assert api.post(f"{url}/commit", {}).status_code == 409
+    assert (
+        api.post(f"{url}/commit", {"preview_round": checked["preview"]["round"]}).status_code == 409
+    )
     done = committed(world, previewed(world, imported))
     assert done["state"] == "imported"
     made = records(world)
     assert list(made) == ["B-1"]
     assert ExternalOrigin.objects.get(entity=made["B-1"]).identifier == "B, row 3"
+
+
+def test_starting_a_preview_returns_the_round_that_request_started(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.accounts.models import User
+    from iki_server.spreadsheets import services as sheets
+
+    imported = started(world, xlsx(("A", [["Label"], ["From A"]]), ("B", [["Label"], ["From B"]])))
+    api = api_as(world)
+    url = f"/spreadsheet-imports/{imported['id']}"
+    start_preview = sheets.preview
+
+    def superseded(user: User, draft: SpreadsheetImport) -> SpreadsheetImport:
+        first = start_preview(user, draft)
+        # Another client starts round two after round one's lock is released,
+        # before the route serializes the first client's response.
+        next_sheet = sheets.change(user, draft, sheets.Choice(sheet="B"))
+        start_preview(user, next_sheet)
+        return first
+
+    monkeypatch.setattr(sheets, "preview", superseded)
+    asked = api.post(f"{url}/preview")
+    assert asked.status_code == 202, asked.content
+    original = asked.json()
+    current = api.get(url).json()
+    assert original["sheet"] == "A" and current["sheet"] == "B"
+    assert original["preview"]["round"] < current["preview"]["round"]
+
+
+def test_a_second_tabs_preview_requires_its_own_approval(world: World) -> None:
+    a = [["Label"], ["From A"]]
+    b = [["Label"], ["From B"]]
+    imported = started(world, xlsx(("A", a), ("B", b)))
+    tab_a, tab_b = api_as(world), api_as(world)
+    url = f"/spreadsheet-imports/{imported['id']}"
+    draft = SpreadsheetImport.objects.filter(pk=imported["id"])
+
+    assert tab_a.post(f"{url}/preview").status_code == 202
+    settle()
+    seen = tab_a.get(url).json()
+    assert seen["sheet"] == "A" and seen["preview"]["counts"]["create"] == 1
+    old_round = seen["preview"]["round"]
+    approval = {"preview_round": old_round, "skip_problems": False, "reason": "Approved A"}
+
+    assert tab_b.patch(url, {"sheet": "B", "columns": []}).status_code == 200
+    # If B's preview can't start, A's preview has already been invalidated.
+    assert tab_b.post(f"{url}/preview").status_code == 422
+    assert tab_a.post(f"{url}/commit", approval).status_code == 409
+    mapped = tab_b.patch(url, {"sheet": "B", "columns": [{"index": 0, "field": "label"}]})
+    assert mapped.status_code == 200, mapped.content
+    pending = tab_b.post(f"{url}/preview")
+    assert pending.status_code == 202
+    assert tab_a.post(f"{url}/commit", approval).status_code == 409
+    settle()
+    current = tab_b.get(url).json()
+    assert current["sheet"] == "B" and current["preview"]["counts"]["create"] == 1
+    before = draft.values().get()
+    refused = tab_a.post(f"{url}/commit", approval)
+    assert "review" in problem(refused, 409, "refused")["detail"].lower()
+    assert old_round < current["preview"]["round"]
+    assert pending.json()["preview"]["round"] == current["preview"]["round"]
+    for invalid in ({"reason": "No round"}, {"preview_round": 0}, {"preview_round": True}):
+        assert tab_a.post(f"{url}/commit", invalid).status_code == 422
+    settle()
+    assert draft.values().get() == before
+    assert not records(world)
+    assert not ActionRun.objects.filter(project=world.project).exists()
+
+    accepted = tab_b.post(
+        f"{url}/commit", {"preview_round": current["preview"]["round"], "reason": "Approved B"}
+    )
+    assert accepted.status_code == 202, accepted.content
+    settle()
+    done = tab_b.get(url).json()
+    assert done["state"] == "imported"
+    made = records(world)
+    assert list(made) == ["From B"]
+    assert ExternalOrigin.objects.get(entity=made["From B"]).identifier == "B, row 2"
+    run = ActionRun.objects.get(pk=done["run"]["id"])
+    assert run.params["sheet"] == "B" and run.reason == "Approved B"
 
 
 # --- How numbers and dates read ----------------------------------------------------------------
@@ -477,7 +566,10 @@ def test_rows_with_problems_stop_the_import_unless_theyre_left_out(world: World)
     proteins(world)
     checked = previewed(world, started(world, xlsx(("Samples", BAD))))
     api = api_as(world)
-    refused = api.post(f"/spreadsheet-imports/{checked['id']}/commit", {})
+    refused = api.post(
+        f"/spreadsheet-imports/{checked['id']}/commit",
+        {"preview_round": checked["preview"]["round"]},
+    )
     assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
     assert not Entity.objects.filter(type=SAMPLE).exists()
     done = committed(world, checked, skip_problems=True, reason="Rows 3-5 fixed in the next batch")
@@ -524,7 +616,10 @@ def test_what_changed_since_the_preview_fails_the_run_and_says_where(world: Worl
 def test_a_plugin_that_changed_since_the_preview_means_previewing_again(world: World) -> None:
     checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
     SpreadsheetImport.objects.filter(pk=checked["id"]).update(schema="0" * 64)
-    refused = api_as(world).post(f"/spreadsheet-imports/{checked['id']}/commit", {})
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{checked['id']}/commit",
+        {"preview_round": checked["preview"]["round"]},
+    )
     assert "preview it again" in problem(refused, 409, "refused")["detail"]
 
 
@@ -750,7 +845,8 @@ def test_an_editor_removed_before_the_run_starts_imports_nothing(world: World) -
     proteins(world)
     checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
     asked = api_as(world).post(
-        f"/spreadsheet-imports/{checked['id']}/commit", {"skip_problems": True}
+        f"/spreadsheet-imports/{checked['id']}/commit",
+        {"preview_round": checked["preview"]["round"], "skip_problems": True},
     )
     assert asked.status_code == 202, asked.content
     ProjectMembership.objects.filter(project=world.project, user=world.users["editor"]).delete()

@@ -21,6 +21,7 @@ from test_browser import (  # noqa: F401 - fixtures
     playwright,
     server,
     tasks,
+    watch,
     world,
 )
 from workbook_files import XLSX_TYPE, Date, xlsx
@@ -331,6 +332,96 @@ def test_a_sample_manifest_is_imported_from_the_entities_tab(
     # "1,250" µg/mL with a decimal point, in the field's mg/mL; 03/04/2027 day first.
     assert by_label["EGFR-KD-002"]["concentration"] == pytest.approx(1.25)
     assert str(by_label["ABL1-KD-002"]["due_on"]) == "2027-04-03"
+
+
+def test_a_second_tabs_preview_requires_review_before_importing_its_rows(
+    open_as: Any,
+    world: World,
+    tasks: Server,
+) -> None:
+    first: Page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}")
+    expect(first.get_by_role("combobox", name="Its rows are")).to_have_value(SAMPLE)
+    first.get_by_label("Upload a workbook").set_input_files(
+        {
+            "name": "two-batches.xlsx",
+            "mimeType": XLSX_TYPE,
+            "buffer": xlsx(("A", [["Label"], ["From A"]]), ("B", [["Label"], ["From B"]])),
+        }
+    )
+
+    def preview(tab: Page, sheet: str) -> None:
+        tab.get_by_role("button", name="Next: columns").click()
+        tab.get_by_role("button", name="Check every row").click()
+        tab.get_by_role("heading", name=f"Rows of {sheet}").wait_for(timeout=60_000)
+        expect(tab.get_by_role("button", name="Import 1 row", exact=True)).to_be_enabled()
+
+    preview(first, "A")
+    imported = SpreadsheetImport.objects.get(project=world.project)
+    old_round = imported.round
+    why = first.get_by_role("textbox", name="Why")
+    why.fill("Reviewed batch A")
+    # The first tab has seen only A. Keep a focus-triggered background read from
+    # revealing B until its old approval has actually reached the server.
+    snapshot_url = f"**/api/v1/spreadsheet-imports/{imported.pk}"
+    delayed_reads: list[Route] = []
+    first.route(snapshot_url, lambda route: delayed_reads.append(route))
+
+    second = watch(first.context.new_page())
+    second.goto(first.url)
+    second.get_by_role("button", name="Back to the columns").click()
+    second.get_by_role("button", name="Back", exact=True).click()
+    second.get_by_role("combobox", name="Sheet", exact=True).select_option("B")
+    expect(second.get_by_role("table", name="Its first rows").get_by_text("From B")).to_be_visible()
+    preview(second, "B")
+    imported.refresh_from_db()
+    new_round = imported.round
+    assert new_round > old_round
+    expect(first.get_by_role("heading", name="Rows of A")).to_be_visible()
+
+    endpoint = f"**/api/v1/spreadsheet-imports/{imported.pk}/commit"
+    approve = first.get_by_role("button", name="Import 1 row", exact=True)
+    with first.expect_response(endpoint) as stale:
+        approve.click()
+    assert stale.value.status == 409
+    stale_body = stale.value.request.post_data_json
+    assert isinstance(stale_body, dict) and stale_body["preview_round"] == old_round
+    assert stale_body["reason"] == "Reviewed batch A"
+    imported.refresh_from_db()
+    assert imported.state == "previewed" and imported.run_id is None
+    samples = Entity.objects.filter(type=SAMPLE, owner_project=world.project)
+    assert not samples.exists()
+    assert not ActionRun.objects.filter(project=world.project).exists()
+
+    review = first.get_by_role("button", name="Review latest preview")
+    expect(review).to_be_visible()
+    expect(approve).to_have_count(0)
+    first.unroute(snapshot_url)
+    for read in delayed_reads:
+        read.continue_()
+    review.click()
+    expect(first.get_by_role("heading", name="Rows of B")).to_be_visible()
+    expect(why).to_have_value("")
+    why.fill("Reviewed batch B")
+    with first.expect_response(endpoint) as fresh:
+        approve.click()
+    assert fresh.value.status == 202
+    fresh_body = fresh.value.request.post_data_json
+    assert isinstance(fresh_body, dict) and fresh_body["preview_round"] == new_round
+    assert fresh_body["reason"] == "Reviewed batch B"
+    first.get_by_text("Imported 1 row of two-batches.xlsx into", exact=False).wait_for(
+        timeout=90_000
+    )
+    imported.refresh_from_db()
+    sample = samples.get()
+    assert entities.current_values(entities.specific(sample))["label"] == "From B"
+    origin = ExternalOrigin.objects.get(entity=sample)
+    assert origin.identifier == "B, row 2" and origin.run_id == imported.run_id
+    run = ActionRun.objects.get(project=world.project)
+    assert (
+        run.pk == imported.run_id
+        and run.params["sheet"] == "B"
+        and run.reason == "Reviewed batch B"
+    )
 
 
 def test_a_workbook_already_in_the_project_is_picked_from_its_files(

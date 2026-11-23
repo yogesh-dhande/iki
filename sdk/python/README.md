@@ -342,6 +342,13 @@ can send the sheet and header row you reviewed. With only an import ID, pass
 raises `iki.Conflict`, read the import again and review its sheet and header
 before submitting your choices.
 
+Pass the completed preview to `commit` to approve the exact rows you reviewed.
+With a bare import ID, supply its round explicitly, for example
+`iki.spreadsheets.commit(sheet["id"], preview_round=sheet["preview"]["round"])`.
+If someone starts another preview, Iki raises `iki.Conflict`. Review the new
+preview before approving it. A one-shot import also stops if another preview
+replaces the one it started.
+
 Importing requires project Editor access and the `write` scope. The REST API
 is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
 `POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then

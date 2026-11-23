@@ -160,6 +160,9 @@ class SpreadsheetImportChange(Schema):
 
 
 class SpreadsheetCommitIn(Schema):
+    preview_round: int = Field(
+        ge=1, strict=True, description="The round of the preview being approved."
+    )
     skip_problems: bool = Field(
         False, description="Leave out the rows with problems, and import the rest."
     )
@@ -241,6 +244,7 @@ class SavedMappingMatch(Schema):
 
 
 class SpreadsheetPreviewOut(Schema):
+    round: int = Field(ge=1, description="Identifies this preview within the import.")
     phase: str
     progress: float
     message: str
@@ -497,6 +501,7 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         "mappings": suggested,
         "warnings": warnings,
         "preview": {
+            "round": imported.round,
             "phase": imported.phase,
             "progress": imported.progress,
             "message": imported.progress_message,
@@ -617,8 +622,8 @@ def preview_import(request: HttpRequest, import_id: UUID) -> Status[Any]:
     ``previewed``."""
     me = caller(request)
     found = _writable(me, import_id)
-    _call(lambda: services.preview(me, found))
-    return Status(202, _out(me, _find(me, import_id)))
+    preview = _call(lambda: services.preview(me, found))
+    return Status(202, _out(me, preview))
 
 
 @router.get(
@@ -660,13 +665,18 @@ def commit_import(
 ) -> Status[Any]:
     """Writes its rows as records, all of them or none, as a run of
     ``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with
-    problems stop it, unless ``skip_problems`` leaves them out."""
+    problems stop it, unless ``skip_problems`` leaves them out. Approve the round
+    shown in the preview. If it has changed, review the new preview first."""
     me = caller(request)
     found = _writable(me, import_id)
     _storage()
     _call(
         lambda: services.commit(
-            me, found, skip_problems=payload.skip_problems, reason=payload.reason
+            me,
+            found,
+            preview_round=payload.preview_round,
+            skip_problems=payload.skip_problems,
+            reason=payload.reason,
         )
     )
     return Status(202, _out(me, _find(me, import_id)))

@@ -172,14 +172,17 @@ function sheet(overrides: Partial<SheetImport> = {}): SheetImport {
   };
 }
 
+const FIRST_PREVIEW = {
+  round: 1,
+  phase: "done",
+  progress: 1,
+  message: "",
+  counts: { create: 2, reuse: 1, same: 1, problem: 1, ambiguous: 0 },
+} satisfies NonNullable<SheetImport["preview"]>;
+
 const PREVIEWED = sheet({
   state: "previewed",
-  preview: {
-    phase: "done",
-    progress: 1,
-    message: "",
-    counts: { create: 2, reuse: 1, same: 1, problem: 1, ambiguous: 0 },
-  },
+  preview: FIRST_PREVIEW,
   can: { change: true, preview: true, commit: true, discard: true },
 });
 
@@ -687,10 +690,29 @@ describe("an import's steps", () => {
     await user.click(screen.getByRole("button", { name: "Import 4 rows" }));
     await waitFor(() => {
       expect(calls("POST", `${BASE}/commit`).map((c) => c.body)).toEqual([
-        { skip_problems: true, reason: "Batch 12" },
+        { preview_round: 1, skip_problems: true, reason: "Batch 12" },
       ]);
     });
     expect(await screen.findByRole("link", { name: "RUN-000042" })).toBeTruthy();
+  });
+
+  it("requires a fresh review when a changed preview has exactly the same counts", async () => {
+    onImport(PREVIEWED);
+    answer(`GET ${BASE}/rows`, page([]));
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    await user.click(await screen.findByRole("checkbox", { name: /Leave out the 1 row/ }));
+    await user.type(screen.getByRole("textbox", { name: /Why/ }), "Approved Kinases");
+    act(() => {
+      queryClient.setQueryData(importQuery(ID).queryKey, {
+        ...PREVIEWED,
+        sheet: "Notes",
+        preview: { ...FIRST_PREVIEW, round: 2 },
+      });
+    });
+    expect(await screen.findByRole("button", { name: "Review latest preview" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Import 4 rows" })).toBeNull();
+    expect(screen.queryByDisplayValue("Approved Kinases")).toBeNull();
+    expect(calls("POST", `${BASE}/commit`)).toHaveLength(0);
   });
 
   it("links to the records an import wrote", async () => {

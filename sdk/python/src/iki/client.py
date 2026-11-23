@@ -20,6 +20,7 @@ import httpx2
 
 from iki import auth
 from iki.errors import (
+    Conflict,
     IkiError,
     ImportFailed,
     NotSignedIn,
@@ -1745,12 +1746,30 @@ class Spreadsheets(_Part):
     def preview(
         self, imported: str | Mapping[str, Any], *, timeout: float | None = None
     ) -> SpreadsheetImportOut:
-        """Checks every row as importing would write it, and returns it once it's checked:
-        its ``preview`` counts what importing does; ``rows`` lists what each row would."""
+        """Returns the preview started by this call once its rows have been checked.
+        Its counts summarize what importing would do. If another preview replaces
+        this one while it is running, raises ``iki.Conflict``."""
         made = self._client.request(
             "POST", _path("/spreadsheet-imports/{i}/preview", i=_id(imported))
         )
-        return self._until(made, lambda i: i["state"] != "previewing", timeout)
+        started_round = _preview_round(made)
+
+        def finished(current: Mapping[str, Any]) -> bool:
+            state: str = current["state"]
+            if state == "failed" or (state == "mapping" and current.get("error")):
+                raise ImportFailed(dict(current), current.get("run_problems") or [])
+            if (
+                started_round is None
+                or state not in ("previewing", "previewed")
+                or _preview_round(current) != started_round
+            ):
+                raise Conflict(
+                    409,
+                    "This preview is no longer current. Reload the import and review its preview.",
+                )
+            return state == "previewed"
+
+        return self._until(made, finished, timeout)
 
     def rows(
         self, imported: str | Mapping[str, Any], *, outcome: Sequence[str] = ()
@@ -1769,18 +1788,33 @@ class Spreadsheets(_Part):
         self,
         imported: str | Mapping[str, Any],
         *,
+        preview_round: int | None = None,
         skip_problems: bool = False,
         reason: str = "",
         wait: bool = True,
         timeout: float | None = None,
     ) -> SpreadsheetImportOut:
-        """Imports what the preview checked, as one run, and (with ``wait``) returns it
-        once its run has ended. A run that didn't write it raises ``iki.ImportFailed``,
-        with why at each row and column."""
+        """Approves the completed preview supplied by the caller. With an import ID, pass
+        the positive ``preview_round`` you reviewed. A replaced preview raises
+        ``iki.Conflict``. With ``wait``, returns the import once its run has ended or
+        raises ``iki.ImportFailed`` with the problems at each row and column."""
+        if isinstance(imported, Mapping):
+            reviewed = _preview_round(imported)
+            if imported.get("state") != "previewed" or reviewed is None:
+                raise ValueError("Pass a completed preview with its round before approving it.")
+            if preview_round is not None and preview_round != reviewed:
+                raise ValueError("The supplied round must match the round of the reviewed preview.")
+            if preview_round is None:
+                preview_round = reviewed
+        if type(preview_round) is not int or preview_round < 1:
+            raise ValueError(
+                "Pass the reviewed preview or give its ID and a positive preview_round."
+            )
+
         made = self._client.request(
             "POST",
             _path("/spreadsheet-imports/{i}/commit", i=_id(imported)),
-            json={"skip_problems": skip_problems, "reason": reason},
+            json={"preview_round": preview_round, "skip_problems": skip_problems, "reason": reason},
         )
         if not wait:
             return cast("SpreadsheetImportOut", made)
@@ -1841,6 +1875,12 @@ class Spreadsheets(_Part):
             delay = min(delay * 1.5, poll)
             found = self.get(str(found["id"]))
         return cast("SpreadsheetImportOut", found)
+
+
+def _preview_round(imported: Mapping[str, Any]) -> int | None:
+    preview = imported.get("preview")
+    number = preview.get("round") if isinstance(preview, Mapping) else None
+    return number if type(number) is int and number > 0 else None
 
 
 def _id(imported: str | Mapping[str, Any]) -> str:

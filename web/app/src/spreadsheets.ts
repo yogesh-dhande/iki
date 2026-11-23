@@ -90,10 +90,18 @@ export function importQuery(id: string) {
   });
 }
 
-// Keyed by its round's counts too: a preview run again finds other rows.
+// A replacement preview can have the same counts and entirely different rows.
 export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
   return infiniteQueryOptions({
-    queryKey: [SPREADSHEETS, made.id, "rows", made.state, made.updated_at, outcome ?? "all"],
+    queryKey: [
+      SPREADSHEETS,
+      made.id,
+      "rows",
+      made.preview?.round,
+      made.state,
+      made.updated_at,
+      outcome ?? "all",
+    ],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
@@ -138,7 +146,10 @@ export async function previewImport(id: string) {
   );
 }
 
-export async function commitImport(id: string, body: { skip_problems: boolean; reason: string }) {
+export async function commitImport(
+  id: string,
+  body: { preview_round: number; skip_problems: boolean; reason: string },
+) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/commit", {
       params: { path: { import_id: id } },

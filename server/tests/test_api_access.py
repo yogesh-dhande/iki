@@ -1959,7 +1959,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/spreadsheet-imports/{import_id}/commit",
-        spreadsheet_import("/commit", {}),
+        spreadsheet_import("/commit", {"preview_round": 1}),
         row(404, editor=409),
     ),
     (

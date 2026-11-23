@@ -75,7 +75,11 @@ semicolon, tab or bar, whichever its first lines are split by.
 
 A task reads the sheets, and each one's first 30 rows, as text and as typed
 values. Iki chooses the first visible sheet, its first row with anything in it
-as the header, and every row after it, then suggests a mapping.
+as the header, and every row after it, then suggests a mapping. Choosing
+another sheet starts with its own header, row range and column suggestions.
+The new selection clears skipped rows, the previous mapping and number/date
+choices, and the previous preview. The same change can set choices for the
+new sheet.
 
 ### 2. Mapping columns
 
@@ -154,6 +158,14 @@ review by a plugin's rule (ADR 0127). Changing anything starts it afresh.
 
 ### 5. Committing: one run of a core action
 
+An approval authorises the exact content that was reviewed, and is void if
+that content changes. Each preview has its own positive round number.
+`POST …/commit` must include that preview’s `round` as `preview_round`, along
+with any choice to skip problem rows. The server checks the round while
+holding the import’s row lock. A missing round returns 422. If a different
+round is current, the server returns 409 without starting a run. The person
+or client reviews the new preview before approving it.
+
 Committing writes the rows through ADR 0056's bulk import and no other way.
 A run carries an import, so Iki's core action `iki/core.import_spreadsheet`
 does: its tier is `server`, a tier no worker leases, whose job starts as the
@@ -200,6 +212,25 @@ the SDK and agents. `POST /projects/{id}/spreadsheet-imports`, then `PATCH`
 it to choose and map, `POST …/preview`, `GET …/rows`, `POST …/commit`;
 `/projects/{id}/spreadsheet-mappings` lists saved mappings. The web app's
 steps are components a plugin's page can use.
+
+Row numbers, column positions, saved mappings and number/date choices refer
+to a particular sheet. A PATCH identifies its target with `sheet` or supplies
+the selection the caller reviewed, for example
+`{"basis": {"sheet": "Samples", "header_row": 1}, "skip": [[5, 7]]}`.
+If both are supplied, `basis` identifies the current selection and `sheet`
+names the destination. The server compares the basis under the import's row
+lock. A changed sheet or header returns 409 and preserves the current choices
+and preview. The caller reloads the import, reviews the current selection, and
+decides whether to submit its edit there. A sheet-relative change with neither
+a target nor a basis returns 422. An empty PATCH can still return a preview
+to mapping.
+
+The web steps keep a rejected row choice in its field with its explanation
+and existing help. The person can correct it, press Escape, or restore the
+saved value. Mapping and preview wait for pending changes and unresolved
+errors. When the server accepts a different sheet, its settings replace the
+previous draft. If the header row moves, the page announces the sheet and
+the old and new header rows.
 
 ## Consequences
 

@@ -23973,6 +23973,12 @@
       },
       "SpreadsheetCommitIn": {
         "properties": {
+          "preview_round": {
+            "description": "The round of the preview being approved.",
+            "minimum": 1,
+            "title": "Preview Round",
+            "type": "integer"
+          },
           "reason": {
             "default": "",
             "description": "Why, for its run and the audit trail.",
@@ -23987,6 +23993,9 @@
             "type": "boolean"
           }
         },
+        "required": [
+          "preview_round"
+        ],
         "title": "SpreadsheetCommitIn",
         "type": "object"
       },
@@ -24403,9 +24412,16 @@
           "progress": {
             "title": "Progress",
             "type": "number"
+          },
+          "round": {
+            "description": "Identifies this preview within the import.",
+            "minimum": 1,
+            "title": "Round",
+            "type": "integer"
           }
         },
         "required": [
+          "round",
           "phase",
           "progress",
           "message",
@@ -42555,7 +42571,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/commit": {
       "post": {
-        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with\nproblems stop it, unless ``skip_problems`` leaves them out.",
+        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with\nproblems stop it, unless ``skip_problems`` leaves them out. Approve the round\nshown in the preview. If it has changed, review the new preview first.",
         "operationId": "iki_server_api_spreadsheets_commit_import",
         "parameters": [
           {

@@ -1376,9 +1376,14 @@ def clear_rows(import_id: str, round_: int) -> str:
 
 
 def commit(
-    user: User, imported: SpreadsheetImport, *, skip_problems: bool = False, reason: str = ""
+    user: User,
+    imported: SpreadsheetImport,
+    *,
+    preview_round: int,
+    skip_problems: bool = False,
+    reason: str = "",
 ) -> SpreadsheetImport:
-    """Imports what the preview checked, as a run (a task starts it). Rows with problems
+    """Imports the approved preview's rows, as a run (a task starts it). Rows with problems
     stop it, unless ``skip_problems`` leaves them out. Raises :class:`Refused`."""
     from iki_server.spreadsheets import tasks
 
@@ -1387,8 +1392,12 @@ def commit(
         imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
         if imported.state != ImportState.PREVIEWED:
             if imported.state in (ImportState.MAPPING, ImportState.PREVIEWING):
-                raise Refused("Preview it first: Iki checks every row before it imports them.")
+                raise Refused("Finish and review the current preview before importing its rows.")
             raise Refused(_why_not_changed(imported))
+        if imported.round != preview_round:
+            raise Refused(
+                "The preview has changed. Review the current preview before approving it."
+            )
         if imported.schema != imports._schema():
             raise Refused("A plugin changed since it was previewed: preview it again.")
         counts = imported.counts

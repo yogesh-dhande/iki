@@ -5296,6 +5296,8 @@ class SplitIn(TypedDict):
 
 
 class SpreadsheetCommitIn(TypedDict):
+    #: The round of the preview being approved.
+    preview_round: int
     #: Why, for its run and the audit trail.
     reason: NotRequired[str]
     #: Leave out the rows with problems, and import the rest.
@@ -5377,6 +5379,8 @@ class SpreadsheetPreviewOut(TypedDict):
     message: str
     phase: str
     progress: float
+    #: Identifies this preview within the import.
+    round: int
 
 
 class StartedOut(TypedDict):
