@@ -265,15 +265,18 @@ def unit_choices(f: Field) -> tuple[str, ...]:
 # --- Saved mappings ---------------------------------------------------------------------------
 
 
-def saved_columns(columns: Sequence[Column], headers: Sequence[str]) -> list[dict[str, Any]]:
-    """An import's mapped columns as a saved mapping keeps them: by header, not place, so a
-    sheet whose columns are in another order maps the same."""
+def saved_columns(
+    columns: Sequence[Column], headers: Sequence[str], *, keep_index: bool = False
+) -> list[dict[str, Any]]:
+    """An import's mapped columns by header for reuse. For a particular committed sheet,
+    also keep the column index so identical headers can be distinguished."""
     out = []
     for column in columns:
         if column.field is None or column.index >= len(headers):
             continue
         kept = column.as_json()
-        del kept["index"]
+        if not keep_index:
+            del kept["index"]
         out.append({"header": headers[column.index], **kept})
     return out
 

@@ -485,651 +485,6 @@ input:focus-visible {
   max-width: calc(1440rem / 13);
 }
 
-/* The sequence viewer: residues in rows of 60, groups of 10, features as a track. */
-:root {
-  --feature-coding: #2f6fb5;
-  --feature-regulatory: #2e8540;
-  --feature-terminator: #b5452f;
-  --feature-origin: #8a4fb5;
-  --feature-binding: #a36b00;
-  --feature-other: #5f6b78;
-  --feature-text: #ffffff;
-  --track-above: #b85a00;
-  --track-below: #2f6fb5;
-  /* What's selected along the residues, with their text on it at AA contrast. */
-  --selected-bg: #cfe0fb;
-  /* Where a motif looked for was found. */
-  --hit-bg: #ffe08a;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --feature-coding: #7fb0ff;
-    --feature-regulatory: #6fd49a;
-    --feature-terminator: #ff9b85;
-    --feature-origin: #c9a2f2;
-    --feature-binding: #f2b75a;
-    --feature-other: #a3b0bd;
-    --feature-text: #0f141a;
-    --track-above: #f2a65a;
-    --track-below: #7fb0ff;
-    --selected-bg: #24456f;
-    --hit-bg: #5c4a0e;
-  }
-}
-
-.sequence {
-  margin: 0 0 1.5rem;
-  overflow-x: auto;
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-}
-
-/* The rows are a widget of their own: a caret and a selection, by keyboard and pointer. */
-.sequence-rows {
-  position: relative;
-  min-width: max-content;
-  user-select: none;
-  -webkit-user-select: none;
-  cursor: text;
-  touch-action: pan-y;
-}
-
-.sequence-rows:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 4px;
-}
-
-.sequence-row {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  gap: 1.5ch;
-  padding-bottom: 0.5rem;
-}
-
-.sequence-position {
-  flex: none;
-  color: var(--muted);
-  text-align: right;
-  user-select: none;
-}
-
-.sequence-line {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-
-.sequence-residues {
-  white-space: nowrap;
-  letter-spacing: 0;
-}
-
-.sequence-group {
-  display: inline-block;
-  margin-right: 1ch;
-}
-
-/* The other strand, 3′ to 5′ under the first. */
-.sequence-complement {
-  color: var(--muted);
-}
-
-.residue-shown {
-  background: var(--warning-bg);
-  outline: 1px solid var(--warning);
-}
-
-.residue-hit {
-  background: var(--hit-bg);
-  color: var(--text);
-}
-
-.residue-current {
-  outline: 2px solid var(--text);
-  outline-offset: -1px;
-}
-
-.residue-selected {
-  background: var(--selected-bg);
-  color: var(--text);
-}
-
-/* Between two residues, as a text field's caret is; through both strands when both show. */
-.sequence-caret {
-  position: absolute;
-  top: 0;
-  width: 2px;
-  height: 1.55em;
-  background: var(--text);
-  pointer-events: none;
-}
-
-.sequence-caret-paired {
-  height: 3.1em;
-}
-
-/* Translations: a residue over each codon's bases, codons shaded in turn so their
-   boundaries read, stops and starts marked. */
-.translation-track {
-  position: relative;
-  display: block;
-  margin-top: 0.15rem;
-}
-
-.translation-track .translation {
-  position: absolute;
-  left: 0;
-}
-
-.translation {
-  position: relative;
-  display: block;
-  height: 1.25rem;
-}
-
-/* A reading frame's name, in the margin beside its lane. */
-.translation[data-label]::before {
-  content: attr(data-label);
-  position: absolute;
-  right: calc(100% + 1.5ch);
-  color: var(--muted);
-  font-size: var(--text-xs);
-  line-height: 1.25rem;
-  white-space: nowrap;
-}
-
-.codon {
-  position: absolute;
-  top: 0.1rem;
-  height: 1.05rem;
-  border-radius: 2px;
-  font-size: var(--text-xs);
-  line-height: 1.05rem;
-  text-align: center;
-}
-
-.codon-odd {
-  background: var(--surface-2);
-}
-
-.codon-even {
-  background: var(--border);
-}
-
-.codon-stop {
-  background: var(--error-bg);
-  color: var(--error);
-  font-weight: 700;
-}
-
-.codon-start {
-  background: var(--success-bg);
-  color: var(--success);
-  font-weight: 700;
-}
-
-.sequence-frames {
-  min-width: 0;
-  max-width: 100%;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.75rem;
-  margin: 0;
-  padding: 0.35rem 0.75rem;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-}
-
-.sequence-frames legend {
-  float: left;
-  margin-right: 0.25rem;
-  padding: 0;
-  font-weight: 600;
-}
-
-.sequence-untranslated {
-  flex-basis: 100%;
-  margin: 0;
-}
-
-.sequence-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-  margin: 0 0 0.75rem;
-}
-
-/* What's at the caret or selected, and the find box: in view while the rows scroll under. */
-.sequence-tools {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: grid;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
-}
-
-.sequence-find {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
-}
-
-.sequence-find > label:first-child {
-  display: inline;
-  margin: 0;
-}
-
-.sequence-find input.sequence-find-input {
-  flex: 0 1 18rem;
-  width: auto;
-  min-width: 10rem;
-  font-family: var(--mono);
-}
-
-/* A code's long name (table 4's runs to five) mustn't widen the page on a phone. */
-.sequence-frames .sequence-find-option:has(select) {
-  min-width: 0;
-  max-width: 100%;
-}
-
-.sequence-frames select {
-  width: auto;
-  min-width: 0;
-  max-width: 100%;
-  margin-left: 0.35rem;
-  text-overflow: ellipsis;
-}
-
-.sequence-find-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  margin: 0;
-  font-weight: 400;
-}
-
-.sequence-find-option input {
-  accent-color: var(--accent);
-}
-
-.sequence-found {
-  flex-basis: 100%;
-  min-height: 1.55em;
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.sequence-found-error {
-  color: var(--error);
-}
-
-.sequence-selection {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.sequence-at {
-  flex: 1 1 20rem;
-  min-height: 1.55em;
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.sequence-copy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.sequence-copy [role="status"] {
-  font-size: var(--text-sm);
-}
-
-.sequence-track {
-  position: relative;
-  display: block;
-  margin-top: 0.15rem;
-}
-
-/* Placed in the residues' own ch, so a bar spans exactly the residues it covers. */
-.feature {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 1rem;
-  overflow: hidden;
-  border-radius: 3px;
-  background: var(--feature-other);
-  color: var(--feature-text);
-  white-space: nowrap;
-}
-
-.feature-label {
-  font-family: var(--font);
-  font-size: var(--text-xs);
-  font-weight: 600;
-}
-
-.feature-coding,
-.feature-swatch.feature-coding {
-  background: var(--feature-coding);
-}
-.feature-regulatory,
-.feature-swatch.feature-regulatory {
-  background: var(--feature-regulatory);
-}
-.feature-terminator,
-.feature-swatch.feature-terminator {
-  background: var(--feature-terminator);
-}
-.feature-origin,
-.feature-swatch.feature-origin {
-  background: var(--feature-origin);
-}
-.feature-binding,
-.feature-swatch.feature-binding {
-  background: var(--feature-binding);
-}
-
-/* A feature's direction, at the end it runs towards. */
-.feature-forward {
-  clip-path: polygon(0 0, calc(100% - 0.5ch) 0, 100% 50%, calc(100% - 0.5ch) 100%, 0 100%);
-}
-.feature-reverse {
-  clip-path: polygon(0.5ch 0, 100% 0, 100% 100%, 0.5ch 100%, 0 50%);
-}
-
-/* The line joining a feature's parts, such as a gene's exons across an intron. */
-.feature-joining {
-  height: 2px;
-  margin-top: calc(0.5rem - 1px);
-  border-radius: 0;
-}
-
-/* A site between two bases (GenBank's 5^6): a mark on the boundary, covering neither. */
-.feature-site {
-  border-radius: 0;
-}
-
-.feature-shown {
-  outline: 2px solid var(--text);
-  outline-offset: 1px;
-}
-
-.feature-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1rem;
-  margin: 0 0 1rem;
-  padding: 0;
-  list-style: none;
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
-.feature-swatch {
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.4rem;
-  border-radius: 2px;
-  background: var(--feature-other);
-  vertical-align: -0.05rem;
-}
-
-/* Tracks: a bar per residue, above or below a baseline, in the residues' own columns. */
-.value-track {
-  display: block;
-  height: 2.5rem;
-  margin-top: 0.25rem;
-  overflow: visible;
-}
-
-.track-above {
-  fill: var(--track-above);
-}
-
-.track-below {
-  fill: var(--track-below);
-}
-
-.track-baseline {
-  stroke: var(--border);
-  stroke-width: 1;
-}
-
-.track-legend {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  margin: -0.5rem 0 1rem;
-  padding: 0;
-  list-style: none;
-  color: var(--muted);
-  font-size: var(--text-sm);
-}
-
-.track-swatch {
-  display: inline-block;
-  width: 0.75rem;
-  height: 0.75rem;
-  margin-right: 0.4rem;
-  border-radius: 2px;
-  background: linear-gradient(var(--track-above) 50%, var(--track-below) 50%);
-  vertical-align: -0.05rem;
-}
-
-.track-swatch-none {
-  background: none;
-  outline: 1px dashed var(--border);
-  outline-offset: -1px;
-}
-
-/* The alignment viewer: residues coloured by kind, in Clustal X's hues, light enough in the
-   light theme (and dark enough in the dark one) for their letters to read on them. */
-:root {
-  --residue-hydrophobic: #a8c1f5;
-  --residue-positive: #f5a39b;
-  --residue-negative: #dfa3df;
-  --residue-polar: #92dc92;
-  --residue-cysteine: #f5bcbc;
-  --residue-glycine: #f5c096;
-  --residue-proline: #dede7a;
-  --residue-aromatic: #86d4d4;
-  --residue-text: #16202c;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --residue-hydrophobic: #2c4a85;
-    --residue-positive: #8a2f27;
-    --residue-negative: #74307a;
-    --residue-polar: #22662c;
-    --residue-cysteine: #874848;
-    --residue-glycine: #87521f;
-    --residue-proline: #636316;
-    --residue-aromatic: #1b6262;
-    --residue-text: #e7ecf1;
-  }
-}
-
-.alignment-controls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1.5rem;
-  margin: 0 0 0.75rem;
-}
-
-/* The summary's count of differences, which goes to the first: a link's look, a button's job. */
-.alignment-jump {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-  cursor: pointer;
-}
-
-.alignment-jump:hover {
-  color: var(--accent-hover);
-}
-
-.alignment-steps {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.alignment-steps [role="status"] {
-  margin: 0;
-}
-
-.alignment-go {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.alignment-go label {
-  margin: 0;
-}
-
-.alignment-go input {
-  width: 7rem;
-}
-
-.alignment-scroll {
-  position: relative;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-  overscroll-behavior: contain;
-}
-
-.alignment-scroll:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.alignment-space {
-  position: relative;
-}
-
-/* The canvas stays in view as the alignment scrolls under it. */
-.alignment-canvas {
-  position: sticky;
-  top: 0;
-  left: 0;
-  width: 0;
-  height: 0;
-}
-
-.alignment-canvas canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: block;
-}
-
-.alignment-labels {
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  height: 100%;
-  border-right: 1px solid var(--border);
-  background: var(--surface);
-  font-size: var(--text-xs);
-}
-
-.alignment-corner {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-2);
-  color: var(--muted);
-}
-
-.alignment-corner > span {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 0.5rem;
-  font-size: var(--text-xs);
-}
-
-.alignment-label {
-  position: absolute;
-  right: 0;
-  left: 0;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0 0.5rem;
-  overflow: hidden;
-  white-space: nowrap;
-  line-height: 1;
-}
-
-/* The HRID whole, and the title in what room is left. */
-.alignment-label > a {
-  flex: none;
-}
-
-.alignment-label > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.alignment-label input {
-  flex: none;
-  width: 1rem;
-  height: 1rem;
-  margin: 0;
-}
-
-.alignment-label-pinned {
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.alignment-pin {
-  flex: none;
-  margin-left: auto;
-  padding: 0.1rem 0.35rem;
-  border-radius: 999px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: calc(10rem / 13);
-}
-
-.alignment-at {
-  min-height: 1.5rem;
-  margin: 0.5rem 0 1rem;
-  font-size: var(--text-sm);
-}
-
 .alignment-select {
   margin: 0 0 0.75rem;
 }
@@ -1242,7 +597,10 @@ input:focus-visible {
   height: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 2px;
-  background: conic-gradient(var(--feature-coding) 0 50%, var(--feature-other) 50% 100%);
+  background: conic-gradient(
+    light-dark(#2f6fb5, #7fb0ff) 0 50%,
+    light-dark(#5f6b78, #a3b0bd) 50% 100%
+  );
 }
 
 .scene-problem {
@@ -1311,6 +669,50 @@ input:focus-visible {
 .tabs a[aria-current="page"] {
   color: var(--text);
   border-bottom-color: currentcolor;
+}
+
+/* A row of tabs isn't drawn until it's worked out: which tabs there are, and their counts
+   (TabStrip). */
+.tabs[hidden] {
+  display: none;
+}
+
+/* In its place till then, as tall as it is: a quiet bar for each tab, and nothing to
+   press. Only if it takes a moment, so a quick answer doesn't flash it. */
+.tabs-settling {
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tab-settling {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: calc(36rem / 13);
+  margin-bottom: -1px;
+  padding: 0 calc(10rem / 13);
+  border-bottom: 2px solid transparent;
+}
+
+.tab-settling > span {
+  display: block;
+  height: calc(10rem / 13);
+  border-radius: calc(5rem / 13);
+  background: var(--surface-3);
+  animation: tab-settling-in 150ms ease-out 300ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-settling > span {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes tab-settling-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .messages {
@@ -3390,85 +2792,6 @@ a.lineage-node:focus-visible {
   font-size: calc(12.5rem / 13);
 }
 
-.record-map svg {
-  width: 100%;
-  max-width: 180px;
-}
-
-.map-backbone {
-  fill: none;
-  stroke: var(--border);
-  stroke-width: 6;
-}
-
-line.map-backbone {
-  stroke-width: 3;
-}
-
-.map-feature {
-  fill: none;
-  stroke-width: 8;
-}
-
-.map-name {
-  font-size: 12px;
-  font-weight: 600;
-  fill: var(--text);
-}
-
-.map-length {
-  font-size: 11px;
-  fill: var(--muted);
-}
-
-.feature-stroke-coding {
-  stroke: var(--feature-coding);
-}
-
-.feature-stroke-regulatory {
-  stroke: var(--feature-regulatory);
-}
-
-.feature-stroke-terminator {
-  stroke: var(--feature-terminator);
-}
-
-.feature-stroke-origin {
-  stroke: var(--feature-origin);
-}
-
-.feature-stroke-binding {
-  stroke: var(--feature-binding);
-}
-
-.feature-stroke-other {
-  stroke: var(--feature-other);
-}
-
-.feature-fill-coding {
-  fill: var(--feature-coding);
-}
-
-.feature-fill-regulatory {
-  fill: var(--feature-regulatory);
-}
-
-.feature-fill-terminator {
-  fill: var(--feature-terminator);
-}
-
-.feature-fill-origin {
-  fill: var(--feature-origin);
-}
-
-.feature-fill-binding {
-  fill: var(--feature-binding);
-}
-
-.feature-fill-other {
-  fill: var(--feature-other);
-}
-
 .section-link {
   margin-left: auto;
   font-size: var(--text-sm);
@@ -4304,6 +3627,11 @@ input[type="file"]::file-selector-button {
   background: none;
   color: var(--text);
   border-bottom-color: var(--text);
+}
+
+.project-tabs .tab-settling {
+  min-height: 36px;
+  padding: 0 10px;
 }
 
 .tab-count {

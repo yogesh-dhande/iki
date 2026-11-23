@@ -229,6 +229,15 @@ class SavedMappingMatch(Schema):
     match: float = Field(description="The share of its headers the sheet has.")
 
 
+class AppliedMappingOut(Schema):
+    template: SavedMappingMatch | None
+    header_row: int
+    locale: SheetLocaleOut
+    columns: list[dict[str, Any]] = Field(
+        description="Mapped columns, including the column index, header and how each was read."
+    )
+
+
 class SpreadsheetPreviewOut(Schema):
     phase: str
     progress: float
@@ -285,7 +294,12 @@ class SpreadsheetImportOut(Schema):
     sample: list[list[str]] = Field(description="The sheet's first rows, as text.")
     columns: list[SheetColumnOut]
     fields: list[FieldTargetOut]
-    mapping: SavedMappingMatch | None = Field(description="The saved mapping it was mapped by.")
+    mapping: SavedMappingMatch | None = Field(
+        description="The saved mapping it was mapped by, pinned on committed imports."
+    )
+    applied_mapping: AppliedMappingOut | None = Field(
+        None, description="The exact mapping confirmed at commit, kept on the import."
+    )
     mappings: list[SavedMappingMatch] = Field(
         description="The project's saved mappings for the type, best matched first."
     )
@@ -433,6 +447,12 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
     )
     suggested = [{"id": s.pk, "name": s.name, "match": score} for score, s in scored]
     state = services.state_of(imported)
+    pinned = imported.applied_mapping
+    if pinned is not None or imported.state in (ImportState.COMMITTING, ImportState.COMMITTED):
+        # A legacy record's current template can no longer prove what it used.
+        shown_mapping = pinned["template"] if pinned is not None else None
+    else:
+        shown_mapping = next((m for m in suggested if m["id"] == imported.mapping_id), None)
     mine = imported.requested_by_id == me.pk and can(me, Action.PROJECT_EDIT, imported.project)
     run = imported.run
     run_out = None
@@ -482,7 +502,8 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         "sample": sample,
         "columns": columns,
         "fields": [_target(t, identity) for t in targets],
-        "mapping": next((m for m in suggested if m["id"] == imported.mapping_id), None),
+        "mapping": shown_mapping,
+        "applied_mapping": pinned,
         "mappings": suggested,
         "warnings": warnings,
         "preview": {

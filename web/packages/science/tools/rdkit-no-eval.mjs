@@ -81,7 +81,7 @@ function swap(source, from, to, what) {
   const at = source.indexOf(from);
   if (at === -1 || source.indexOf(from, at + 1) !== -1) {
     throw new Error(
-      `RDKit.js's ${what} isn't as this build knows it: look at it again (web/no-eval.js).`,
+      `RDKit.js's ${what} isn't as this build knows it: look at it again (tools/rdkit-no-eval.mjs).`,
     );
   }
   return source.slice(0, at) + to + source.slice(at + from.length);

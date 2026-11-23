@@ -511,6 +511,9 @@ class ResultTypeOut(Schema):
 
 class TypeAmountOut(Schema):
     unit: str = Field(description="The UCUM unit it's kept in, such as uL, mg or {vial}.")
+    whole_units: bool = Field(
+        False, description="Whether quantities must be whole numbers in this ledger unit."
+    )
     label: str = Field(description="What it's called, such as Volume.")
     description: str | None
     display_unit: str | None = Field(description="The unit it's shown in, if not `unit`.")
@@ -1474,6 +1477,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
     if wanted is None:
         return None
     return {
+        "whole_units": wanted.whole_units,
         "unit": wanted.unit,
         "label": wanted.label,
         "description": wanted.description,

@@ -1,0 +1,19 @@
+Source notices for the @rdkit/rdkit 2026.9.2 MinimalLib binary
+
+The RDKit release build and its component versions are described in these files:
+https://github.com/rdkit/rdkit/blob/Release_2026_09_2/Code/MinimalLib/docker/01_deps.Dockerfile
+https://github.com/rdkit/rdkit/blob/Release_2026_09_2/External/CoordGen/CMakeLists.txt
+https://github.com/rdkit/rdkit/blob/Release_2026_09_2/External/RingFamilies/CMakeLists.txt
+
+Portions of this software are copyright The FreeType Project (https://freetype.org).
+All rights reserved. The embedded Telex font is released under the SIL Open Font License.
+
+RDKit.txt: https://github.com/rdkit/rdkit/blob/Release_2026_09_2/license.txt
+Telex.txt: https://github.com/rdkit/rdkit/blob/Release_2026_09_2/Data/Fonts/telex_font_license.txt
+InChI.txt: https://github.com/IUPAC-InChI/InChI/blob/v1.07.3/LICENSE
+CoordGen.txt: https://github.com/schrodinger/coordgenlibs/blob/v3.0.2/LICENSE
+RingDecomposerLib.txt: https://github.com/rareylab/RingDecomposerLib/blob/v1.1.3_rdkit/LICENSE
+Boost.txt: https://github.com/boostorg/boost/blob/boost-1.87.0/LICENSE_1_0.txt
+FreeType.txt: https://github.com/freetype/freetype/blob/VER-2-13-3/docs/FTL.TXT
+zlib.txt: https://github.com/madler/zlib/blob/v1.3.2/LICENSE
+Emscripten.txt: https://github.com/emscripten-core/emscripten/blob/9d21a55cd13c18299f18d8c3dc5a1cf165f64185/LICENSE

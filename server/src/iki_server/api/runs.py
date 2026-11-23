@@ -121,6 +121,9 @@ class ParamOut(FieldOut):
 
 
 class CreatesOut(Schema):
+    receive_into: str | None = Field(
+        None, description="The required input container for a fresh stock receipt."
+    )
     type: str
     cardinality: Literal["one", "many"]
     derived_from: list[str]
@@ -263,7 +266,12 @@ def _action_out(action: Action) -> dict[str, Any]:
         ],
         "params_schema": schema.for_params(action.label or action.name, dict(action.params)),
         "creates": [
-            {"type": c.type, "cardinality": c.cardinality, "derived_from": list(c.derived_from)}
+            {
+                "type": c.type,
+                "cardinality": c.cardinality,
+                "derived_from": list(c.derived_from),
+                "receive_into": c.receive_into,
+            }
             for c in action.creates
         ],
         "updates": [{"input": u.input, "fields": list(u.fields)} for u in action.updates],

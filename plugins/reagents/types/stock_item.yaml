@@ -1,0 +1,63 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StockItem
+label: Stock item
+schema_version: 1
+hrid: { prefix: SCI }
+description: A supplier catalogue pack of a reagent or consumable. Choose a new catalogue record when its unit or pack size changes.
+stock_catalogue:
+  name: name
+  unit: stock_unit
+  threshold: low_stock_at
+  notify: [stock_manager]
+  lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
+  orders:
+    {
+      type: ReorderLine,
+      item: item,
+      ordered: ordered_packs,
+      received: received_packs,
+      reference: order_reference,
+    }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  supplier: { type: string, required: true, immutable: true, max_length: 200, pattern: '.*\S.*' }
+  catalogue_number:
+    {
+      type: string,
+      required: true,
+      immutable: true,
+      max_length: 100,
+      indexed: true,
+      pattern: '.*\S.*',
+    }
+  stock_unit:
+    type: enum
+    values: [mg, mL, "1"]
+    required: true
+    immutable: true
+    description: The stock ledger unit. Use 1 for a count of individual consumables.
+  pack_size:
+    type: float
+    label: Units per pack
+    required: true
+    immutable: true
+    min: 0
+    description: The amount per ordered pack in the selected stock unit.
+  low_stock_at:
+    type: float
+    label: Low-stock threshold
+    required: true
+    min: 0
+    description: Alert when the available stock in the project reaches or falls below this amount in stock units.
+rules:
+  positive_pack:
+    check: record.pack_size > 0
+    message: The amount per pack must be greater than zero.
+    fields: [pack_size]
+  whole_pack:
+    when: record.stock_unit == "1"
+    check: double(int(record.pack_size)) == record.pack_size
+    message: A pack of individual consumables must contain a whole number of units.
+    fields: [pack_size]
+display: { title: "{{ name }}" }
