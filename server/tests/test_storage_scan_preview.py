@@ -5,12 +5,15 @@ from uuid import uuid4
 
 import pytest
 from api_client import Api, problem
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from org_world import World, build_world
 from test_requests import Lab
 from test_storage import BOX, box, made, moved, receive, sent_with_tubes, tube
 from test_storage import lab as lab
 
 from iki_server.audit.models import AuditEvent
+from iki_server.storage.grids import Shape
 from iki_server.storage.models import Event, ObservationEvent, Place
 
 pytestmark = pytest.mark.django_db
@@ -164,6 +167,102 @@ def test_unreadable_and_absent_contexts_cannot_be_distinguished(world: World) ->
     for reference in (private["id"], str(uuid4())):
         response = api.post(PREVIEW, {"scope": "box", "container": reference, "code": "X"})
         assert response.status_code == 404
+
+
+def test_one_scan_identifies_a_record_in_the_selection_and_checks_its_sources(world: World) -> None:
+    api = Api(world.browser("editor"))
+    first_box, second_box = box(api, world.project), box(api, world.project, "Spare")
+    first = tube(api, world.project, "FIRST")
+    second = tube(api, world.project, "SECOND")
+    # A third tube in the other source box carries the first tube's printed HRID as vendor text.
+    peer = tube(api, world.project, first["hrid"])
+    selection = {"scope": "confirmation", "records": [first["id"], second["hrid"]]}
+    unplaced = preview(api, **selection, code=first["hrid"])
+    assert unplaced["status"] == "ambiguous"
+    assert {c["id"] for c in unplaced["candidates"]} == {first["id"], peer["id"]}
+    moved(api, (first, first_box, "A1"), (second, second_box, "A1"), (peer, second_box, "A2"))
+    before = [model.objects.count() for model in (AuditEvent, Event, ObservationEvent)]
+    for record in (first, second):
+        match = preview(api, **selection, code=record["hrid"], mode="iki_id")
+        assert match["status"] == "one" and [c["id"] for c in match["candidates"]] == [record["id"]]
+    assert preview(api, **selection, code="NOT-ON-ANY-TUBE") == {"status": "none", "candidates": []}
+    ambiguous = preview(api, **selection, code=first["hrid"])
+    assert ambiguous["status"] == "ambiguous"
+    assert {c["id"] for c in ambiguous["candidates"]} == {first["id"], peer["id"]}
+    assert (
+        preview(api, scope="confirmation", records=[first["id"], peer["id"]], code=first["hrid"])
+        == ambiguous
+    )
+    problem(
+        api.post(PREVIEW, {**selection, "code": first["hrid"], "choice": first["id"]}),
+        409,
+        "scan_unavailable",
+    )
+    # A readable source occupant outside the selection cannot satisfy the operation.
+    outside = problem(
+        api.post(PREVIEW, {**selection, "code": peer["hrid"], "mode": "iki_id"}),
+        409,
+        "scan_unavailable",
+    )
+    assert "candidates" not in outside
+    assert [model.objects.count() for model in (AuditEvent, Event, ObservationEvent)] == before
+
+    checked_out = api.post("/storage/check-out", {"records": [second["id"]]})
+    assert checked_out.status_code == 200, checked_out.content
+    back = preview(api, **selection, code="SECOND")
+    assert back["status"] == "one" and back["candidates"][0]["id"] == second["id"]
+    assert back["candidates"][0]["position"] == "A1"
+
+
+def test_batch_confirmation_returns_one_neutral_refusal_for_concealed_evidence(
+    world: World,
+) -> None:
+    other = build_world("Other")
+    api = Api(world.browser("editor"))
+    source = box(api, world.project)
+    target = tube(api, world.project, "VISIBLE")
+    hidden = tube(Api(other.browser("editor")), other.project, "PRIVATE")
+    moved(api, (target, source, "A1"))
+    Place.objects.create(entity_id=hidden["id"], container_id=source["id"], row=1, column=2)
+    selection = {"scope": "confirmation", "records": [target["id"]]}
+    for data in (
+        {"code": "VISIBLE"},
+        {"code": "PRIVATE"},
+        {"code": "NO-LABEL"},
+        {"code": hidden["hrid"], "mode": "iki_id"},
+        {"code": "TUB-999999999", "mode": "iki_id"},
+        {"code": "VISIBLE", "records": [target["id"], hidden["id"]]},
+        {"code": "VISIBLE", "records": [target["id"], str(uuid4())]},
+    ):
+        error = problem(api.post(PREVIEW, {**selection, **data}), 409, "scan_unavailable")
+        assert "candidates" not in error
+        assert error["detail"] == (
+            "This scan can’t identify a tube here. "
+            "Use its printed Iki ID or ask an authorized reviewer."
+        )
+    unique = preview(api, **selection, code=target["hrid"], mode="iki_id")
+    assert unique["status"] == "one" and unique["candidates"][0]["id"] == target["id"]
+
+
+def test_a_rack_selection_resolves_in_one_request_without_per_record_queries(world: World) -> None:
+    api = Api(world.browser("editor"))
+    grid = Shape(8, 12)
+    source = box(api, world.project, rows=grid.rows, columns=grid.columns)
+    records = [tube(api, world.project, f"RACK-{i:02d}") for i in range(96)]
+    moved(api, *((record, source, grid.label(*grid.at(i))) for i, record in enumerate(records)))
+    ids = [record["id"] for record in records]
+    query = {"scope": "confirmation", "code": "RACK-95"}
+    with CaptureQueriesContext(connection) as single:
+        expected = preview(api, **query, records=ids[-1:])
+    with CaptureQueriesContext(connection) as rack:
+        result = preview(api, **query, records=ids)
+    assert result == expected
+    assert result["status"] == "one" and result["candidates"][0]["id"] == ids[-1]
+    assert result["candidates"][0]["position"] == "H12"
+    assert len(rack) <= len(single) + 2
+    assert preview(api, **query, records=[ids[-1]] * 500) == expected
+    for size in (0, 501):
+        problem(api.post(PREVIEW, {**query, "records": [ids[-1]] * size}), 422, "validation_failed")
 
 
 def test_confirming_a_readable_tube_kept_in_a_private_box_needs_independent_evidence(

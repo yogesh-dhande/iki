@@ -385,7 +385,7 @@ def _confirmed(user: User, entity: Entity, value: str | storage.Confirmation) ->
         raise Wrong({"confirm": ["The confirmation must be at most 200 characters."]})
     try:
         scope = storage.ConfirmationScope(user, [entity], [code])
-        if scope.resolve(entity, code, mode=proof.mode).record != entity:
+        if scope.resolve(code, mode=proof.mode).record != entity:
             raise scan_identity.ScanRefused()
     except scan_identity.ScanRefused as refusal:
         raise Wrong({"confirm": [str(refusal)]}) from None

@@ -342,6 +342,17 @@ and their source. When the vendor label could confirm more than one tube,
 the operator scans the unique symbol or explicitly enters the tube's Iki
 ID. The movement retains the confirmation used for the write.
 
+For Move and check-in, one scan can identify a tube across the whole selection.
+Send `POST /api/v1/storage/scan/resolve` with `scope: "confirmation"`, the scanned
+`code` and up to 500 selected record UUIDs or HRIDs in `records`. Omit `record`
+for this form. The resolver checks all selected source boxes. When a selected
+tube has no source box, it checks the readable inventory. A unique result
+identifies the selected tube by UUID. Readable collisions return candidates.
+Move and check-in repeat the check against the entire selection under their
+storage locks, so a duplicate that arrived since the scan prevents the write.
+A concealed source or occupant requires independent Iki identity, and an
+unavailable typed ID returns the same neutral refusal as an unknown one.
+
 ### A container's amount, and what a draw went into
 
 **A tube's volume is its amount.** A container type keeps how much it holds

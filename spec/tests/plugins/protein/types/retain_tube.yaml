@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: EntityType
+name: RetainTube
+label: Retain tube
+extends: Tube
+schema_version: 1
+description: A sample kept in reserve, with its tube scanned before a draw or a move.
+hrid: { prefix: RTB }
+storage:
+  barcode: barcode
+  label: "{{ barcode }}"
+  confirm: [draw, move]

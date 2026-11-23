@@ -270,6 +270,8 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_box__history",
         "acme__protein_tube",
         "acme__protein_tube__history",
+        "acme__protein_retaintube",
+        "acme__protein_retaintube__history",
         "acme__protein_assayresult",
         "acme__protein_assayresult__history",
         "acme__prediction__acme__protein_proteinstructure",

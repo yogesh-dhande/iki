@@ -4816,7 +4816,7 @@ class ScanResolveIn(TypedDict):
     position: NotRequired[str | None]
     #: The record whose identity is being confirmed.
     record: NotRequired[str | None]
-    #: All records participating in this confirmation, including the target.
+    #: Selected record UUIDs or HRIDs. Omit record to identify a tube across the selection (up to 500). With record, include the target.
     records: NotRequired[list[str] | None]
     scope: Literal['box', 'confirmation', 'destination']
 

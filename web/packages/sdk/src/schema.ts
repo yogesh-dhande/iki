@@ -15312,7 +15312,7 @@ export interface components {
             record?: string | null;
             /**
              * Records
-             * @description All records participating in this confirmation, including the target.
+             * @description Selected record UUIDs or HRIDs. Omit record to identify a tube across the selection (up to 500). With record, include the target.
              */
             records?: string[] | null;
             /**
