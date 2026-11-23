@@ -38,9 +38,9 @@ from iki_server.runs.services import visible_runs
 
 router = Router(tags=["graph"])
 
-EdgeKindName = Literal["reference", "run", "file", "aliquot", "transfer", "record"]
 #: What a walk may be narrowed to: a record's edge to its entry is always followed.
-FollowedName = Literal["reference", "run", "file", "aliquot", "transfer"]
+FollowedName = Literal["reference", "run", "file", "aliquot", "transfer", "used"]
+EdgeKindName = Literal[FollowedName, "record"]
 Direction = Literal["upstream", "downstream"]
 
 #: The most rows a CSV has: past this, narrow it.
@@ -54,8 +54,9 @@ MAX_GRAPH_STEPS = 10
 _EDGES = (
     "Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or "
     "updated it from it), `file` (a run made it from a file it held, or that a run on it "
-    "wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into "
-    "it). All, if none are given. A project's record of a registry entry and the entry "
+    "wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or "
+    "`used` (a draw from it was used in the other record). All, if none are given. "
+    "A project's record of a registry entry and the entry "
     "are one thing (ADR 0115), so the walk always goes between them, at no depth."
 )
 
@@ -103,7 +104,8 @@ class WalkFileOut(Schema):
 
 class WalkStepOut(Schema):
     kind: EdgeKindName = Field(
-        description="`reference`, `run` or `file`; `record` when it goes on to another "
+        description="How the entities are linked: `reference`, `run`, `file`, `aliquot`, "
+        "`transfer`, or `used` for a material draw. A `record` step goes on to another "
         "project's record of the same registry entry (ADR 0115)."
     )
     field: str = Field(
