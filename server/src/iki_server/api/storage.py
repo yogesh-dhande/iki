@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import ConfigDict
@@ -1009,15 +1010,26 @@ class ReconciliationLineOut(Schema):
     expected: str | None = Field(description="Its recorded position, when this started.")
     found: str | None = Field(description="Where it was scanned.")
     finding: Literal[
-        "matched", "missing", "unexpected", "wrong_slot", "unchecked", "empty", "checked_out"
+        "matched",
+        "missing",
+        "unexpected",
+        "wrong_slot",
+        "unchecked",
+        "empty",
+        "checked_out",
+        "no_longer_found",
     ]
     resolution: Resolution | None
+    resolution_stale: bool = Field(description="The open count's saved decision needs review.")
     note: str
     resolved_by: UserOut | None
 
 
 class ReconciliationOut(Schema):
     id: UUID
+    plan_revision: int = Field(
+        ge=1, description="The version of the count's observations and decisions."
+    )
     container: StepOut
     shape: ShapeOut
     status: Literal["open", "completed", "cancelled"]
@@ -1043,14 +1055,26 @@ def _reconciliation(me: User, pk: UUID) -> Reconciliation:
 
 
 def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
+    # Return the reviewed lines and their revision from the same plan. Every scan,
+    # decision and completion takes this lock. Finalized plans are immutable.
+    if r.status == ReceiptStatus.OPEN:
+        with transaction.atomic():
+            r = (
+                Reconciliation.objects.select_for_update(of=("self",))
+                .select_related("container", "started_by", "completed_by")
+                .get(pk=r.pk)
+            )
+            found = reconciliations.findings(r)
+    else:
+        found = reconciliations.findings(r)
     shape = reconciliations.shape_of(r)
-    found = reconciliations.findings(r)
     refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found)})
     counted: dict[str, int] = {}
     for _, what in found:
         counted[what] = counted.get(what, 0) + 1
     return {
         "id": r.pk,
+        "plan_revision": r.plan_revision,
         "container": {**refs[r.container_id], "id": r.container_id, "position": None},
         "shape": _shape(shape),
         "status": r.status,
@@ -1069,6 +1093,10 @@ def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
                 "found": storage.label(shape, x.found_row, x.found_column),
                 "finding": what,
                 "resolution": x.resolution,
+                "resolution_stale": r.status == ReceiptStatus.OPEN
+                and reconciliations.resolution_stale(
+                    x, what, reconciliations.decision_position(x, what, shape)
+                ),
                 "note": x.note,
                 "resolved_by": x.resolved_by,
             }
@@ -1149,7 +1177,13 @@ def scan_positions(
     return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
 
 
-class ResolveIn(Schema):
+class ReviewedReconciliationIn(Schema):
+    plan_revision: int = Field(
+        ge=1, strict=True, description="The revision of the reconciliation plan being reviewed."
+    )
+
+
+class ResolveIn(ReviewedReconciliationIn):
     resolution: Resolution | None = Field(
         description="`moved` (a record in the wrong position), `removed` (one missing), "
         "`placed` (one unexpected), or `kept`, with a note; null clears it."
@@ -1165,13 +1199,19 @@ class ResolveIn(Schema):
 def resolve_line(
     request: HttpRequest, reconciliation_id: UUID, line_id: UUID, payload: ResolveIn
 ) -> dict[str, Any]:
+    """Saves or clears a line decision for the reviewed revision. Returns 409 if the
+    observations or another decision changed in the meantime."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(lambda: reconciliations.resolve(me, r, line_id, payload.resolution, payload.note))
+    _receiving(
+        lambda: reconciliations.resolve(
+            me, r, line_id, payload.resolution, payload.note, plan_revision=payload.plan_revision
+        )
+    )
     return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
 
 
-class CompleteReconciliationIn(Schema):
+class CompleteReconciliationIn(ReviewedReconciliationIn):
     missing_rest: bool = Field(
         False, description="Take each recorded position nobody scanned to be missing, removed."
     )
@@ -1186,13 +1226,17 @@ class CompleteReconciliationIn(Schema):
 def complete_reconciliation(
     request: HttpRequest, reconciliation_id: UUID, payload: CompleteReconciliationIn
 ) -> dict[str, Any]:
-    """Applies every resolution as one change. Refused (422) if anything moved into or out of
-    the container since it started."""
+    """Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
+    that needs review or a change in the container's recorded contents returns 422."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
     _receiving(
         lambda: reconciliations.complete(
-            me, r, missing_rest=payload.missing_rest, note=payload.note
+            me,
+            r,
+            plan_revision=payload.plan_revision,
+            missing_rest=payload.missing_rest,
+            note=payload.note,
         )
     )
     return _reconciliation_out(me, _reconciliation(me, reconciliation_id))

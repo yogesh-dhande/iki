@@ -258,10 +258,26 @@ order, or upload a rack scanner's file of positions and codes. Each record
 is `matched`, `missing`, `unexpected` (scanned here, recorded elsewhere or
 nowhere) or `wrong_slot` (scanned at another position of this box), and each
 that isn't matched is resolved: moved to where it was found, removed from
-storage, placed here, or kept as recorded with a note. Completing it applies
+storage, placed here, or kept as recorded with a note. Each decision records the
+position it refers to. A changed observation requires the operator to review
+the affected decision. The completion screen shows each tube and its planned
+destination. A move or placement requires a positive scan at that exact slot.
+
+Each edit advances the count's revision. Saving or clearing a line decision
+and completing the count each require the revision the operator reviewed.
+The server checks it under the same lock that protects the count. Completion
+also verifies each saved decision against its current observation. Another operator can save
+a valid replacement while the first has the form open. The first operator
+must review that revision and enter a fresh approval before completing.
+Completing it applies
 every resolution as one change, which its movements share as their
 operation, and is refused if anything moved in or out of the container since
-it started. It's an audit event, `storage.reconciled`, and a webhook event.
+it started. Each movement records its scan position or why the item was
+removed. A removal distinguishes a recorded position checked without finding
+the item from an unscanned position the operator chose to treat as missing.
+The `storage.reconciled` audit counts the observed findings, each resolution,
+the unscanned records treated as missing, and the movements saved under the
+operation. It also emits a webhook event.
 
 ### What's core and what's a plugin's
 

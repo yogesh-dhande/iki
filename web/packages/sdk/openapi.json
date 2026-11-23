@@ -1324,6 +1324,12 @@
       },
       "ApplyIn": {
         "properties": {
+          "planned_at": {
+            "description": "The planned_at of the plan being confirmed.",
+            "format": "date-time",
+            "title": "Planned At",
+            "type": "string"
+          },
           "reason": {
             "description": "Why: the import and the audit log keep it.",
             "maxLength": 2000,
@@ -1333,6 +1339,7 @@
           }
         },
         "required": [
+          "planned_at",
           "reason"
         ],
         "title": "ApplyIn",
@@ -3134,8 +3141,17 @@
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
+          },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -9331,6 +9347,19 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
           }
         },
         "title": "ImportEntityParams",
@@ -9395,6 +9424,45 @@
           "sha256"
         ],
         "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportMemberParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
+          }
+        },
+        "title": "ImportMemberParams",
         "type": "object"
       },
       "ImportOut": {
@@ -9463,6 +9531,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -9843,6 +9912,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -17008,7 +17078,8 @@
               "wrong_slot",
               "unchecked",
               "empty",
-              "checked_out"
+              "checked_out",
+              "no_longer_found"
             ],
             "title": "Finding",
             "type": "string"
@@ -17061,6 +17132,11 @@
             ],
             "title": "Resolution"
           },
+          "resolution_stale": {
+            "description": "The open count's saved decision needs review.",
+            "title": "Resolution Stale",
+            "type": "boolean"
+          },
           "resolved_by": {
             "anyOf": [
               {
@@ -17081,6 +17157,7 @@
           "found",
           "finding",
           "resolution",
+          "resolution_stale",
           "note",
           "resolved_by"
         ],
@@ -17141,6 +17218,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The version of the count's observations and decisions.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "shape": {
             "$ref": "#/components/schemas/ShapeOut"
           },
@@ -17164,6 +17247,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "container",
           "shape",
           "status",
@@ -18143,6 +18227,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "resolution": {
             "anyOf": [
               {
@@ -18163,6 +18253,7 @@
           }
         },
         "required": [
+          "plan_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -36726,6 +36817,25 @@
             }
           },
           {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
+            }
+          },
+          {
             "in": "query",
             "name": "action",
             "required": false,
@@ -36875,6 +36985,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
             }
           }
         ],
@@ -40433,7 +40562,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -40485,6 +40614,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
+        "description": "Saves or clears a line decision for the reviewed revision. Returns 409 if the\nobservations or another decision changed in the meantime.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
