@@ -95,7 +95,7 @@ custom_build(
         # iki-wasm, built in the image's own stage, and for `iki deploy build` (ADR 0127).
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh',
-        'scripts/build-dna-annotation-wasm.sh',
+        'scripts/build-dna-annotation-wasm.sh', 'scripts/verify-server-wasm.sh',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
