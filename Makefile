@@ -94,6 +94,7 @@ check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytes
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
+	scripts/build-dna-annotation-wasm.sh
 	uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
@@ -195,6 +196,7 @@ check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
 	cd worker && cargo clippy --locked --all-targets -- -D warnings
 	cd worker && cargo test --locked --all-targets
+	scripts/build-dna-annotation-wasm.sh --check
 
 .PHONY: fmt
 fmt: ## Format all code

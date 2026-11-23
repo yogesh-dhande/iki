@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/iki-protocol", "crates/iki-wasm", "crates/iki-worker"]
+members = [
+  "crates/iki-protocol",
+  "crates/iki-wasm",
+  "crates/iki-wasm/standalone/dna-annotation",
+  "crates/iki-worker",
+]
 
 [workspace.package]
 version = "0.1.0-dev.0"
@@ -17,6 +22,7 @@ iki-protocol = { path = "crates/iki-protocol", version = "=0.1.0-dev.0" }
 sha2 = "0.11.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+aho-corasick = "=1.1.4"
 # Signals sent to a whole process group, and locks on files, without unsafe code.
 rustix = { version = "1.1.6", features = ["fs", "process", "system"] }
 signal-hook = "0.4.6"
