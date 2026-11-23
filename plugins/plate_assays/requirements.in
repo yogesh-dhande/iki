@@ -1,0 +1,5 @@
+# Fit the four-parameter curve and evaluate its Student t confidence interval.
+# Compile with uv pip compile requirements.in --python-version 3.12 --universal
+# --generate-hashes --exclude-newer 3d -o requirements.txt
+numpy==2.5.4
+scipy==1.18.1
