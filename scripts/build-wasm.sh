@@ -39,11 +39,28 @@ cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/spec/src/iki_spec/
 # The deployment CLI copies this digest-pinned build from iki-spec into the DNA worker
 # archive. Direct development invocations read the same ignored file in the plugin.
 "$root/scripts/build-oligo-wasm.sh" --with-notice "$root/spec/src/iki_spec/oligo-measurement.wasm"
+# The release pin is generated in the Linux x86-64 Docker stage. A source wheel
+# built elsewhere can carry native rustc's Wasm bytes, which can differ by host.
+module="$root/spec/src/iki_spec/oligo-measurement.wasm"
+test -s "$module"
+digest=$(cat "$root/plugins/dna/data/oligo-measurement.sha256")
+if [ "${#digest}" -ne 64 ] || ! printf '%s\n' "$digest" | grep -Eq '^[0-9a-f]{64}$'; then
+  echo "The DNA measurement marker must hold a SHA-256 digest." >&2
+  exit 1
+fi
+host="$(uname -s)/$(uname -m)"
+case "$host" in
+  Linux/x86_64 | Linux/amd64)
+    printf '%s  %s\n' "$digest" "$module" |
+      sha256sum --check --strict -
+    ;;
+  *) echo "Built oligo-measurement.wasm on $host. Its SHA-256 pin is compared on Linux x86-64." >&2 ;;
+esac
 # Keep unfinished local copies outside the plugin directory that workers bundle.
 (
   part=$(mktemp "$root/plugins/.oligo-measurement.XXXXXXXX")
   trap 'rm -f "$part"' EXIT
-  cp "$root/spec/src/iki_spec/oligo-measurement.wasm" "$part"
+  cp "$module" "$part"
   chmod 644 "$part"
   mv -f "$part" "$root/plugins/dna/data/oligo-measurement.wasm"
 )

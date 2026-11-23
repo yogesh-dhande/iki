@@ -5,10 +5,13 @@
 #   deploy/dev/build-wasm.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-docker build -f server/Dockerfile --target wasm -t iki-wasm:dev .
+image=$(scripts/build-wasm-image.sh)
+# Verify the exact resource the dev deployment will use, on the release architecture.
+printf '%s  /src/worker/oligo-measurement.wasm\n' "$(<plugins/dna/data/oligo-measurement.sha256)" |
+  docker run --rm -i --network none --platform linux/amd64 "$image" sha256sum --check --strict -
 # The server's and the worker's builds may run it at once: each writes its own copy,
 # then moves it into place.
-container="$(docker create iki-wasm:dev)"
+container="$(docker create --platform linux/amd64 "$image")"
 tmp="$(mktemp -d spec/src/iki_spec/iki_wasm.XXXXXX)"
 trap 'docker rm "$container" >/dev/null; rm -rf "$tmp"' EXIT
 for file in target/wasm32-unknown-unknown/release/iki_wasm.wasm oligo-measurement.wasm rust-standard-library.html; do

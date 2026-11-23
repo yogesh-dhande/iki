@@ -28,9 +28,12 @@ import hashlib
 import io
 import json
 import os
+import platform
+import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -78,7 +81,9 @@ def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = 
     """Stage the compiled property measurement requested by a pinned DNA plugin.
 
     A fetched plugin has only Git files. The SHA in its source pins the module;
-    the installed iki-spec distribution supplies its bytes. A developer's ignored
+    the installed iki-spec distribution supplies its bytes. The digest is of the
+    Linux x86-64 build. Other development hosts can produce different Rust/Wasm
+    bytes and require the built module and its notice. A developer's ignored
     copy never contributes to either kind of worker bundle.
     """
     if name != "iki/dna":
@@ -112,11 +117,21 @@ def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = 
             if not installed.is_file():
                 raise ValueError(f"iki-spec lacks {name}. Run scripts/build-wasm.sh.")
             resources[name] = installed.read_bytes()
-        if (
-            hashlib.sha256(resources[generated.name]).hexdigest()
-            != marker.read_text("ascii").strip()
-        ):
-            raise ValueError("The DNA measurement in iki-spec differs from the pinned digest.")
+            if not resources[name]:
+                raise ValueError(f"iki-spec's {name} is empty. Run scripts/build-wasm.sh.")
+        expected = marker.read_text("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            raise ValueError("The DNA measurement marker must hold a SHA-256 digest.")
+        module = resources[generated.name]
+        if platform.system() == "Linux" and platform.machine().lower() in {"x86_64", "amd64"}:
+            if hashlib.sha256(module).hexdigest() != expected:
+                raise ValueError("The DNA measurement in iki-spec differs from the pinned digest.")
+        else:
+            sys.stderr.write(
+                f"iki/dna: using the installed measurement on {platform.system()} "
+                f"{platform.machine()}. Its SHA-256 pin is compared on Linux x86-64, "
+                "the release build platform.\n"
+            )
 
     shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
     target = output / relative
@@ -124,6 +139,8 @@ def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = 
         target.unlink()
     for name, data in resources.items():
         asset = target.with_name(name)
+        # A local build product copied into staging may be read-only.
+        asset.unlink(missing_ok=True)
         asset.write_bytes(data)
         asset.chmod(0o644)
     return output

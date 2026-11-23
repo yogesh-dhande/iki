@@ -12,11 +12,13 @@ ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c00
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 # The worker's Rust image (worker/Dockerfile), for the web app's parsers.
 ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
+# The DNA worker's tracked measurement digest uses this compiler host (ADR 0191).
+ARG WASM_PLATFORM=linux/amd64
 
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # --- The web app's parsers: iki-wasm, Rust built for browsers (ADR 0088) ----
-FROM ${RUST_IMAGE} AS wasm
+FROM --platform=${WASM_PLATFORM} ${RUST_IMAGE} AS wasm
 WORKDIR /src/worker
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates

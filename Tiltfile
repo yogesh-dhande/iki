@@ -94,7 +94,8 @@ custom_build(
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
         # iki-wasm, built in the image's own stage, and for `iki deploy build` (ADR 0127).
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
-        'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh', 'scripts/build-oligo-wasm.sh',
+        'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
+        'scripts/build-oligo-wasm.sh',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
@@ -119,7 +120,8 @@ custom_build(
     deps=[
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
-        'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh', 'scripts/build-oligo-wasm.sh',
+        'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
+        'scripts/build-oligo-wasm.sh',
         # What `iki deploy build --workers` reads and runs.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',

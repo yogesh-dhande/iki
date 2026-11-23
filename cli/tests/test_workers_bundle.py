@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import platform
 import shutil
 import subprocess
 import tarfile
@@ -70,7 +71,11 @@ def test_the_script_builds_the_environment(tmp_path: Path) -> None:
     assert listed == manifest
 
 
-def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(tmp_path: Path) -> None:
+def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     directory = tmp_path / "checkout"
     relative = Path("data/oligo-measurement.wasm")
     generated = directory / relative
@@ -108,10 +113,16 @@ def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(tmp_path:
     assert not generated.exists()
 
     generated.write_bytes(b"stale checkout artifact")
-    generated.chmod(0o755)
+    generated.chmod(0o444)
+    stale_notice = generated.with_name(notice_name)
+    stale_notice.write_bytes(b"stale notice")
+    stale_notice.chmod(0o444)
     stale = workers.prepared_source("iki/dna", directory, tmp_path / "stale")
     assert workers.bundle(stale, tmp_path / "rebuilt.tar.gz") == digest
     assert generated.read_bytes() == b"stale checkout artifact"
+    assert stale_notice.read_bytes() == b"stale notice"
+    assert generated.stat().st_mode & 0o777 == stale_notice.stat().st_mode & 0o777 == 0o444
+    assert (stale / relative).stat().st_mode & 0o777 == 0o644
 
     marker.write_text("0" * 64)
     with pytest.raises(ValueError, match="pinned digest"):
@@ -133,3 +144,56 @@ def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(tmp_path:
     )
     old = workers.prepared_source("iki/dna", directory, tmp_path / "pre-measurement")
     assert not (old / relative).exists()
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "compares"),
+    [
+        ("Linux", "x86_64", True),
+        ("Linux", "amd64", True),
+        ("Darwin", "arm64", False),
+        ("Linux", "aarch64", False),
+    ],
+)
+def test_measurement_uses_a_platform_specific_digest(
+    system: str,
+    machine: str,
+    compares: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: system)
+    monkeypatch.setattr(platform, "machine", lambda: machine)
+    checkout = tmp_path / "checkout"
+    data = checkout / "data"
+    data.mkdir(parents=True)
+    marker = data / "oligo-measurement.sha256"
+    package = tmp_path / "installed"
+    package.mkdir()
+    monkeypatch.setattr(workers, "files", lambda _name: package)
+    module = package / "oligo-measurement.wasm"
+    notice = package / "rust-standard-library.html"
+    notice.write_text("Rust standard library notices")
+    marker.write_text("0" * 64)
+    with pytest.raises(ValueError, match="lacks oligo-measurement"):
+        workers.prepared_source("iki/dna", checkout, tmp_path / "missing")
+    module.write_bytes(b"")
+    with pytest.raises(ValueError, match="is empty"):
+        workers.prepared_source("iki/dna", checkout, tmp_path / "empty")
+    module.write_bytes(b"locally built bytes")
+    notice.write_bytes(b"")
+    with pytest.raises(ValueError, match="is empty"):
+        workers.prepared_source("iki/dna", checkout, tmp_path / "empty-notice")
+    notice.write_text("Rust standard library notices")
+    marker.write_text("missing")
+    with pytest.raises(ValueError, match="SHA-256"):
+        workers.prepared_source("iki/dna", checkout, tmp_path / "invalid-marker")
+    marker.write_text("0" * 64)
+    if compares:
+        with pytest.raises(ValueError, match="pinned digest"):
+            workers.prepared_source("iki/dna", checkout, tmp_path / "different")
+    else:
+        staged = workers.prepared_source("iki/dna", checkout, tmp_path / "different")
+        assert (staged / "data" / module.name).read_bytes() == module.read_bytes()
+        assert "Linux x86-64" in capsys.readouterr().err

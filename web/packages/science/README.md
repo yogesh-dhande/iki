@@ -118,6 +118,17 @@ its complement under the DNA record’s fixed conditions, or `null` for unsuppor
 input. The call is synchronous and works in browsers and Node. The JavaScript comes
 from the same Rust model the WebAssembly module runs. [Inputs and model](stories/sequence.md)
 
+From an Iki checkout, regenerate both the DNA plugin’s SHA-256 and the browser
+JavaScript with `pnpm generate:temperature`. Docker with Buildx and
+`linux/amd64` support is required. The command translates the module extracted
+from the pinned `wasm` stage of `server/Dockerfile`. Review the digest and the
+JavaScript together when changing the Rust model or its toolchain.
+
+Package tests build the module with the checkout’s pinned Rust toolchain and
+compare its results with the browser function on every host. Linux x86-64 also
+checks the exact module digest and generated JavaScript. Other compiler hosts
+can produce different bytes for the same calculation.
+
 ## Next.js
 
 Create the element inside a Client Component. Import the browser module in an
