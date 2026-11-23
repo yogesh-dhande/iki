@@ -31,6 +31,9 @@ allow-dependencies-licenses:
   # either brings them into a pull request's diff.
   - pkg:pypi/biopython
   - pkg:pypi/numpy
+  # pillow is under MIT-CMU, which RDKit brings in; its reviewed exception is in
+  # osv-scanner.toml and covers pillow alone, not MIT-CMU in general.
+  - pkg:pypi/pillow
 # Mirrors the time-limited exception in osv-scanner.toml.
 allow-ghsas:
   - GHSA-g3hv-75wg-m249
