@@ -91,12 +91,6 @@ def followed(entity: Entity, values: Mapping[str, Any] | None = None) -> list[tu
     ]
 
 
-def source_of(entity: Entity, values: Mapping[str, Any] | None = None) -> Entity | None:
-    """The draw's source: the record the first of its type's ``follows`` names."""
-    found = followed(entity, values)
-    return found[0][1] if found else None
-
-
 def purpose_refusals(
     user: User, entity: Entity, purpose: DrawPurpose, values: Mapping[str, Any] | None = None
 ) -> str | None:

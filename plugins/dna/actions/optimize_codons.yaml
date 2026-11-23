@@ -1,0 +1,155 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: optimize_codons
+label: Rewrite the coding region in the host's codons
+description: >-
+  Rewrites a coding region in a host's own codons, keeping the protein exactly, and
+  registers the result as a DNA sequence derived from the design. The codons are chosen
+  from the host's codon usage by the design's strategy, and then repaired, one codon at a
+  time, until nothing breaks a constraint: no codon the host hardly uses, GC content
+  within a band overall and in a window, no long run of one base, no repeat, no hairpin,
+  none of the restriction sites or motifs the design names, and none of the host's own
+  motifs that would be read inside a gene -- a Shine-Dalgarno-like sequence in a
+  bacterium, a splice site or a polyadenylation signal in a eukaryote. The run translates
+  the template and the product and registers nothing if the two proteins differ. Where a
+  stretch has no synonymous choice that meets every constraint, the design is registered
+  with what is still broken, named and placed.
+inputs:
+  optimization:
+    type: CodonOptimization
+    schema: ">=1"
+    include: [template]
+params:
+  rare_codon_threshold:
+    type: float
+    min: 0.0
+    max: 0.5
+    default: 0.1
+    label: Rarest codon allowed (w)
+    description: >-
+      The relative adaptiveness, w, below which a codon isn't used at all: its count in
+      the host over the count of the most-used codon for the same amino acid (Sharp and
+      Li, 1987). 0.1 leaves out E. coli's AGA and AGG, which rare tRNAs decode and which
+      stall translation. An amino acid whose only codon is below it keeps that codon. 0
+      allows every codon.
+  gc_min:
+    type: float
+    min: 0.0
+    max: 100.0
+    default: 30.0
+    label: Least GC overall (%)
+    description: The lowest share of G and C the whole optimized region may have.
+  gc_max:
+    type: float
+    min: 0.0
+    max: 100.0
+    default: 70.0
+    label: Most GC overall (%)
+    description: >-
+      The highest. Both extremes make a gene hard to synthesise and hard to express; in
+      E. coli the GC content of a gene's first stretch is among the strongest predictors
+      of how much protein is made (Kudla et al., Science 324:255, 2009).
+  gc_window:
+    type: int
+    min: 0
+    max: 200
+    default: 50
+    label: GC window (bases)
+    description: >-
+      The window the GC share is also kept within, so that a gene within the overall band
+      has no GC-rich or AT-rich stretch inside it. 0 checks the overall share alone.
+  gc_window_min:
+    type: float
+    min: 0.0
+    max: 100.0
+    default: 25.0
+    label: Least GC in a window (%)
+  gc_window_max:
+    type: float
+    min: 0.0
+    max: 100.0
+    default: 75.0
+    label: Most GC in a window (%)
+  longest_homopolymer:
+    type: int
+    min: 0
+    max: 20
+    default: 6
+    label: Longest run of one base
+    description: >-
+      The longest run of the same base allowed. Longer runs are where chemical synthesis
+      and the polymerase slip. 0 allows any.
+  longest_repeat:
+    type: int
+    min: 0
+    max: 60
+    default: 15
+    label: Longest repeated stretch
+    description: >-
+      The length at which a stretch repeated anywhere else in the region is a problem:
+      repeats are where synthesis misassembles and where a construct recombines. 0 allows
+      any.
+  longest_hairpin_stem:
+    type: int
+    min: 0
+    max: 30
+    default: 10
+    label: Longest hairpin stem
+    description: >-
+      The arm length at which an inverted repeat that can fold back on itself is a
+      problem. Structure in the message, particularly near its 5' end, lowers how much
+      protein is made (Kudla et al., 2009). 0 allows any.
+  hairpin_loop:
+    type: int
+    min: 3
+    max: 100
+    default: 30
+    label: Longest hairpin loop
+    description: The longest loop such a stem may close, in bases.
+  avoid_host_motifs:
+    type: bool
+    default: true
+    label: Avoid the host's own motifs
+    description: >-
+      Whether the host kind's motifs are kept out as well as the design's own: for a
+      bacterial host, internal Shine-Dalgarno-like sequences, which pause the ribosome
+      inside a gene (Li, Oh and Weissman, Nature 484:538, 2012); for a eukaryotic host,
+      the strong splice donor consensus (Shapiro and Senapathy, Nucleic Acids Res
+      15:7155, 1987) and the AATAAA polyadenylation signal (Proudfoot and Brownlee,
+      Nature 263:211, 1976).
+effects:
+  creates:
+    - { type: DNASequence, derived_from: [optimization] }
+  updates:
+    - input: optimization
+      fields:
+        - codons
+        - codons_changed
+        - protein_length
+        - source_cai
+        - optimized_cai
+        - cai_reference
+        - source_gc_content
+        - optimized_gc_content
+        - constraints_met
+        - unmet_constraints
+        - codon_changes
+        - optimized_with
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/optimize.py]
+deterministic: true
+batchable: 10
+metrics:
+  codons_changed:
+    label: Codons changed
+    description: How many codons were written differently.
+  cai_after:
+    label: CAI after
+    description: The optimized region's codon adaptation index against the host's usage.
+  unmet:
+    label: Constraints still broken
+    description: How many constraints the optimized region still breaks.
+timeout: 30m

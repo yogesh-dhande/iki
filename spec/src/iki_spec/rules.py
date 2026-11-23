@@ -48,6 +48,7 @@ __all__ = [
     "read",
     "record_schema",
     "rule_variables",
+    "state_origins",
     "type_check",
 ]
 
@@ -312,6 +313,27 @@ class Checked:
 def _fuel(sources: Iterable[str], count: int = 1) -> int:
     size = sum(len(s) for s in sources)
     return wasm.FUEL * (1 + size // 1000) * max(1, count)
+
+
+def state_origins(field: Field, target: str, origins: Sequence[str]) -> list[bool | None]:
+    """Whether a destination's guards hold given just the origin. None means a guard
+    needs the actual record or its expression cannot be settled from the transition."""
+    guards = field.states[target].guards.values()
+    if not guards:
+        return [True] * len(origins)
+    sources = [s for g in guards for s in (g.check, g.when) if s is not None]
+    found = wasm.call(
+        "iki_state_origins",
+        {
+            "field": field.name,
+            "target": target,
+            "origins": list(origins),
+            "guards": [{"check": g.check, "when": g.when} for g in guards],
+        },
+        _fuel(sources, len(origins)),
+    )
+    results: list[bool | None] = found["origins"]
+    return results
 
 
 def type_check(

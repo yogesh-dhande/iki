@@ -49,9 +49,10 @@ from iki_server.amounts.models import (
 from iki_server.audit import log
 from iki_server.audit.log import current_agent, current_oauth_client, current_via
 from iki_server.core.ids import uuid7
-from iki_server.entities import registry, states
+from iki_server.entities import access, registry, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
+from iki_server.org.services import Refused
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
 from iki_spec.model import EntityType
@@ -264,18 +265,42 @@ def draw(
         raise Wrong({"purpose": ["Choose routine use or QA sampling."]})
     if used_in is not None and used_in.pk == entity.pk:
         raise Wrong({"used_in": [f"is {entity.hrid}, what it's drawn from."]})
-    _confirmed(entity, confirm)
+    receipt = registry.draws_received(used_in.type) if used_in is not None else None
     with transaction.atomic():
-        _lock_records([entity])
         from iki_server.entities import services
+        from iki_server.storage.services import holds_material
+
+        # Take source, destination and followed record locks in one global order. A
+        # concurrent edit to the tube's sources is checked again after taking the locks.
+        parents = [p for _, p in eligibility.followed(entity)] if receipt else []
+        records = [entity, used_in] if used_in is not None and receipt else [entity]
+        locked = _lock_records(records, related=parents)
+        entity = locked[entity.pk]
+        if not access.can_edit(user, entity) and not (
+            access.can_read(user, entity) and holds_material(user, entity)
+        ):
+            raise PermissionDenied(
+                "Drawing material needs Editor in its owning or storing project."
+            )
+        if used_in is not None:
+            used_in = locked.get(used_in.pk, used_in)
+            if not access.can_edit(user, used_in):
+                raise PermissionDenied(
+                    "Recording material used needs Editor in the receiving project."
+                )
+        _confirmed(entity, confirm)
 
         current = services.current_values_of([entity])[entity.pk]
+        followed = eligibility.followed(entity, current)
+        if receipt and any(parent.pk not in locked for _, parent in followed):
+            raise Wrong({"used_in": ["The material's source changed during the draw. Retry it."]})
+        source = followed[0][1] if followed else None
         refused = eligibility.purpose_refusals(user, entity, DrawPurpose(purpose), current)
         if refused is not None:
             raise PermissionDenied(refused)
         (amount,) = _locked([entity])
         change = _taking(entity, amount, given, operation="draw", purpose=purpose, values=current)
-        return _change(
+        movement = _change(
             user,
             entity,
             amount,
@@ -285,9 +310,61 @@ def draw(
             reason,
             purpose=purpose,
             used_in=used_in,
-            source=eligibility.source_of(entity, current),
+            source=source,
             confirmed=confirm,
         )
+        if receipt and used_in is not None:
+            _receive_draw(user, used_in, receipt, movement, entity, source)
+        return movement
+
+
+def _receive_draw(
+    user: User,
+    destination: Entity,
+    field: str,
+    movement: Movement,
+    record: Entity,
+    source: Entity | None,
+) -> None:
+    """Append immutable facts from the debit to the destination's revision (ADR 0189).
+    The destination and source records are locked until the entire draw commits."""
+    from iki_server.entities import services
+
+    project = destination.owner_project
+    assert project is not None  # noqa: S101 - checked as a usable record
+    readable = set(
+        access.shareable_into(user, project)
+        .filter(pk__in=[record.pk, movement.source_id])
+        .values_list("pk", flat=True)
+    )
+    if record.pk not in readable:
+        raise PermissionDenied("The drawn record cannot be referenced from the receiving project.")
+    visible_source = source if source is not None and source.pk in readable else None
+    entry = {
+        "movement": str(movement.pk),
+        "record": str(record.pk),
+        "record_revision": record.revision,
+        "source": str(visible_source.pk) if visible_source else None,
+        "source_revision": visible_source.revision if visible_source else None,
+        "amount": shown(movement.change.copy_abs()),
+        "unit": movement.unit,
+        "at": movement.created_at.isoformat(),
+        "by": str(user.pk),
+    }
+    previous = services.current_values_of([destination])[destination.pk][field]
+    if previous is not None and not isinstance(previous, list):
+        raise Wrong({"used_in": ["Its material draw field must contain a list of receipts."]})
+    try:
+        services.update(
+            user,
+            destination,
+            {field: [*(previous or []), entry]},
+            expected_revision=destination.revision,
+            reason=movement.reason,
+            _recording_draw=True,
+        )
+    except Refused as error:
+        raise Wrong({"used_in": [str(error)]}) from None
 
 
 def _confirmed(entity: Entity, code: str) -> None:
@@ -573,15 +650,22 @@ def _ensure(entity: Entity, unit: str) -> None:
         )
 
 
-def _lock_records(entities: Sequence[Entity]) -> None:
+def _lock_records(
+    entities: Sequence[Entity],
+    *,
+    related: Sequence[Entity] = (),
+) -> dict[Any, Entity]:
     """Keep state and eligibility values stable through a withdrawal and its movement.
     Lock records before touching amounts, including a transfer's new destination balance."""
-    for record in (
-        Entity.objects.select_for_update(no_key=True)
-        .filter(pk__in=[entity.pk for entity in entities])
+    locked = {
+        record.pk: record
+        for record in Entity.objects.select_for_update(no_key=True)
+        .filter(pk__in=[entity.pk for entity in (*entities, *related)])
         .order_by("pk")
-    ):
-        _usable(record)
+    }
+    for entity in entities:
+        _usable(locked[entity.pk])
+    return locked
 
 
 def _locked(entities: Sequence[Entity]) -> list[Amount]:
@@ -779,7 +863,6 @@ def _pool(
     recorded, or the amounts can't be put in volumes; ``source``'s, into an empty one.
     Refused if ``target`` can't take the change, such as when it's locked."""
     from iki_server.entities import services
-    from iki_server.org.services import Refused
 
     wanted = spec(target.type)
     assert wanted is not None  # noqa: S101 - only records with an amount get here

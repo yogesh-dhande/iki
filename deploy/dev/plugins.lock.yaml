@@ -18,6 +18,7 @@ plugins:
   - { name: iki/polymer, local: ../../plugins/polymer, state: active }
   - { name: iki/lots, local: ../../plugins/lots, state: active }
   - { name: iki/plate_assays, local: ../../plugins/plate_assays, state: active }
+  - { name: iki/experiments, local: ../../plugins/experiments, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims
@@ -30,5 +31,6 @@ plugins:
     state: active
     settings: settings/example_models.yaml
   - { name: iki/strains, local: ../../plugins/strains, state: active }
+  - { name: iki/mouse_strains, local: ../../plugins/mouse_strains, state: active }
   # The plugin template, for its container-tier action (ADR 0061).
   - { name: acme/example, local: ../../plugin-template, state: active }

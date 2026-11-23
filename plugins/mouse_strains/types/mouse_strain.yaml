@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: MouseStrain
+label: Mouse strain
+schema_version: 1
+hrid: { prefix: MUS }
+description: A mouse strain registered in MGI, its current nomenclature and the JAX stock where one exists.
+identity: [mgi_id]
+fields:
+  mgi_id:
+    type: string
+    label: MGI strain ID
+    required: true
+    immutable: true
+    indexed: true
+    max_length: 32
+    pattern: "^MGI:[1-9][0-9]*$"
+    pattern_help: an MGI strain accession such as MGI:2163869
+    link: "https://www.informatics.jax.org/strain/{value}"
+  nomenclature:
+    type: string
+    registry: fact
+    label: MGI strain nomenclature
+    max_length: 1000
+    pattern: "^[^\\t\\r\\n]+$"
+    pattern_help: the published strain designation on one line
+  jax_stock:
+    type: string
+    registry: fact
+    label: JAX stock number
+    indexed: true
+    unique: true
+    max_length: 6
+    pattern: "^[0-9]{6}$"
+    pattern_help: six digits including leading zeros, such as 000058
+    link: "https://www.jax.org/strain/{value}"
+  alleles:
+    type: list
+    registry: fact
+    items: { type: ref, to: MouseAllele }
+    max_items: 200
+    description: Curated MGI alleles associated with this strain. A list may be partial.
+display:
+  title: "{{ nomenclature or mgi_id }}"

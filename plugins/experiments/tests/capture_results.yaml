@@ -1,0 +1,46 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: capture_a_result_at_its_supplied_revision
+action: capture_results
+description: A synthetic measurement is captured as the project record the worker read.
+settings: { review_flow: regulated_qc }
+inputs:
+  experiment: [{ values: { title: Synthetic experiment } }]
+  results: [{ type: iki/core.Organism, values: {} }]
+expect:
+  output:
+    updates:
+      experiment:
+        - require_unchanged: true
+          values:
+            review_flow: regulated_qc
+            result_pins:
+              - result: 00000000-0000-7000-8003-000000000002
+                record_id: 00000000-0000-7000-8003-000000000002
+                record_revision: 1
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: directly_observed_research
+action: capture_results
+description: A synthetic visual check can be witnessed without a separate analytical result.
+inputs:
+  experiment:
+    - values:
+        title: Synthetic visual inspection
+        observations:
+          - { observed_at: "2025-07-01T09:30:00Z", note: Synthetic observation for testing. }
+expect:
+  output:
+    updates:
+      experiment:
+        - require_unchanged: true
+          values: { review_flow: research, result_pins: [] }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_empty_evidence
+action: capture_results
+inputs:
+  experiment: [{ values: { title: Synthetic empty experiment } }]
+expect: { error: Select results }
