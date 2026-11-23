@@ -38,6 +38,16 @@ Use the interval in a `month-change` event to load a different month. The end
 is exclusive. See the [data and event contract](stories/booking-calendar.md)
 and [runnable story](stories/booking-calendar.html).
 
+## Storage and scientific inputs
+
+| Entry                                         | Plain data                                                                                                                                                            | DOM event                                                             |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [`box-map`](stories/box-map.md)               | A label, rectangular shape with its numbering order, and an array of occupants with one-based row and column. Optional selections, marks and reconciliation findings. | `slot-activate` carries the row, column, position label and occupant. |
+| [`quantity-input`](stories/quantity-input.md) | A label, unit choices, reference unit and `{ number, unit, other }` strings. A custom unit can be entered as a UCUM code.                                             | `value-change` carries the edited quantity draft.                     |
+| [`sequence-input`](stories/sequence-input.md) | A label and string value. Use `format: "helm"` for multiline notation and supply a live parser description in `reading`.                                              | `value-change` carries the text as entered.                           |
+
+The corresponding element tags are `<iki-box-map>`, `<iki-quantity-input>` and `<iki-sequence-input>`. Assign the data as a JavaScript property. Load `@ikisci/ui/tokens.css` and `@ikisci/science/box-map.css` to style the box map. The editors share `@ikisci/science/science-inputs.css`.
+
 ## Next.js
 
 Create the element inside a Client Component. Import the browser module in an

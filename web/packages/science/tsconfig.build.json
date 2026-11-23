@@ -4,6 +4,11 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src/booking-calendar.ts"],
+  "include": [
+    "src/booking-calendar.ts",
+    "src/box-map.ts",
+    "src/quantity-input.ts",
+    "src/sequence-input.ts"
+  ],
   "exclude": ["src/**/*.test.ts"]
 }

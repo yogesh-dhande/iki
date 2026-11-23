@@ -67,6 +67,22 @@ def test_standalone_story(
             expect(page.get_by_text("Selected demo-1", exact=True)).to_be_visible()
             page.get_by_role("button", name="Next month").click()
             expect(page.get_by_role("table", name="Protocol room: April 2026")).to_be_visible()
+        elif component == "box-map":
+            cell = page.get_by_role("gridcell", name="A1, Demo 1 Blank")
+            cell.press("ArrowRight")
+            next_cell = page.get_by_role("gridcell", name="A2, empty")
+            expect(next_cell).to_be_focused()
+            next_cell.press("Space")
+            expect(next_cell).to_have_attribute("aria-selected", "true")
+            expect(page.get_by_role("status")).to_have_text("A2 selected")
+        elif component == "sequence-input":
+            page.get_by_role("textbox", name="Synthetic sequence").fill("ACG")
+            expect(page.get_by_role("status")).to_have_text("3 characters")
+        elif component == "quantity-input":
+            page.get_by_role("textbox", name="Example volume").fill("1.5")
+            page.get_by_role("combobox", name="Unit for Example volume").select_option("__other")
+            page.get_by_role("textbox", name="UCUM unit code").fill("L")
+            expect(page.get_by_role("status")).to_have_text("1.5 L")
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(
@@ -82,7 +98,15 @@ def test_standalone_story(
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert not errors, errors
         assert all(url.startswith(f"{gallery_url}/") for url in requests), requests
-        if component in {"booking-calendar", "button", "tokens", "plasmid-map"}:
+        if component in {
+            "booking-calendar",
+            "button",
+            "tokens",
+            "plasmid-map",
+            "box-map",
+            "sequence-input",
+            "quantity-input",
+        }:
             assert not any(url.endswith(".wasm") for url in requests), requests
     finally:
         context.close()

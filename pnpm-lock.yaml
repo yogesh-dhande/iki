@@ -223,6 +223,9 @@ importers:
       '@bwip-js/browser':
         specifier: 4.11.4
         version: 4.11.4
+      '@ikisci/science':
+        specifier: workspace:*
+        version: link:../packages/science
       '@ikisci/sdk':
         specifier: workspace:*
         version: link:../packages/sdk
