@@ -35,6 +35,11 @@ export const placesQuery = queryOptions({
   queryFn: async () => unwrap(await iki.GET("/api/v1/storage/places")),
 });
 
+export const awaitingPutAwayQuery = queryOptions({
+  queryKey: [...STORAGE, "awaiting-put-away"],
+  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/awaiting-put-away")),
+});
+
 export function containerQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "container", ref.toUpperCase()],

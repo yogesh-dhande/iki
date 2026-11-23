@@ -12,7 +12,7 @@ import { useId, useMemo, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { BoxMap, MapLegend, slotKey } from "../box-map";
-import { entityQuery, personName } from "../entities";
+import { entityQuery, personName, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import {
   containerQuery,
@@ -171,6 +171,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [cancelling, setCancelling] = useState(false);
   const { say } = useMessages();
   const id = receipt.id;
+  const planStatus = useId();
   const refresh = (next: Receipt) => {
     setReceipt(next);
     void client.invalidateQueries({ queryKey: [...STORAGE, "receipts"] });
@@ -218,40 +219,57 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const putting = receipt.lines.filter(
     (l) => l.outcome && RECEIVED.includes(l.outcome) && l.entity,
   );
-  const shape = container.data?.shape ?? null;
-  const free = useMemo(
-    () => (shape && container.data ? freeSlots(shape, container.data.contents) : []),
-    [shape, container.data],
-  );
-  // Each received line's position: the one chosen, or the next free one not chosen.
-  const plan = useMemo(() => {
-    const taken = new Set(Object.values(where).filter(Boolean));
-    const left = free.map((s) => s.label).filter((l) => !taken.has(l));
-    const out: Record<string, string> = {};
-    for (const l of putting) {
-      const chosen = where[l.id];
-      out[l.id] = chosen ?? left.shift() ?? "";
+  const types = useQuery({ ...typesQuery, enabled: !!boxShown }).data ?? [];
+  const destination = container.isSuccess && box.trim() === boxShown ? container.data : undefined;
+  const shape = destination?.shape;
+  const usableBox = destination?.can.keep && !destination.archived && shape ? destination : null;
+  const accepts = new Set(usableBox?.holds ?? []);
+  for (const type of types) {
+    if (usableBox?.holds.includes(type.name)) {
+      for (const subtype of type.subtypes) accepts.add(subtype);
     }
-    return out;
-  }, [free, putting, where]);
+  }
+  const free = useMemo(
+    () => (usableBox && shape ? freeSlots(shape, usableBox.contents) : []),
+    [shape, usableBox],
+  );
+  const reserved = new Set(putting.map((line) => where[line.id]));
+  const available = free.map((slot) => slot.label).filter((label) => !reserved.has(label));
+  const positions = new Set(free.map((slot) => slot.label));
+  const plan: Record<string, string> = {};
+  const putAway: { line: string; to: string; position: string }[] = [];
+  const keepInCustody: string[] = [];
+  for (const line of putting) {
+    const choice = where[line.id];
+    if (choice === "custody") {
+      plan[line.id] = choice;
+      keepInCustody.push(line.id);
+    } else if (usableBox && line.ref && accepts.has(line.ref.type) && !line.ref.archived) {
+      const position = choice ?? available.shift();
+      if (position && positions.delete(position)) {
+        plan[line.id] = position;
+        putAway.push({ line: line.id, to: usableBox.id, position });
+      }
+    }
+  }
+  const allocation = {
+    missing_rest: missingRest,
+    put_away: putAway,
+    keep_in_custody: keepInCustody,
+  };
+  const ready =
+    (!box.trim() || (!!usableBox && !container.isFetching)) &&
+    putAway.length + keepInCustody.length === putting.length &&
+    !scan.isPending &&
+    !check.isPending &&
+    !drop.isPending &&
+    !describe.isPending;
   const complete = useApiMutation(
-    async () =>
+    async (body: typeof allocation) =>
       unwrap(
         await iki.POST("/api/v1/receipts/{receipt_id}/complete", {
           params: { path: { receipt_id: id } },
-          body: {
-            missing_rest: missingRest,
-            put_away:
-              boxShown && container.data
-                ? putting
-                    .filter((l) => plan[l.id])
-                    .map((l) => ({
-                      line: l.id,
-                      to: container.data.id,
-                      position: plan[l.id] ?? null,
-                    }))
-                : [],
-          },
+          body,
         }),
       ),
     [STORAGE],
@@ -273,12 +291,9 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     (l) => l.outcome && ["missing", "extra", "damaged", "rejected"].includes(l.outcome),
   ).length;
   const marks = new Map<string, string>();
-  if (container.data && shape) {
-    for (const l of putting) {
-      const pos = plan[l.id];
-      const slot = free.find((s) => s.label === pos);
-      if (slot) marks.set(slotKey(slot.row, slot.column), "suggested");
-    }
+  for (const item of putAway) {
+    const slot = free.find((s) => s.label === item.position);
+    if (slot) marks.set(slotKey(slot.row, slot.column), "suggested");
   }
   return (
     <>
@@ -406,17 +421,26 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           className="putaway-box"
           onSubmit={(e) => {
             e.preventDefault();
-            setWhere({});
-            setBoxShown(box.trim());
+            if (boxShown === box.trim()) void container.refetch();
+            else setBoxShown(box.trim());
           }}
         >
           <TextField
             label="Box"
             value={box}
-            onChange={setBox}
+            onChange={(value) => {
+              setBox(value);
+              setBoxShown("");
+              // A position belongs to the old box. A decision to retain a tube still applies.
+              setWhere((previous) =>
+                Object.fromEntries(
+                  Object.entries(previous).filter(([, choice]) => choice === "custody"),
+                ),
+              );
+            }}
             optional
             maxLength={64}
-            help="Scan or type the box they go in, such as BOX-000014; each goes in its next free position."
+            help="Show a box to assign its free positions, or choose which tubes to keep in custody."
           />
           <div className="actions">
             <Button type="submit" disabled={!box.trim()}>
@@ -425,59 +449,64 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </div>
         </form>
         {container.error ? <ProblemAlert problem={problemOf(container.error)} /> : null}
-        {container.data && !shape ? (
-          <div className="alert alert-warning" role="note">
-            <p>{container.data.hrid} has no positions: choose a box.</p>
-          </div>
+        {destination && !usableBox ? (
+          <p role="alert">
+            {shape
+              ? `You can’t put records in ${destination.hrid}.`
+              : `${destination.hrid} has no positions.`}{" "}
+            Choose another box or clear the box field to keep the tubes in custody.
+          </p>
         ) : null}
-        {container.data && shape ? (
-          <div className="putaway">
-            <div className="putaway-map">
-              <BoxMap
-                label={`${stepName(container.data)}’s positions, with where each goes`}
-                shape={shape}
-                contents={container.data.contents}
-                findings={marks}
-                showFree
-                compact
-              />
-              <MapLegend />
-            </div>
-            <div className="table-scroll">
-              <table className="table">
-                <caption>
-                  Where each goes in {stepName(container.data)}: {free.length} free
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Record</th>
-                    <th scope="col">Position</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {putting.map((l, i) => (
-                    <tr key={l.id}>
-                      <th scope="row">{lineName(l)}</th>
+        {putting.length ? (
+          <div className="table-scroll">
+            <table className="table">
+              <caption>
+                {usableBox
+                  ? `Where each goes in ${stepName(usableBox)}: ${String(free.length)} free`
+                  : "Where each goes"}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">Position</th>
+                </tr>
+              </thead>
+              <tbody>
+                {putting.map((line) => {
+                  const possible =
+                    line.ref && !line.ref.archived && accepts.has(line.ref.type) ? free : [];
+                  const submitted = complete.variables;
+                  const placed = submitted?.put_away.findIndex((item) => item.line === line.id);
+                  const kept = submitted?.keep_in_custody.indexOf(line.id);
+                  return (
+                    <tr key={line.id}>
+                      <th scope="row">{lineName(line)}</th>
                       <td>
                         <SelectField
-                          label={`Position for ${l.ref?.hrid ?? l.code}`}
+                          label={`Position for ${line.ref?.hrid ?? line.code}`}
                           compact
-                          value={plan[l.id] ?? ""}
+                          value={plan[line.id] ?? ""}
                           options={[
-                            { value: "", label: "Don’t put it away" },
-                            ...free.map((s) => ({ value: s.label, label: s.label })),
+                            { value: "", label: "Choose a position or custody" },
+                            { value: "custody", label: "Keep in custody" },
+                            ...possible
+                              .filter((s) => !reserved.has(s.label) || where[line.id] === s.label)
+                              .map((s) => ({ value: s.label, label: s.label })),
                           ]}
-                          onChange={(v) => {
-                            setWhere({ ...where, [l.id]: v });
+                          onChange={(value) => {
+                            setWhere({ ...where, [line.id]: value });
                           }}
-                          error={errors[`put_away/${String(i)}`]}
+                          error={
+                            errors[`put_away/${String(placed)}`] ??
+                            errors[`keep_in_custody/${String(kept)}`]
+                          }
                         />
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         ) : null}
       </section>
@@ -492,7 +521,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </div>
         ) : null}
         <p>
-          Completing takes custody of what’s received and puts it away, as one change.
+          Completing records custody and the positions you chose.
           {discrepancies
             ? ` The requester is told of ${String(discrepancies)} that ${discrepancies === 1 ? "didn’t" : "didn’t"} arrive as expected.`
             : ""}
@@ -504,13 +533,27 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             onChange={setMissingRest}
           />
         ) : null}
+        <p id={planStatus} role="status">
+          {container.isFetching
+            ? "Loading the box’s free positions…"
+            : box.trim() && !usableBox
+              ? "Show a box you can use or clear the box field to keep tubes in custody."
+              : putAway.length + keepInCustody.length < putting.length
+                ? "Choose a free position or Keep in custody for each received tube."
+                : `${String(putAway.length)} to put away · ${String(keepInCustody.length)} to keep in custody.`}
+        </p>
         <div className="actions">
           <Button
             variant="primary"
+            // A press that started before the allocation was ready ends on a different control.
+            key={ready ? "ready" : "waiting"}
+            describedBy={planStatus}
+            disabled={!ready}
             busy={complete.isPending}
             busyText="Completing…"
             onClick={() => {
-              complete.mutate(undefined, {
+              if (!ready) return;
+              complete.mutate(allocation, {
                 onSuccess: () => {
                   say(`Received ${receipt.request.hrid}.`);
                   void client.invalidateQueries({ queryKey: STORAGE });
@@ -530,6 +573,19 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </Button>
         </div>
       </section>
+      {usableBox && shape ? (
+        <section className="card" aria-label="Box map">
+          <BoxMap
+            label={`${stepName(usableBox)}’s positions, with where each goes`}
+            shape={shape}
+            contents={usableBox.contents}
+            findings={marks}
+            showFree
+            compact
+          />
+          <MapLegend />
+        </section>
+      ) : null}
       <ConfirmDialog
         isOpen={cancelling}
         title="Cancel this receipt?"
@@ -741,6 +797,8 @@ function PastReceipts({ receipts }: { receipts: Receipt[] }) {
                             {stepName(l.put_away)}
                             {l.put_away.position ? `, ${l.put_away.position}` : ""}
                           </Link>
+                        ) : l.received_unplaced ? (
+                          "Received without a storage location"
                         ) : (
                           "—"
                         )}

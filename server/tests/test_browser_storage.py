@@ -9,8 +9,9 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
+    NEXT_FRAMES,
     _orm_beside_playwright,
     assert_clean,
     browser,
@@ -230,6 +231,73 @@ def outcome(page: Page, code: str, name: str) -> None:
     line.get_by_role("group", name=re.compile("outcome$")).get_by_role(
         "button", name=name, exact=True
     ).click()
+
+
+def test_a_press_while_the_receiving_box_loads_cannot_complete_the_receipt(
+    open_as: Any, world: World
+) -> None:
+    sent = sent_to_a_core(world, 1)
+    tube, box = sent["tubes"][0], sent["incoming"]
+    page: Page = open_as("tech", f"/storage/receive/{sent['ask']['hrid']}/")
+    page.get_by_role("textbox", name="Handed over by").fill("Courier")
+    page.get_by_role("button", name="Start receiving").click()
+    outcome(page, "RC000", "Matched")
+    matched = page.get_by_role("button", name=re.compile("Matched$"))
+    expect(matched).to_have_attribute("aria-pressed", "true")
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    assert receipt.handed_over_by == "Courier"
+    line = receipt.lines.get(entity_id=tube["id"])
+    assert line.outcome == "matched"
+
+    lookup = f"**/api/v1/storage/containers/{box['hrid']}"
+    held: list[Route] = []
+    page.route(lookup, lambda route: held.append(route), times=1)
+    posts: list[dict[str, Any]] = []
+
+    def record_completion(request: Request) -> None:
+        if request.method == "POST" and request.url.endswith(f"/receipts/{receipt.pk}/complete"):
+            payload = request.post_data_json
+            assert isinstance(payload, dict)
+            posts.append(payload)
+
+    page.on("request", record_completion)
+    page.get_by_role("textbox", name=re.compile("^Box")).fill(box["hrid"])
+    complete = page.get_by_role("button", name="Complete receiving")
+    expect(complete).to_be_disabled()
+    with page.expect_request(lookup):
+        page.get_by_role("button", name="Show its free positions").click()
+
+    # A physical press entirely inside the loading period.
+    complete.hover(force=True)
+    page.mouse.down()
+    page.mouse.up()
+    page.evaluate(NEXT_FRAMES)
+    receipt.refresh_from_db()
+    assert posts == []
+    assert receipt.status == ReceiptStatus.OPEN
+
+    # Release on the button after the suggested position appears. A press begun before
+    # the receiver could see that position must still leave the receipt open.
+    page.mouse.down()
+    held[0].continue_()
+    position = page.get_by_role("combobox", name=f"Position for {tube['hrid']}")
+    expect(position).to_have_value("A1")
+    complete.hover(force=True)
+    page.mouse.up()
+    page.evaluate(NEXT_FRAMES)
+    receipt.refresh_from_db()
+    assert posts == []
+    assert receipt.status == ReceiptStatus.OPEN
+    assert not Place.objects.filter(pk=tube["id"]).exists()
+
+    complete.click()
+    page.get_by_role("heading", level=2, name="Received").wait_for()
+    receipt.refresh_from_db()
+    assert len(posts) == 1
+    assert posts[0]["put_away"] == [{"line": str(line.pk), "to": str(box["id"]), "position": "A1"}]
+    assert receipt.status == ReceiptStatus.COMPLETED
+    assert where(tube) == (box["hrid"], 1, 1)
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

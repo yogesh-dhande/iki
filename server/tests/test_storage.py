@@ -462,6 +462,113 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     assert [x["code"] for x in again["lines"]] == ["RC003"]
 
 
+def test_completion_accounts_for_every_received_tube_before_taking_custody(lab: Lab) -> None:
+    tech = lab.api("tech")
+    incoming = box(tech, lab.core, "Incoming", 2, 2)
+    ask, tubes = sent_with_tubes(lab, 3)
+    receipt = tech.post(f"/entities/{ask['id']}/receipts").json()
+    path = f"/receipts/{receipt['id']}"
+    first, second, unchecked = [line["id"] for line in receipt["lines"]]
+    tech.patch(path, {"handed_over_by": "Courier"})
+    tech.patch(f"{path}/lines/{first}", {"outcome": "matched"})
+    tech.patch(f"{path}/lines/{second}", {"outcome": "damaged", "note": "Cap cracked"})
+    placement = {"line": first, "to": incoming["id"], "position": "A1"}
+
+    # A pending box lookup used to send an empty list. A partial plan is just as unsafe.
+    incomplete: list[dict[str, Any]] = [{}, {"put_away": []}, {"put_away": [placement]}]
+    for decision in incomplete:
+        refused = errors(tech.post(f"{path}/complete", {"missing_rest": True, **decision}))
+        assert f"#/lines/{second}" in refused
+    # An explicit decision must refer to one eligible line, and appear only once.
+    for holds in ([first, second], [second, second], [second, unchecked], [second, incoming["id"]]):
+        refused = errors(
+            tech.post(
+                f"{path}/complete",
+                {"missing_rest": True, "put_away": [placement], "keep_in_custody": holds},
+            )
+        )
+        assert any(key.startswith("#/keep_in_custody/") for key in refused), refused
+    # A top-level box isn't a placement, even alongside explicit custody decisions.
+    assert (
+        tech.post(
+            f"{path}/complete",
+            {
+                "box": incoming["id"],
+                "put_away": [],
+                "keep_in_custody": [first, second],
+                "missing_rest": True,
+            },
+        ).status_code
+        == 422
+    )
+
+    untouched = tech.get(path).json()
+    assert untouched["status"] == "open" and untouched["outcomes"]["unchecked"] == 1
+    assert not Place.objects.filter(entity_id__in=[t["id"] for t in tubes]).exists()
+    assert not AuditEvent.objects.filter(action="request.receipt_completed").exists()
+
+    done = tech.post(
+        f"{path}/complete",
+        {"missing_rest": True, "put_away": [placement], "keep_in_custody": [second]},
+    )
+    assert done.status_code == 200, done.content
+    placements = {line["id"]: line["put_away"] for line in done.json()["lines"]}
+    assert placements[first]["position"] == "A1" and placements[second] is None
+    held = tech.get(f"/entities/{tubes[1]['id']}/location").json()
+    assert held["custodian"]["email"] == "tech@example.com" and not held["stored"]
+
+
+def test_material_received_without_a_location_can_be_reconciled(lab: Lab) -> None:
+    tech = lab.api("tech")
+    asking = lab.api("editor")
+    incoming = box(tech, lab.core, "Incoming", 1, 2)
+    ask, tubes = sent_with_tubes(lab, 3)
+    receipt = tech.post(f"/entities/{ask['id']}/receipts").json()
+    path = f"/receipts/{receipt['id']}"
+    a, b, c = [line["id"] for line in receipt["lines"]]
+    tech.patch(path, {"handed_over_by": "Courier"})
+    tech.patch(f"{path}/lines/{a}", {"outcome": "matched"})
+    tech.patch(f"{path}/lines/{b}", {"outcome": "damaged", "note": "Cracked cap"})
+    tech.patch(f"{path}/lines/{c}", {"outcome": "rejected", "note": "Thawed"})
+    done = tech.post(
+        f"{path}/complete",
+        {"keep_in_custody": [a], "put_away": [{"line": b, "to": incoming["id"], "position": "A2"}]},
+    )
+    assert done.status_code == 200, done.content
+    queue = "/storage/awaiting-put-away"
+    pending = tech.get(queue)
+    assert pending.status_code == 200, pending.content
+    assert [(r["id"], r["custodian"]["email"]) for r in pending.json()] == [
+        (tubes[0]["id"], "tech@example.com")
+    ]
+    assert [r["id"] for r in asking.get(queue).json()] == [tubes[0]["id"]]
+    assert lab.api("outsider").get(queue).json() == []
+
+    # The asking project cannot see the receiving box. Hidden placement is distinct
+    # from receiving a tube without a location or holding a rejected tube.
+    report = asking.get(path).json()
+    assert [line["received_unplaced"] for line in report["lines"]] == [True, False, False]
+    assert all(line["put_away"] is None for line in report["lines"])
+
+    # A physical scan finds the unplaced tube and resolves it into this box.
+    started = tech.post(f"/storage/containers/{incoming['id']}/reconciliations")
+    recon = f"/reconciliations/{started.json()['id']}"
+    scanned = tech.post(
+        f"{recon}/scans",
+        {"scans": [{"position": "A1", "code": "RC000"}, {"position": "A2", "code": "RC001"}]},
+    )
+    assert scanned.status_code == 200, scanned.content
+    unexpected = next(line for line in scanned.json()["lines"] if line["code"] == "RC000")
+    assert unexpected["finding"] == "unexpected"
+    resolved = tech.patch(f"{recon}/lines/{unexpected['id']}", {"resolution": "placed"})
+    assert resolved.status_code == 200, resolved.content
+    finished = tech.post(f"{recon}/complete", {})
+    assert finished.status_code == 200, finished.content
+    assert tech.get(queue).json() == []
+    assert contents(tech, incoming)["A1"] == tubes[0]["hrid"]
+    assert asking.get(path).json()["lines"][0]["received_unplaced"] is True
+
+
 # --- Reconciling --------------------------------------------------------------------------------
 
 

@@ -14,6 +14,7 @@ import { personName, typeLabel, typesQuery } from "../entities";
 import { LabelDialog } from "../labels";
 import { usePageTitle } from "../layout";
 import {
+  awaitingPutAwayQuery,
   checkedOutQuery,
   containerQuery,
   freeSlots,
@@ -91,6 +92,7 @@ function ScanResults({ code, matches }: { code: string; matches: ScanMatch[] }) 
 export function StoragePage() {
   usePageTitle("Storage");
   const places = useQuery(placesQuery);
+  const awaiting = useQuery(awaitingPutAwayQuery);
   const me = useQuery(meQuery).data;
   const out = useQuery({ ...checkedOutQuery(me?.id), enabled: !!me });
   const types = useQuery(typesQuery).data ?? [];
@@ -230,6 +232,48 @@ export function StoragePage() {
               </Button>
             </div>
           </>
+        ) : null}
+      </section>
+      <section className="card" aria-labelledby="awaiting-title">
+        <h2 className="section-title" id="awaiting-title">
+          Awaiting put-away
+        </h2>
+        {awaiting.error ? <ProblemAlert problem={problemOf(awaiting.error)} /> : null}
+        {awaiting.isPending ? <Loading label="Loading records awaiting put-away…" /> : null}
+        {awaiting.data && !awaiting.data.length ? (
+          <p className="muted">No received records are awaiting a storage location.</p>
+        ) : null}
+        {awaiting.data?.length ? (
+          <div className="table-scroll">
+            <table className="table">
+              <caption className="visually-hidden">
+                Received records awaiting a storage location
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Record</th>
+                  <th scope="col">Custodian</th>
+                  <th scope="col">In their custody since</th>
+                </tr>
+              </thead>
+              <tbody>
+                {awaiting.data.map((x) => (
+                  <tr key={x.id}>
+                    <th scope="row">
+                      <Link to="/entities/$ref/" params={{ ref: x.hrid }}>
+                        {x.hrid}
+                      </Link>
+                      {x.title !== x.hrid ? <span className="cell-meta">{x.title}</span> : null}
+                    </th>
+                    <td>{personName(x.custodian)}</td>
+                    <td>
+                      <Time value={x.custody_since} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : null}
       </section>
       {checkingIn ? (

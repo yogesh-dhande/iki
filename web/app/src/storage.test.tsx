@@ -9,7 +9,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls, page } from "./test-server";
+import { answer, calls, ME, page } from "./test-server";
 
 const BOX_ID = "00000000-0000-7000-8000-0000000b0001";
 const SHAPE = { rows: 9, columns: 9, labels: "letter_number", order: "by_row", size: 81 } as const;
@@ -236,5 +236,69 @@ describe("a record's page", () => {
     const here = await within(card).findByRole("gridcell", { name: /^B3,/ });
     expect(here).toHaveAttribute("aria-current", "location");
     expect(within(card).getByRole("button", { name: "Check out" })).toBeInTheDocument();
+  });
+});
+
+describe("receiving without a storage location", () => {
+  it("lists records awaiting put-away with their current custodian", async () => {
+    withTypes();
+    answer("GET /api/v1/storage/places", []);
+    answer("GET /api/v1/storage/checked-out", []);
+    const tube = occupant(23, 2, 3);
+    answer("GET /api/v1/storage/awaiting-put-away", [
+      { ...tube.ref, id: tube.id, custodian: ME, custody_since: "2026-03-14T09:00:00Z" },
+    ]);
+
+    await renderApp("/storage/");
+    const waiting = await screen.findByRole("region", { name: "Awaiting put-away" });
+    expect(await within(waiting).findByRole("link", { name: "TUBE-000023" })).toHaveAttribute(
+      "href",
+      "/entities/TUBE-000023/",
+    );
+    expect(within(waiting).getByText(ME.name)).toBeVisible();
+  });
+
+  it("distinguishes an unplaced receipt line from one with a hidden destination", async () => {
+    withTypes();
+    const ref = "REQ-000001";
+    answer(`GET /api/v1/entities/${ref}`, entity({ hrid: ref }));
+    answer(`GET /api/v1/entities/${ref}/receipts`, {
+      expected: 0,
+      can_receive: true,
+      receipts: [
+        {
+          id: "receipt-1",
+          status: "completed",
+          received_by: ME,
+          handed_over_by: "Courier",
+          completed_at: "2026-03-14T09:00:00Z",
+          outcomes: { matched: 2 },
+          lines: [
+            {
+              id: "line-1",
+              code: "LB-0023",
+              outcome: "matched",
+              put_away: null,
+              received_unplaced: true,
+            },
+            {
+              id: "line-2",
+              code: "LB-0036",
+              outcome: "matched",
+              put_away: null,
+              received_unplaced: false,
+            },
+          ],
+        },
+      ],
+    });
+
+    const { user } = await renderApp(`/storage/receive/${ref}/`);
+    const received = screen.getByRole("region", { name: "Received" });
+    await user.click(within(received).getByText(/from Courier/));
+    const unplaced = within(received).getByRole("row", { name: /LB-0023/ });
+    const hidden = within(received).getByRole("row", { name: /LB-0036/ });
+    expect(within(unplaced).getByText("Received without a storage location")).toBeVisible();
+    expect(within(hidden).getByText("—")).toBeVisible();
   });
 });

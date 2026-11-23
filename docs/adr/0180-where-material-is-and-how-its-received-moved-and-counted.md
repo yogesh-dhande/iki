@@ -153,16 +153,29 @@ note; a damaged, rejected or extra line needs one. The receipt names who
 handed it over (a courier and a waybill, or a person) and a note, such as
 its temperature on arrival.
 
-**Completing it is one change.** Every expected line must have an outcome:
-"mark the rest missing" is a choice someone makes. Matched and damaged lines
-are received: each record's custody passes to the receiver (`received`), and
-each is put away into the position chosen for it, which Iki suggests as the
-next free positions of a box the receiver picks. A received record is moved
-from wherever its project recorded it: the receipt is the record that it
-isn't there any more. A rejected line is in the receiver's custody, not put
-away, until it's returned or destroyed; a missing one was never received.
-Completed, the receipt and its lines don't change. It's an audit event in
-both projects, `request.receipt_completed`, and a webhook event.
+**Completing it is one change.** Every expected line needs an outcome.
+The receiver can explicitly mark the rest missing. For every matched or
+damaged line, the receiver chooses a position or chooses to hold the
+material without a storage location. The completion request names each such
+line exactly once, in `put_away` with its box and position or in
+`keep_in_custody`. Iki suggests free positions once the selected box has
+loaded. The completion button waits for that lookup and for a placement
+decision on every matched or damaged line. The server refuses an incomplete
+decision and leaves the receipt open. Completion takes custody from
+wherever the sending project recorded the material. A rejected line stays
+with the receiver pending return or destruction. A missing line never
+arrived, and an extra scan records a discrepancy.
+
+**Unplaced material stays visible until put away.** A completed receipt
+marks a matched or damaged line held without a location as
+`received_unplaced`. The Storage page lists received material awaiting
+put-away with its current custodian. Record permissions determine who sees
+each entry. Placing the material clears it from the list. If a box count
+finds the material, the receiver can resolve the unexpected scan by placing
+it in the scanned position. A completed receipt and its lines are immutable,
+so the original placement decision remains in the history. Completion is an
+audit event in both projects, `request.receipt_completed`, and a webhook
+event.
 
 **Discrepancies go back to the requester.** A receipt with any line that
 isn't matched tells whoever submitted the request, and its watchers, who can

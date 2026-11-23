@@ -9,6 +9,7 @@
 - ``POST /storage/check-out``, ``/storage/check-in``, ``/storage/hand-over``: custody.
 - ``GET /storage/scan``: the records a scanned code names.
 - ``GET /storage/checked-out``: what someone has checked out.
+- ``GET /storage/awaiting-put-away``: material received and still held without a location.
 - Receipts: ``/entities/{ref}/receipts`` and ``/receipts/{id}``.
 - Reconciliations: ``/storage/containers/{ref}/reconciliations`` and
   ``/reconciliations/{id}``.
@@ -27,6 +28,7 @@ from uuid import UUID
 
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
+from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller
@@ -664,6 +666,29 @@ def scan(request: HttpRequest, params: Query[ScanParams]) -> dict[str, Any]:
     return {"code": code, "items": items}
 
 
+class AwaitingPutAwayOut(RefOut):
+    id: UUID
+    custodian: UserOut
+    custody_since: datetime
+
+
+@router.get(
+    "/storage/awaiting-put-away",
+    response=list[AwaitingPutAwayOut],
+    summary="Received material awaiting a storage location",
+)
+def list_awaiting_put_away(request: HttpRequest) -> list[dict[str, Any]]:
+    """Matched and damaged records you can read that are still in custody without a location."""
+    me = caller(request)
+    places = list(receipts.awaiting_put_away(me))
+    refs = _refs(me, [p.pk for p in places])
+    return [
+        {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
+        for p in places
+        if p.pk in refs
+    ]
+
+
 class CheckedOutOut(StepOut):
     custodian: UserOut
     custody_since: datetime
@@ -708,6 +733,9 @@ class ReceiptLineOut(Schema):
     checked_by: UserOut | None
     checked_at: datetime | None
     put_away: StepOut | None = Field(description="Where it was put away, once completed.")
+    received_unplaced: bool = Field(
+        description="It was accepted in custody without placement when this receipt completed."
+    )
 
 
 class ReceiptOut(Schema):
@@ -765,6 +793,9 @@ def _receipt_out(me: User, receipt: Receipt, refused: str | None = None) -> dict
                 "note": x.note,
                 "checked_by": x.checked_by,
                 "checked_at": x.checked_at,
+                "received_unplaced": receipt.status == ReceiptStatus.COMPLETED
+                and x.outcome in receipts.RECEIVED
+                and x.put_in_id is None,
                 "put_away": {
                     **refs[x.put_in_id],
                     "id": x.put_in_id,
@@ -925,7 +956,13 @@ class PutAwayIn(Schema):
 
 
 class CompleteReceiptIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
+    keep_in_custody: list[UUID] = Field(
+        default_factory=list,
+        description="IDs of received lines the receiver will hold without a storage location.",
+    )
     missing_rest: bool = Field(
         False, description="Mark every expected line not yet checked missing."
     )
@@ -935,12 +972,20 @@ class CompleteReceiptIn(Schema):
 def complete_receipt(
     request: HttpRequest, receipt_id: UUID, payload: CompleteReceiptIn
 ) -> dict[str, Any]:
-    """Takes custody of what was received, puts each away where it's given, and tells the
-    requester of anything missing, extra, damaged or rejected: all of it, or none."""
+    """Every matched or damaged line must appear once in put_away or keep_in_custody.
+    Takes custody, records each placement decision and reports discrepancies in one change."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     put = [receipts.PutAway(p.line, _find(me, p.to), p.position) for p in payload.put_away]
-    _receiving(lambda: receipts.complete(me, receipt, put, missing_rest=payload.missing_rest))
+    _receiving(
+        lambda: receipts.complete(
+            me,
+            receipt,
+            put,
+            keep_in_custody=payload.keep_in_custody,
+            missing_rest=payload.missing_rest,
+        )
+    )
     return _receipt_out(me, _receipt(me, receipt_id))
 
 

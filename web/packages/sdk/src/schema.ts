@@ -3267,8 +3267,8 @@ export interface paths {
         put?: never;
         /**
          * Complete a receipt
-         * @description Takes custody of what was received, puts each away where it's given, and tells the
-         *     requester of anything missing, extra, damaged or rejected: all of it, or none.
+         * @description Every matched or damaged line must appear once in put_away or keep_in_custody.
+         *     Takes custody, records each placement decision and reports discrepancies in one change.
          */
         post: operations["iki_server_api_storage_complete_receipt"];
         delete?: never;
@@ -4233,6 +4233,26 @@ export interface paths {
         post?: never;
         /** Delete a saved mapping */
         delete: operations["iki_server_api_spreadsheets_delete_mapping"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/awaiting-put-away": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Received material awaiting a storage location
+         * @description Matched and damaged records you can read that are still in custody without a location.
+         */
+        get: operations["iki_server_api_storage_list_awaiting_put_away"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6051,6 +6071,41 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AwaitingPutAwayOut */
+        AwaitingPutAwayOut: {
+            /** Archived */
+            archived: boolean;
+            custodian: components["schemas"]["UserOut"];
+            /**
+             * Custody Since
+             * Format: date-time
+             */
+            custody_since: string;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
         /** BatchCan */
         BatchCan: {
             /**
@@ -6669,6 +6724,11 @@ export interface components {
         };
         /** CompleteReceiptIn */
         CompleteReceiptIn: {
+            /**
+             * Keep In Custody
+             * @description IDs of received lines the receiver will hold without a storage location.
+             */
+            keep_in_custody?: string[];
             /**
              * Missing Rest
              * @description Mark every expected line not yet checked missing.
@@ -12795,6 +12855,11 @@ export interface components {
             outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
             /** @description Where it was put away, once completed. */
             put_away: components["schemas"]["StepOut"] | null;
+            /**
+             * Received Unplaced
+             * @description It was accepted in custody without placement when this receipt completed.
+             */
+            received_unplaced: boolean;
             ref: components["schemas"]["RefOut"] | null;
         };
         /** ReceiptOut */
@@ -24308,6 +24373,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_storage_list_awaiting_put_away: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwaitingPutAwayOut"][];
+                };
             };
         };
     };
