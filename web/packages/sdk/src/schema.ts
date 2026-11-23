@@ -1124,8 +1124,9 @@ export interface paths {
         put?: never;
         /**
          * Adjust its amount
-         * @description Sets it to what it was found to be, saying why: a recount, a spill, a correction. A
-         *     record with no amount recorded gets one.
+         * @description Records an absolute count, with a reason. Send the observed amount's exact
+         *     `updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.
+         *     A missing header answers 428. A changed balance answers 409 and must be recounted.
          */
         post: operations["iki_server_api_amounts_adjust"];
         delete?: never;
@@ -5520,6 +5521,7 @@ export interface components {
             /**
              * Updated At
              * Format: date-time
+             * @description The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.
              */
             updated_at: string;
             /**
@@ -20209,7 +20211,9 @@ export interface operations {
     iki_server_api_amounts_adjust: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Balance-Revision"?: string | null;
+            };
             path: {
                 ref: string;
             };

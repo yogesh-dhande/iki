@@ -640,6 +640,7 @@
             "type": "string"
           },
           "updated_at": {
+            "description": "The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.",
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
@@ -32545,7 +32546,7 @@
     },
     "/api/v1/entities/{ref}/amount/adjust": {
       "post": {
-        "description": "Sets it to what it was found to be, saying why: a recount, a spill, a correction. A\nrecord with no amount recorded gets one.",
+        "description": "Records an absolute count, with a reason. Send the observed amount's exact\n`updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.\nA missing header answers 428. A changed balance answers 409 and must be recounted.",
         "operationId": "iki_server_api_amounts_adjust",
         "parameters": [
           {
@@ -32555,6 +32556,22 @@
             "schema": {
               "title": "Ref",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Balance-Revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Balance-Revision"
             }
           }
         ],
