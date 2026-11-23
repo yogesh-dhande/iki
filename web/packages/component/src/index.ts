@@ -138,7 +138,8 @@ export function refine(element: EventTarget, refinement: Refinement | null): voi
   send(element, EVENTS.refine, refinement);
 }
 
-/** Opens the page of an entity it was given, by HRID: Iki navigates, not the frame. */
-export function open(element: EventTarget, hrid: string): void {
-  send(element, EVENTS.open, { entity: hrid });
+/** Opens an entity's page by HRID, or a stored revision pin by record UUID and
+ * revision number. The host validates the target before navigating. */
+export function open(element: EventTarget, entity: string, revision?: number): void {
+  send(element, EVENTS.open, revision === undefined ? { entity } : { entity, revision });
 }

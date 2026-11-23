@@ -64,7 +64,7 @@ with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex`, `iki/lots`, `iki/plate_assays` and `iki/example_lims`. No other plugin may use
+  `iki/complex`, `iki/lots`, `iki/plate_assays`, `iki/experiments` and `iki/example_lims`. No other plugin may use
   it, or a namespace starting with `iki_` (`reserved-namespace`), and a
   lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
@@ -736,6 +736,16 @@ fields:
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
+- A destination type can declare `draws_received: material_draws` with
+  `material_draws: { type: json, computed: true }` among its fields.
+  Each draw with this destination as `used_in` appends the movement ID,
+  the drawn record ID and revision, the positive quantity in the ledger's
+  unit, the person and the time. A tube's upstream lot ID and revision are
+  included when the person can reference that lot in the receiving project.
+  The debit and the receiving record revision commit together. The person
+  must be able to edit the destination and draw from the material. A state
+  lock on the destination prevents the draw. Signatures cover the receipts
+  on the revision being signed. Subtypes inherit the ledger field.
 - A record has one amount: a subtype has its parent's (`amount-twice`).
   A type with an identity has none (`amount-on-identity`): each project
   has one record of each entry, which isn't a thing in the lab.
@@ -1542,7 +1552,11 @@ gets the results as its `entities` property: `items`, each with `id`,
 Its `place` property says which slot it's in. It may send `iki-more` for
 the next page, `iki-refine` to narrow what it shows, with conditions on
 only the fields it reads, and `iki-open` with an HRID it was given, which
-Iki opens. It can't widen what its place shows, and it writes nothing:
+Iki opens. An `iki-open` event with `{entity: recordUuid, revision: number}`
+opens that historical revision as JSON. The host requires an exact `record_id`
+and positive `record_revision` pair in a row of the given entity, with a readable reference
+to the record or its `entry_id`. A registry pin can also open the corresponding `entry_id` and `entry_revision`. The server checks access to each snapshot.
+It can't widen what its place shows, and it writes nothing:
 picking entities offers Iki's run page, as on a tab.
 
 The validator checks that the module is a text file in the plugin, not a
@@ -1935,8 +1949,11 @@ When a worker leases a job, it gets the run input and writes it to
 
 For a single run, `run.requested_by` identifies its authenticated requester. A job
 that packs several runs omits this field, since each run has its own requester.
-An input record of a registered entity includes its `entry_id`, the ID held
-by references to that entity.
+An input record identifies its project record by `id` and `revision`. For
+registered records, `entry_id` identifies the registry entry held at that
+record revision and `entry_revision` gives the registry revision pinned at
+launch. Included records use the same fields. An action that seals evidence
+should keep both pairs, since registry facts can change independently.
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,

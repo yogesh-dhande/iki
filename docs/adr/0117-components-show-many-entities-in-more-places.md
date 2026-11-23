@@ -99,7 +99,10 @@ items, whether there are more, whether it's at its limit, and the
 refinement in force) and `place` (which slot, and its label) on the
 element. The page accepts `ready`, `resize`, `select` (of the declared
 type), `more`, `refine` and `open` (an entity it was given, whose page Iki
-opens), and nothing else.
+opens). An `open` with a revision number addresses a stored record pin by UUID.
+The host verifies that the given entity holds that `record_id` and `record_revision` in
+the same row and can resolve its reference (its `entry_id` for a registry record).
+An entry snapshot uses the row's `entry_id` and `entry_revision`. Iki opens its own historical endpoint, which checks the reader's access.
 
 **Components don't write.** What a person picks in one is read back from the
 API, as they may read it, and offered to Iki's run page, which launches with

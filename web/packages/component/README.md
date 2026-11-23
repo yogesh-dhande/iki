@@ -77,7 +77,10 @@ again on its server:
   names only the fields the component reads, and `hrid`, with at most 20
   conditions, 4 levels deep. A sort replaces the place's; text is added only
   when the place has none.
-- `open` opens only an entity the component was given.
+- `open(element, hrid)` opens the page of an entity the component received.
+  `open(element, recordUuid, revision)` opens the historical revision as JSON. The
+  host requires a readable reference and the exact `record_id` and `record_revision` in
+  a stored row. A row for a registry-backed record uses `entry_id` for the reference and can open the corresponding `entry_revision`.
 - Picking entities offers Iki's run page, with those of the declared type
   the person can read. A component writes nothing itself.
 

@@ -16,6 +16,7 @@ plugins:
   - { name: iki/complex, local: ../../plugins/complex, state: active }
   - { name: iki/lots, local: ../../plugins/lots, state: active }
   - { name: iki/plate_assays, local: ../../plugins/plate_assays, state: active }
+  - { name: iki/experiments, local: ../../plugins/experiments, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims
