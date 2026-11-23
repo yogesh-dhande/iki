@@ -24,7 +24,7 @@ from iki_server.audit import log
 from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.org.services import Refused
-from iki_server.storage import observations
+from iki_server.storage import observations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.grids import NotAPosition, Shape
 from iki_server.storage.models import (
@@ -160,6 +160,8 @@ class Scan:
     position: str
     #: What's there: a code, or None for empty.
     code: str | None
+    mode: scan_identity.ScanMode = "label"
+    choice: UUID | None = None
 
 
 def _reason(value: str) -> str:
@@ -187,34 +189,35 @@ class PlannedScan:
     column: int
     code: str
     line: ReconciliationLine
+    identity_basis: scan_identity.IdentityBasis | None
 
 
 def _scanned_line(
-    user: User,
     count: Reconciliation,
     lines: list[ReconciliationLine],
-    barcodes: dict[UUID, str],
     links: dict[UUID, Entity],
     occupied: ReconciliationLine | None,
     code: str,
+    entity: Entity | None,
 ) -> ReconciliationLine:
     if not code:
         if occupied and occupied.entity_id is None and not occupied.code:
             return occupied
         return ReconciliationLine(reconciliation=count)
-    for line in lines:
-        linked = links.get(line.pk, line.entity)
-        if linked is not None and storage.confirms(linked, code, barcode=barcodes.get(linked.pk)):
-            return line
-    options = [e for e in storage.find(user, code) if storage.spec(e.type) is not None]
-    entity = options[0] if len(options) == 1 else None
     if entity is not None:
-        seen = next((line for line in lines if line.entity_id == entity.pk), None)
-        if seen is not None:
-            return seen
-    if entity is not None and entity.pk not in barcodes:
-        barcodes.update(storage.codes_of([entity]))
-    unknown = next((line for line in lines if line.entity_id is None and line.code == code), None)
+        for line in lines:
+            if line.entity_id == entity.pk or links.get(line.pk) == entity:
+                return line
+    # An unknown label may have been registered since the previous observation.
+    # Keep its physical line while preserving the original unlinked event.
+    unknown = next(
+        (
+            line
+            for line in lines
+            if line.entity_id is None and line.pk not in links and line.code == code
+        ),
+        None,
+    )
     if unknown is not None:
         if entity is not None:
             links[unknown.pk] = entity
@@ -236,8 +239,17 @@ def scan(
     with transaction.atomic():
         reconciliation = _open(user, reconciliation)
         shape = shape_of(reconciliation)
-        lines = list(reconciliation.lines.select_related("entity", "current_observation"))
-        barcodes = storage.codes_of([line.entity for line in lines if line.entity is not None])
+        lines = list(reconciliation.lines.select_related("current_observation"))
+        entity_ids = {line.entity_id for line in lines if line.entity_id is not None}
+        identities = scan_identity.ScanIndex(
+            user, [s.code or "" for s in scans], scope_ids=entity_ids
+        )
+        concealed = entity_ids - identities.readable_ids
+        expected = {
+            (line.expected_row, line.expected_column): line
+            for line in lines
+            if line.expected_row is not None and line.expected_column is not None
+        }
         slots = observed_slots(lines)
         # A missing finding depends on the actual observation at the expected slot.
         old_basis = _finding_basis(lines)
@@ -255,8 +267,26 @@ def scan(
             raw_code = item.code or ""
             code = raw_code.strip()
             occupied = slots.get(slot)
+            reserved = expected.get(slot)
+            # A checked-out tube reserves its old slot, but isn't expected in the box.
+            occupant = (
+                reserved.entity_id if reserved is not None and not reserved.checked_out else None
+            )
+            protected = any(
+                x is not None and x.entity_id in concealed for x in (reserved, occupied)
+            )
+            match = identities.resolve(
+                code,
+                mode=item.mode,
+                choice=item.choice,
+                occupant=occupant,
+                protected=protected,
+                has_concealed=bool(concealed),
+            )
+            if match.status == "ambiguous":
+                raise identities.ambiguity(match, index=index)
             line = _scanned_line(
-                user, reconciliation, lines, barcodes, links, positions.get(slot, occupied), code
+                reconciliation, lines, links, positions.get(slot, occupied), code, match.record
             )
             previous_slot = selected.get(line.pk)
             if previous_slot is not None and previous_slot != slot:
@@ -289,7 +319,7 @@ def scan(
                 correction = True
             selected[line.pk] = slot
             positions[slot] = line
-            planned.append(PlannedScan(*slot, raw_code if code else "", line))
+            planned.append(PlannedScan(*slot, raw_code if code else "", line, match.basis))
         reviewed = dict(reviewed_lines)
         if len(reviewed) != len(reviewed_lines):
             raise Wrong({"reviewed_lines": ["names the same reviewed line more than once."]})
@@ -337,6 +367,7 @@ def scan(
             after = _slot_snapshot(line, shape)
             after.pop("input_unknown", None)
             after["code"] = entry.code or None
+            after["identity_basis"] = entry.identity_basis
             line.current_observation = observations.record(
                 reconciliation,
                 line_id=line.pk,
@@ -390,6 +421,8 @@ def _slot_snapshot(line: ReconciliationLine, shape: Shape) -> dict[str, Any]:
         current = line.current_observation
         if current is not None and current.after is not None:
             state["code"] = current.after["code"]
+            if "identity_basis" in current.after:
+                state["identity_basis"] = current.after["identity_basis"]
         elif line.entity_id is None:
             state["code"] = line.code or None
         else:

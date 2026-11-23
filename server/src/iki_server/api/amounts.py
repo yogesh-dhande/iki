@@ -38,6 +38,7 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
+from iki_server.api.storage import ConfirmationIn
 from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
@@ -116,11 +117,10 @@ class DrawIn(AmountTakeIn):
         description="What it went into, by ID or HRID: a record in a project you edit, such as "
         "an analysis or an experiment, which depends on it from then on (ADR 0180).",
     )
-    confirm: str = Field(
+    confirm: ConfirmationIn = Field(
         "",
-        max_length=200,
-        description="The code scanned from it, for a type that asks for one before a draw: "
-        "its barcode or HRID.",
+        description="For a type that requires a scan: its unique label or printed Iki code, "
+        "a link to the record, or its HRID explicitly entered from the tube.",
     )
 
 
@@ -291,7 +291,9 @@ def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
             purpose=payload.purpose,
             reason=payload.reason,
             used_in=used_in,
-            confirm=payload.confirm,
+            confirm=payload.confirm
+            if isinstance(payload.confirm, str)
+            else storage.Confirmation(payload.confirm.code, payload.confirm.mode),
         )
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
