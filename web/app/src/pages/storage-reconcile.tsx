@@ -311,7 +311,7 @@ function scanItem(at: string, code: string | null, how: How): Schemas["ScanIn"] 
 /** A count's scan that needs more: a choice among readable tubes, or another way. */
 type Unidentified =
   | { kind: "ambiguous"; at: string; code: string; candidates: ScanCandidate[] }
-  | { kind: "refused" };
+  | { kind: "refused"; mode: ScanMode | undefined };
 
 function isStale(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
@@ -540,7 +540,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
           setUnidentified(
             refusal.kind === "ambiguous"
               ? { kind: "ambiguous", at, code, candidates: refusal.candidates }
-              : refusal,
+              : { kind: "refused", mode: how.mode },
           );
           return;
         }
@@ -727,7 +727,9 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   record(code.trim());
                 }}
               />
-              {unidentified?.kind === "refused" ? <ScanRefusedNote /> : null}
+              {unidentified?.kind === "refused" ? (
+                <ScanRefusedNote mode={unidentified.mode} />
+              ) : null}
               {unidentified?.kind === "ambiguous" && unidentified.at === here?.label ? (
                 <ScanChooser
                   code={unidentified.code}
@@ -1061,7 +1063,7 @@ function CountDialog({
           confirmLabel="Record the new scan"
           confirmDisabled={refusal !== null && !asking.choice}
         >
-          {refusal?.kind === "refused" ? <ScanRefusedNote /> : null}
+          {refusal?.kind === "refused" ? <ScanRefusedNote mode={asking.mode} /> : null}
           {refusal?.kind === "ambiguous" && code !== null ? (
             <ScanChooser
               code={code}

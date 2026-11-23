@@ -301,7 +301,9 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
   const [heard, setHeard] = useState("");
   // A scan that needs more: a choice among readable tubes, or another way to identify one.
   const [scanned, setScanned] = useState<
-    { kind: "ambiguous"; code: string; candidates: ScanCandidate[] } | { kind: "refused" } | null
+    | { kind: "ambiguous"; code: string; candidates: ScanCandidate[] }
+    | { kind: "refused"; mode: ScanMode }
+    | null
   >(null);
   const shape = c.shape;
   const byKey = useMemo(() => {
@@ -376,7 +378,7 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
         setScanned({ kind: "ambiguous", code, candidates: refusal.candidates });
         setHeard("");
       } else if (refusal) {
-        setScanned({ kind: "refused" });
+        setScanned({ kind: "refused", mode });
         setHeard("");
       } else setHeard(problemOf(error).detail);
       return;
@@ -501,7 +503,7 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
         }
         onScan={(code) => void onScan(code)}
       />
-      {scanned?.kind === "refused" ? <ScanRefusedNote /> : null}
+      {scanned?.kind === "refused" ? <ScanRefusedNote mode={scanned.mode} /> : null}
       {scanned?.kind === "ambiguous" ? (
         <ScanChooser
           code={scanned.code}

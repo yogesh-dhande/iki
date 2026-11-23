@@ -986,6 +986,10 @@ def test_a_count_scan_replacing_an_empty_position_asks_why_and_shows_it_in_the_h
 SHARED = "SHARED-42"
 #: What Iki says when a scan involves a tube the person can't read.
 REFUSED = str(ScanRefused())
+# A typed Iki ID refused: none has it, or a tube the person can't read does. The same words.
+IKI_ID_REFUSED = (
+    "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer."
+)
 
 
 def expected_refusals(page: Page, status: str) -> None:
@@ -1095,6 +1099,16 @@ def test_a_label_a_concealed_tube_shares_is_refused_without_saying_more(
     checked(page)
     fits(page)
     page.set_viewport_size({"width": 1440, "height": 900})
+    # The concealed tube's own Iki ID, and one no tube has, are refused in the same words.
+    for hrid in (theirs["hrid"], "TUB-999999"):
+        typed.fill(hrid)
+        typed.press("Enter")
+        expect(page.get_by_role("alert").filter(has_text=IKI_ID_REFUSED)).to_have_text(
+            IKI_ID_REFUSED
+        )
+        expect(page.get_by_text(REFUSED)).to_have_count(0)
+        expect(page.get_by_role("button", name=re.compile("^TUB-"))).to_have_count(0)
+    expected_refusals(page, "409 (Conflict)")
     typed.fill(ours["hrid"])
     typed.press("Enter")
     grid = page.get_by_role("grid", name="Kinase retains’s positions")

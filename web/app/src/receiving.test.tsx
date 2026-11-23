@@ -592,6 +592,26 @@ it("says only that a scan can’t identify a tube, and takes its printed Iki ID"
   expect(screen.queryByText(refused)).toBeNull();
 });
 
+it("says a typed Iki ID none has, or one you can’t read has, in the same words", async () => {
+  const { user } = await openReceipt(receipt(1, [tube(1)]));
+  answer(
+    `POST ${api}/scan`,
+    problem(
+      409,
+      "scan_unavailable",
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.",
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Type its printed Iki ID instead" }));
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000099{Enter}");
+  expect(
+    await screen.findByText(
+      "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/This scan can’t identify/)).toBeNull();
+});
+
 it("says why an extra several tubes’ label matches isn’t linked to any of them", async () => {
   const first = tube(1);
   const extra = tube(9, { entity: null, ref: null, code: "VENDOR-7", expected: false });

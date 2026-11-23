@@ -283,8 +283,7 @@ describe("a record's amount", () => {
     answer(`GET /api/v1/entities/${SAMPLE_ID}/location/events`, page([]));
     const refused =
       "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
-    answer(
-      DRAW,
+    answer(DRAW, () =>
       problem(422, "validation_failed", "Some fields are invalid.", [
         { pointer: "#/confirm", detail: refused },
       ]),
@@ -299,6 +298,16 @@ describe("a record's amount", () => {
     expect(await within(dialog).findByText(refused)).toBeInTheDocument();
     expect(calls("POST", DRAW_PATH).at(-1)?.body).toMatchObject({ confirm: "SHARED-1" });
     await user.click(within(dialog).getByRole("radio", { name: /^Type its printed Iki ID/ }));
+    // A typed Iki ID it refuses is said in words that don't tell a missing one apart.
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "SMP-000099");
+    await user.click(within(dialog).getByRole("button", { name: "Draw" }));
+    expect(
+      await within(dialog).findByText(
+        "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByText(refused)).toBeNull();
+    await user.clear(within(dialog).getByRole("textbox", { name: "Iki ID" }));
     await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "SMP-000001");
     answer(DRAW, respond(200, { amount: amount("245"), movement: movement("drawn", "-5", "245") }));
     await user.click(within(dialog).getByRole("button", { name: "Draw" }));

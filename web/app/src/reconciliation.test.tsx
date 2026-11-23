@@ -673,3 +673,25 @@ it("says only that a count scan can’t identify a tube, and takes a typed Iki I
     scans: [{ position: "A1", code: "TUB-000001", mode: "iki_id" }],
   });
 });
+
+it("says a typed Iki ID none has, or one you can’t read has, in the same words", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const { user } = await openInventory(first);
+  answer(
+    `POST ${api}/scans`,
+    problem(
+      409,
+      "scan_unavailable",
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.",
+    ),
+  );
+  await user.click(screen.getByRole("gridcell", { name: /^A1,/ }));
+  await user.click(screen.getByRole("button", { name: "Type its printed Iki ID instead" }));
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000099{Enter}");
+  expect(
+    await screen.findByText(
+      "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/This scan can’t identify/)).toBeNull();
+});

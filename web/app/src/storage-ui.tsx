@@ -21,6 +21,7 @@ import {
   ikiId,
   indexOf,
   resolveScan,
+  IKI_ID_REFUSED,
   SCAN_REFUSED,
   scanRefusal,
   slotsOf,
@@ -257,12 +258,13 @@ export function CameraDialog({
 
 /**
  * Said when a scan can't identify a tube here: a record the person can't read is involved.
- * Nothing about how many matched, or which: the same words whatever's behind it.
+ * Nothing about how many matched, or which: the same words whatever's behind it. For a typed
+ * Iki ID, words that also cover one that matched nothing, so neither is told apart.
  */
-export function ScanRefusedNote() {
+export function ScanRefusedNote({ mode = "label" }: { mode?: ScanMode | undefined }) {
   return (
     <div className="alert alert-warning scan-refused" role="alert">
-      <p>{SCAN_REFUSED}</p>
+      <p>{mode === "iki_id" ? IKI_ID_REFUSED : SCAN_REFUSED}</p>
     </div>
   );
 }
@@ -515,7 +517,7 @@ function useConfirms(records: readonly Chosen[], what: "move" | "draw") {
 /** What a confirmation said last: who's confirmed, or why the scan wasn't taken. */
 type Heard =
   | { kind: "said"; text: string; problem?: boolean }
-  | { kind: "refused" }
+  | { kind: "refused"; mode: ScanMode }
   | { kind: "ambiguous"; code: string; candidates: ScanCandidate[] };
 
 /** The 32 hex digits an Iki label or a record link names, if it names one. */
@@ -623,7 +625,7 @@ function Confirmations({
     }
     const failed = answers.flatMap((a) => ("error" in a ? [a.error] : []));
     if (failed.some((e) => scanRefusal(problemOf(e))?.kind === "refused")) {
-      setHeard({ kind: "refused" });
+      setHeard({ kind: "refused", mode });
       return;
     }
     const several = answers.find((a) => "found" in a && a.found.status === "ambiguous");
@@ -656,7 +658,7 @@ function Confirmations({
           void check(code, "label");
         }}
       />
-      {heard?.kind === "refused" ? <ScanRefusedNote /> : null}
+      {heard?.kind === "refused" ? <ScanRefusedNote mode={heard.mode} /> : null}
       {heard?.kind === "ambiguous" ? (
         <ScanChooser
           code={heard.code}

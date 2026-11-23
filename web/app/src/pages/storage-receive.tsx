@@ -400,10 +400,11 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [choosing, setChoosing] = useState<{ code: string; candidates: ScanCandidate[] } | null>(
     null,
   );
-  const [refused, setRefused] = useState(false);
+  // How the scan the server refused was given: a label, or a typed Iki ID.
+  const [refused, setRefused] = useState<ScanMode | null>(null);
   const scanned = (sent: { code: string; mode?: ScanMode; choice?: string }) => {
     setChoosing(null);
-    setRefused(false);
+    setRefused(null);
     const { code } = sent;
     scan.mutate(sent, {
       onSuccess: (done) => {
@@ -447,7 +448,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           setChoosing({ code, candidates: refusal.candidates });
         } else if (refusal) {
           setHeard("");
-          setRefused(true);
+          setRefused(sent.mode ?? "label");
         } else setHeard(problemOf(error).detail);
       },
     });
@@ -620,7 +621,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             scanned({ code });
           }}
         />
-        {refused ? <ScanRefusedNote /> : null}
+        {refused ? <ScanRefusedNote mode={refused} /> : null}
         {choosing ? (
           <ScanChooser
             code={choosing.code}
@@ -636,7 +637,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           />
         ) : null}
         <IkiIdEntry
-          open={refused}
+          open={refused !== null}
           disabled={!!asking}
           onEnter={(hrid) => {
             scanned({ code: hrid, mode: "iki_id" });

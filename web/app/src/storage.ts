@@ -369,6 +369,13 @@ export type Proof = string | Schemas["IkiIdConfirmationIn"];
 export const SCAN_REFUSED =
   "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
 
+/**
+ * What Iki says when a typed Iki ID can't be used: none matched, or one the person can't
+ * read did. The same words either way, so it never says whether an Iki ID exists.
+ */
+export const IKI_ID_REFUSED =
+  "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.";
+
 /** The unique code an Iki label carries: “IKI:” and the record's UUID, in 32 hex digits. */
 export function ikiCode(id: string): string {
   return `IKI:${id.replaceAll("-", "").toUpperCase()}`;

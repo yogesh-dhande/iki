@@ -12,7 +12,7 @@ import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
 import { RecordPicker } from "../entity-inputs";
 import type { Picked } from "../entity-values";
-import { ikiId, type ScanMode } from "../storage";
+import { IKI_ID_REFUSED, ikiId, SCAN_REFUSED, type ScanMode } from "../storage";
 import {
   Button,
   ConfirmDialog,
@@ -275,6 +275,10 @@ function AmountDialog({
   const problem = move.error ? problemOf(move.error) : undefined;
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
+  // A typed Iki ID the server can't use: none matched, or one the person can't read did.
+  // Said in words that cover both, so neither is told apart.
+  const confirmError =
+    proofBy === "iki_id" && errors["confirm"] === SCAN_REFUSED ? IKI_ID_REFUSED : errors["confirm"];
   const shownProblem =
     problem &&
     !amountError &&
@@ -399,7 +403,7 @@ function AmountDialog({
               if (move.isError) move.reset();
             }}
             maxLength={200}
-            error={errors["confirm"]}
+            error={confirmError}
             help={
               proofBy === "iki_id"
                 ? `The Iki ID printed on its label, such as ${entity.hrid}. Only Iki IDs are matched, not vendor barcodes.`

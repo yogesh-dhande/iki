@@ -9,7 +9,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { SCAN_REFUSED } from "./storage";
+import { IKI_ID_REFUSED, SCAN_REFUSED } from "./storage";
 import { answer, calls, page, problem, type Sent } from "./test-server";
 
 const BOX_ID = "00000000-0000-7000-8000-0000000b0001";
@@ -218,6 +218,19 @@ describe("a container's page", () => {
     expect(screen.queryByText(/more than one/)).toBeNull();
     expect(screen.queryByRole("button", { name: /^TUBE-/ })).toBeNull();
     expect(screen.getByRole("textbox", { name: "Iki ID" })).toBeInTheDocument();
+    expect(calls("GET", "/api/v1/storage/scan")).toHaveLength(0);
+  });
+
+  it("says a typed Iki ID none has, or one you can’t read has, in the same words", async () => {
+    onBox();
+    answer("POST /api/v1/storage/scan/resolve", problem(409, "scan_unavailable", SCAN_REFUSED));
+    const { user } = await renderApp("/storage/BOX-000014/");
+    await user.click(screen.getByRole("button", { name: "Type its printed Iki ID instead" }));
+    await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUBE-000099{Enter}");
+    const said = await screen.findByText(IKI_ID_REFUSED);
+    expect(said.closest("[role=alert]")).not.toBeNull();
+    expect(screen.queryByText(SCAN_REFUSED)).toBeNull();
+    expect(resolved().at(-1)).toMatchObject({ code: "TUBE-000099", mode: "iki_id" });
     expect(calls("GET", "/api/v1/storage/scan")).toHaveLength(0);
   });
 
@@ -582,7 +595,9 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
 
   it("says only that a scan can’t identify a tube when the server refuses it", async () => {
     const { user, dialog } = await openMove();
-    answer("POST /api/v1/storage/scan/resolve", problem(409, "scan_unavailable", SCAN_REFUSED));
+    answer("POST /api/v1/storage/scan/resolve", () =>
+      problem(409, "scan_unavailable", SCAN_REFUSED),
+    );
     await user.type(
       within(dialog).getByRole("textbox", { name: "Scan each label to confirm" }),
       "SHARED-42{Enter}",
@@ -592,7 +607,10 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
     expect(within(dialog).getByRole("list", { name: "Confirmed" })).not.toHaveTextContent(
       "confirmed ",
     );
-    expect(within(dialog).getByRole("textbox", { name: "Iki ID" })).toBeInTheDocument();
+    // A typed Iki ID refused too is said in words that don't tell a missing one apart.
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "TUBE-000099{Enter}");
+    expect(await within(dialog).findByText(IKI_ID_REFUSED)).toBeInTheDocument();
+    expect(within(dialog).queryByText(SCAN_REFUSED)).toBeNull();
   });
 
   it("asks which container a destination code two share is, and sends the choice with it", async () => {
