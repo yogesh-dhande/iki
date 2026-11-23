@@ -298,6 +298,43 @@ describe("a record's state fields", () => {
     expect(sent?.headers.get("If-Match")).toBe('"2"');
   });
 
+  it("asks for a reason before clearing a marked Boolean", async () => {
+    const held = sample({ values: { ...sample().values, on_hold: true } });
+    onSample(held);
+    answer("GET /api/v1/entity-types", [
+      PROTEIN,
+      {
+        ...SAMPLE,
+        fields: [
+          ...SAMPLE.fields,
+          field({ name: "on_hold", label: "On hold", type: "bool", reason_on_clear: true }),
+        ],
+      },
+    ]);
+    answer(
+      `PATCH /api/v1/entities/${SAMPLE_ID}`,
+      sample({ revision: 3, values: { ...held.values, on_hold: false } }),
+    );
+    const { user } = await renderApp("/entities/SMP-000001/");
+    await user.click(await screen.findByRole("link", { name: "Edit" }));
+    const flag = await screen.findByRole("group", { name: /^On hold/ });
+    const reason = screen.getByRole("textbox", { name: /^Reason/ });
+    expect(reason).not.toBeRequired();
+    await user.click(within(flag).getByRole("radio", { name: "No" }));
+    expect(reason).toBeRequired();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(reason).toHaveFocus();
+    expect(calls("PATCH")).toHaveLength(0);
+
+    await user.type(reason, "Confirmed the specimen identifier.");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved revision 3 of SMP-000001.");
+    expect(calls("PATCH")[0]?.body).toEqual({
+      values: { on_hold: false },
+      reason: "Confirmed the specimen identifier.",
+    });
+  });
+
   it("are described on its type's page", async () => {
     withTypes();
     answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);

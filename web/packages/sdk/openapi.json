@@ -5664,7 +5664,7 @@
           },
           "reason": {
             "default": "",
-            "description": "Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.",
+            "description": "Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination or clears a true Boolean with `reason_on_clear`.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
@@ -7051,6 +7051,18 @@
             "description": "The plugin that defines the field.",
             "title": "Plugin",
             "type": "string"
+          },
+          "reason_on_clear": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when clearing this Boolean requires a reason.",
+            "title": "Reason On Clear"
           },
           "registry": {
             "anyOf": [
@@ -14955,6 +14967,18 @@
             "description": "The plugin that defines the field.",
             "title": "Plugin",
             "type": "string"
+          },
+          "reason_on_clear": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when clearing this Boolean requires a reason.",
+            "title": "Reason On Clear"
           },
           "registry": {
             "anyOf": [

@@ -126,6 +126,10 @@ class Stale(Exception):  # noqa: N818 - reads as "the edit was stale"
         self.current = current
 
 
+class ClearReasonRequired(Invalid):
+    """An edit clearing a marked Boolean needs a reason."""
+
+
 @dataclass
 class Saved:
     entity: Model
@@ -1001,6 +1005,10 @@ def update(
             errors = unique.taken(project, form, new, entity=locked.pk)
         if errors:
             raise Invalid(errors)
+        if not reason.strip() and any(
+            fields[name].reason_on_clear and rows.get(name) is True for name in new
+        ):
+            raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
         changing = {**new, **for_entry}
         if changing:
             if returns:

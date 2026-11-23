@@ -3198,6 +3198,14 @@ class _Semantics:
                     (*path, "required"),
                     key=True,
                 )
+            if f.reason_on_clear and (f.computed or f.immutable or f.registry or f.removed):
+                self.add(
+                    "clear-reason-field",
+                    "Only an editable record field can require a reason when it is cleared.",
+                    source,
+                    (*path, "reason_on_clear"),
+                    key=True,
+                )
             if f.indexed:
                 self.index(f, source, path)
             if f.link is not None:

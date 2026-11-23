@@ -1342,7 +1342,7 @@ class EntityPatch(TypedDict):
     archived: NotRequired[bool | None]
     #: As for creating one: why to save values that break rules that hold.
     hold_reason: NotRequired[str | None]
-    #: Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.
+    #: Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination or clears a true Boolean with `reason_on_clear`.
     reason: NotRequired[str]
     #: Only the fields to change.
     values: NotRequired[dict[str, Any] | None]
@@ -1627,6 +1627,8 @@ class FieldOut(TypedDict):
     name: str
     #: The plugin that defines the field.
     plugin: str
+    #: True when clearing this Boolean requires a reason.
+    reason_on_clear: NotRequired[bool | None]
     #: Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
     registry: NotRequired[Literal['identity', 'derived', 'fact'] | None]
     required: bool
@@ -3365,6 +3367,8 @@ class ParamOut(TypedDict):
     pattern: str | None
     #: The plugin that defines the field.
     plugin: str
+    #: True when clearing this Boolean requires a reason.
+    reason_on_clear: NotRequired[bool | None]
     #: Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
     registry: NotRequired[Literal['identity', 'derived', 'fact'] | None]
     required: bool

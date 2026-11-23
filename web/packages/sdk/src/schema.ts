@@ -8159,7 +8159,7 @@ export interface components {
             hold_reason?: string | null;
             /**
              * Reason
-             * @description Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.
+             * @description Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination or clears a true Boolean with `reason_on_clear`.
              * @default
              */
             reason: string;
@@ -8767,6 +8767,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Reason On Clear
+             * @description True when clearing this Boolean requires a reason.
+             */
+            reason_on_clear?: boolean | null;
             /**
              * Registry
              * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
@@ -12328,6 +12333,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Reason On Clear
+             * @description True when clearing this Boolean requires a reason.
+             */
+            reason_on_clear?: boolean | null;
             /**
              * Registry
              * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.

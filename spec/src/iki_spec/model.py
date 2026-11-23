@@ -107,6 +107,8 @@ class Field:
     required: bool = False
     immutable: bool = False
     computed: bool = False
+    #: For an editable boolean, clearing a true value requires a reason in the edit.
+    reason_on_clear: bool = False
     #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
@@ -201,6 +203,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
             unique=bool(data.get("unique", False)),
@@ -1686,6 +1689,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 f.name == "draw_target"
                 and isinstance(value, EntityType)
                 and value.draw_target is None
+            )
+            and not (
+                f.name == "reason_on_clear"
+                and isinstance(value, Field)
+                and not value.reason_on_clear
             )
         }
     if isinstance(value, dict):

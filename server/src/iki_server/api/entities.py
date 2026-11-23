@@ -299,6 +299,9 @@ class FieldOut(Schema):
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
     computed: bool = Field(description="Set only by actions.")
+    reason_on_clear: bool | None = Field(
+        None, description="True when clearing this Boolean requires a reason."
+    )
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
     )
@@ -1064,7 +1067,8 @@ class EntityPatch(Schema):
         "",
         max_length=2000,
         description="Why the values changed. Required for an edit that returns a state "
-        "field to its declared `on_edit` destination.",
+        "field to its declared `on_edit` destination or clears a true Boolean with "
+        "`reason_on_clear`.",
     )
     hold_reason: str | None = Field(
         None,
@@ -1311,6 +1315,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
+        "reason_on_clear": f.reason_on_clear or None,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
         "display_unit": f.display_unit,
@@ -2927,6 +2932,13 @@ def patch_entity(
         raise Problem(
             422,
             "Correcting this record needs a reason.",
+            errors=[{"pointer": "#/reason", "detail": " ".join(error.errors["reason"])}],
+        ) from None
+    except services.ClearReasonRequired as error:
+        raise Problem(
+            422,
+            "Clearing this flag needs a reason.",
+            code="clear_reason_required",
             errors=[{"pointer": "#/reason", "detail": " ".join(error.errors["reason"])}],
         ) from None
     except states.GuardRefused as refused:
