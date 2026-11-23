@@ -27,6 +27,7 @@
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !tsconfig.base.json
+!scripts/build-dna-annotation-wasm.sh
 !web/
 **/node_modules/
 web/**/dist/
@@ -34,6 +35,7 @@ web/**/dist/
 server/src/iki_server/web/static/app/
 web/app/wasm/
 **/*.wasm
+spec/src/iki_spec/rust-standard-library.html
 server/tests/
 spec/tests/
 # The worker, built by worker/Dockerfile, without its build output.

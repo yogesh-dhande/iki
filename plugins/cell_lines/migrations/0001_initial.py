@@ -311,7 +311,7 @@ class Migration(migrations.Migration):
             },
             bases=('iki__example_lims.tube',),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='cellculture',
             name='vial',
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__cell_lines.cellvial'),
@@ -355,7 +355,7 @@ class Migration(migrations.Migration):
             },
             bases=('iki_entities.entity',),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='celllinesource_entry',
             name='line',
             field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__cell_lines.parentalline_entry'),

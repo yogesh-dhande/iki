@@ -355,7 +355,12 @@
         "entry_id": {
           "type": "string",
           "format": "uuid",
-          "description": "For a registered entity, its registry entry ID, which references to this record hold."
+          "description": "For a registered record, the registry entry it held at the pinned record revision."
+        },
+        "entry_revision": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "When the run pinned a registry entry, the revision of entry_id used for this input's values."
         },
         "type": {
           "type": "string",

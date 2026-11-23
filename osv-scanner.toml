@@ -188,6 +188,13 @@ name = "iki-wasm"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
+# The unpublished annotation worker module inherits the workspace license.
+[[PackageOverrides]]
+name = "iki-dna-annotation-wasm"
+version = "0.1.0-dev.0"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
 # The plasmid plugin's molecular module, compiled from iki-wasm's own crates for the
 # plugin's action archive (ADR 0200). Apache-2.0, like the rest of the workspace.
 [[PackageOverrides]]

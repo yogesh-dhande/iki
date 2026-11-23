@@ -55,7 +55,7 @@ class Migration(migrations.Migration):
         iki_server.plugins.operations.AppendOnly(
             model_name='Tube_History',
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='booking',
             name='cancelled',
             field=models.BooleanField(db_default=False, null=True),

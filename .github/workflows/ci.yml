@@ -221,6 +221,8 @@ jobs:
       - name: Build iki-wasm (without the web app)
         if: matrix.kind != 'browser'
         run: scripts/build-wasm.sh
+      - name: Build the packaged DNA annotation module
+        run: scripts/build-dna-annotation-wasm.sh
       # The plasmid plugin's actions call this module, and no .wasm is committed, so the
       # tests that run those actions build it here. It checks itself against the tracked
       # digest as it goes (ADR 0200).
@@ -403,6 +405,8 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Tests
         run: cargo test --locked --all-targets
+      - name: Check the packaged DNA annotation module
+        run: ../scripts/build-dna-annotation-wasm.sh --check
       - name: Check the packaged primer and digest module
         run: ../scripts/build-plasmid-tools-wasm.sh --check
 

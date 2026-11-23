@@ -42,6 +42,7 @@ import shutil
 import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -55,6 +56,7 @@ __all__ = [
     "WorkerPlugin",
     "bundle",
     "environments",
+    "prepared_source",
     "write",
 ]
 
@@ -78,6 +80,50 @@ class WorkerPlugin:
 
 def _sha256(file: Path) -> str:
     return hashlib.sha256(file.read_bytes()).hexdigest()
+
+
+def prepared_source(name: str, directory: Path, output: Path) -> Path:
+    """Add the installed annotation module to a staged copy of its plugin sources.
+
+    The source tree pins the generated module by digest. Both worker distributions
+    use the verified bytes from iki-spec, including when the source is a local checkout.
+    """
+    if name != "iki/plasmid":
+        return directory
+    relative = Path("data/dna-annotation.wasm")
+    generated = directory / relative
+    marker = generated.with_suffix(".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        return directory
+    notice = generated.with_name("rust-standard-library.html")
+    paths = (marker, generated, notice)
+    if generated.parent.is_symlink() or any(
+        path.is_symlink() or (path.exists() and not path.is_file()) for path in paths
+    ):
+        raise ValueError(
+            "The DNA annotation module, digest and notice must be regular plugin files."
+        )
+
+    resources: dict[str, bytes] = {}
+    package = files("iki_spec")
+    for path in (generated, notice):
+        installed = package.joinpath(path.name)
+        if not installed.is_file():
+            raise ValueError(
+                f"iki-spec lacks {path.name}. Run scripts/build-dna-annotation-wasm.sh."
+            )
+        resources[path.name] = installed.read_bytes()
+    digest = hashlib.sha256(resources[generated.name]).hexdigest().encode("ascii")
+    if digest != marker.read_bytes().strip():
+        raise ValueError("The DNA annotation module in iki-spec differs from the pinned digest.")
+
+    shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
+    for name, contents in resources.items():
+        target = output / relative.with_name(name)
+        target.unlink(missing_ok=True)
+        target.write_bytes(contents)
+        target.chmod(0o644)
+    return output
 
 
 def _built(env: Environment) -> bool:
@@ -162,6 +208,14 @@ def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
         if digest.suffix != DIGEST_SUFFIX:
             continue
         module = digest.with_suffix("")
+        # Only this convention's digests, `<module>.wasm.sha256`. The annotation module
+        # pins itself the other way round, as `dna-annotation.sha256` beside
+        # `dna-annotation.wasm`, and :func:`prepared_source` places that one; without this
+        # check the name here would come out as `dna-annotation`, which nothing builds. The
+        # two conventions should become one, and will when both modules are built once on
+        # their canonical host and verified here rather than recompiled per platform.
+        if module.suffix != ".wasm":
+            continue
         relative = module.relative_to(directory).as_posix()
         want = digest.read_text(encoding="utf-8").split()
         if not want:
