@@ -2689,7 +2689,9 @@ def linked_experiment(
     values = snapshot["values"]
     [pin] = values["result_pins"]
     [draw] = values["material_draws"]
-    pinned = api_call(witness, "GET", f"/entities/{result}/revisions/{pin['revision']}").json()
+    pinned = api_call(
+        witness, "GET", f"/entities/{result}/revisions/{pin['record_revision']}"
+    ).json()
     if (
         not proof["verification"]["valid"]
         or proof["meaning"] != "witness"
