@@ -1,4 +1,4 @@
-import { icon, navigationLink, part } from "./navigation.js";
+import { arrange, icon, NavigationItems, navigationLink, part, place } from "./navigation.js";
 
 export type { NavigationDetail } from "./navigation.js";
 
@@ -49,6 +49,10 @@ export class IkiPageHeader extends HTMLElement {
   readonly #dialog = part("div", "page-about-dialog");
   readonly #aboutLink = part("div", "");
   readonly #bar = part("div", "page-top page-top-inline");
+  readonly #items = new NavigationItems();
+  readonly #crumbs = part("nav", "crumbs page-top-crumbs");
+  readonly #trail = part("ol", "");
+  readonly #current = part("li", "");
   readonly #actionBar = part("div", "page-actions");
   #data: PageHeaderData = { title: "" };
   #resize?: ResizeObserver;
@@ -57,6 +61,9 @@ export class IkiPageHeader extends HTMLElement {
 
   constructor() {
     super();
+    this.#crumbs.setAttribute("aria-label", "Breadcrumb");
+    this.#crumbs.append(this.#trail);
+    this.#current.setAttribute("aria-current", "page");
     this.heading.tabIndex = -1;
     this.heading.dataset["pageTitle"] = "";
     this.heading.append(this.#headingText, this.areas.badge);
@@ -112,8 +119,6 @@ export class IkiPageHeader extends HTMLElement {
     this.#fullText.data = value.description ?? "";
     for (const element of [this.#button, this.#dialog])
       element.setAttribute("aria-label", `About ${value.title}`);
-    this.#aboutLink.replaceChildren();
-    if (value.about) this.#aboutLink.append(this.#link(value.about));
     this.#drawBar();
     this.#measure();
   }
@@ -145,12 +150,6 @@ export class IkiPageHeader extends HTMLElement {
     this.ownerDocument.removeEventListener("click", this.#outside);
     this.ownerDocument.defaultView?.removeEventListener("resize", this.#place);
     this.#close();
-  }
-
-  #link(data: HeaderLink): HTMLAnchorElement {
-    const link = navigationLink(this, data.href);
-    link.textContent = data.label;
-    return link;
   }
 
   #close(): void {
@@ -185,50 +184,57 @@ export class IkiPageHeader extends HTMLElement {
   };
 
   #drawBar(): void {
-    this.#bar.replaceChildren();
-    this.#actionBar.replaceChildren();
-    const { ancestors, actions, title } = this.#data;
-    if (!ancestors && !actions?.length) {
-      this.#bar.remove();
-      this.#actionBar.remove();
-      return;
-    }
+    const { about, ancestors, actions, title } = this.#data;
+    const retain = this.#items.next();
+    if (about) {
+      const link = retain(["about", about.href], () => navigationLink(this, about.href));
+      link.textContent = about.label;
+      arrange(this.#aboutLink, [link]);
+    } else arrange(this.#aboutLink, []);
     if (ancestors) {
-      const nav = part("nav", "crumbs page-top-crumbs");
-      nav.setAttribute("aria-label", "Breadcrumb");
-      const list = part("ol", "");
-      for (const parent of ancestors) {
-        const item = part("li", "");
-        item.append(this.#link(parent));
-        list.append(item);
-      }
-      const current = part("li", "", title);
-      current.setAttribute("aria-current", "page");
-      list.append(current);
-      nav.append(list);
-      this.#bar.append(nav);
-    }
-    for (const action of actions ?? []) {
-      const button = part("button", "button", action.label);
-      button.type = "button";
-      button.onclick = () => {
-        this.dispatchEvent(
-          new CustomEvent<HeaderActionDetail>("iki-action", {
-            detail: { id: action.id },
-            bubbles: true,
-            composed: true,
-          }),
-        );
-      };
-      this.#actionBar.append(button);
-    }
-    if (this.isConnected) this.prepend(this.#bar);
+      const trail = ancestors.map((ancestor) => {
+        const { item, link } = retain(["ancestor", ancestor.href], () => {
+          const item = part("li", "");
+          const link = navigationLink(this, ancestor.href);
+          item.append(link);
+          return { item, link };
+        });
+        link.textContent = ancestor.label;
+        return item;
+      });
+      this.#current.textContent = title;
+      arrange(this.#trail, [...trail, this.#current]);
+      if (this.#crumbs.parentNode !== this.#bar) this.#bar.prepend(this.#crumbs);
+    } else this.#crumbs.remove();
+    const buttons = (actions ?? []).map(({ id, label }) => {
+      const button = retain(["action", id], () => {
+        const control = part("button", "button");
+        control.type = "button";
+        control.onclick = () => {
+          this.dispatchEvent(
+            new CustomEvent<HeaderActionDetail>("iki-action", {
+              detail: { id },
+              bubbles: true,
+              composed: true,
+            }),
+          );
+        };
+        return control;
+      });
+      button.textContent = label;
+      return button;
+    });
+    arrange(this.#actionBar, buttons);
+    if (!buttons.length) this.#actionBar.remove();
+    if (!ancestors && !buttons.length) this.#bar.remove();
+    else if (this.isConnected && this.#bar.parentNode !== this) this.prepend(this.#bar);
     this.#moveActions();
   }
 
   #moveActions = (): void => {
     if (!this.#actionBar.hasChildNodes()) return;
-    (this.#media?.matches ? this.areas.actions : this.#bar).append(this.#actionBar);
+    const parent = this.#media?.matches ? this.areas.actions : this.#bar;
+    if (this.#actionBar.parentNode !== parent) place(parent, this.#actionBar);
   };
 }
 
