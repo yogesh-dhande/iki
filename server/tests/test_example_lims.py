@@ -246,7 +246,7 @@ def test_correcting_a_result_before_release_reopens_its_draft(analysis_result: E
 
 
 def test_correcting_an_approved_sample_reopens_testing_but_claiming_it_keeps_review() -> None:
-    loaded = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    loaded = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
     assert loaded.plugin is not None
     sample = loaded.plugin.types["iki/example_lims.Sample"]
     status = sample.fields["status"]
