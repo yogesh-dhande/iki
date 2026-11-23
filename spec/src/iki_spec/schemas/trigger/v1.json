@@ -111,12 +111,12 @@
             "maximum": 30
           },
           "edges": {
-            "description": "Only through these: `reference` (a field names it), `run` (a run made it from it), `file` (a run made it from a file it held), `aliquot` (split from it), `transfer` (some of it was moved into it). All if left out.",
+            "description": "Only through these: `reference` (a field names it), `run` (a run made it from it), `file` (a run made it from a file it held), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All if left out.",
             "type": "array",
             "minItems": 1,
             "uniqueItems": true,
             "items": {
-              "enum": ["reference", "run", "file", "aliquot", "transfer"]
+              "enum": ["reference", "run", "file", "aliquot", "transfer", "used"]
             }
           }
         },
