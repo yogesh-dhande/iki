@@ -1,5 +1,7 @@
 """Check a built plugin's manifest against the deployment using the admin's API sign-in."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -54,7 +56,7 @@ def run(args: argparse.Namespace) -> int:
     return int(report["blocking"])
 
 
-def _print_report(report: "PluginPreflightOut", out: TextIO) -> None:
+def _print_report(report: PluginPreflightOut, out: TextIO) -> None:
     out.write(f"{report['plugin']} {report['version']}\n")
     out.write(f"Checked configuration  {report['configuration_revision']}\n")
     out.write(f"Candidate manifest     {report['candidate_revision']}\n")
