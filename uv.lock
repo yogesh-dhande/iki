@@ -1304,7 +1304,7 @@ requires-dist = [
     { name = "psycopg", extras = ["pool"], specifier = ">=3.3.8" },
     { name = "python-calamine", specifier = ">=0.9.1" },
     { name = "requests", specifier = ">=2.34.2" },
-    { name = "servestatic", specifier = ">=4.4.0" },
+    { name = "servestatic", specifier = ">=4.4.1" },
     { name = "structlog", specifier = ">=26.1.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
@@ -3213,14 +3213,14 @@ wheels = [
 
 [[package]]
 name = "servestatic"
-version = "4.4.0"
+version = "4.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/44/c9d97449772bcb22f5dcb06eca5f2edd70882fdbaba433c4159cb722e16b/servestatic-4.4.0.tar.gz", hash = "sha256:1888da43de2d5e46960404b0ff718992053b45ee875763c2a905809d7d0b4380", size = 36523, upload-time = "2026-10-02T23:45:58.091Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6e/ec/e1ccefa0486275259f19e211ad537db666563764ccd5966a8579de691725/servestatic-4.4.1.tar.gz", hash = "sha256:c2fc2705999a612e8efc759d6a05ee9266f2ae82befd4f33056522f43cbb733a", size = 36915, upload-time = "2026-11-14T08:47:17.54Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7d/45/bf0422b5790712076260455006b39847978714a7930decfda95de26602b1/servestatic-4.4.0-py3-none-any.whl", hash = "sha256:78add8a928ce21c821746ab6c53df026fbcc7a105789ae2f4511241f5e7413ee", size = 43736, upload-time = "2026-10-02T23:45:56.691Z" },
+    { url = "https://files.pythonhosted.org/packages/17/44/7829f23919345ad2e7c05ff2bdec16ca124c122d0fae403910f5af1294f2/servestatic-4.4.1-py3-none-any.whl", hash = "sha256:89bc3147387d3a6f06c905d6e2a859a8fec051131614795ce62f63918de7c4c4", size = 43818, upload-time = "2026-11-14T08:47:16.328Z" },
 ]
 
 [[package]]
