@@ -2,17 +2,15 @@
 
 from pathlib import Path
 
+from first_party_dependencies import PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
-ROOT = Path(__file__).resolve().parents[2]
-PLUGINS = ROOT / "plugins"
 __all__ = ["database"]
 
 
 def test_strain_identity_and_stock_to_data_lineage(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
-    names = ("dna", "protein", "oligo", "plasmid", "lots", "example_lims", "strains")
-    built = iki("plugin", "build", *(PLUGINS / n for n in names), "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLUGINS / "strains"), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
