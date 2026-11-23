@@ -1324,6 +1324,12 @@
       },
       "ApplyIn": {
         "properties": {
+          "planned_at": {
+            "description": "The planned_at of the plan being confirmed.",
+            "format": "date-time",
+            "title": "Planned At",
+            "type": "string"
+          },
           "reason": {
             "description": "Why: the import and the audit log keep it.",
             "maxLength": 2000,
@@ -1333,6 +1339,7 @@
           }
         },
         "required": [
+          "planned_at",
           "reason"
         ],
         "title": "ApplyIn",
@@ -9262,6 +9269,19 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
           }
         },
         "title": "ImportEntityParams",
@@ -9326,6 +9346,45 @@
           "sha256"
         ],
         "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportMemberParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
+          }
+        },
+        "title": "ImportMemberParams",
         "type": "object"
       },
       "ImportOut": {
@@ -9394,6 +9453,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -9774,6 +9834,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -36651,6 +36712,25 @@
             }
           },
           {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
+            }
+          },
+          {
             "in": "query",
             "name": "action",
             "required": false,
@@ -36800,6 +36880,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
             }
           }
         ],
