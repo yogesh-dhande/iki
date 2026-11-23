@@ -1,0 +1,23 @@
+apiVersion: iki/v1
+kind: Action
+name: import_base_strains
+label: Import a strain catalogue
+description: >-
+  Register the bacterial and yeast base strains in a CSV with authority, accession,
+  taxon_id, scientific_name, kind, name and genotype columns. Each record retains
+  its source file and row. All rows are checked before any are imported.
+params:
+  file:
+    type: file
+    label: Strain catalogue CSV
+    required: true
+    media_types: [text/csv, text/plain]
+    max_size: 512KiB
+effects:
+  creates:
+    - { type: iki/core.Organism, cardinality: many }
+    - { type: BaseStrain, cardinality: many }
+runs_on: { tier: backend, environment: strain-tools }
+command: [python, ./scripts/import_strains.py]
+deterministic: true
+timeout: 5m
