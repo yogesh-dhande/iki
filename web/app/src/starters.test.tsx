@@ -309,7 +309,7 @@ describe("a project's starters", () => {
         .getAllByRole("listitem")
         .map((i) => i.textContent),
     ).toEqual([
-      "New fits create RequestedQCAssayResult results.",
+      "New results follow the Regulated QC flow.",
       "Barbara McClintock becomes Assay analyst.",
       "Carl Woese becomes Assay reviewer.",
       "Dorothy Hodgkin becomes Assay QA.",

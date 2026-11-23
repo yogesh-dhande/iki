@@ -48,7 +48,7 @@ export function ProjectStarters() {
   const starters = useQuery(startersQuery(project.id));
   return (
     <div className="columns">
-      <section className="card">
+      <section className="card card-wide starter-intro">
         <h2 className="section-title">Starters</h2>
         <p className="muted">
           A starter sets {project.name} up as a service from what’s installed: the review flow its
@@ -64,7 +64,7 @@ export function ProjectStarters() {
       {starters.isPending ? <Loading label="Loading starters" /> : null}
       {starters.error ? <ProblemAlert problem={problemOf(starters.error)} /> : null}
       {starters.data?.length === 0 ? (
-        <section className="card">
+        <section className="card card-wide">
           <p className="empty">No starters are installed. A plugin that offers one adds it here.</p>
         </section>
       ) : null}
@@ -95,8 +95,8 @@ function Applied({ starter }: { starter: Starter }) {
 function StarterCard({ starter, project }: { starter: Starter; project: Project }) {
   const id = useId();
   return (
-    <section className="card starter" aria-labelledby={`${id}-title`}>
-      <div className="section-head">
+    <section className="card card-wide starter" aria-labelledby={`${id}-title`}>
+      <div className="section-header">
         <h2 className="section-title" id={`${id}-title`}>
           {starter.label}
         </h2>
@@ -256,8 +256,8 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const memberById = new Map((members.data ?? []).map((m) => [m.id, m]));
 
   return (
-    <section className="card starter" aria-labelledby={`${id}-title`}>
-      <div className="section-head">
+    <section className="card card-wide starter" aria-labelledby={`${id}-title`}>
+      <div className="section-header">
         <h2 className="section-title" id={`${id}-title`}>
           {starter.label}
         </h2>
@@ -329,7 +329,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         )}
 
         <h3 className="starter-step">Who does what</h3>
-        <p className="field-help">
+        <p className="field-help starter-help">
           People with their own membership of {project.name}. Each lab role needs a project role at
           least as high as it says; add people in{" "}
           <Link to="/projects/$slug/members/" params={{ slug: project.slug }}>
@@ -387,6 +387,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         {previewed ? (
           <Plan
             plan={previewed}
+            flowLabel={starter.flows.find((f) => f.id === previewed.flow)?.label ?? previewed.flow}
             label={label}
             memberName={(member) => {
               const found = memberById.get(member);
@@ -428,11 +429,13 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
 /** What applying will do: the grants it adds, the examples it makes, the intake it sets. */
 function Plan({
   plan,
+  flowLabel,
   label,
   memberName,
   intake,
 }: {
   plan: StarterPlan;
+  flowLabel: string;
   label: (role: string) => string;
   memberName: (membership: string) => string;
   intake: string | null;
@@ -447,9 +450,7 @@ function Plan({
         <p>Nothing: it’s set up this way already.</p>
       ) : (
         <ul>
-          <li>
-            New fits create {plan.result_type.slice(plan.result_type.indexOf(".") + 1)} results.
-          </li>
+          <li>New results follow the {flowLabel} flow.</li>
           {grants.map((g) => (
             <li key={g}>{g}.</li>
           ))}

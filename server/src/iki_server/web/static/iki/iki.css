@@ -8331,8 +8331,19 @@ input[type="file"]::file-selector-button {
 
 /* --- A project's starters (ADR 0198) ----------------------------------------- */
 
-.starter .section-head {
-  flex-wrap: wrap;
+/* Wide enough for a flow drawn side by side; its words and choices stay a readable width. */
+.starter.card-wide > form {
+  max-width: none;
+}
+
+.starter > p,
+.starter > form > :not(.starter-flow),
+.starter-intro > p {
+  max-width: 46rem;
+}
+
+.starter-help {
+  margin-bottom: calc(12rem / 13);
 }
 
 .starter-flow {
