@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_iki import FakeIki, config, isolated, store_with
+from fake_iki import FakeIki, config, isolated, problem, store_with
 
 import iki
 from iki.client import Client
@@ -110,3 +110,78 @@ def test_waiting_longer_than_allowed_raises(fake: FakeIki, client: Client) -> No
     fake.on("GET", BASE, imported("previewing"))
     with pytest.raises(iki.TimedOut, match="still previewing"):
         client.spreadsheets.preview(IMPORT, timeout=0)
+
+
+@pytest.mark.parametrize("by_id", [False, True])
+def test_save_mapping_sends_the_reviewed_source_and_replacement(
+    fake: FakeIki, client: Client, by_id: bool
+) -> None:
+    source = imported("mapping", mapping_revision=7)
+    path = f"{BASE}/mappings"
+    target = {"id": "template", "name": "Core manifest", "revision": 1}
+    fake.on("POST", path, target, {**target, "revision": 2})
+    if by_id:
+        saved = client.spreadsheets.save_mapping(IMPORT, "Core manifest", source_revision=7)
+    else:
+        saved = client.spreadsheets.save_mapping(source, "Core manifest")
+    assert saved["id"] == "template"
+    assert fake.body("POST", path) == {"name": "Core manifest", "source_revision": 7}
+    if by_id:
+        replaced = client.spreadsheets.save_mapping(
+            IMPORT, "Core manifest", source_revision=8, replace="template", target_revision=1
+        )
+    else:
+        changed = imported("mapping", mapping_revision=8)
+        replaced = client.spreadsheets.save_mapping(changed, "Core manifest", replace=saved)
+    assert replaced["revision"] == 2
+    assert fake.body("POST", path) == {
+        "name": "Core manifest",
+        "source_revision": 8,
+        "replace": "template",
+        "target_revision": 1,
+    }
+    assert [r.method for r in fake.requests] == ["POST", "POST"]
+
+
+@pytest.mark.parametrize(
+    ("sheet", "choices", "field"),
+    [
+        (IMPORT, {}, "source_revision"),
+        (IMPORT, {"source_revision": 0}, "source_revision"),
+        (IMPORT, {"source_revision": True}, "source_revision"),
+        (imported("mapping"), {}, "source_revision"),
+        (imported("mapping", mapping_revision=2), {"source_revision": 3}, "source_revision"),
+        (IMPORT, {"source_revision": 2, "target_revision": 1}, "replace"),
+        (IMPORT, {"source_revision": 2, "replace": "template"}, "target_revision"),
+        (
+            IMPORT,
+            {
+                "source_revision": 2,
+                "replace": {"id": "template", "revision": 1},
+                "target_revision": 2,
+            },
+            "target_revision",
+        ),
+    ],
+)
+def test_saving_a_template_requires_the_reviewed_revisions(
+    fake: FakeIki, client: Client, sheet: str | dict[str, Any], choices: dict[str, Any], field: str
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        client.spreadsheets.save_mapping(sheet, "Core manifest", **choices)
+    assert not fake.requests
+
+
+@pytest.mark.parametrize("changed", ["source mapping", "saved template"])
+def test_a_template_conflict_returns_to_the_caller(
+    fake: FakeIki, client: Client, changed: str
+) -> None:
+    path = f"{BASE}/mappings"
+    fake.on("POST", path, problem(409, f"Review the changed {changed}.", "conflict"))
+    with pytest.raises(iki.Conflict, match=changed):
+        client.spreadsheets.save_mapping(
+            imported("mapping", mapping_revision=7),
+            "Core manifest",
+            replace={"id": "template", "revision": 2},
+        )
+    assert [r.method for r in fake.requests] == ["POST"]

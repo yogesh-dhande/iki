@@ -51,6 +51,7 @@ class SavedMapping(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="+")
     type = models.CharField(max_length=112, db_comment="The entity type it maps to.")
     name = models.CharField(max_length=100)
+    revision = models.PositiveIntegerField(default=1)
     #: Each column it maps, by its header: {"header": …, "field": …, and how it reads}.
     columns = models.JSONField()
     #: The headers it was saved from, as compared: a sheet with them is suggested it.
@@ -127,6 +128,8 @@ class SpreadsheetImport(models.Model):
     mapping = models.ForeignKey(
         SavedMapping, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
+    #: Changes when the source of a saved template changes, independently of previewing.
+    mapping_revision = models.PositiveIntegerField(default=1)
 
     # Its preview: each round is one, from the start; changing what's imported starts afresh.
     round = models.PositiveIntegerField(default=0)

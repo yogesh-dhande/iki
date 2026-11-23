@@ -36,8 +36,8 @@ from typing import Any, cast
 
 import structlog
 from django.core.exceptions import PermissionDenied
-from django.db import connection, transaction
-from django.db.models import Q, QuerySet
+from django.db import IntegrityError, connection, transaction
+from django.db.models import F, Q, QuerySet
 from django.db.models.functions import Lower
 from django.utils import timezone
 
@@ -208,6 +208,7 @@ def read(import_id: str) -> str:
         _fail(found, str(error))
         return "unreadable"
     with transaction.atomic():
+        _lock_template_links(found.project_id, found.type)
         locked = SpreadsheetImport.objects.select_for_update().get(pk=found.pk)
         if locked.state != ImportState.READING:
             return "done"
@@ -232,6 +233,7 @@ def read(import_id: str) -> str:
         locked.first_row = header + 1
         locked.last_row = None
         locked.columns = [c.as_json() for c in _suggested(locked)]
+        locked.mapping_revision += 1
         locked.state = ImportState.MAPPING
         locked.updated_at = timezone.now()
         locked.save()
@@ -281,12 +283,35 @@ class Choice:
     locale: dict[str, Any] | None = None
 
 
+def _mapping_source(imported: SpreadsheetImport) -> tuple[object, ...]:
+    """The reviewed inputs to a template save. Preview progress and row ranges can vary."""
+    return (
+        imported.sheet,
+        imported.header_row,
+        [column for column in mapping.columns_from_json(imported.columns) if column.field],
+        Locale.of(imported.locale),
+        imported.mapping_id,
+    )
+
+
+def _lock_template_links(project_id: uuid.UUID, type_name: str, *, deleting: bool = False) -> None:
+    """Take before any row locks. During deletion no import can acquire a fresh link
+    after the linked source revisions have been advanced."""
+    lock = "pg_advisory_xact_lock" if deleting else "pg_advisory_xact_lock_shared"
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT {lock}(hashtextextended(%s, 0))",
+            [f"iki_spreadsheet_mapping:{project_id}:{type_name}"],
+        )
+
+
 def change(user: User, imported: SpreadsheetImport, choice: Choice) -> SpreadsheetImport:
     """Chooses what it imports. A new sheet or header row maps its columns afresh, unless
     ``columns`` are given too. Its preview, if it had one, starts again. Raises
     :class:`Invalid` with what's wrong, by where, or :class:`Refused`."""
     _may_write(user, imported.project)
     with transaction.atomic():
+        _lock_template_links(imported.project_id, imported.type)
         imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
         if imported.state not in (
             ImportState.MAPPING,
@@ -294,6 +319,7 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             ImportState.PREVIEWING,
         ):
             raise Refused(_why_not_changed(imported))
+        previous_mapping = _mapping_source(imported)
         errors: dict[str, list[str]] = {}
         names = [s["name"] for s in imported.sheets]
         remap = False
@@ -350,6 +376,8 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
                 imported.locale = Locale.of({**imported.locale, **choice.locale}).as_json()
         if errors:
             raise Invalid(errors)
+        if _mapping_source(imported) != previous_mapping:
+            imported.mapping_revision += 1
         _reset(imported)
         imported.save()
     return imported
@@ -492,50 +520,72 @@ def _reset(imported: SpreadsheetImport) -> None:
 
 
 def save_mapping(
-    user: User, imported: SpreadsheetImport, name: str, *, replace: SavedMapping | None = None
+    user: User,
+    imported: SpreadsheetImport,
+    name: str,
+    *,
+    source_revision: int,
+    replace: uuid.UUID | None = None,
+    target_revision: int | None = None,
 ) -> SavedMapping:
-    """Keeps the import's mapping in its project, by its headers, as ``name``: or as
-    ``replace``, changing it. Raises :class:`Refused`."""
+    """Save the source settings reviewed and replace only the target version reviewed."""
     _may_write(user, imported.project)
+    if (replace is None) != (target_revision is None):
+        raise Invalid({"target_revision": ["Give a template ID and its revision together."]})
     name = name.strip()
     if not name or len(name) > 100:
         raise Refused("Give it a name, of at most 100 characters.", field="name")
-    headers = headers_of(imported)
-    columns = mapping.saved_columns(mapping.columns_from_json(imported.columns), headers)
-    if not columns:
-        raise Refused("Map a column to a field first.", field="columns")
-    kept = [str(c["header"]) for c in columns]
     with transaction.atomic():
-        clash = SavedMapping.objects.filter(
-            project=imported.project_id, type=imported.type, name=name
-        )
-        if replace is not None:
-            clash = clash.exclude(pk=replace.pk)
-        if clash.exists():
-            raise Refused(f"The project has a mapping called {name} already.", field="name")
+        _lock_template_links(imported.project_id, imported.type)
+        imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        if source_revision != imported.mapping_revision:
+            raise Refused(
+                f"The source mapping has changed. Its sheet is now “{imported.sheet}”, "
+                f"header row {imported.header_row}, revision {imported.mapping_revision}. "
+                "Review the current source before saving."
+            )
         if replace is None:
-            saved = SavedMapping.objects.create(
-                project=imported.project,
-                type=imported.type,
-                name=name,
-                columns=columns,
-                headers=kept,
-                header_row=imported.header_row,
-                locale=imported.locale,
-                created_by=user,
-                updated_by=user,
+            saved = SavedMapping(
+                project_id=imported.project_id, type=imported.type, created_by=user
             )
             what = "spreadsheet_mapping.saved"
         else:
-            saved = replace
-            saved.name, saved.columns, saved.headers = name, columns, kept
-            saved.header_row, saved.updated_by = imported.header_row, user
-            saved.locale = imported.locale
+            saved = SavedMapping.objects.select_for_update().get(
+                pk=replace, project_id=imported.project_id, type=imported.type
+            )
+            if saved.revision != target_revision:
+                raise Refused(
+                    f"The saved template “{saved.name}” has changed to revision {saved.revision}. "
+                    "Review the current template before replacing it."
+                )
+            saved.revision += 1
             saved.updated_at = timezone.now()
-            saved.save()
             what = "spreadsheet_mapping.changed"
-        imported.mapping = saved
-        imported.save(update_fields=["mapping"])
+        columns = mapping.saved_columns(
+            mapping.columns_from_json(imported.columns), headers_of(imported)
+        )
+        if not columns:
+            raise Refused("Map a column to a field first.", field="columns")
+        saved.name, saved.columns = name, columns
+        saved.headers = [c["header"] for c in columns]
+        saved.header_row, saved.locale, saved.updated_by = (
+            imported.header_row,
+            imported.locale,
+            user,
+        )
+        try:
+            saved.save()
+        except IntegrityError as error:
+            diag = getattr(error.__cause__, "diag", None)
+            if getattr(diag, "constraint_name", None) != "iki_spreadsheet_mapping_name":
+                raise
+            raise Refused(
+                f"The project has a mapping called {name} already.", field="name"
+            ) from error
+        if imported.mapping_id != saved.pk:
+            imported.mapping = saved
+            imported.mapping_revision += 1
+            imported.save(update_fields=["mapping", "mapping_revision"])
         audit.record(
             what,
             actor=user,
@@ -549,6 +599,10 @@ def save_mapping(
 def delete_mapping(user: User, saved: SavedMapping) -> None:
     _may_write(user, saved.project)
     with transaction.atomic():
+        _lock_template_links(saved.project_id, saved.type, deleting=True)
+        SpreadsheetImport.objects.filter(mapping=saved).update(
+            mapping=None, mapping_revision=F("mapping_revision") + 1
+        )
         audit.record(
             "spreadsheet_mapping.deleted",
             actor=user,

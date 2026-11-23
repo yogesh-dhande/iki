@@ -20545,10 +20545,30 @@
             ],
             "description": "A saved mapping to change, rather than add.",
             "title": "Replace"
+          },
+          "source_revision": {
+            "description": "The mapping_revision of the source import you reviewed.",
+            "minimum": 1,
+            "title": "Source Revision",
+            "type": "integer"
+          },
+          "target_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The saved template revision you reviewed. Required with replace.",
+            "title": "Target Revision"
           }
         },
         "required": [
-          "name"
+          "name",
+          "source_revision"
         ],
         "title": "SavedMappingIn",
         "type": "object"
@@ -20568,10 +20588,15 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
           }
         },
         "required": [
           "id",
+          "revision",
           "name",
           "match"
         ],
@@ -20614,6 +20639,10 @@
             "title": "Name",
             "type": "string"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -20629,6 +20658,7 @@
         },
         "required": [
           "id",
+          "revision",
           "name",
           "type",
           "headers",
@@ -24382,6 +24412,11 @@
             ],
             "description": "The saved mapping it was mapped by."
           },
+          "mapping_revision": {
+            "description": "The revision of this import's template settings.",
+            "title": "Mapping Revision",
+            "type": "integer"
+          },
           "mappings": {
             "description": "The project's saved mappings for the type, best matched first.",
             "items": {
@@ -24510,6 +24545,7 @@
         },
         "required": [
           "id",
+          "mapping_revision",
           "project",
           "type",
           "file",
@@ -43154,7 +43190,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/mappings": {
       "post": {
-        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself.",
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind. Send the source import's reviewed mapping revision. When replacing a template,\nalso send its ID and the revision reviewed. A conflict requires reviewing the change.",
         "operationId": "iki_server_api_spreadsheets_save_mapping",
         "parameters": [
           {

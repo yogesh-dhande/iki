@@ -186,6 +186,19 @@ columns are; others are offered, best matched first. Mappings are the
 project's because a project's instruments and vendors are; one a team wants
 everywhere is saved in each project, as views are.
 
+Saving a template uses the settings the person reviewed. Every import exposes
+its `mapping_revision` for the sheet, header row, mapped columns and their
+options, locale and linked template. Editing the imported row range or
+previewing it leaves those settings intact. Every saved template has its own
+positive `revision`, also shown among an import's matching templates.
+
+`POST /spreadsheet-imports/{id}/mappings` requires the reviewed import's
+`mapping_revision` as `source_revision`. To replace a template, send its
+ID as `replace` and its reviewed revision as `target_revision`. Iki checks
+both under lock before it copies settings, links the import or writes its audit
+event. A stale review gets HTTP 409 identifying the source or target that
+changed. The person reviews its current settings before saving again.
+
 ### 7. Keeping and clearing
 
 An import nobody committed or touched for a fortnight is discarded by

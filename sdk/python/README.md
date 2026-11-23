@@ -340,6 +340,41 @@ is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
 `POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then
 `POST …/commit`.
 
+To save a project template, pass the import whose column mapping and locale
+you reviewed to `iki.spreadsheets.save_mapping(sheet, name)`. To update an
+existing template, review its columns and locale in the result of
+`iki.spreadsheets.mappings(project, type=sheet["type"])`, then call
+`iki.spreadsheets.save_mapping(sheet, target["name"], replace=target)`.
+With bare IDs, supply the revisions from the same review.
+
+```python
+iki.spreadsheets.save_mapping(
+    sheet["id"],
+    target["name"],
+    source_revision=sheet["mapping_revision"],
+    replace=target["id"],
+    target_revision=target["revision"],
+)
+```
+
+For raw HTTP, create a template with `POST /api/v1/spreadsheet-imports/{id}/mappings`
+and `{"name":"Core manifest","source_revision":7}` if the import you reviewed
+has `mapping_revision` 7. To replace a template you reviewed at revision 2,
+send its ID and revision with the same request.
+
+```json
+{
+  "name": "Core manifest",
+  "source_revision": 7,
+  "replace": "00000000-0000-7000-8000-000000000001",
+  "target_revision": 2
+}
+```
+
+A changed source mapping or replacement template returns HTTP 409
+(`iki.Conflict`). Review the current columns and locale before submitting a
+new save.
+
 ## Errors
 
 When Iki refuses something, you get an `iki.ApiError` that says why, with a

@@ -2018,7 +2018,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/spreadsheet-imports/{import_id}/mappings",
-        spreadsheet_import("/mappings", {"name": "Plate reader"}),
+        spreadsheet_import("/mappings", {"name": "Plate reader", "source_revision": 1}),
         row(404, editor=201),
     ),
     (

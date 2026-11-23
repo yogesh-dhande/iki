@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, Response, expect
 from real_server import Server
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
@@ -266,3 +266,127 @@ def test_a_workbook_already_in_the_project_is_picked_from_its_files(
     (kept,) = File.objects.filter(project=world.project, name="kinase-domains-batch-12.xlsx")
     imports = SpreadsheetImport.objects.filter(project=world.project).order_by("created_at")
     assert [i.file_id for i in imports] == [kept.pk, kept.pk]
+
+
+def test_changing_the_source_or_saved_mapping_requires_a_fresh_review(
+    open_as: Any, world: World, tasks: Server
+) -> None:
+    from iki_server.spreadsheets.models import SavedMapping
+
+    name = "Dispatch format"
+
+    def columns(filename: str) -> Page:
+        page: Page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}")
+        page.locator("input[type=file]").first.set_input_files(
+            {"name": filename, "mimeType": "text/csv", "buffer": b"Label,Tags\nParcel,Inbound\n"}
+        )
+        page.get_by_role("heading", name="Sheet and rows").wait_for(timeout=60_000)
+        page.get_by_role("button", name="Next: columns").click()
+        return page
+
+    def submit(button: Locator) -> Response:
+        with button.page.expect_response("**/spreadsheet-imports/*/mappings") as response:
+            button.click()
+        return response.value
+
+    def omit_tags(page: Page) -> dict[str, Any]:
+        with page.expect_response(lambda r: r.request.method == "PATCH") as changed:
+            page.get_by_role("combobox", name="Field for B: Tags").select_option("")
+        assert changed.value.status == 200
+        detail: dict[str, Any] = changed.value.json()
+        return detail
+
+    page = columns("dispatch.csv")
+    dialog = page.get_by_role("alertdialog", name="Save this mapping")
+    open_review = page.get_by_role("button", name="Save this mapping…")
+    open_review.click()
+    dialog.get_by_role("textbox", name="Name").fill(name)
+    created = submit(dialog.get_by_role("button", name="Save", exact=True))
+    assert created.status == 201, (created.request.post_data_json, created.json())
+    target = created.json()
+    expect(dialog).to_have_count(0)
+    assert [c["header"] for c in target["columns"]] == ["Label", "Tags"]
+
+    # Another import of the same format keeps only the first column.
+    other = columns("labels-only.csv")
+    omit_tags(other)
+    other.get_by_role("button", name="Save this mapping…").click()
+    other_save = other.get_by_role("alertdialog").get_by_role("button", name="Save changes")
+    expect(other_save).to_be_enabled()
+
+    import_id = page.url.rstrip("/").rsplit("/", 1)[-1]
+    with page.expect_response(f"**/spreadsheet-imports/{import_id}") as view:
+        page.reload()
+    page.get_by_role("button", name="Next: columns").click()
+    open_review.click()
+    save = dialog.get_by_role("button", name="Save changes")
+    expect(save).to_be_enabled()
+    shown = view.value.json()
+    replaced = submit(other_save)
+    assert replaced.status == 201
+    replacement = replaced.json()
+    assert replacement["id"] == target["id"]
+    assert [c["header"] for c in replacement["columns"]] == ["Label"]
+
+    stale = submit(save)
+    assert stale.status == 409, (stale.request.post_data_json, stale.json())
+    payload = {
+        "name": name,
+        "replace": target["id"],
+        "source_revision": shown["mapping_revision"],
+        "target_revision": shown["mapping"]["revision"],
+    }
+    assert shown["mapping"]["revision"] == target["revision"]
+    assert stale.request.post_data_json == payload
+    expect(dialog.get_by_role("alert")).to_contain_text(stale.json()["detail"])
+    expect(save).to_be_disabled()
+    saved = SavedMapping.objects.get(pk=target["id"])
+    assert saved.columns == replacement["columns"]
+
+    dialog.get_by_role("button", name="Review latest mapping").click()
+    current = dialog.get_by_role("region", name="Current saved mapping")
+    proposed = dialog.get_by_role("region", name="Mapping to save")
+    expect(current.get_by_role("row").filter(has_text="Label")).to_be_visible()
+    expect(current.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    expect(save).to_be_enabled()
+    retried = submit(save)
+    assert retried.status == 201
+    assert retried.request.post_data_json == {
+        **payload,
+        "target_revision": replacement["revision"],
+    }
+    saved.refresh_from_db()
+    assert saved.columns == target["columns"]
+    expect(dialog).to_have_count(0)
+
+    # This time the template stays put. A second tab edits the very import under review.
+    open_review.click()
+    expect(save).to_be_enabled()
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    other.goto(page.url)
+    other.get_by_role("button", name="Next: columns").click()
+    changed_source = omit_tags(other)
+    before_source_edit = {**payload, "target_revision": saved.revision}
+    stale = submit(save)
+    assert stale.status == 409
+    assert stale.request.post_data_json == before_source_edit
+    expect(dialog.get_by_role("alert")).to_contain_text(stale.json()["detail"])
+    expect(save).to_be_disabled()
+    saved.refresh_from_db()
+    assert saved.revision == before_source_edit["target_revision"]
+    assert saved.columns == target["columns"]
+
+    dialog.get_by_role("button", name="Review latest mapping").click()
+    expect(current.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    expect(proposed.get_by_role("row").filter(has_text="Label")).to_be_visible()
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
+    accepted = submit(save)
+    assert accepted.status == 201
+    assert accepted.request.post_data_json == {
+        **before_source_edit,
+        "source_revision": changed_source["mapping_revision"],
+    }
+    saved.refresh_from_db()
+    assert saved.columns == replacement["columns"]
+    assert SavedMapping.objects.filter(project=world.project, name=name).count() == 1

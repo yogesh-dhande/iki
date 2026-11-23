@@ -17,6 +17,7 @@ export type PreviewRow = Schemas["PreviewRowOut"];
 export type SheetProblem = Schemas["SheetProblemOut"];
 export type Outcome = PreviewRow["outcome"];
 export type ColumnChoice = Schemas["SheetColumnIn"];
+export type SaveMapping = Schemas["SavedMappingIn"];
 export type SheetChange = Schemas["SpreadsheetImportChange"];
 export type SheetLocaleChange = Schemas["SheetLocaleIn"];
 
@@ -154,11 +155,19 @@ export async function discardImport(id: string) {
   );
 }
 
-export async function saveMapping(id: string, name: string, replace?: string) {
+export async function savedMappings(project: string, type: string) {
+  return unwrap(
+    await iki.GET("/api/v1/projects/{project_id}/spreadsheet-mappings", {
+      params: { path: { project_id: project }, query: { type } },
+    }),
+  );
+}
+
+export async function saveMapping(id: string, body: SaveMapping) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/mappings", {
       params: { path: { import_id: id } },
-      body: { name, ...(replace ? { replace } : {}) },
+      body,
     }),
   );
 }

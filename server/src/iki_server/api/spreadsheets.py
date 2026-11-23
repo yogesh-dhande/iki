@@ -157,7 +157,16 @@ class SpreadsheetCommitIn(Schema):
 
 class SavedMappingIn(Schema):
     name: str = Field(min_length=1, max_length=100)
+    source_revision: int = Field(
+        ge=1, strict=True, description="The mapping_revision of the source import you reviewed."
+    )
     replace: UUID | None = Field(None, description="A saved mapping to change, rather than add.")
+    target_revision: int | None = Field(
+        None,
+        ge=1,
+        strict=True,
+        description="The saved template revision you reviewed. Required with replace.",
+    )
 
 
 class WorkbookRef(Schema):
@@ -208,6 +217,7 @@ class FieldTargetOut(Schema):
 
 class SavedMappingOut(Schema):
     id: UUID
+    revision: int
     name: str
     type: str
     headers: list[str]
@@ -225,6 +235,7 @@ class SavedMappingOut(Schema):
 
 class SavedMappingMatch(Schema):
     id: UUID
+    revision: int
     name: str
     match: float = Field(description="The share of its headers the sheet has.")
 
@@ -261,6 +272,7 @@ class SheetProblemOut(Schema):
 
 class SpreadsheetImportOut(Schema):
     id: UUID
+    mapping_revision: int = Field(description="The revision of this import's template settings.")
     project: UUID = Field(alias="project_id")
     type: str
     file: WorkbookRef
@@ -431,7 +443,9 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         ((mapping.matches(s.headers, headers), s) for s in saved),
         key=lambda m: (-m[0], m[1].name),
     )
-    suggested = [{"id": s.pk, "name": s.name, "match": score} for score, s in scored]
+    suggested = [
+        {"id": s.pk, "revision": s.revision, "name": s.name, "match": score} for score, s in scored
+    ]
     state = services.state_of(imported)
     mine = imported.requested_by_id == me.pk and can(me, Action.PROJECT_EDIT, imported.project)
     run = imported.run
@@ -453,6 +467,7 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
     )
     return {
         "id": imported.pk,
+        "mapping_revision": imported.mapping_revision,
         "project_id": imported.project_id,
         "type": imported.type,
         "file": {
@@ -680,20 +695,24 @@ def discard_import(request: HttpRequest, import_id: UUID) -> Status[None]:
 )
 def save_mapping(request: HttpRequest, import_id: UUID, payload: SavedMappingIn) -> Status[Any]:
     """Keeps how its columns map, by their headers, for the project's next sheet of the same
-    kind: one from the same instrument or vendor maps itself."""
+    kind. Send the source import's reviewed mapping revision. When replacing a template,
+    also send its ID and the revision reviewed. A conflict requires reviewing the change."""
     me = caller(request)
     found = _writable(me, import_id)
-    replace = None
-    if payload.replace is not None:
-        replace = SavedMapping.objects.filter(
-            pk=payload.replace, project=found.project_id, type=found.type
-        ).first()
-        if replace is None:
-            raise Problem(404, "No such saved mapping for this type in the project.")
-    saved = _call(lambda: services.save_mapping(me, found, payload.name, replace=replace))
-    return Status(
-        201, SavedMapping.objects.select_related("created_by", "updated_by").get(pk=saved.pk)
-    )
+    try:
+        saved = _call(
+            lambda: services.save_mapping(
+                me,
+                found,
+                payload.name,
+                source_revision=payload.source_revision,
+                replace=payload.replace,
+                target_revision=payload.target_revision,
+            )
+        )
+    except SavedMapping.DoesNotExist:
+        raise Problem(404, "No such saved mapping for this type in the project.") from None
+    return Status(201, saved)
 
 
 @router.get(

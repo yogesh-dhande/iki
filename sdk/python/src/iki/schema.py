@@ -4554,6 +4554,10 @@ class SavedMappingIn(TypedDict):
     name: str
     #: A saved mapping to change, rather than add.
     replace: NotRequired[str | None]
+    #: The mapping_revision of the source import you reviewed.
+    source_revision: int
+    #: The saved template revision you reviewed. Required with replace.
+    target_revision: NotRequired[int | None]
 
 
 class SavedMappingMatch(TypedDict):
@@ -4561,6 +4565,7 @@ class SavedMappingMatch(TypedDict):
     #: The share of its headers the sheet has.
     match: float
     name: str
+    revision: int
 
 
 class SavedMappingOut(TypedDict):
@@ -4571,6 +4576,7 @@ class SavedMappingOut(TypedDict):
     id: str
     locale: SheetLocaleOut
     name: str
+    revision: int
     type: str
     updated_at: str
     updated_by: PersonRef
@@ -5388,6 +5394,8 @@ class SpreadsheetImportOut(TypedDict):
     locale: SheetLocaleOut
     #: The saved mapping it was mapped by.
     mapping: SavedMappingMatch | None
+    #: The revision of this import's template settings.
+    mapping_revision: int
     #: The project's saved mappings for the type, best matched first.
     mappings: list[SavedMappingMatch]
     preview: SpreadsheetPreviewOut | None

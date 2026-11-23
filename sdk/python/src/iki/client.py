@@ -1797,14 +1797,40 @@ class Spreadsheets(_Part):
             ),
         )
 
-    def save_mapping(self, imported: str | Mapping[str, Any], name: str) -> SavedMappingOut:
-        """Keeps its mapping in its project, by its headers, for the next sheet like it."""
+    def save_mapping(
+        self,
+        imported: str | Mapping[str, Any],
+        name: str,
+        *,
+        source_revision: int | None = None,
+        replace: str | Mapping[str, Any] | None = None,
+        target_revision: int | None = None,
+    ) -> SavedMappingOut:
+        """Save the reviewed import's columns and locale as a project template.
+
+        To replace a template, pass the reviewed template as ``replace``. With bare
+        IDs, pass the import's ``mapping_revision`` as ``source_revision`` and the
+        template's ``revision`` as ``target_revision``. A change raises ``iki.Conflict``.
+        """
+        body: dict[str, Any] = {
+            "name": name,
+            "source_revision": _reviewed_mapping_revision(
+                imported, "mapping_revision", source_revision, "source_revision"
+            ),
+        }
+        if replace is not None:
+            body["replace"] = _id(replace)
+            body["target_revision"] = _reviewed_mapping_revision(
+                replace, "revision", target_revision, "target_revision"
+            )
+        elif target_revision is not None:
+            raise ValueError("Supply the template to replace when passing target_revision.")
         return cast(
             "SavedMappingOut",
             self._client.request(
                 "POST",
                 _path("/spreadsheet-imports/{i}/mappings", i=_id(imported)),
-                json={"name": name},
+                json=body,
             ),
         )
 
@@ -1831,6 +1857,19 @@ class Spreadsheets(_Part):
 
 def _id(imported: str | Mapping[str, Any]) -> str:
     return str(imported["id"]) if isinstance(imported, Mapping) else imported
+
+
+def _reviewed_mapping_revision(
+    record: str | Mapping[str, Any], field: str, explicit: int | None, argument: str
+) -> int:
+    reviewed = record.get(field) if isinstance(record, Mapping) else explicit
+    if type(reviewed) is not int or reviewed < 1:
+        raise ValueError(
+            f"Pass a reviewed object with {field}, or its ID and a positive {argument}."
+        )
+    if explicit is not None and (type(explicit) is not int or explicit != reviewed):
+        raise ValueError(f"The supplied {argument} must match the reviewed object's {field}.")
+    return reviewed
 
 
 def _download(

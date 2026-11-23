@@ -649,7 +649,7 @@ def test_an_editor_removed_before_the_run_starts_imports_nothing(world: World) -
 def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     imported = started(world, csv_text(EUROPEAN, ";").encode("cp1252"), name="proben.csv")
     api = api_as(world)
-    api.patch(
+    imported = api.patch(
         f"/spreadsheet-imports/{imported['id']}",
         {
             "locale": {"decimal": "comma", "dates": "day_first"},
@@ -660,15 +660,19 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
                 {"index": 3, "field": "due_on"},
             ],
         },
-    )
+    ).json()
+    url = f"/spreadsheet-imports/{imported['id']}"
     saved = api.post(
-        f"/spreadsheet-imports/{imported['id']}/mappings", {"name": "Plate reader export"}
+        f"{url}/mappings",
+        {"name": "Plate reader export", "source_revision": imported["mapping_revision"]},
     )
     assert saved.status_code == 201, saved.content
     assert saved.json()["headers"] == ["Label", "Purity (%)", "Conc. (mg/mL)", "Due on"]
     assert saved.json()["locale"]["decimal"] == "comma"
+    current = api.get(url).json()
     again = api.post(
-        f"/spreadsheet-imports/{imported['id']}/mappings", {"name": "Plate reader export"}
+        f"{url}/mappings",
+        {"name": "Plate reader export", "source_revision": current["mapping_revision"]},
     )
     assert again.status_code == 422
 

@@ -4194,7 +4194,8 @@ export interface paths {
         /**
          * Save a spreadsheet import's mapping
          * @description Keeps how its columns map, by their headers, for the project's next sheet of the same
-         *     kind: one from the same instrument or vendor maps itself.
+         *     kind. Send the source import's reviewed mapping revision. When replacing a template,
+         *     also send its ID and the revision reviewed. A conflict requires reviewing the change.
          */
         post: operations["iki_server_api_spreadsheets_save_mapping"];
         delete?: never;
@@ -14708,6 +14709,16 @@ export interface components {
              * @description A saved mapping to change, rather than add.
              */
             replace?: string | null;
+            /**
+             * Source Revision
+             * @description The mapping_revision of the source import you reviewed.
+             */
+            source_revision: number;
+            /**
+             * Target Revision
+             * @description The saved template revision you reviewed. Required with replace.
+             */
+            target_revision?: number | null;
         };
         /** SavedMappingMatch */
         SavedMappingMatch: {
@@ -14723,6 +14734,8 @@ export interface components {
             match: number;
             /** Name */
             name: string;
+            /** Revision */
+            revision: number;
         };
         /** SavedMappingOut */
         SavedMappingOut: {
@@ -14743,6 +14756,8 @@ export interface components {
             locale: components["schemas"]["SheetLocaleOut"];
             /** Name */
             name: string;
+            /** Revision */
+            revision: number;
             /** Type */
             type: string;
             /**
@@ -16479,6 +16494,11 @@ export interface components {
             locale: components["schemas"]["SheetLocaleOut"];
             /** @description The saved mapping it was mapped by. */
             mapping: components["schemas"]["SavedMappingMatch"] | null;
+            /**
+             * Mapping Revision
+             * @description The revision of this import's template settings.
+             */
+            mapping_revision: number;
             /**
              * Mappings
              * @description The project's saved mappings for the type, best matched first.
