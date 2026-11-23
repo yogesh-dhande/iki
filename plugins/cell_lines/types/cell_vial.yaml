@@ -1,0 +1,11 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CellVial
+label: Banked cell vial
+extends: iki/example_lims.Tube
+schema_version: 1
+sample: true
+description: One barcoded vial from a cell bank, placed in an Iki storage box.
+hrid: { prefix: CVL }
+fields:
+  bank: { type: ref, to: CellBank, required: true, immutable: true }

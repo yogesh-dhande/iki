@@ -1,0 +1,40 @@
+apiVersion: iki/v1
+kind: EntityType
+name: EngineeredLine
+label: Engineered cell line
+schema_version: 1
+description: A local derivative with its parent and the changes documented for this clone.
+hrid: { prefix: ECL }
+fields:
+  name: { type: string, required: true, max_length: 255, indexed: true }
+  parent:
+    type: ref
+    to: [ParentalLine, EngineeredLine]
+    required: true
+    immutable: true
+  parent_source:
+    type: ref
+    to: CellLineSource
+    immutable: true
+    label: Catalogue source of parent
+    description: The supplier entry when the parental material came from a collection.
+  changes:
+    type: list
+    label: Engineered changes
+    required: true
+    immutable: true
+    min_items: 1
+    max_items: 100
+    items:
+      type: row
+      fields:
+        kind: { type: enum, values: [knock_out, knock_in, stable_transfection], required: true }
+        description: { type: string, max_length: 500, required: true }
+rules:
+  source_matches_parent:
+    when: record.parent_source != null
+    check: record.parent_source.line == record.parent.id
+    message: Select a catalogue source for this parental line.
+    fields: [parent, parent_source]
+display:
+  title: "{{ name }}"

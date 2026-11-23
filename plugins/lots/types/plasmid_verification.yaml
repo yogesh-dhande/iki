@@ -1,0 +1,210 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PlasmidVerification
+label: Plasmid verification
+label_plural: Plasmid verifications
+schema_version: 1
+hrid: { prefix: VER }
+description: >-
+  An assessment of evidence from one physical plasmid prep against its registered plasmid.
+  The verification action records the reference revision and the lab’s review procedure.
+fields:
+  prep:
+    type: ref
+    to: PlasmidPrep
+    label: Physical prep
+    required: true
+    immutable: true
+    description: The physical prep that supplied the material for this evidence.
+  plasmid:
+    type: ref
+    to: iki/plasmid.Plasmid
+    required: true
+    immutable: true
+    description: The registered plasmid this prep is expected to contain.
+  plasmid_record_id:
+    type: string
+    label: Plasmid project record UUID
+    computed: true
+    immutable: true
+    max_length: 36
+    pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    description: The project record of the plasmid that the verification action read.
+  plasmid_revision:
+    type: int
+    label: Plasmid record revision
+    min: 1
+    computed: true
+    immutable: true
+    description: The revision of that project record when the evidence was recorded for review.
+  alignment:
+    type: ref
+    to: iki/core.Alignment
+    label: Read alignment
+    computed: true
+    immutable: true
+    description: The alignment of this prep’s reads to the expected plasmid’s DNA sequence.
+  alignment_revision:
+    type: int
+    label: Alignment revision
+    min: 1
+    computed: true
+    immutable: true
+    description: The revision of the alignment available for this review.
+  report:
+    type: file
+    label: External verification report
+    computed: true
+    immutable: true
+    media_types: [application/pdf, text/plain, text/csv, chemical/seq-na-fasta]
+    max_size: 50MiB
+    description: A previously generated report or aligned reads identified as evidence for this prep.
+  outcome:
+    type: enum
+    indexed: true
+    values: [match, discrepancy, inconclusive]
+    description: What the evidence establishes about the prep relative to the expected plasmid.
+  notes:
+    type: text
+    max_length: 10000
+    description: The observations that support the outcome, including the scope of the comparison.
+  reviewer:
+    type: person
+    role: verification_reviewer
+    assignment: { field: review, states: [recorded, submitted] }
+    description: The project reviewer assigned to examine this evidence and sign the outcome.
+  review_flow:
+    type: enum
+    label: Review procedure
+    indexed: true
+    values: [research, regulated_qc]
+    immutable: true
+    computed: true
+    description: The deployment’s verification procedure at the time the action recorded the evidence.
+  review:
+    type: state
+    label: Review
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        description: The evidence is available for assessment and reviewer assignment.
+        set_by: [verification_analyst, verification_reviewer, qa]
+        reason: required
+        guards:
+          correction:
+            check: state.from in ["signed_off", "submitted", "reviewed", "released"]
+            message: Give a reason to return a signed verification for correction.
+      signed_off:
+        label: Signed off
+        description: The assigned reviewer signed the research assessment.
+        set_by: [verification_reviewer]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: verification
+            statement: >-
+              I checked that this evidence belongs to the named physical prep and supports the
+              recorded outcome against the stated plasmid revision.
+        guards:
+          research_signoff:
+            check: record.review_flow == "research" && state.from == "recorded"
+            message: Sign a research verification from Recorded.
+          assessed:
+            check: record.outcome != null
+            message: Record the outcome before signing.
+          assigned_reviewer:
+            check: record.reviewer == actor.person
+            message: The assigned reviewer signs this verification.
+      submitted:
+        label: Submitted
+        description: The analyst signed the evidence and outcome for independent review.
+        set_by: [verification_analyst]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: authorship
+            statement: >-
+              I recorded the evidence from the named physical prep, the reference revision and
+              the outcome for independent review.
+        guards:
+          qc_submission:
+            check: record.review_flow == "regulated_qc" && state.from == "recorded"
+            message: Submit a regulated QC verification from Recorded.
+          assessed_and_assigned:
+            check: record.outcome != null && record.reviewer != null
+            message: Record the outcome and assign its reviewer before submission.
+      reviewed:
+        label: Reviewed
+        description: The assigned reviewer signed the independent assessment.
+        set_by: [verification_reviewer]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: review
+            statement: >-
+              I independently checked that this evidence belongs to the named physical prep and
+              supports the recorded outcome against the stated plasmid revision.
+        guards:
+          qc_review:
+            check: record.review_flow == "regulated_qc" && state.from == "submitted"
+            message: Review a regulated QC verification after its analyst signs the submission.
+          assigned_reviewer:
+            check: record.reviewer == actor.person
+            message: The assigned reviewer signs this verification.
+          independent_reviewer:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: The creator, submitting analyst and editors of this assessment need another reviewer.
+      released:
+        label: Released
+        description: QA signed the release of this reviewed verification outcome.
+        set_by: [qa]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: I release this assessment of the physical prep on the signed independent review.
+        guards:
+          qc_release:
+            check: >-
+              record.review_flow == "regulated_qc" && state.from == "reviewed" &&
+              last.review.reviewed.from == "submitted"
+            message: QA releases a regulated QC verification after independent review.
+          independent_qa:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release needs someone independent of the creator, analyst, editors and reviewer.
+rules:
+  prep_of_plasmid:
+    label: The reference belongs to the physical prep
+    check: record.prep.plasmid == record.plasmid.id
+    message: Select the plasmid that this physical prep was made from.
+    fields: [prep, plasmid]
+  pinned_reference:
+    label: The action recorded the reference revision and review procedure
+    check: record.plasmid_record_id != null && record.plasmid_revision != null && record.review_flow != null
+    message: Record the evidence with the verification action to pin its reference and review procedure.
+    fields: [plasmid_record_id, plasmid_revision, review_flow]
+  evidence_present:
+    label: The verification has evidence
+    check: record.alignment != null || record.report != null
+    message: Supply the prep’s read alignment, its external report, or both.
+    fields: [alignment, report]
+  alignment_is_pinned:
+    label: The alignment and its revision are recorded together
+    check: (record.alignment != null) == (record.alignment_revision != null)
+    message: The verification action records both the alignment and the revision it read.
+    fields: [alignment, alignment_revision]
+  same_reference_sequence:
+    label: The alignment used the expected plasmid sequence
+    when: record.alignment != null
+    check: record.alignment.reference != null && record.alignment.reference == record.plasmid.sequence
+    message: The alignment must name this plasmid’s registered DNA sequence as its reference.
+    fields: [alignment, plasmid]
+display:
+  title: "{{ hrid }}"

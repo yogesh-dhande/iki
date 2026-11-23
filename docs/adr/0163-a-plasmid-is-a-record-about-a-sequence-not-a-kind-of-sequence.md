@@ -62,8 +62,8 @@ another is PLS-000012 in both.
 
 A plasmid, its sequence and the cloning plans that make it are then one chain
 in the graph (ADR 0123): `Plasmid.sequence` and `Assembly.product` both point
-at the DNA sequence, so walking upstream from a plasmid reaches the plan that
-made it, and walking downstream from a fragment reaches every construct
+at the DNA sequence, so walking upstream from a plasmid can reach several
+plans for that product, and walking downstream from a fragment reaches every construct
 built from it.
 
 **What a plasmid is, for everyone who holds it, is its entry's; what a run or
@@ -97,7 +97,8 @@ sequence. The plasmid record for that sequence is registered beside it.
 
 **An assembly has no identity.** One molecule can be built by several routes,
 and how a lab built its own copy is the lab's record, not a fact about the
-molecule.
+molecule. A project can identify the particular route that supplied its
+material in `source_assembly` ([ADR 0184](0184-a-plasmid-prep-links-to-reviewed-verification-evidence.md)).
 
 **`iki/plasmid.Plasmid` covers circular plasmids, and says so.** Linear
 plasmids are real -- _Kluyveromyces lactis_ carries pGKL1 and pGKL2,
