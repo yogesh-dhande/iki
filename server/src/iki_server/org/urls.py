@@ -26,6 +26,7 @@ urlpatterns: list[URLPattern] = [
     path("projects/<slug:slug>/runs/", app, name="project_runs"),
     path("projects/<slug:slug>/runs/new/", app, name="project_run_new"),
     path("projects/<slug:slug>/files/", app, name="project_files"),
+    path("projects/<slug:slug>/stock/", app, name="project_stock"),
     # Automation's three (ADR 0176).
     path("projects/<slug:slug>/automation/", app, name="project_automation"),
     path("projects/<slug:slug>/automation/workflows/", app, name="project_workflows"),
