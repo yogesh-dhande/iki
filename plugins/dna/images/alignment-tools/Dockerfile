@@ -19,14 +19,15 @@ FROM ${BASE}
 # The same source, 7.505-1, on both: Debian rebuilt it for arm64 alone (+b1), so each
 # architecture pins its own build.
 ARG TARGETARCH
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
 RUN case "${TARGETARCH}" in \
       amd64) mafft=7.505-1 ;; \
       arm64) mafft=7.505-1+b1 ;; \
       *) echo "no MAFFT pinned for ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
- && apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends "mafft=${mafft}" \
+ && apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY upgrade -y --no-install-recommends \
+ && apt-get $APT_RETRY install -y --no-install-recommends "mafft=${mafft}" \
  && rm -rf /var/lib/apt/lists/*
 
 # The same pinned, hashed packages as the plugin's backend environment. pip
