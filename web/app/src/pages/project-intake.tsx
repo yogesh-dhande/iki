@@ -260,6 +260,26 @@ export function ProjectRequests({ project }: { project: Project }) {
         </Link>
       }
     >
+      {sides.received || (project.can.manage && !project.archived) ? (
+        <p className="box-body">
+          {sides.received ? (
+            // Keep the queue link in place as the intake and latest requests arrive below.
+            <Link
+              to="/projects/$slug/requests/"
+              params={{ slug: project.slug }}
+              search={{ side: "received" }}
+            >
+              Requests sent to {project.name}
+            </Link>
+          ) : null}
+          {sides.received && project.can.manage && !project.archived ? " · " : null}
+          {project.can.manage && !project.archived ? (
+            <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
+              Choose what it takes
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
       {sides.intake?.types.length ? (
         <p className="box-body">{takesWhat(project, sides.intake, types)}</p>
       ) : null}
@@ -283,26 +303,6 @@ export function ProjectRequests({ project }: { project: Project }) {
             </li>
           ))}
         </ul>
-      ) : null}
-      {sides.received || (project.can.manage && !project.archived) ? (
-        <p className="box-body">
-          {sides.received ? (
-            // A shortcut to its Requests tab, as the service sees it.
-            <Link
-              to="/projects/$slug/requests/"
-              params={{ slug: project.slug }}
-              search={{ side: "received" }}
-            >
-              Requests sent to {project.name}
-            </Link>
-          ) : null}
-          {sides.received && project.can.manage && !project.archived ? " · " : null}
-          {project.can.manage && !project.archived ? (
-            <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
-              Choose what it takes
-            </Link>
-          ) : null}
-        </p>
       ) : null}
     </Box>
   );

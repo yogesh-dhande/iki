@@ -32,6 +32,8 @@ from playwright.sync_api import (
     Locator,
     Page,
     Playwright,
+    Route,
+    expect,
     sync_playwright,
 )
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -3750,17 +3752,31 @@ def test_a_core_takes_requests_a_project_sends_one_and_the_core_works_it(
     page.context.close()
 
     # The core's technician finds it in the core's queue, its Requests tab, with what it sent.
-    page = open_as("tech", f"/projects/{core.slug}/")
+    page = open_as("tech", "/projects/")
+    # The queue tells us the service has received a request even while its intake is
+    # loading. Start the press then, and let the intake and latest requests arrive before
+    # releasing the mouse. The shortcut must stay under the pointer throughout.
+    intake = "**/api/v1/projects/*/intake"
+    held: list[Route] = []
+    page.route(intake, lambda route: held.append(route), times=1)
+    with page.expect_request(intake):
+        page.goto(f"/projects/{core.slug}/")
     heading = page.get_by_role("heading", name="Requests", exact=True)
     heading.wait_for()
     assert_clean(page)
-    page.locator("section", has=heading).get_by_role(
-        "link", name="Requests sent to Protein Core"
-    ).click()
+    card = page.locator("section", has=heading)
+    queue = card.get_by_role("link", name="Requests sent to Protein Core")
+    queue.hover()
+    position = queue.bounding_box()
+    page.mouse.down()
+    held[0].continue_()
+    card.get_by_role("list", name="Latest requests").get_by_role("link", name=hrid).wait_for()
+    assert queue.bounding_box() == position
+    page.mouse.up()
+    expect(page).to_have_url(re.compile(rf"/projects/{core.slug}/requests/\?side=received$"))
     tabs = page.get_by_role("navigation", name="Project")
     tab = tabs.get_by_role("link", name=re.compile(r"^Requests\b"))
-    tab.wait_for()
-    assert tab.get_attribute("aria-current") == "page"
+    expect(tab).to_have_attribute("aria-current", "page")
     assert tabs.get_by_role("link", name="Entities").get_attribute("aria-current") is None
     grid = page.get_by_role("table", name="1 assay request", exact=True)
     grid.get_by_role("link", name=hrid).wait_for()
