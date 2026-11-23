@@ -67,3 +67,9 @@ Verify that the refusal preserves the records, decisions, authors, reasons,
 revision and audit history. Then have the first editor review the replacement
 and submit a fresh decision. Verify that the resulting write and audit refer
 to exactly what that editor saw.
+
+When adding a required revision, enumerate the callers too. Include the web
+app, CLI, SDK, raw HTTP guides, example plugins, seed scripts and deployment
+checks. Exercise first-party workflows through their usual entry points. Read
+back the affected records to verify the people, records and locations that
+the workflow actually approved.
