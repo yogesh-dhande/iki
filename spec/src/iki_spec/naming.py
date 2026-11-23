@@ -100,10 +100,13 @@ FIRST_PARTY = frozenset(
         "iki/mouse_strains",
         "iki/oligo",
         "iki/plasmid",
+        "iki/cell_lines",
         "iki/complex",
         "iki/conjugate",
+        "iki/polymer",
         "iki/lots",
         "iki/strains",
+        "iki/plate_assays",
         "iki/example_lims",
         "iki/example_models",
     }

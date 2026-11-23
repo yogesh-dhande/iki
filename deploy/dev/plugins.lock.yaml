@@ -15,18 +15,21 @@ plugins:
   - { name: iki/plasmid, local: ../../plugins/plasmid, state: active }
   - { name: iki/complex, local: ../../plugins/complex, state: active }
   - { name: iki/conjugate, local: ../../plugins/conjugate, state: active }
+  - { name: iki/polymer, local: ../../plugins/polymer, state: active }
   - { name: iki/lots, local: ../../plugins/lots, state: active }
-  - { name: iki/mouse_strains, local: ../../plugins/mouse_strains, state: active }
+  - { name: iki/plate_assays, local: ../../plugins/plate_assays, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims
     state: active
     settings: settings/example_lims.yaml
+  - { name: iki/cell_lines, local: ../../plugins/cell_lines, state: active }
   # Calls the fake FoldCloud (manifests/fake-foldcloud.yaml), an outside API.
   - name: iki/example_models
     local: ../../plugins/example_models
     state: active
     settings: settings/example_models.yaml
   - { name: iki/strains, local: ../../plugins/strains, state: active }
+  - { name: iki/mouse_strains, local: ../../plugins/mouse_strains, state: active }
   # The plugin template, for its container-tier action (ADR 0061).
   - { name: acme/example, local: ../../plugin-template, state: active }

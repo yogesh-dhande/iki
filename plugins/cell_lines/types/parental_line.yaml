@@ -1,0 +1,21 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ParentalLine
+label: Parental cell line
+schema_version: 1
+description: A catalogue line registered by its primary Cellosaurus accession.
+hrid: { prefix: PCL }
+identity: [cellosaurus_id]
+fields:
+  name: { type: string, required: true, indexed: true, max_length: 255 }
+  cellosaurus_id:
+    type: string
+    label: Cellosaurus accession
+    required: true
+    immutable: true
+    indexed: true
+    max_length: 9
+    pattern: "^CVCL_[A-Z0-9]{4}$"
+    link: "https://www.cellosaurus.org/{value}"
+display:
+  title: "{{ name }}"

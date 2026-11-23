@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Environment
+name: cell-line-tools
+label: Cell line catalogue reader
+description: Python's standard library reads Cellosaurus text records.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.25, memory: 256Mi }
+python: { version: "3.12", requirements: requirements.txt }

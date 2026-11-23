@@ -2,22 +2,16 @@
 
 from pathlib import Path
 
-from test_first_party_plugins import PLUGINS, ROOT
+from first_party_dependencies import PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 __all__ = ["database"]
 
 
 def test_banked_germplasm_traces_to_its_catalogue_and_data(tmp_path: Path, database: str) -> None:
-    dependencies = ("dna", "protein", "oligo", "plasmid", "lots", "example_lims")
     out = tmp_path / "build"
     built = iki(
-        "plugin",
-        "build",
-        *(PLUGINS / name for name in (*dependencies, "mouse_strains")),
-        "--output",
-        out,
-        cwd=ROOT,
+        "plugin", "build", *build_order(PLUGINS / "mouse_strains"), "--output", out, cwd=ROOT
     )
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
