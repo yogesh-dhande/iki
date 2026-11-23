@@ -1,0 +1,56 @@
+apiVersion: iki/v1
+kind: EntityType
+name: BaseStrain
+label: Base strain
+label_plural: Base strains
+schema_version: 1
+description: A bacterial or yeast strain from a named collection or a lab's own catalogue.
+hrid: { prefix: BST }
+identity: [authority, accession]
+fields:
+  authority:
+    type: string
+    label: Collection or lab code
+    required: true
+    immutable: true
+    pattern: "^[A-Z][A-Z0-9_-]*$"
+    pattern_help: an uppercase collection or lab code, such as ATCC
+    max_length: 64
+    indexed: true
+  accession:
+    type: string
+    label: Strain accession
+    required: true
+    immutable: true
+    pattern: "^[^\\s]+$"
+    pattern_help: the collection's identifier without spaces, such as 700926
+    max_length: 128
+    indexed: true
+  organism:
+    type: ref
+    to: iki/core.Organism
+    registry: fact
+    immutable: true
+    required: true
+    description: The species, identified by its NCBI Taxonomy ID.
+  kind:
+    type: enum
+    values: [bacterium, yeast]
+    registry: fact
+    immutable: true
+    required: true
+    indexed: true
+  name:
+    type: string
+    label: Strain designation
+    max_length: 255
+    indexed: true
+  genotype:
+    type: string
+    registry: fact
+    pattern: "^[^\\s][^\\t\\r\\n]*$"
+    pattern_help: a genotype designation on one line in the source's allele notation
+    max_length: 4000
+    description: The reported genotype in its original notation, with allele names and mating type where given.
+display:
+  title: "{{ name or accession }}"
