@@ -133,8 +133,19 @@ class ColumnReadingOut(Schema):
     cells: list[CellReadingOut]
 
 
+class SheetBasis(Schema):
+    sheet: str
+    header_row: int = Field(ge=0)
+
+
 class SpreadsheetImportChange(Schema):
-    sheet: str | None = None
+    basis: SheetBasis | None = Field(
+        None, description="The sheet and header these choices were made against."
+    )
+    sheet: str | None = Field(
+        None,
+        description="The target worksheet. Required for sheet-relative choices without a basis.",
+    )
     header_row: int | None = Field(None, ge=0, description="From 1; 0 when there's none.")
     first_row: int | None = Field(None, ge=1, description="The first row imported, from 1.")
     last_row: int | None = Field(None, ge=0, description="The last row imported; 0 for the last.")
@@ -572,12 +583,14 @@ def change_import(
     request: HttpRequest, import_id: UUID, payload: SpreadsheetImportChange
 ) -> dict[str, Any]:
     """Its sheet, header row and rows, and how its columns map (or a saved mapping to map
-    them by). Choosing another sheet or header row maps the columns afresh, unless the
-    columns are given too. A preview starts again."""
+    them by). Identify the target sheet or supply the sheet and header these choices were
+    made against. Switching sheets starts with the target sheet's defaults, then applies
+    the choices in this request. A successful change invalidates the previous preview."""
     me = caller(request)
     found = _writable(me, import_id)
     given = payload.dict(exclude_unset=True)
     choice = services.Choice(
+        basis=(payload.basis.sheet, payload.basis.header_row) if payload.basis else None,
         sheet=given.get("sheet"),
         header_row=given.get("header_row"),
         first_row=given.get("first_row"),
@@ -589,8 +602,8 @@ def change_import(
         mapping=given.get("mapping"),
         locale=given.get("locale"),
     )
-    _call(lambda: services.change(me, found, choice))
-    return _out(me, _find(me, import_id))
+    changed = _call(lambda: services.change(me, found, choice))
+    return _out(me, changed)
 
 
 @router.post(

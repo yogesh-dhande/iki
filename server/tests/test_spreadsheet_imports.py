@@ -166,7 +166,8 @@ def test_a_sample_manifest_is_imported_as_records(world: World) -> None:
     assert imported["columns"][3]["unit"] == "ug/mL"
     # Reading them the way the sheet writes them is checked, and said.
     changed = api_as(world).patch(
-        f"/spreadsheet-imports/{imported['id']}", {"locale": {"decimal": "point"}}
+        f"/spreadsheet-imports/{imported['id']}",
+        {"sheet": imported["sheet"], "locale": {"decimal": "point"}},
     )
     assert changed.status_code == 200, changed.content
 
@@ -222,6 +223,119 @@ def test_a_csv_files_rows_are_named_by_their_row(world: World) -> None:
     assert (origin.source, origin.identifier) == ("CSV file", "row 4")
 
 
+def test_a_sheet_switch_uses_its_own_rows_columns_and_locale(world: World) -> None:
+    long: list[list[Any]] = [["Batch"], [], ["Label", "Purity (%)"], ["Long-1", 95], ["Long-2", 92]]
+    short = [["Tags", "Label"], ["short", "Short-1"]]
+    imported = started(
+        world, xlsx(("Long", long), ("Short", short), ("Padded", [[], *short]), ("Empty", []))
+    )
+    api = api_as(world)
+    url = f"/spreadsheet-imports/{imported['id']}"
+    set_long = api.patch(
+        url,
+        {
+            "sheet": "Long",
+            "header_row": 3,
+            "last_row": 5,
+            "skip": [[5, 5]],
+            "locale": {"decimal": "comma"},
+        },
+    )
+    assert set_long.status_code == 200, set_long.content
+    saved = api.post(f"{url}/mappings", {"name": "Long batch"})
+    assert saved.status_code == 201, saved.content
+    applied = api.patch(url, {"sheet": "Long", "mapping": saved.json()["id"]})
+    assert applied.json()["mapping"]["name"] == "Long batch"
+    assert previewed(world, imported)["preview"]["counts"]["create"] == 1
+
+    # A stale or invalid change must preserve the preview and every stored setting.
+    before = SpreadsheetImport.objects.filter(pk=imported["id"]).values().get()
+    invalid = api.patch(url, {"sheet": "Short", "header_row": 3})
+    assert problem(invalid, 422, "validation_failed")["errors"][0]["pointer"] == "#/header_row"
+    assert SpreadsheetImport.objects.filter(pk=imported["id"]).values().get() == before
+    switched = api.patch(url, {"sheet": "Short"})
+    assert switched.status_code == 200, switched.content
+    body = switched.json()
+    assert (body["sheet"], body["header_row"], body["first_row"]) == ("Short", 1, 2)
+    assert body["last_row"] is None and body["skip"] == [] and body["mapping"] is None
+    assert body["locale"] == {"decimal": None, "dates": None, "serial_dates": False}
+    assert mapped(body) == {"Tags": "tags", "Label": "label"}
+    assert body["state"] == "mapping" and body["preview"] is None
+    assert api.get(url).json() == body
+    assert api.post(f"{url}/commit", {}).status_code == 409
+    assert not records(world)
+
+    padded = api.patch(url, {"sheet": "Padded"}).json()
+    assert (padded["header_row"], padded["first_row"]) == (2, 3)
+    assert mapped(padded) == {"Tags": "tags", "Label": "label"}
+
+    blank = api.patch(url, {"sheet": "Empty"}).json()
+    assert (blank["sheet"], blank["header_row"], blank["first_row"]) == ("Empty", 0, 1)
+    assert blank["columns"] == []
+    assert api.patch(url, {"sheet": "Empty", "header_row": 1}).status_code == 422
+
+    # Old drafts could already have inherited an impossible header.
+    draft = SpreadsheetImport.objects.filter(pk=imported["id"])
+    draft.update(sheet="Short", header_row=3, first_row=4)
+    unchanged = draft.values().get()
+    invalid = api.patch(url, {"sheet": "Short", "skip": []})
+    assert problem(invalid, 422, "validation_failed")["errors"][0]["pointer"] == "#/header_row"
+    assert draft.values().get() == unchanged
+    repaired = api.patch(url, {"sheet": "Short", "header_row": 1}).json()
+    assert (repaired["header_row"], repaired["first_row"]) == (1, 2)
+
+
+def test_sheet_relative_edits_require_the_sheet_and_reject_stale_headers(world: World) -> None:
+    a = [["Tags", "Label"], ["main", "A-1"], ["other", "A-2"]]
+    b = [["Batch B"], ["Group", "Tube ID"], ["batch", "B-1"], ["batch", "B-2"]]
+    imported = started(world, xlsx(("A", a), ("B", b)))
+    api = api_as(world)
+    url = f"/spreadsheet-imports/{imported['id']}"
+    switched = api.patch(
+        url,
+        {
+            "sheet": "B",
+            "header_row": 2,
+            "last_row": 3,
+            "columns": [{"index": 0, "field": "tags"}, {"index": 1, "field": "label"}],
+        },
+    )
+    assert switched.status_code == 200, switched.content
+    assert switched.json()["sheet"] == "B" and switched.json()["first_row"] == 3
+    checked = previewed(world, imported)
+    assert checked["preview"]["counts"]["create"] == 1
+    before = SpreadsheetImport.objects.filter(pk=imported["id"]).values().get()
+    settings: list[dict[str, Any]] = [
+        {"header_row": 1},
+        {"first_row": 3},
+        {"last_row": 0},
+        {"skip": []},
+        {"columns": [{"index": 0, "field": "label"}]},
+        {"mapping": imported["id"]},
+        {"locale": {"decimal": "point"}},
+    ]
+    for setting in settings:
+        unbound = api.patch(url, setting)
+        assert problem(unbound, 422, "validation_failed")["errors"][0]["pointer"] == "#/basis"
+        for stale in ({"sheet": "A", "header_row": 2}, {"sheet": "B", "header_row": 1}):
+            rejected = api.patch(url, {"basis": stale, **setting})
+            assert "reload" in problem(rejected, 409, "refused")["detail"].lower()
+    # A late switch with a stale basis cannot undo the newer selection either.
+    assert (
+        api.patch(url, {"sheet": "A", "basis": {"sheet": "B", "header_row": 1}}).status_code == 409
+    )
+    assert SpreadsheetImport.objects.filter(pk=imported["id"]).values().get() == before
+    assert not records(world)
+    fresh = api.patch(url, {"basis": {"sheet": "B", "header_row": 2}, "skip": []})
+    assert fresh.status_code == 200 and fresh.json()["preview"] is None
+    assert api.post(f"{url}/commit", {}).status_code == 409
+    done = committed(world, previewed(world, imported))
+    assert done["state"] == "imported"
+    made = records(world)
+    assert list(made) == ["B-1"]
+    assert ExternalOrigin.objects.get(entity=made["B-1"]).identifier == "B, row 3"
+
+
 # --- How numbers and dates read ----------------------------------------------------------------
 
 # A manifest a lab in Germany exported: decimal commas, dates day first.
@@ -271,7 +385,7 @@ def test_cells_that_read_two_ways_are_flagged_until_the_locale_is_said(world: Wo
     api = api_as(world)
     said = api.patch(
         f"/spreadsheet-imports/{imported['id']}",
-        {"locale": {"decimal": "comma", "dates": "day_first"}},
+        {"sheet": imported["sheet"], "locale": {"decimal": "comma", "dates": "day_first"}},
     )
     assert said.status_code == 200, said.content
     body = said.json()
@@ -297,7 +411,8 @@ def test_cells_that_read_two_ways_are_flagged_until_the_locale_is_said(world: Wo
 def test_a_locale_must_be_one_iki_reads(world: World) -> None:
     imported = started(world, csv_text(EUROPEAN).encode(), name="proben.csv")
     wrong = api_as(world).patch(
-        f"/spreadsheet-imports/{imported['id']}", {"locale": {"decimal": "dot"}}
+        f"/spreadsheet-imports/{imported['id']}",
+        {"sheet": imported["sheet"], "locale": {"decimal": "dot"}},
     )
     assert wrong.status_code == 422
 
@@ -310,7 +425,10 @@ def test_excel_serial_dates_are_read_once_the_person_says_so(world: World) -> No
     assert "Excel serial dates (46388 is 1 January 2027)" in reading["problem"]
     said = (
         api_as(world)
-        .patch(f"/spreadsheet-imports/{imported['id']}", {"locale": {"serial_dates": True}})
+        .patch(
+            f"/spreadsheet-imports/{imported['id']}",
+            {"sheet": imported["sheet"], "locale": {"serial_dates": True}},
+        )
         .json()
     )
     assert said["readings"][0]["cells"][0]["reads_as"] == "2027-01-01"
@@ -652,6 +770,7 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     api.patch(
         f"/spreadsheet-imports/{imported['id']}",
         {
+            "sheet": imported["sheet"],
             "locale": {"decimal": "comma", "dates": "day_first"},
             "columns": [
                 {"index": 0, "field": "label"},

@@ -1714,7 +1714,27 @@ class Spreadsheets(_Part):
     def change(self, imported: str | Mapping[str, Any], **choices: Any) -> SpreadsheetImportOut:  # noqa: ANN401
         """Chooses what it imports: ``sheet``, ``header_row``, ``first_row``,
         ``last_row``, ``skip`` (ranges of rows), ``columns`` (each ``{"index", "field"}``
-        and how its cells read), ``locale`` or a saved ``mapping``."""
+        and how its cells read), ``locale`` or a saved ``mapping``.
+
+        Pass the latest import you reviewed so the change uses its sheet and header.
+        With an import ID, pass ``sheet=`` or the observed ``basis={"sheet": ...,
+        "header_row": ...}``. If that basis has changed, Iki raises ``iki.Conflict``.
+        """
+        if choices.get("basis") is None and any(value is not None for value in choices.values()):
+            if (
+                isinstance(imported, Mapping)
+                and imported.get("sheet") is not None
+                and imported.get("header_row") is not None
+            ):
+                choices["basis"] = {
+                    "sheet": imported["sheet"],
+                    "header_row": imported["header_row"],
+                }
+            elif choices.get("sheet") is None:
+                raise ValueError(
+                    "Pass the import you reviewed, or give the target sheet or the observed "
+                    "basis (sheet and header_row)."
+                )
         return cast(
             "SpreadsheetImportOut",
             self._client.request(

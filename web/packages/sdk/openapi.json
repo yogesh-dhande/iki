@@ -22277,6 +22277,25 @@
         "title": "ShapeOut",
         "type": "object"
       },
+      "SheetBasis": {
+        "properties": {
+          "header_row": {
+            "minimum": 0,
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "sheet": {
+            "title": "Sheet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sheet",
+          "header_row"
+        ],
+        "title": "SheetBasis",
+        "type": "object"
+      },
       "SheetColumnIn": {
         "properties": {
           "dates": {
@@ -23973,6 +23992,17 @@
       },
       "SpreadsheetImportChange": {
         "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SheetBasis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sheet and header these choices were made against."
+          },
           "columns": {
             "anyOf": [
               {
@@ -24060,6 +24090,7 @@
                 "type": "null"
               }
             ],
+            "description": "The target worksheet. Required for sheet-relative choices without a basis.",
             "title": "Sheet"
           },
           "skip": {
@@ -42472,7 +42503,7 @@
         ]
       },
       "patch": {
-        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by). Choosing another sheet or header row maps the columns afresh, unless the\ncolumns are given too. A preview starts again.",
+        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by). Identify the target sheet or supply the sheet and header these choices were\nmade against. Switching sheets starts with the target sheet's defaults, then applies\nthe choices in this request. A successful change invalidates the previous preview.",
         "operationId": "iki_server_api_spreadsheets_change_import",
         "parameters": [
           {

@@ -4130,8 +4130,9 @@ export interface paths {
         /**
          * Choose what a spreadsheet import imports
          * @description Its sheet, header row and rows, and how its columns map (or a saved mapping to map
-         *     them by). Choosing another sheet or header row maps the columns afresh, unless the
-         *     columns are given too. A preview starts again.
+         *     them by). Identify the target sheet or supply the sheet and header these choices were
+         *     made against. Switching sheets starts with the target sheet's defaults, then applies
+         *     the choices in this request. A successful change invalidates the previous preview.
          */
         patch: operations["iki_server_api_spreadsheets_change_import"];
         trace?: never;
@@ -15382,6 +15383,13 @@ export interface components {
              */
             size: number;
         };
+        /** SheetBasis */
+        SheetBasis: {
+            /** Header Row */
+            header_row: number;
+            /** Sheet */
+            sheet: string;
+        };
         /** SheetColumnIn */
         SheetColumnIn: {
             /**
@@ -16199,6 +16207,8 @@ export interface components {
         };
         /** SpreadsheetImportChange */
         SpreadsheetImportChange: {
+            /** @description The sheet and header these choices were made against. */
+            basis?: components["schemas"]["SheetBasis"] | null;
             /**
              * Columns
              * @description How each column maps; those not given are left out.
@@ -16225,7 +16235,10 @@ export interface components {
              * @description A saved mapping to map the columns by.
              */
             mapping?: string | null;
-            /** Sheet */
+            /**
+             * Sheet
+             * @description The target worksheet. Required for sheet-relative choices without a basis.
+             */
             sheet?: string | null;
             /**
              * Skip

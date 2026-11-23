@@ -1940,7 +1940,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "PATCH",
         "/spreadsheet-imports/{import_id}",
-        spreadsheet_import(body={"header_row": 1}),
+        spreadsheet_import(body={"sheet": "manifest", "header_row": 1}),
         row(404, editor=200),
     ),
     ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),

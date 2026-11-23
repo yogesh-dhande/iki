@@ -224,18 +224,27 @@ def read(import_id: str) -> str:
             for s in sheets
         ]
         chosen = next((s for s in sheets if not s.hidden and s.rows), None) or sheets[0]
-        locked.sheet = chosen.name
-        header = next(
-            (i for i, row in enumerate(chosen.sample, 1) if any(c.strip() for c in row)), 1
-        )
-        locked.header_row = header
-        locked.first_row = header + 1
-        locked.last_row = None
+        _select_sheet(locked, chosen.name)
         locked.columns = [c.as_json() for c in _suggested(locked)]
         locked.state = ImportState.MAPPING
         locked.updated_at = timezone.now()
         locked.save()
     return "read"
+
+
+def _select_sheet(imported: SpreadsheetImport, name: str) -> None:
+    """Start with the target worksheet's own header and all its data rows."""
+    imported.sheet = name
+    sheet = sheet_of(imported)
+    imported.header_row = next(
+        (i for i, row in enumerate(sheet["sample"], 1) if any(c.strip() for c in row)),
+        1 if sheet["rows"] else 0,
+    )
+    imported.first_row = imported.header_row + 1
+    imported.last_row = None
+    imported.skip = []
+    imported.mapping = None
+    imported.locale = {}
 
 
 def _suggested(imported: SpreadsheetImport) -> list[Column]:
@@ -268,6 +277,8 @@ def headers_of(imported: SpreadsheetImport) -> list[str]:
 class Choice:
     """What an import imports, as :func:`change` takes it: None leaves each as it is."""
 
+    #: The sheet and header these choices were made against.
+    basis: tuple[str, int] | None = None
     sheet: str | None = None
     header_row: int | None = None
     first_row: int | None = None
@@ -294,23 +305,29 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             ImportState.PREVIEWING,
         ):
             raise Refused(_why_not_changed(imported))
-        errors: dict[str, list[str]] = {}
-        names = [s["name"] for s in imported.sheets]
-        remap = False
+        if choice.basis is not None and choice.basis != (imported.sheet, imported.header_row):
+            raise Refused(
+                "The selected sheet or header has changed. Reload the import and check your "
+                f"choices against {imported.sheet} (header row {imported.header_row})."
+            )
+        if choice.basis is None and choice.sheet is None and choice != Choice():
+            raise Invalid({"basis": ["Give the target sheet or the sheet and header as a basis."]})
+
+        switched = False
         if choice.sheet is not None and choice.sheet != imported.sheet:
+            names = [s["name"] for s in imported.sheets]
             if choice.sheet not in names:
-                errors["sheet"] = [f"isn't one of its sheets: {', '.join(names)}."]
-            else:
-                imported.sheet = choice.sheet
-                remap = True
+                raise Invalid({"sheet": [f"isn't one of its sheets: {', '.join(names)}."]})
+            _select_sheet(imported, choice.sheet)
+            switched = True
+        remap = switched
+        if choice.header_row is not None and choice.header_row != imported.header_row:
+            imported.header_row = choice.header_row
+            imported.mapping = None
+            remap = True
         sheet = sheet_of(imported)
         rows = int(sheet.get("rows") or 0)
-        if choice.header_row is not None:
-            if not 0 <= choice.header_row <= max(rows, 1):
-                errors["header_row"] = [f"must be a row of the sheet, from 1 to {rows}, or 0."]
-            elif choice.header_row != imported.header_row:
-                imported.header_row = choice.header_row
-                remap = True
+        errors: dict[str, list[str]] = {}
         if choice.first_row is not None:
             imported.first_row = choice.first_row
         elif remap:
@@ -339,10 +356,12 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             if not wrong:
                 imported.columns = [c.as_json() for c in mapping.columns_from_json(choice.columns)]
         elif remap:
-            imported.mapping = None
-            imported.columns = [
-                c.as_json() for c in mapping.suggest(imported.type, headers_of(imported))
-            ]
+            columns = (
+                _suggested(imported)
+                if switched
+                else mapping.suggest(imported.type, headers_of(imported))
+            )
+            imported.columns = [c.as_json() for c in columns]
         if choice.locale is not None:
             wrong = _locale_errors(choice.locale)
             errors.update(wrong)
@@ -457,6 +476,12 @@ def _why_not_changed(imported: SpreadsheetImport) -> str:
 
 
 def _check_rows(imported: SpreadsheetImport, rows: int, errors: dict[str, list[str]]) -> None:
+    if not 0 <= imported.header_row <= rows:
+        errors["header_row"] = (
+            [f"must be a row of the sheet, from 1 to {rows}, or 0."]
+            if rows
+            else ["must be 0 for an empty sheet."]
+        )
     if imported.first_row < 1 or imported.first_row <= imported.header_row:
         errors["first_row"] = ["must be a row after the header row."]
     if imported.last_row is not None and imported.last_row < imported.first_row:

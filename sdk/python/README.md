@@ -335,6 +335,13 @@ iki.spreadsheets.save_mapping(sheet, "Core facility manifest")
 iki.spreadsheets.commit(sheet, reason="Batch 12")
 ```
 
+Pass the import returned by `start`, `get`, or the previous `change` so the SDK
+can send the sheet and header row you reviewed. With only an import ID, pass
+`sheet="Assays"` to choose the target explicitly, or
+`basis={"sheet": "Assays", "header_row": 2}` to require that selection. If Iki
+raises `iki.Conflict`, read the import again and review its sheet and header
+before submitting your choices.
+
 Importing requires project Editor access and the `write` scope. The REST API
 is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
 `POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then

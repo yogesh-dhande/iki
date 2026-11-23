@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_iki import FakeIki, config, isolated, store_with
+from fake_iki import FakeIki, config, isolated, problem, store_with
 
 import iki
 from iki.client import Client
@@ -33,6 +33,8 @@ def imported(state: str, **extra: Any) -> dict[str, Any]:
         "state": state,
         "error": "",
         "file": {"id": "f1", "name": "manifest.xlsx"},
+        "sheet": "Samples",
+        "header_row": 1,
         "preview": None,
         "run_problems": [],
         **extra,
@@ -66,8 +68,84 @@ def test_a_sheet_is_imported_once_its_read_mapped_and_checked(
         "file": "f1",
         "type": "acme/protein.Sample",
     }
-    assert fake.body("PATCH", BASE) == {"locale": {"decimal": "comma", "dates": "day_first"}}
+    assert fake.body("PATCH", BASE) == {
+        "basis": {"sheet": "Samples", "header_row": 1},
+        "locale": {"decimal": "comma", "dates": "day_first"},
+    }
     assert fake.body("POST", f"{BASE}/commit") == {"skip_problems": False, "reason": "Batch 12"}
+
+
+def test_a_bare_import_id_needs_the_sheet_or_the_view_the_choice_was_made_on(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on("PATCH", BASE, imported("mapping"))
+    with pytest.raises(ValueError, match=r"sheet.*basis"):
+        client.spreadsheets.change(IMPORT, skip=[])
+    assert not fake.sent("PATCH", BASE)
+    assert not fake.sent("GET", BASE)
+
+    client.spreadsheets.change(IMPORT, sheet="Samples", header_row=0)
+    assert fake.body("PATCH", BASE) == {"sheet": "Samples", "header_row": 0}
+    basis = {"sheet": "Samples", "header_row": 0}
+    client.spreadsheets.change(IMPORT, basis=basis, first_row=3)
+    assert fake.body("PATCH", BASE) == {"basis": basis, "first_row": 3}
+    client.spreadsheets.change(IMPORT)
+    assert fake.body("PATCH", BASE) == {}
+
+
+def test_a_sheet_switch_and_its_settings_compare_the_source_view(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on("PATCH", BASE, imported("mapping", sheet="Assays", header_row=2))
+    source = imported("mapping", sheet="Samples", header_row=1)
+    changed = client.spreadsheets.change(source, sheet="Assays", header_row=2)
+    assert fake.body("PATCH", BASE) == {
+        "basis": {"sheet": "Samples", "header_row": 1},
+        "sheet": "Assays",
+        "header_row": 2,
+    }
+    client.spreadsheets.change(changed, last_row=0)
+    assert fake.body("PATCH", BASE) == {
+        "basis": {"sheet": "Assays", "header_row": 2},
+        "last_row": 0,
+    }
+
+
+def test_a_stale_view_is_not_rebound_to_a_fresh_sheet(fake: FakeIki, client: Client) -> None:
+    fake.on("PATCH", BASE, problem(409, "The sheet or header row changed.", "conflict"))
+    stale = imported("mapping", sheet="Original", header_row=0)
+    with pytest.raises(iki.Conflict, match="sheet or header"):
+        client.spreadsheets.change(stale, columns=[])
+    assert fake.body("PATCH", BASE) == {
+        "basis": {"sheet": "Original", "header_row": 0},
+        "columns": [],
+    }
+    assert len(fake.sent("PATCH", BASE)) == 1
+    assert not fake.sent("GET", BASE)
+
+
+def test_one_shot_mapping_uses_the_view_returned_after_reading(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    path = tmp_path / "manifest.csv"
+    path.touch()
+    file = {"id": "f1", "name": path.name, "size": 0, "sha256": hashlib.sha256(b"").hexdigest()}
+    fake.on("POST", "/api/v1/uploads", {"id": "u1", "state": "ready", "file": file, "parts": []})
+    fake.on(
+        "POST", f"/api/v1/projects/{PROJECT}/spreadsheet-imports", imported("reading", sheet="")
+    )
+    fake.on("GET", BASE, imported("mapping", sheet="Data", header_row=0))
+    fake.on("PATCH", BASE, imported("mapping", sheet="Data", header_row=0))
+    fake.on("POST", f"{BASE}/preview", imported("previewed", preview=counts(create=1)))
+    fake.on("POST", f"{BASE}/commit", imported("imported"))
+    assert (
+        client.spreadsheets.import_sheet(
+            path, type="acme/protein.Sample", project=PROJECT, columns=[]
+        )["state"]
+        == "imported"
+    )
+    assert fake.body("PATCH", BASE) == {"basis": {"sheet": "Data", "header_row": 0}, "columns": []}
+    assert len(fake.sent("GET", BASE)) == 1
 
 
 def test_rows_with_problems_stop_an_import_and_say_where(
