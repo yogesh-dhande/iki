@@ -4302,6 +4302,49 @@ input[type="file"]::file-selector-button {
   border-bottom-color: var(--text);
 }
 
+/* Not drawn until they're worked out: which there are, and their counts. */
+.tabs.project-tabs[hidden] {
+  display: none;
+}
+
+/* In their place till then, as tall as they are: a quiet bar for each, and nothing to
+   press. Only if it takes a moment, so a quick answer doesn't flash it. */
+.tabs-settling {
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tab-settling {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: 36px;
+  margin-bottom: -1px;
+  padding: 0 10px;
+  border-bottom: 2px solid transparent;
+}
+
+.tab-settling > span {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--surface-3);
+  animation: tab-settling-in 150ms ease-out 300ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-settling > span {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes tab-settling-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .tab-count {
   padding: 0 5px;
   border-radius: 8px;

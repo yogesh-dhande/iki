@@ -1289,6 +1289,92 @@ def test_a_projects_automation_and_tabs_fit_any_screen(
     page.context.close()
 
 
+@pytest.mark.parametrize("press", ["across", "after"])
+def test_a_projects_tabs_stay_put_as_their_counts_and_tabs_arrive(
+    open_as: Any, world: World, press: str
+) -> None:
+    """A tab is where it's first drawn. The Entities count and the installed types (which
+    say whether there's a Requests tab) are held back, then answered, while Runs is pressed
+    on a phone: "across" presses it as soon as it can be pressed, and lets go after they
+    arrive; "after" clicks, once they have, where Runs was first drawn. Either opens Runs.
+    It didn't: drawn before them, Runs moved right as they arrived, so a press that began
+    on it ended on Entities, and Firefox clicked their row instead, which opens nothing;
+    and a click where it had been opened Entities or Requests."""
+    from iki_server.entities import requests
+
+    # A service: it has a Requests tab, which it knows of once the types are answered.
+    requests.set_intake(
+        world.project,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    page: Page = open_as("admin", f"/projects/{world.project.slug}/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    held: list[Route] = []
+    counts = re.compile(rf"/api/v1/entities/counts\?project={world.project.id}$")
+    types = re.compile(r"/api/v1/entity-types$")
+    page.route(counts, lambda route: held.append(route))
+    page.route(types, lambda route: held.append(route))
+    page.reload()
+    deadline = time.monotonic() + 10
+    while len(held) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(held) == 2, [r.request.url for r in held]
+
+    def answer_them() -> None:
+        for route in held:
+            route.continue_()
+        page.unroute(counts)
+        page.unroute(types)
+
+    tabs = page.get_by_role("navigation", name="Project")
+    runs = tabs.get_by_role("link", name="Runs", exact=True)
+    page.evaluate(NEXT_FRAMES)
+    # What's in the tabs' place while they're held: as tall as the tabs, where they'll be.
+    holding = page.locator(".tabs.project-tabs:visible").bounding_box()
+    # Where Runs can first be pressed: now, if the tabs can be pressed before they're known.
+    early = runs.is_visible()
+    if not early:
+        answer_them()
+    runs.wait_for()
+    first = runs.bounding_box()
+    assert first
+    x, y = first["x"] + first["width"] / 2, first["y"] + first["height"] / 2
+
+    def answered() -> None:
+        tabs.get_by_role("link", name=re.compile(r"^Entities \d")).wait_for()
+        tabs.get_by_role("link", name=re.compile(r"^Requests\b")).wait_for()
+        page.evaluate(NEXT_FRAMES)
+
+    if press == "across":
+        page.mouse.move(x, y)
+        page.mouse.down()
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.up()
+    else:
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.click(x, y)
+    try:
+        page.wait_for_url(re.compile(r"/runs/$"), timeout=5000)
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(
+            f"Pressed Runs at {(x, y)}, drawn at {first}, then at {settled}. " + what_happened(page)
+        ) from error
+    assert settled == first
+    assert holding == tabs.bounding_box()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.context.close()
+
+
 def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
