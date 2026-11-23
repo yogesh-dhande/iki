@@ -17,7 +17,7 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { ACTION, AGENT, approval, attempt, run, RUN_ID } from "./run-fixtures";
-import { answer, calls, FakeEventSource, ME, page, signedIn } from "./test-server";
+import { answer, calls, FakeEventSource, ME, page, problem, signedIn } from "./test-server";
 
 const EVENTS = "/api/v1/runs/RUN-000001/events";
 
@@ -1277,8 +1277,8 @@ describe("a run's page", () => {
       const dialog = screen.getByRole("alertdialog", { name: "Decline RUN-000001?" });
       expect(dialog).toHaveTextContent(/It ends without running/);
       await user.type(
-        within(dialog).getByRole("textbox", { name: /Note/ }),
-        "Not on the big machines",
+        within(dialog).getByRole("textbox", { name: "Reason" }),
+        "  Not on the big machines ",
       );
       await user.click(within(dialog).getByRole("button", { name: "Decline" }));
       expect(await screen.findByText("Declined RUN-000001.")).toBeVisible();
@@ -1287,6 +1287,36 @@ describe("a run's page", () => {
         /: Not on the big machines$/,
       );
       expect(screen.getAllByText("Declined").length).toBeGreaterThan(0);
+    });
+
+    it("declines only with a reason, as the server requires", async () => {
+      onRun(() => run({ ...waiting, approval: approval() }), unstarted);
+      withLog(() => "");
+      answer(
+        `POST ${APPROVAL}/decline`,
+        problem(422, "validation_failed", "Check the note.", [
+          { pointer: "#/note", detail: "Say why it's declined." },
+        ]),
+      );
+      const { user } = await renderApp("/runs/RUN-000001/");
+      await user.click(screen.getByRole("button", { name: "Decline" }));
+      const dialog = screen.getByRole("alertdialog", { name: "Decline RUN-000001?" });
+      const reason = within(dialog).getByRole("textbox", { name: "Reason" });
+      expect(reason).toBeRequired();
+      // Blank, or only spaces: it isn't sent, and the field says why.
+      await user.type(reason, "   ");
+      await user.click(within(dialog).getByRole("button", { name: "Decline" }));
+      expect(reason).toHaveAccessibleDescription(/^Say why it’s declined\./);
+      expect(reason).toHaveAttribute("aria-invalid", "true");
+      expect(reason).toHaveFocus();
+      expect(calls("POST", `${APPROVAL}/decline`)).toHaveLength(0);
+      // The server's own refusal of the note shows on the field too.
+      await user.type(reason, "Too big");
+      expect(reason).not.toHaveAttribute("aria-invalid");
+      await user.click(within(dialog).getByRole("button", { name: "Decline" }));
+      expect(await within(dialog).findByText("Say why it's declined.")).toBeVisible();
+      expect(within(dialog).getByRole("alert")).toHaveTextContent("Check the highlighted fields.");
+      expect(calls("POST", `${APPROVAL}/decline`).at(-1)?.body).toEqual({ note: "Too big" });
     });
 
     it("decides a batch together", async () => {

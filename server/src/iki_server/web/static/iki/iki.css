@@ -2169,8 +2169,15 @@ main.admin-main {
 }
 
 /* A row's own error (a change the server refused) spans the row. */
-.row-problem {
+.row-problem,
+.row-release {
   flex-basis: 100%;
+}
+
+/* A held project's release, asking why, opened in its row. */
+.row-release {
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
 }
 
 .row-problem .alert {

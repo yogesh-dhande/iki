@@ -33,6 +33,7 @@ from playwright.sync_api import (
     Page,
     Playwright,
     Route,
+    expect,
     sync_playwright,
 )
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -2206,6 +2207,129 @@ def test_approving_a_run_an_ai_agent_asked_for(
     assert heading.count() == 0
     page.get_by_text(re.compile("^Approved by ")).wait_for()
     assert set(ActionRun.objects.values_list("status", flat=True)) == {RunStatus.QUEUED}
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_declining_a_run_an_ai_agent_asked_for_says_why(
+    open_as: Any, world: World, color_scheme: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A decline is kept with its reason, which the agent that asked reads: the dialog
+    sends none until one is given, and a blank or only spaces isn't one."""
+    from iki_server.audit import log as audit
+    from iki_server.audit.models import Via
+    from iki_server.entities import services as entities
+    from iki_server.runs import approvals, catalog, services
+    from iki_server.runs.models import ActionRun, RunApproval, RunStatus
+
+    admin = world.users["admin"]
+    action = catalog.action("acme/protein.compute_properties")
+    assert action is not None
+    made = entities.create(
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKV", "name": "ABL1"}
+    )
+    monkeypatch.setattr(approvals, "APPROVAL_TIERS", approvals.APPROVAL_TIERS | {"backend"})
+    with audit.using(audit.Context(via=Via.MCP, oauth_client="Claude")):
+        (run,) = services.launch_each(
+            admin, action, world.project, "protein", [made.entity.pk], {}, {}
+        )
+
+    page = open_as("admin", f"/runs/{run.hrid}/", color_scheme)
+    request = page.locator(
+        "section", has=page.get_by_role("heading", name="Waiting for your approval")
+    )
+    request.get_by_role("button", name="Decline").click()
+    dialog = page.get_by_role("alertdialog", name=f"Decline {run.hrid}?")
+    reason = dialog.get_by_role("textbox", name="Reason")
+    for blank in ("", "   "):
+        reason.fill(blank)
+        dialog.get_by_role("button", name="Decline").click()
+        expect(reason).to_have_attribute("aria-invalid", "true")
+        expect(dialog.get_by_text("Say why it’s declined.")).to_be_visible()
+        expect(reason).to_be_focused()
+    assert RunApproval.objects.get().state == "pending"
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    reason.fill("  Not on the shared tier this week ")
+    expect(reason).not_to_have_attribute("aria-invalid", "true")
+    with page.expect_response(lambda r: r.url.endswith("/decline")) as declined:
+        dialog.get_by_role("button", name="Decline").click()
+    assert declined.value.status == 200, declined.value.text()
+    assert declined.value.request.post_data_json == {"note": "Not on the shared tier this week"}
+    page.get_by_text(f"Declined {run.hrid}.").wait_for()
+    page.get_by_text(
+        re.compile(r"^Declined by .+: Not on the shared tier this week$")
+    ).first.wait_for()
+    decided = RunApproval.objects.get()
+    assert (decided.state, decided.note) == ("declined", "Not on the shared tier this week")
+    assert ActionRun.objects.get(pk=run.pk).status == RunStatus.DECLINED
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_org_admin_releases_a_legal_hold_saying_why(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Releasing a hold opens its row asking why, as the service requires: a blank reason
+    isn't sent, one of only spaces is refused with the reason kept to fix, and the reason
+    given is kept with the hold and in its audit event (ADR 0092)."""
+    from iki_server.audit.models import AuditEvent
+    from iki_server.org import holds
+    from iki_server.org.models import LegalHold
+
+    hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
+    page = open_as("org_admin", "/admin/legal-holds/", color_scheme)
+    held = page.get_by_role("list").filter(has_text="Case 24-117").get_by_role("listitem")
+    assert_clean(page)
+    held.get_by_role(
+        "link", name=f"Release the hold on {world.project.name} for Case 24-117…"
+    ).click()
+    form = page.get_by_role(
+        "form", name=f"Release the hold on {world.project.name} for Case 24-117"
+    )
+    reason = form.get_by_role("textbox", name="Reason for releasing it")
+
+    def checked(page: Page) -> None:
+        # Playwright's Firefox crashes in axe on this page while a release form, named by
+        # its heading, is open (see assert_clean); Chromium and WebKit check it.
+        assert_clean(page, axe_in_firefox=False)
+
+    expect(reason).to_be_focused()
+    release = form.get_by_role("button", name="Release the hold")
+    # The browser asks for one before sending.
+    release.click()
+    assert reason.evaluate("(e) => e.validity.valueMissing")
+    assert holds.is_held(world.project)
+    checked(page)
+
+    reason.fill("   ")
+    release.click()
+    summary = page.get_by_role("alert").filter(has_text="There’s a problem")
+    expect(summary).to_contain_text("Say why the legal hold is being released.")
+    expect(reason).to_have_attribute("aria-invalid", "true")
+    assert holds.is_held(world.project)
+    checked(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    checked(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    reason.fill("Case closed; counsel confirmed on 2026-11-20.")
+    release.click()
+    page.get_by_text(f"Released the hold on {world.project.name} for Case 24-117.").wait_for()
+    page.get_by_text("Case closed; counsel confirmed on 2026-11-20.").wait_for()
+    assert not holds.is_held(world.project)
+    hold = LegalHold.objects.get(pk=hold.pk)
+    assert (hold.released_by, hold.release_reason) == (
+        world.users["org_admin"],
+        "Case closed; counsel confirmed on 2026-11-20.",
+    )
+    event = AuditEvent.objects.get(action="legal_hold.released", target_id=hold.pk)
+    assert event.data["reason"] == "Case closed; counsel confirmed on 2026-11-20."
     assert_clean(page)
 
 

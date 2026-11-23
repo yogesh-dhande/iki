@@ -8,19 +8,30 @@
     {% if on %}
     <ul class="rows">
       {% for hold in on %}
-      <li class="row">
+      <li class="row" id="hold-{{ hold.pk }}">
         <div class="row-main">
           <span class="row-title">{{ hold.project.name }}</span>
           <span class="row-meta">{{ hold.project.team.name }} · {{ hold.matter }} · placed by {{ hold.placed_by.get_full_name }} on {{ hold.placed_at|date:"Y-m-d" }}</span>
           {% if hold.note %}<span class="row-meta preserve-lines">{{ hold.note }}</span>{% endif %}
         </div>
         {% if manage %}
-        <form method="post" data-busy-form>
+        {% if releasing.pk == hold.pk %}
+        {# Releasing it asks why first, as the service requires; it's kept in the audit log. #}
+        <form class="row-release" method="post" action="{% url 'org:legal_holds' %}" data-busy-form aria-labelledby="release-title-{{ hold.pk }}">
+          <h3 class="alert-title" id="release-title-{{ hold.pk }}">Release the hold on {{ hold.project.name }} for {{ hold.matter }}</h3>
+          {% include "web/_errors.html" with form=release_form %}
           {% csrf_token %}
           <input type="hidden" name="action" value="release">
           <input type="hidden" name="hold" value="{{ hold.pk }}">
-          <button class="button" type="submit" data-busy-text="Releasing…" aria-label="Release the hold on {{ hold.project.name }} for {{ hold.matter }}">Release</button>
+          {% include "web/_field.html" with field=release_form.reason %}
+          <div class="actions">
+            <button class="button button-danger" type="submit" data-busy-text="Releasing…">Release the hold</button>
+            <a class="button button-quiet" href="{% url 'org:legal_holds' %}">Cancel</a>
+          </div>
         </form>
+        {% else %}
+        <a class="button" href="?release={{ hold.pk }}" aria-label="Release the hold on {{ hold.project.name }} for {{ hold.matter }}…">Release…</a>
+        {% endif %}
         {% endif %}
       </li>
       {% endfor %}
@@ -36,6 +47,7 @@
         <div class="row-main">
           <span class="row-title">{{ hold.project.name }}</span>
           <span class="row-meta">{{ hold.matter }} · {{ hold.placed_at|date:"Y-m-d" }} to {{ hold.released_at|date:"Y-m-d" }}, released by {{ hold.released_by.get_full_name }}</span>
+          {% if hold.release_reason %}<span class="row-meta preserve-lines">{{ hold.release_reason }}</span>{% endif %}
         </div>
       </li>
       {% endfor %}

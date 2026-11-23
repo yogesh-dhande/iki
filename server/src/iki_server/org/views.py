@@ -5,6 +5,7 @@ anything. Projects and teams someone can't see answer 404, so their
 existence doesn't leak. Things they can see but not change answer 403.
 """
 
+import contextlib
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Prefetch
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -28,6 +29,7 @@ from iki_server.org.forms import (
     AddTeamMemberForm,
     AppointRegistrarForm,
     LegalHoldForm,
+    LegalHoldReleaseForm,
     OrgRolesForm,
     RegistryForm,
     ServiceAccountForm,
@@ -392,17 +394,32 @@ def legal_holds(request: HttpRequest) -> HttpResponse:
     if not manage:
         permissions.require(me, Action.AUDIT_READ)
     form = LegalHoldForm(request.POST if request.POST.get("action") == "place" else None)
+    # The hold being released, if one is: its row asks why, with the reason given so far.
+    releasing: LegalHold | None = None
+    release_form = LegalHoldReleaseForm(auto_id="id_release_%s")
+    if request.method == "GET" and manage and (asked := request.GET.get("release")):
+        with contextlib.suppress(ValidationError, ValueError):
+            releasing = LegalHold.objects.filter(pk=asked, released_at=None).first()
     if request.method == "POST":
         if not manage:
             raise PermissionDenied
         if request.POST.get("action") == "release":
             hold = get_object_or_404(LegalHold, pk=request.POST.get("hold"))
-            holds.release(me, hold, reason=request.POST.get("reason", ""))
-            messages.success(
-                request, f"Released the hold on {hold.project.name} for {hold.matter}."
-            )
-            return redirect("org:legal_holds")
-        if form.is_valid():
+            release_form = LegalHoldReleaseForm(request.POST, auto_id="id_release_%s")
+            if release_form.is_valid():
+                try:
+                    holds.release(me, hold, reason=release_form.cleaned_data["reason"])
+                except services.Refused as refusal:
+                    release_form.add_error(
+                        "reason" if refusal.field == "reason" else None, str(refusal)
+                    )
+                else:
+                    messages.success(
+                        request, f"Released the hold on {hold.project.name} for {hold.matter}."
+                    )
+                    return redirect("org:legal_holds")
+            releasing = hold
+        elif form.is_valid():
             try:
                 hold = holds.place(
                     me,
@@ -430,6 +447,8 @@ def legal_holds(request: HttpRequest) -> HttpResponse:
             "released": [h for h in every if h.released_at is not None][:50],
             "form": form,
             "manage": manage,
+            "releasing": releasing,
+            "release_form": release_form,
         },
     )
 
