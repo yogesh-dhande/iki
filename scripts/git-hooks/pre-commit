@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Git runs this from the worktree root and may supply an alternate GIT_INDEX_FILE.
+set -eo pipefail
+
+repo=$(git rev-parse --show-toplevel)
+cd "$repo"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+git diff --cached --name-only -z --diff-filter=ACMRT -- >"$tmp/files"
+python_files=()
+web_files=()
+while IFS= read -r -d '' path; do
+    case "$path" in
+        *.py|*.pyi) python_files+=("$path") ;;
+        *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.css|*.scss|*.html|*.json|*.md|*.yaml|*.yml)
+            web_files+=("$path") ;;
+    esac
+done <"$tmp/files"
+if (( ${#python_files[@]} + ${#web_files[@]} == 0 )); then
+    exit 0
+fi
+
+# The file a developer intends to commit may differ from the one on disk.
+# Check the index, including imported helpers and tool configuration, without
+# moving aside anyone's work. Only environments and caches live in the worktree.
+tree=$tmp/index
+mkdir "$tree"
+git checkout-index --all --prefix="$tree/"
+
+show_command() {
+    printf '  ' >&2
+    printf '%q ' "$@" >&2
+    printf '\n' >&2
+}
+
+if (( ${#python_files[@]} )); then
+    if ! command -v uv >/dev/null; then
+        echo 'Install uv, then run uv sync --frozen and retry the commit.' >&2
+        exit 1
+    fi
+    uv_run=(uv run --project "$repo" --frozen)
+    if ! (cd "$tree" && "${uv_run[@]}" ruff check --force-exclude -- "${python_files[@]}"); then
+        echo 'Fix remaining Ruff diagnostics by hand after running:' >&2
+        show_command uv run ruff check --fix --force-exclude -- "${python_files[@]}"
+        echo 'Stage the fixes and retry the commit.' >&2
+        exit 1
+    fi
+    if ! (cd "$tree" && "${uv_run[@]}" ruff format --check --force-exclude -- "${python_files[@]}"); then
+        echo 'Format the files, stage the fixes and retry the commit:' >&2
+        show_command uv run ruff format --force-exclude -- "${python_files[@]}"
+        exit 1
+    fi
+    # The Django plugin imports models at runtime. Give the index's packages precedence
+    # over uv's editable installs. Check callers too, using make check-python's targets.
+    sources=("$tree/server/tests" "$tree"/*/src "$tree"/sdk/*/src)
+    if ! (cd "$tree" && IFS=: && export PYTHONPATH="${sources[*]}" &&
+        "${uv_run[@]}" mypy --cache-dir "$repo/.mypy_cache"); then
+        echo 'Correct the reported types, rerun uv run mypy, stage the fixes and retry the commit.' >&2
+        exit 1
+    fi
+    if ! scripts/check-imports-py312 --root "$tree" -- "${python_files[@]}"; then
+        echo 'Fix the reported Python 3.12 import, then rerun:' >&2
+        show_command scripts/check-imports-py312 -- "${python_files[@]}"
+        echo 'Stage the fix and retry the commit.' >&2
+        exit 1
+    fi
+fi
+
+if (( ${#web_files[@]} )); then
+    if [[ ! -x "$repo/node_modules/.bin/prettier" ]]; then
+        echo 'Install pnpm and run pnpm install --frozen-lockfile, then retry the commit.' >&2
+        exit 1
+    fi
+    # pnpm exec in a new checkout can implicitly install its dependencies. Run the
+    # installed workspace binary directly, with the staged configuration and ignore file.
+    if ! (cd "$tree" && "$repo/node_modules/.bin/prettier" --check -- "${web_files[@]}"); then
+        echo 'Format the files, stage the fixes and retry the commit:' >&2
+        show_command pnpm exec prettier --write -- "${web_files[@]}"
+        exit 1
+    fi
+fi

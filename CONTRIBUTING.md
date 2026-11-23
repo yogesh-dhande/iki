@@ -27,7 +27,10 @@ and what a change must include before it merges.
 
 1. Open an issue or discussion for anything larger than a small fix, so the
    approach can be agreed before you write it.
-2. Branch from `main`.
+2. Branch from `main` and run `make hooks` once per clone. Maintainers and
+   coding agents are expected to commit with the hook enabled. Linked
+   worktrees share the installation, and each runs its own version of the
+   checks. Git LFS keeps its checkout, commit, merge and push hooks.
 3. Run `make check` before pushing. CI runs the same checks, and the single
    required status check is **CI passed**. A change to documentation alone
    (Markdown, or anything under `docs/`, but not a plugin's files) runs only
@@ -51,6 +54,23 @@ contribution model.
 | CI         | GitHub Actions, actionlint, zizmor                                           |
 
 Python code supports 3.12 and later. Servers run 3.14, and CI tests both.
+
+The hook checks a snapshot of the Git index, including partially staged
+files. A staged Python change runs Ruff lint and format on the changed
+files, incremental mypy on the same targets as CI, and Python 3.12 imports
+for changed workspace modules. The tools use the worktree's installed
+dependencies, so keep dependency manifests and lockfiles staged together
+when changing them. The first import check uses uv to provision
+`.venv-py312/` from the lockfile. Later commits reuse it. To reproduce an
+import failure, run
+`scripts/check-imports-py312 -- cli/src/iki_cli/preflight.py` with the
+reported file. `make check-python` imports every workspace module on 3.12
+before running the other Python checks, including on machines that usually
+run a newer interpreter.
+
+Staged web files run Prettier. Project-wide TypeScript and typed ESLint run
+in `make check-web`. Fix the reported files, stage the corrections, and
+retry the commit.
 
 CI runs the Python tests in shards side by side, whole test files at a time
 (`scripts/ci/pytest_shards.py`). Each kind of test has shards of its own with

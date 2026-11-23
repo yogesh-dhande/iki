@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Keep the contributor's default Python and the oldest supported Python side by side.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export UV_PROJECT_ENVIRONMENT=.venv-py312
+if ! uv sync --python 3.12 --frozen --quiet; then
+  echo 'Restore the Python 3.12 environment with: UV_PROJECT_ENVIRONMENT=.venv-py312 uv sync --python 3.12 --frozen' >&2
+  exit 1
+fi
+exec .venv-py312/bin/python -I scripts/ci/check_imports.py "$@"
