@@ -58,6 +58,16 @@ answers with the Python reference, including undefined measurements. The
 public restriction-map functions accept cut positions and paired intervals already
 identified by the caller. Site discovery continues to run in the plasmid action.
 
+### Third-party notices in the science package
+
+The npm build collects the licence texts for the Rust libraries Cargo compiles into
+the parser module. The crates.io archive for `cel 0.16.0` declares MIT in its
+manifest and omits the upstream workspace's licence file. Iki retains that file
+verbatim. The build verifies the crate's recorded source revision and the retained
+file's SHA-256, then includes its full text and source URL in `dist/licenses/rust-wasm.txt`.
+This works offline. Updating the dependency requires reviewing the notice again.
+[Upstream licence at the packaged revision](https://github.com/cel-rust/cel-rust/blob/92af54eb79f3b6cc64791fa5c3806562b904ce67/LICENSE)
+
 ## Consequences
 
 A consumer can try each component with the data in its story and load just the entries
