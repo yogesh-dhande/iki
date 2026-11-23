@@ -12,8 +12,8 @@ import { Link } from "@tanstack/react-router";
 import { createElement, useId, useMemo, useState } from "react";
 import { Button } from "react-aria-components";
 
-import { iki } from "../api";
-import { ENTITIES, recordSearch, type Entity } from "../entities";
+import { ENTITIES, recordSearch, searchEntities, type Entity } from "../entities";
+import { pageReadSignal } from "../page-reads";
 import { Loading, SelectField } from "../ui";
 
 const ASSEMBLY = "iki/plasmid.Assembly";
@@ -81,8 +81,8 @@ function PlasmidGels({ project, sequence }: { project: string; sequence: string 
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
+        await searchEntities(
+          {
             project,
             type: ASSEMBLY,
             exact_type: false,
@@ -102,8 +102,8 @@ function PlasmidGels({ project, sequence }: { project: string; sequence: string 
             limit: 25,
             ...(pageParam ? { cursor: pageParam } : {}),
           },
-          signal,
-        }),
+          pageReadSignal(signal),
+        ),
       ),
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     retry: false,
