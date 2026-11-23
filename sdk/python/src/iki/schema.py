@@ -376,6 +376,8 @@ class ApproveIn(TypedDict):
 
 class AssignIn(TypedDict):
     entities: list[str]
+    #: Required. Each selected entity's observed revision, by entity ID.
+    expected_revisions: NotRequired[dict[str, int] | None]
     #: An assignment field of theirs.
     field: str
     #: `set` names only them; for a list, `add` them or `remove` them. `remove` on a single person's field empties it if it names them.

@@ -280,10 +280,7 @@ def test_a_locked_records_people_are_locked_with_it(world: World) -> None:
     set_(world, "admin", body["id"], "status", "reviewed")
     refused = problem(edit(world, body["id"], {"analyst": pk(world, "viewer")}), 409, "refused")
     assert "is locked by its Status (Reviewed)" in refused["detail"]
-    bulk = api_as(world, "admin").post(
-        "/entities/assign",
-        {"entities": [body["id"]], "field": "analyst", "person": pk(world, "viewer")},
-    )
+    bulk = bulk_assign(api_as(world, "admin"), [body["id"]], "analyst", pk(world, "viewer"))
     assert bulk.json()["changed"] == []
     (skipped,) = bulk.json()["skipped"]
     assert "Reviewed" in skipped["why"]
@@ -459,6 +456,68 @@ def test_open_work_takes_as_many_queries_however_many_projects_its_reader_is_in(
 # --- Reassigning many ---------------------------------------------------------------------------
 
 
+def bulk_assign(api: Api, ids: list[str], field: str, person: str | None, **body: Any) -> Any:
+    return api.post(
+        "/entities/assign",
+        {
+            "entities": ids,
+            "expected_revisions": {
+                ref: int(api.get(f"/entities/{ref}").get("ETag", '"1"').strip('"')) for ref in ids
+            },
+            "field": field,
+            "person": person,
+            **body,
+        },
+    )
+
+
+def test_a_stale_bulk_assignment_changes_no_records(world: World) -> None:
+    roles(world, editor=(ANALYST,), viewer=(ANALYST,), runner=(ANALYST,))
+    first = made(world, label="S-1")
+    second = made(world, label="S-2")
+    bulk_editor = api_as(world, "via_team")
+    selected = [bulk_editor.get(f"/entities/{record['id']}").json() for record in (first, second)]
+    ids = [record["id"] for record in selected]
+    revisions = {record["id"]: record["revision"] for record in selected}
+    requested = {"entities": ids, "field": "analyst", "person": pk(world, "runner")}
+    no_revision = bulk_editor.post("/entities/assign", requested)
+    assert no_revision.status_code == 428, no_revision.content
+    partial_revision = bulk_editor.post(
+        "/entities/assign", {**requested, "expected_revisions": {ids[0]: revisions[ids[0]]}}
+    )
+    assert partial_revision.status_code == 422, partial_revision.content
+
+    changed = edit(world, ids[1], {"analyst": pk(world, "viewer")})
+    assert changed.status_code == 200, changed.content
+    current = changed.json()
+    refused = problem(
+        bulk_editor.post("/entities/assign", {**requested, "expected_revisions": revisions}),
+        412,
+        "stale",
+    )
+    assert current["hrid"] in refused["detail"]
+    assert refused["stale"] == [
+        {
+            "id": ids[1],
+            "hrid": current["hrid"],
+            "expected_revision": revisions[ids[1]],
+            "current_revision": current["revision"],
+        }
+    ]
+    untouched = bulk_editor.get(f"/entities/{ids[0]}").json()
+    assert untouched["revision"] == revisions[ids[0]]
+    assert untouched["values"]["analyst"] is None
+    kept = bulk_editor.get(f"/entities/{ids[1]}").json()
+    assert kept["revision"] == current["revision"]
+    assert kept["values"]["analyst"] == pk(world, "viewer")
+    assert AuditEvent.objects.filter(action="entity.assigned", target_id__in=ids).count() == 1
+    assert not told(world.users["runner"], "assignment.assigned")
+
+    retried = bulk_assign(bulk_editor, ids, "analyst", pk(world, "runner"))
+    assert retried.status_code == 200, retried.content
+    assert retried.json()["changed"] == ids
+
+
 def test_many_are_reassigned_at_once_and_each_person_is_told_once(world: World) -> None:
     roles(
         world, viewer=(ANALYST,), runner=(ANALYST,), editor=(ANALYST, REVIEWER), admin=(REVIEWER,)
@@ -469,14 +528,12 @@ def test_many_are_reassigned_at_once_and_each_person_is_told_once(world: World) 
     set_(world, "editor", locked["id"], "status", "in_review")
     set_(world, "admin", locked["id"], "status", "reviewed")
     Notification.objects.all().delete()
-    answer = api_as(world, "editor").post(
-        "/entities/assign",
-        {
-            "entities": [*ids, locked["id"]],
-            "field": "analyst",
-            "person": "runner@example.com",
-            "reason": "Viewer is away",
-        },
+    answer = bulk_assign(
+        api_as(world, "editor"),
+        [*ids, locked["id"]],
+        "analyst",
+        "runner@example.com",
+        reason="Viewer is away",
     )
     assert answer.status_code == 200, answer.content
     out = answer.json()
@@ -493,32 +550,20 @@ def test_many_are_reassigned_at_once_and_each_person_is_told_once(world: World) 
     assert {e.data["group"] for e in grouped} == {out["group"]}
     assert {e.data["reason"] for e in grouped} == {"Viewer is away"}
     # Someone who can't be named skips each record, saying why.
-    again = api_as(world, "editor").post(
-        "/entities/assign",
-        {"entities": ids[:1], "field": "analyst", "person": pk(world, "outsider")},
-    )
+    again = bulk_assign(api_as(world, "editor"), ids[:1], "analyst", pk(world, "outsider"))
     (skipped,) = again.json()["skipped"]
     assert skipped["why"].startswith("Analyst isn't someone who can be named here")
     # A record you can't read changes nothing, and isn't skipped as if it might exist.
-    unknown = api_as(world, "editor").post(
-        "/entities/assign",
-        {"entities": [*ids, pk(world, "viewer")], "field": "analyst", "person": None},
-    )
+    unknown = bulk_assign(api_as(world, "editor"), [*ids, pk(world, "viewer")], "analyst", None)
     assert pk(world, "viewer") in problem(unknown, 404, "not_found")["detail"]
     # Only an Editor reassigns.
-    viewer = api_as(world, "viewer").post(
-        "/entities/assign", {"entities": ids[:1], "field": "analyst", "person": None}
-    )
+    viewer = bulk_assign(api_as(world, "viewer"), ids[:1], "analyst", None)
     assert viewer.json()["skipped"][0]["why"] == "It needs you as an Editor in Kinase Atlas."
     # A list adds and removes.
-    added = api_as(world, "editor").post(
-        "/entities/assign",
-        {"entities": ids[:2], "field": "helpers", "person": pk(world, "viewer"), "op": "add"},
-    )
+    added = bulk_assign(api_as(world, "editor"), ids[:2], "helpers", pk(world, "viewer"), op="add")
     assert added.json()["changed"] == ids[:2]
-    removed = api_as(world, "editor").post(
-        "/entities/assign",
-        {"entities": ids[:1], "field": "helpers", "person": pk(world, "viewer"), "op": "remove"},
+    removed = bulk_assign(
+        api_as(world, "editor"), ids[:1], "helpers", pk(world, "viewer"), op="remove"
     )
     assert removed.json()["changed"] == ids[:1]
     assert Entity.objects.get(pk=ids[0]).revision == 4

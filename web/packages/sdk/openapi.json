@@ -1429,6 +1429,25 @@
             "title": "Entities",
             "type": "array"
           },
+          "expected_revisions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "format": "uuid"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required. Each selected entity's observed revision, by entity ID.",
+            "title": "Expected Revisions"
+          },
           "field": {
             "description": "An assignment field of theirs.",
             "title": "Field",
@@ -31879,7 +31898,7 @@
     },
     "/api/v1/entities/assign": {
       "post": {
-        "description": "Names someone in an assignment field of many records at once (ADR 0122), such as a\ngrid's selection: each record you may edit changes as its own revision, and each person\nis told once. Records that can't change are skipped, with why: you can't edit them,\ntheir state locks them, their people with them, or the person can't be named\nin their project. A record you can't read is 404, and changes nothing.",
+        "description": "Names someone in an assignment field of many records at once (ADR 0122), such as a\ngrid's selection: each record you may edit changes as its own revision, and each person\nis told once. Records that can't change are skipped, with why: you can't edit them,\ntheir state locks them, their people with them, or the person can't be named\nin their project. Send an observed revision in `expected_revisions` for every selected\nentity. A stale selection answers 412 and identifies the changed records. A record\nyou can't read answers 404. Neither refusal changes any records.",
         "operationId": "iki_server_api_work_assign",
         "parameters": [],
         "requestBody": {
