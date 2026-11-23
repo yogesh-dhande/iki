@@ -38,3 +38,44 @@ it("reports the displayed feature and keyboard range independently of any host a
     expect(selection).toEqual({ caret: 1, range: [1, 1] });
   });
 });
+
+it("shows supplied library results with their provenance and reports the selected feature", async () => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+  const view = document.createElement("iki-sequence-viewer");
+  const data = { title: "Example", alphabet: "dna" as const, sequence: "ACGT" };
+  view.data = { ...data, library: {} };
+  document.body.append(view);
+  await vi.waitFor(() => {
+    expect(view.textContent).toContain("No library search has run.");
+  });
+
+  view.data = { ...data, library: { features: [] } };
+  await vi.waitFor(() => {
+    expect(view.textContent).toContain("No library features matched.");
+  });
+
+  const feature = { type: "misc_feature", name: "Segment", start: 2, end: 3 };
+  view.data = {
+    ...data,
+    features: [{ ...feature, name: "Recorded", start: 1 }],
+    library: {
+      version: "Demo 1",
+      features: [{ ...feature, qualifiers: { source: "Example catalogue" } }],
+    },
+  };
+  await vi.waitFor(() => {
+    expect(view.textContent).toContain("Example catalogue");
+  });
+  const section = [...view.querySelectorAll("section")].find(
+    (item) => item.querySelector("h2")?.textContent === "Library features",
+  );
+  assert(section);
+  expect(section.textContent).toContain("Demo 1");
+  expect(section.textContent).not.toContain("Recorded");
+  const show = section.querySelector<HTMLButtonElement>('button[aria-label="Show Segment"]');
+  assert(show);
+  show.click();
+  await vi.waitFor(() => {
+    expect(view.shownFeature).toEqual(feature);
+  });
+});

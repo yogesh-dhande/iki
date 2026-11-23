@@ -1,0 +1,189 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A site-directed mutagenesis: the sequence to change, the changes to make, and how the
+# primers that make them are designed. It has no identity, as an assembly and a PCR have
+# none (ADR 0163, ADR 0172): one mutant can be made from several templates by several
+# protocols, and how a lab made its own is the lab's record, not a fact about the
+# molecule.
+#
+# Its products are the mutant DNA sequence and the primers that make it, worked out and
+# registered by the run, derived from this record: so the template, the design, the
+# primers ordered and the mutant are one chain in the graph (ADR 0123). As with an
+# assembly, the record keeps what is known of them -- which changes were made, what they
+# do to the protein, how many primers were designed -- and the sequences themselves are
+# the record's in the graph, not references of their own: a run's updates are written
+# before what it creates (ADR 0064).
+apiVersion: iki/v1
+kind: EntityType
+name: Mutagenesis
+label: Mutagenesis
+label_plural: Mutageneses
+schema_version: 1
+description: >-
+  Changes stated against a sequence and made to it, with the primers that make them: the
+  template, the changes as HGVS names them, and which published protocol's primers are
+  designed. Iki checks each change against the template's own bases, applies them,
+  registers the mutant as a DNA sequence and the primers as primers, and reports what
+  each change does to the protein where the record says where the coding region is.
+hrid: { prefix: MUT }
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  template:
+    type: ref
+    to: DNASequence
+    required: true
+    description: >-
+      The sequence the changes are stated against and made to: a plasmid, a gene or a
+      construct. Its topology decides how the changes are numbered -- `o.` for a circular
+      sequence, `g.` for a linear one -- and whether a primer may run across its origin.
+  changes:
+    type: list
+    required: true
+    max_items: 20
+    items:
+      type: string
+      max_length: 120
+      pattern: "^\\s*(?:[go]\\.)?\\d+(?:_\\d+)?(?:[ACGTRYSWKMBDHVN]>[ACGTRYSWKMBDHVN]|delins[ACGTRYSWKMBDHVN]+|del[ACGTRYSWKMBDHVN]*|ins[ACGTRYSWKMBDHVN]+|dup[ACGTRYSWKMBDHVN]*|inv)\\s*$"
+    description: >-
+      The changes to make, as HGVS's DNA recommendations name them on a genomic reference
+      (den Dunnen et al., Hum Mutat 37:564, 2016), numbered from the template's first
+      base: a substitution (g.1234C>T), a deletion (g.1240del, g.1240_1242del), an
+      insertion (g.1250_1251insGGATCC), a duplication (g.1250dup), an inversion
+      (g.3_6inv) or a deletion-insertion (g.1260_1261delinsTA). These are the names
+      `align_reads` writes for the differences it finds, so a change is asked for the way
+      it will be read back. Every base a change states is checked against the template's
+      own, and a change whose stated base isn't there is refused rather than made.
+  coding_start:
+    type: int
+    min: 1
+    label: Coding region starts at
+    description: >-
+      The first base of the coding region, counting from 1. Given with `coding_end`, the
+      run says what each change does to the protein; left empty, it reports the changes
+      to the DNA alone.
+  coding_end:
+    type: int
+    min: 1
+    label: Coding region ends at
+    description: The last base of the coding region, its stop codon's included.
+  coding_strand:
+    type: enum
+    values: [forward, reverse]
+    default: forward
+    description: Which strand the coding region is read on.
+  genetic_code:
+    type: enum
+    default: standard
+    values:
+      [
+        standard,
+        bacterial_archaeal_plant_plastid,
+        vertebrate_mitochondrial,
+        yeast_mitochondrial,
+        mold_protozoan_coelenterate_mitochondrial,
+        invertebrate_mitochondrial,
+        alternative_yeast_nuclear,
+      ]
+    label: Genetic code
+    description: >-
+      The NCBI translation table the coding region is read by, where the record says
+      where it is.
+  primer_design:
+    type: enum
+    default: overlapping
+    values: [overlapping, partially_overlapping, back_to_back, none]
+    description: >-
+      Which published protocol's primers are designed for each change. `overlapping` is
+      the QuikChange design: a pair of primers complementary to each other, both carrying
+      the change, with correct template on both sides of it. `partially_overlapping`
+      follows Liu and Naismith (BMC Biotechnol 8:91, 2008): the two primers share the
+      stretch that carries the change and each has a 3' extension of its own, which keeps
+      them from annealing to one another alone. `back_to_back` amplifies the whole
+      plasmid outwards from the change with primers that meet end to end, to be ligated
+      blunt. `none` applies the changes and designs no primers.
+  product_length:
+    type: quantity
+    unit: "{bp}"
+    computed: true
+    min: 0
+    description: The mutant's bases.
+  changes_made:
+    type: json
+    computed: true
+    description: >-
+      Each change as the record stated it and as HGVS names it where it lies, with what
+      it is and how many bases it added or took away.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          stated: { type: string }
+          name: { type: string }
+          kind: { type: string }
+          start: { type: integer }
+          end: { type: integer }
+          difference: { type: integer }
+        required: [stated, name, kind]
+  protein_changes:
+    type: json
+    computed: true
+    description: >-
+      What the changes do to the protein, where the record says where the coding region
+      is: what each is -- silent, missense, nonsense, a frameshift, an in-frame insertion
+      or deletion -- and its HGVS protein name.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          effect: { type: string }
+          name: { type: string }
+        required: [effect, name]
+  primers:
+    type: json
+    computed: true
+    label: Primers designed
+    description: >-
+      The primers the run designed, in the order they were registered: which change each
+      makes, its part in the pair, its bases, how many of them match the template, and
+      what the protocol's own acceptance rule measures. The oligos themselves are
+      registered as primers derived from this record; this is the design's own account of
+      them, with the measures a protocol is written around and a primer has nowhere to
+      keep.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          change: { type: string }
+          role: { type: string }
+          bases: { type: string }
+          direction: { type: string }
+          length: { type: integer }
+          matched: { type: integer }
+          measures:
+            type: array
+            items:
+              type: object
+              properties:
+                what: { type: string }
+                value: { type: number }
+              required: [what, value]
+        required: [change, role, bases, direction, length]
+  primers_designed:
+    type: int
+    computed: true
+    min: 0
+    description: How many primers the run designed and registered.
+  designed_with:
+    type: string
+    max_length: 600
+    computed: true
+    description: >-
+      The protocol and the numbers the primers were designed to, with the melting
+      temperature model named, so a primer here can be compared with a vendor's or
+      another tool's.
+display:
+  title: "{{ name or hrid }}"
