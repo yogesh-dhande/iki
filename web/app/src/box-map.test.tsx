@@ -75,6 +75,7 @@ describe("positions", () => {
       found: "A2",
       note: "",
       resolution: null,
+      resolution_stale: false,
       resolved_by: null,
     };
     expect(resolutionsFor({ ...line, finding: "wrong_slot" })).toEqual(["moved", "kept"]);

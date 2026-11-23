@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page header · Iki UI</title>
+    <link rel="stylesheet" href="../dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/fonts.css" />
+    <link rel="stylesheet" href="../dist/button.css" />
+    <link rel="stylesheet" href="../dist/page-header.css" />
+    <style>
+      html {
+        font: 81.25%/1.45 var(--font);
+        color: var(--text);
+        background: var(--bg);
+      }
+      main {
+        max-width: 45rem;
+        padding: 1rem;
+      }
+      h1 {
+        font-size: var(--text-xl);
+      }
+      a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <iki-page-header></iki-page-header>
+      <p role="status"></p>
+    </main>
+    <script type="module">
+      import "../dist/page-header.js";
+      const header = document.querySelector("iki-page-header");
+      header.data = {
+        title: "Review queue",
+        description: "Records awaiting review",
+        about: { label: "Review guide", href: "#guide" },
+        ancestors: [{ label: "Workspace", href: "#workspace" }],
+        actions: [{ id: "export", label: "Export" }],
+      };
+      header.addEventListener("iki-action", (event) => {
+        document.querySelector('[role="status"]').textContent = "Requested " + event.detail.id;
+      });
+    </script>
+  </body>
+</html>

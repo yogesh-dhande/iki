@@ -1,49 +1,43 @@
-/**
- * A container's map (ADR 0180): its grid, each position with what's in it, as a grid of
- * cells to move through with the arrow keys. Opening a position opens what's in it;
- * choosing several selects them, to move, check out or label together; picking one says
- * where something goes. A position can be marked, as a record's own is on its page, and
- * the free ones shown.
- */
-
+/** Adapt storage records and a scan's focus request to the shared box map. */
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type KeyboardEvent,
-} from "react";
+  slotKey,
+  type BoxFinding,
+  type BoxMapData,
+  type BoxMapElement,
+  type BoxOccupant,
+  type MapMode,
+  type Slot,
+} from "@ikisci/science/box-map";
+import { createElement, useCallback, useMemo } from "react";
 
-import { FINDINGS, rowLabel, slotsOf, type Occupant, type Shape, type Slot } from "./storage";
+import { FINDINGS, type Finding, type Shape, type Occupant } from "./storage";
 
-/** What each mark on a position says: a reconciliation's findings, and where one goes. */
-const FOUND: Record<string, string> = { ...FINDINGS, suggested: "where one goes" };
+export { slotKey, slotName, type MapMode } from "@ikisci/science/box-map";
 
-export type MapMode = "open" | "select" | "pick";
-
-/** A position's key, as selections hold it. */
-export function slotKey(row: number, column: number): string {
-  return `${String(row)}:${String(column)}`;
+function cellOf(o: Occupant): BoxOccupant {
+  return {
+    row: o.row,
+    column: o.column,
+    ...(o.ref ? { identifier: o.ref.hrid, ...(o.ref.title ? { name: o.ref.title } : {}) } : {}),
+    ...(o.custodian ? { checkedOutBy: o.custodian.name || o.custodian.email } : {}),
+    ...(o.container ? { count: o.count } : {}),
+  };
 }
 
-/** What's in a position, as screen readers hear it and its tooltip says. */
-export function slotName(slot: Slot): string {
-  const o = slot.occupant;
-  if (!o) return `${slot.label}, empty`;
-  if (!o.ref) return `${slot.label}, taken by a record you can’t read`;
-  const named =
-    o.ref.title && o.ref.title !== o.ref.hrid ? `${o.ref.hrid} ${o.ref.title}` : o.ref.hrid;
-  const out = o.custodian ? `, checked out by ${o.custodian.name || o.custodian.email}` : "";
-  const holds = o.container ? `, holding ${String(o.count)}` : "";
-  return `${slot.label}, ${named}${holds}${out}`;
-}
-
-/** What a position shows, in the room it has: a tube's short name, or its HRID's number. */
-function shortText(o: Occupant): string {
-  if (!o.ref) return "";
-  if (o.ref.title && o.ref.title !== o.ref.hrid) return o.ref.title;
-  return /0*(\d+)$/.exec(o.ref.hrid)?.[1] ?? o.ref.hrid;
+function markOf(name: string): BoxFinding {
+  if (name === "suggested") return { style: name, label: "where one goes" };
+  const label = Object.hasOwn(FINDINGS, name) ? FINDINGS[name as Finding] : name;
+  switch (name) {
+    case "matched":
+    case "missing":
+    case "unexpected":
+    case "wrong_slot":
+    case "empty":
+    case "checked_out":
+      return { style: name, label };
+    default:
+      return { label };
+  }
 }
 
 export function BoxMap({
@@ -67,7 +61,7 @@ export function BoxMap({
   /** The positions chosen, by slotKey. */
   selected?: ReadonlySet<string>;
   /** A position opened, chosen or picked: with Enter, Space or a click. */
-  onActivate?: (slot: Slot) => void;
+  onActivate?: (slot: Slot<Occupant>) => void;
   /** A position to mark, as a record's own is on its page. */
   marked?: { row: number; column: number } | undefined;
   /** Shade the free positions, so where things can go shows. */
@@ -80,156 +74,45 @@ export function BoxMap({
    * with `#` and anything after it to ask again for the same one. */
   focusKey?: string | undefined;
 }) {
-  const rows = useMemo(() => slotsOf(shape, contents), [shape, contents]);
-  const [active, setActive] = useState<{ row: number; column: number }>(() =>
-    marked ? { row: marked.row, column: marked.column } : { row: 1, column: 1 },
+  const cells = useMemo(() => contents.map(cellOf), [contents]);
+  const positions = useMemo(
+    () =>
+      new Map(
+        contents.flatMap((o) =>
+          o.row && o.column ? [[slotKey(o.row, o.column), o] as const] : [],
+        ),
+      ),
+    [contents],
   );
-  const grid = useRef<HTMLDivElement>(null);
-  const moveTo = (row: number, column: number, focus = true) => {
-    const r = Math.min(Math.max(row, 1), shape.rows);
-    const c = Math.min(Math.max(column, 1), shape.columns);
-    setActive({ row: r, column: c });
-    if (focus) {
-      grid.current
-        ?.querySelector<HTMLElement>(`[data-slot="${slotKey(r, c)}"]`)
-        ?.focus({ preventScroll: false });
-    }
-  };
-  useEffect(() => {
-    if (!focusKey) return;
-    // Focusing it makes it the active position, as moving to it does.
-    const key = focusKey.split("#")[0] ?? "";
-    grid.current?.querySelector<HTMLElement>(`[data-slot="${key}"]`)?.focus();
-  }, [focusKey]);
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, slot: Slot) => {
-    const { row, column } = slot;
-    const keys: Record<string, () => void> = {
-      ArrowRight: () => {
-        moveTo(row, column + 1);
-      },
-      ArrowLeft: () => {
-        moveTo(row, column - 1);
-      },
-      ArrowDown: () => {
-        moveTo(row + 1, column);
-      },
-      ArrowUp: () => {
-        moveTo(row - 1, column);
-      },
-      Home: () => {
-        moveTo(event.ctrlKey ? 1 : row, 1);
-      },
-      End: () => {
-        moveTo(event.ctrlKey ? shape.rows : row, shape.columns);
-      },
-      PageUp: () => {
-        moveTo(1, column);
-      },
-      PageDown: () => {
-        moveTo(shape.rows, column);
-      },
-      Enter: () => onActivate?.(slot),
-      " ": () => onActivate?.(slot),
-    };
-    const run = keys[event.key];
-    if (run) {
-      event.preventDefault();
-      run();
-    }
-  };
-  const numbered = shape.labels === "number";
-  const style = { "--map-columns": String(shape.columns) } as CSSProperties;
-  return (
-    <div className={compact ? "box-map-scroll box-map-compact" : "box-map-scroll"}>
-      <div
-        className={`box-map box-map-${mode}`}
-        role="grid"
-        aria-label={label}
-        aria-multiselectable={mode === "select" ? "true" : undefined}
-        ref={grid}
-        style={style}
-      >
-        {numbered ? null : (
-          <div className="box-map-row box-map-head" role="row">
-            <span className="box-map-corner" role="columnheader">
-              <span className="visually-hidden">Row</span>
-            </span>
-            {rows[0]?.map((s) => (
-              <span key={s.column} className="box-map-colhead" role="columnheader">
-                {s.column}
-              </span>
-            ))}
-          </div>
-        )}
-        {rows.map((cells, r) => (
-          <div className="box-map-row" role="row" key={r}>
-            {numbered ? null : (
-              <span className="box-map-rowhead" role="rowheader">
-                {rowLabel(shape, r + 1)}
-              </span>
-            )}
-            {cells.map((slot) => {
-              const key = slotKey(slot.row, slot.column);
-              const o = slot.occupant;
-              const isSelected = selected?.has(key) ?? false;
-              const isMarked = marked?.row === slot.row && marked.column === slot.column;
-              const finding = findings?.get(key);
-              const classes = [
-                "box-map-slot",
-                o ? (o.ref ? "box-map-taken" : "box-map-hidden") : "box-map-free",
-                o?.custodian ? "box-map-out" : "",
-                o?.container ? "box-map-container" : "",
-                isSelected ? "box-map-selected" : "",
-                isMarked ? "box-map-marked" : "",
-                showFree && !o ? "box-map-show-free" : "",
-                finding ? `box-map-finding box-map-${finding}` : "",
-              ]
-                .filter(Boolean)
-                .join(" ");
-              const isActive = active.row === slot.row && active.column === slot.column;
-              const name = slotName(slot);
-              return (
-                <div
-                  key={key}
-                  role="gridcell"
-                  className={classes}
-                  data-slot={key}
-                  aria-selected={mode === "select" ? isSelected : undefined}
-                  aria-current={isMarked ? "location" : undefined}
-                  title={name}
-                  tabIndex={isActive ? 0 : -1}
-                  onFocus={() => {
-                    if (!isActive) setActive({ row: slot.row, column: slot.column });
-                  }}
-                  onKeyDown={(event) => {
-                    onKeyDown(event, slot);
-                  }}
-                  onClick={() => {
-                    moveTo(slot.row, slot.column, false);
-                    onActivate?.(slot);
-                  }}
-                >
-                  {/* Its name is its text, not a label over what it shows (which is cut short
-                      to fit), so nothing visible is left out of what's heard. */}
-                  <span className="visually-hidden">
-                    {finding ? `${name}: ${FOUND[finding] ?? finding}` : name}
-                  </span>
-                  <span className="box-map-pos" aria-hidden="true">
-                    {slot.label}
-                  </span>
-                  {o ? (
-                    <span className="box-map-what" aria-hidden="true">
-                      {o.container ? String(o.count) : shortText(o)}
-                    </span>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </div>
+  const focusRequested = useCallback(
+    (element: BoxMapElement | null) => {
+      if (!focusKey) return;
+      const [row, column] = (focusKey.split("#")[0] ?? "").split(":").map(Number);
+      if (row && column) element?.focusPosition(row, column);
+    },
+    [focusKey],
   );
+  const data: BoxMapData = {
+    label,
+    shape,
+    contents: cells,
+    mode,
+    compact,
+    showFree,
+    ...(marked && { marked }),
+    ...(selected && { selected: [...selected] }),
+    ...(findings && {
+      findings: Object.fromEntries(Array.from(findings, ([key, name]) => [key, markOf(name)])),
+    }),
+  };
+  return createElement("iki-box-map", {
+    ref: focusRequested,
+    data,
+    "onslot-activate": (event: CustomEvent<Slot>) => {
+      const { row, column, label: position } = event.detail;
+      onActivate?.({ row, column, label: position, occupant: positions.get(slotKey(row, column)) });
+    },
+  });
 }
 
 /** The map's key: what its shading means. */

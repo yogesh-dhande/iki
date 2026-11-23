@@ -19,7 +19,9 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
+from iki_server.entities import access
 from iki_server.entities.models import Entity
+from iki_server.org.services import Refused
 from iki_server.storage import services as storage
 from iki_server.storage.grids import NotAPosition, Shape
 from iki_server.storage.models import (
@@ -34,7 +36,7 @@ from iki_server.storage.services import Wrong
 
 MAX_NOTE = 2000
 #: What each finding may be resolved as.
-RESOLUTIONS = {
+RESOLUTIONS: dict[str, tuple[Resolution, ...]] = {
     Finding.WRONG_SLOT: (Resolution.MOVED, Resolution.KEPT),
     Finding.MISSING: (Resolution.REMOVED, Resolution.KEPT),
     Finding.UNEXPECTED: (Resolution.PLACED, Resolution.KEPT),
@@ -45,6 +47,8 @@ UNCHECKED = "unchecked"
 EMPTY = "empty"
 #: Checked out: not expected in its position, which is kept for it.
 OUT = "checked_out"
+#: An unexpected record's positive scan was replaced; its saved choice needs clearing.
+NO_LONGER_FOUND = "no_longer_found"
 
 
 def shape_of(reconciliation: Reconciliation) -> Shape:
@@ -63,6 +67,8 @@ def finding(line: ReconciliationLine, scanned: set[tuple[int, int]]) -> str:
         return Finding.MATCHED if expected == found else Finding.WRONG_SLOT
     if found:
         return Finding.UNEXPECTED
+    if not expected and line.resolution is not None:
+        return NO_LONGER_FOUND
     if line.checked_out:
         return OUT
     if expected and expected in scanned:
@@ -113,17 +119,27 @@ def start(user: User, container: Entity) -> Reconciliation:
         return reconciliation
 
 
-def _open(user: User, reconciliation: Reconciliation) -> Reconciliation:
+def _open(
+    user: User, reconciliation: Reconciliation, *, plan_revision: int | None = None
+) -> Reconciliation:
     locked = (
         Reconciliation.objects.select_for_update(of=("self",))
         .select_related("container")
         .get(pk=reconciliation.pk)
     )
-    if locked.status != ReceiptStatus.OPEN:
-        raise Wrong({"": [f"This reconciliation is {locked.get_status_display().lower()}."]})
     if not storage.keeps(user, locked.container):
         raise PermissionError(f"Reconciling {locked.container.hrid} needs Editor in its project.")
+    if plan_revision is not None and locked.plan_revision != plan_revision:
+        raise Refused("The count changed. Reload it and review its current findings and decisions.")
+    if locked.status != ReceiptStatus.OPEN:
+        raise Wrong({"": [f"This reconciliation is {locked.get_status_display().lower()}."]})
     return locked
+
+
+def _advance_plan(reconciliation: Reconciliation) -> None:
+    """A successful edit to the open, locked count needs a fresh review."""
+    reconciliation.plan_revision += 1
+    reconciliation.save(update_fields=["plan_revision"])
 
 
 @dataclass(frozen=True)
@@ -150,6 +166,7 @@ def scan(
             except NotAPosition as error:
                 raise Wrong({f"scans/{index}/position": [str(error)]}) from None
             out.append(_scan_one(user, reconciliation, row, column, (s.code or "").strip()))
+        _advance_plan(reconciliation)
         return out
 
 
@@ -162,7 +179,7 @@ def _scan_one(
     gone: set[UUID] = set()
     for line in lines:
         if (line.found_row, line.found_column) == (row, column):
-            if line.expected_row is not None:
+            if line.expected_row is not None or line.resolution is not None:
                 line.found_row = line.found_column = None
                 line.scanned_by, line.scanned_at = None, None
                 line.save(update_fields=["found_row", "found_column", "scanned_by", "scanned_at"])
@@ -192,10 +209,41 @@ def _scan_one(
     line = chosen
     line.found_row, line.found_column = row, column
     line.scanned_by, line.scanned_at = user, now
-    # A scan changes what's found: its resolution is chosen again.
-    line.resolution, line.resolved_by, line.resolved_at = None, None, None
+    # Keep the saved decision visible. Its author approved a particular observation;
+    # read and complete both check whether that decision still applies.
     line.save()
     return line
+
+
+def _allowed(line: ReconciliationLine, what: str) -> tuple[Resolution, ...]:
+    choices = RESOLUTIONS.get(what, ())
+    if choices and line.entity_id is None:
+        return (Resolution.KEPT,)
+    return choices
+
+
+def decision_position(line: ReconciliationLine, what: str, shape: Shape) -> str | None:
+    """The slot that was observed for this finding. Missing concerns its original slot."""
+    if what == Finding.MISSING:
+        return storage.label(shape, line.expected_row, line.expected_column)
+    if what in (Finding.WRONG_SLOT, Finding.UNEXPECTED) and line.scanned_at and line.scanned_by_id:
+        return storage.label(shape, line.found_row, line.found_column)
+    return None
+
+
+def resolution_stale(line: ReconciliationLine, what: str, position: str | None) -> bool:
+    """Whether the saved action still applies to this finding and its particular slot."""
+    if line.resolution is None:
+        return False
+    return (
+        line.resolution not in _allowed(line, what)
+        or position is None
+        or position != line.resolved_position
+        or line.resolved_at is None
+        or line.resolved_by_id is None
+        or (line.scanned_at is not None and line.scanned_at > line.resolved_at)
+        or (line.resolution == Resolution.KEPT and not line.note.strip())
+    )
 
 
 def resolve(
@@ -204,21 +252,27 @@ def resolve(
     line_id: UUID | str,
     resolution: str | None,
     note: str = "",
-) -> ReconciliationLine:
+    *,
+    plan_revision: int,
+) -> ReconciliationLine | None:
     """Says what's done about a line that isn't matched."""
     if len(note) > MAX_NOTE:
         raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
     with transaction.atomic():
-        reconciliation = _open(user, reconciliation)
+        reconciliation = _open(user, reconciliation, plan_revision=plan_revision)
         lines = list(reconciliation.lines.select_related("entity"))
         line = next((x for x in lines if str(x.pk) == str(line_id)), None)
         if line is None:
             raise Wrong({"line": ["isn't one of this reconciliation's."]})
         found = finding(line, scanned_positions(lines))
+        if resolution is None and found == NO_LONGER_FOUND:
+            # No recorded or observed slot remains. The operator has dismissed its old choice.
+            line.delete()
+            _advance_plan(reconciliation)
+            return None
+        position = None
         if resolution is not None:
-            allowed = RESOLUTIONS.get(found, ())  # type: ignore[call-overload]
-            if found == Finding.UNEXPECTED and line.entity_id is None:
-                allowed = (Resolution.KEPT,)
+            allowed = _allowed(line, found)
             if resolution not in allowed:
                 raise Wrong(
                     {
@@ -229,23 +283,35 @@ def resolve(
                         ]
                     }
                 )
+            position = decision_position(line, found, shape_of(reconciliation))
+            if position is None:
+                raise Wrong({"resolution": ["needs a current observation for this position."]})
             if resolution == Resolution.KEPT and not note.strip():
                 raise Wrong({"note": ["is required: say why it's left as recorded."]})
         line.resolution = resolution
+        line.resolved_position = position
         line.note = note.strip()
         line.resolved_by = user if resolution is not None else None
         line.resolved_at = timezone.now() if resolution is not None else None
-        line.save(update_fields=["resolution", "note", "resolved_by", "resolved_at"])
+        line.save(
+            update_fields=["resolution", "resolved_position", "note", "resolved_by", "resolved_at"]
+        )
+        _advance_plan(reconciliation)
         return line
 
 
 def complete(
-    user: User, reconciliation: Reconciliation, *, missing_rest: bool = False, note: str = ""
+    user: User,
+    reconciliation: Reconciliation,
+    *,
+    plan_revision: int,
+    missing_rest: bool = False,
+    note: str = "",
 ) -> Reconciliation:
     """Applies every resolution as one change, refused if anything moved into or out of the
     container since it started."""
     with transaction.atomic():
-        reconciliation = _open(user, reconciliation)
+        reconciliation = _open(user, reconciliation, plan_revision=plan_revision)
         container = reconciliation.container
         Entity.objects.select_for_update(no_key=True).filter(pk=container.pk).first()
         if storage.events_since(container, reconciliation.started_at):
@@ -261,38 +327,71 @@ def complete(
         found = findings(reconciliation)
         wrong: dict[str, list[str]] = {}
         wanted: list[storage.Wanted] = []
+        decisions: Counter[str] = Counter()
+        assumed_missing: list[ReconciliationLine] = []
         for line, what in found:
+            position = decision_position(line, what, shape)
+            if resolution_stale(line, what, position):
+                name = "This record"
+                if line.entity is not None and access.can_read(user, line.entity):
+                    name = line.entity.hrid
+                elif line.entity_id is None and line.code:
+                    name = line.code
+                wrong[f"lines/{line.pk}"] = [
+                    f"{name} is now {what}. Review the saved {line.resolution} decision "
+                    "against the current scan."
+                ]
+                continue
             if what == UNCHECKED:
                 if not missing_rest:
                     wrong[f"lines/{line.pk}"] = ["isn't scanned yet: scan its position."]
                     continue
-                what = Finding.MISSING
-                if line.resolution is None:
-                    line.resolution, line.resolved_by = Resolution.REMOVED, user
-                    line.resolved_at = timezone.now()
-                    line.save(update_fields=["resolution", "resolved_by", "resolved_at"])
-            if what in (Finding.MATCHED, EMPTY, OUT):
+                assumed_missing.append(line)
+                line.resolution, line.resolved_by = Resolution.REMOVED, user
+                line.resolved_at = timezone.now()
+                line.resolved_position = storage.label(
+                    shape, line.expected_row, line.expected_column
+                )
+            elif what in (Finding.MATCHED, EMPTY, OUT):
                 continue
             if line.resolution is None:
                 wrong[f"lines/{line.pk}"] = ["needs resolving."]
                 continue
-            here = shape.label(line.found_row, line.found_column) if line.found_row else None  # type: ignore[arg-type]
-            if line.resolution == Resolution.MOVED or line.resolution == Resolution.PLACED:
-                assert line.entity is not None  # noqa: S101
-                wanted.append(storage.Wanted(line.entity, container, here))
+            decisions[line.resolution] += 1
+            if line.resolution in (Resolution.MOVED, Resolution.PLACED):
+                # These decisions must have a positive scan of this record at a concrete slot.
+                # Never pass a null position to the storage planner, which allocates free slots.
+                assert line.entity is not None and position is not None  # noqa: S101
+                wanted.append(
+                    storage.Wanted(
+                        line.entity, container, position, evidence=f"Scanned at {position}."
+                    )
+                )
             elif line.resolution == Resolution.REMOVED:
                 assert line.entity is not None  # noqa: S101
-                wanted.append(storage.Wanted(line.entity, None))
+                slot = line.resolved_position
+                evidence = (
+                    f"{slot} was not scanned. Treated as missing and removed from storage."
+                    if what == UNCHECKED
+                    else f"The scan did not find this record at {slot}. Removed from storage."
+                )
+                wanted.append(storage.Wanted(line.entity, None, evidence=evidence))
         if wrong:
             raise Wrong(wrong)
+        if assumed_missing:
+            ReconciliationLine.objects.bulk_update(
+                assumed_missing, ["resolution", "resolved_by", "resolved_at", "resolved_position"]
+            )
+        moved = 0
         if wanted:
             try:
-                storage.move(
+                events = storage.move(
                     user,
                     wanted,
-                    reason=f"Reconciled {container.hrid}: found so when it was scanned.",
+                    reason=f"Reconciled {container.hrid}.",
                     operation=reconciliation.operation,
                 )
+                moved = len(events)
             except Wrong as error:
                 raise Wrong({"": [m for ms in error.errors.values() for m in ms]}) from None
         reconciliation.status = ReceiptStatus.COMPLETED
@@ -308,8 +407,11 @@ def complete(
             project=container.owner_project,
             data={
                 "reconciliation": str(reconciliation.pk),
+                "plan_revision": reconciliation.plan_revision,
                 "findings": {k: counts.get(k, 0) for k in [*Finding.values, UNCHECKED]},
-                "moved": len(wanted),
+                "resolutions": {choice: decisions[choice] for choice in Resolution.values},
+                "assumed_missing": len(assumed_missing),
+                "moved": moved,
                 "operation": str(reconciliation.operation),
             },
         )

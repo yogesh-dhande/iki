@@ -1,0 +1,264 @@
+.page-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13) calc(12rem / 13);
+  min-height: calc(46rem / 13);
+  padding: calc(8rem / 13) calc(20rem / 13);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.page-top[hidden] {
+  display: none;
+}
+
+/* Outside a frame (a page drawn on its own, as in a test): above the page's title. */
+.page-top-inline {
+  min-height: 0;
+  margin-bottom: calc(12rem / 13);
+  padding: 0;
+  border: 0;
+}
+
+.page-top-crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-top-actions {
+  display: flex;
+  margin-left: auto;
+}
+
+.page-top-actions:empty {
+  display: none;
+}
+
+.page-top .crumbs {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs ol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(6rem / 13);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
+.page-top .crumbs li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.page-top .crumbs li + li::before {
+  content: "/" / "";
+  margin-right: calc(6rem / 13);
+}
+
+.page-top .crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.page-top .crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.page-top .crumbs [aria-current="page"] {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.page-actions,
+.page-actions > .actions.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(8rem / 13);
+  margin: 0;
+}
+
+/* The bar's buttons are its controls' height, an icon's (⋯) square: 28px, clear of the 24
+   WCAG 2.5.8 asks. */
+.page-top .button,
+.page-actions-below .button {
+  min-height: var(--control-height);
+}
+
+.page-top .button-icon,
+.page-actions-below .button-icon {
+  min-width: var(--control-height);
+  width: var(--control-height);
+  padding: 0;
+}
+
+.page-top .button-icon svg,
+.page-actions-below .button-icon svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+}
+
+/* On a phone, a page's actions under its title (PhoneActions in page-top.tsx), the size
+   they are in the bar. */
+.page-actions-below {
+  flex-wrap: wrap;
+  margin-top: calc(10rem / 13);
+}
+
+.record-heading + .page-actions-below {
+  margin: 0 0 calc(12rem / 13);
+}
+
+/* A page's title, with what it is in one line beside it; whole in the toggletip after it. */
+.page-heading {
+  margin-bottom: calc(14rem / 13);
+}
+
+.page-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(4rem / 13) calc(10rem / 13);
+  min-width: 0;
+}
+
+.page-title-row h1 {
+  margin: 0;
+}
+
+.page-description {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: calc(2rem / 13);
+  min-width: min(calc(160rem / 13), 100%);
+}
+
+.page-description-text {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A 24-pixel target, as WCAG 2.5.8 asks. */
+.page-about {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: calc(24rem / 13);
+  height: calc(24rem / 13);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.page-about:hover,
+.page-about[aria-expanded="true"] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.page-about svg {
+  width: calc(15rem / 13);
+  height: calc(15rem / 13);
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.page-about-popover {
+  max-width: min(calc(384rem / 13), calc(100vw - calc(32rem / 13)));
+  padding: calc(12rem / 13) calc(14rem / 13);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-menu);
+}
+
+.page-about-dialog {
+  outline: none;
+}
+
+.page-about-dialog p {
+  margin: 0 0 calc(8rem / 13);
+}
+
+.page-about-dialog > :last-child {
+  margin-bottom: 0;
+}
+
+/* The server's pages (web/_page_heading.html): the toggletip is drawn under its button, in the
+   page, where iki.js places it; the app's is a popover over the page. */
+.page-description {
+  position: relative;
+}
+
+.page-description > .page-about-popover {
+  position: absolute;
+  top: calc(100% + calc(4rem / 13));
+  left: 0;
+  z-index: 20;
+  width: max-content;
+}
+
+.page-description > [hidden] {
+  display: none;
+}
+
+/* Without JavaScript nothing measures the line, so it isn't cut short: it wraps. */
+@media (scripting: none) {
+  .page-description-text {
+    white-space: normal;
+  }
+}
+
+/* A server page can't move its actions when the screen changes, so it draws them twice
+   (data-twin): in the bar, and under its title, where a phone shows them. */
+.page-actions-below[data-twin] {
+  display: none;
+}
+
+@media (max-width: 36rem) {
+  :is(.page-top-actions, .admin-actions):has(> [data-twin]) {
+    display: none;
+  }
+
+  .page-actions-below[data-twin] {
+    display: flex;
+  }
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+iki-page-header {
+  display: block;
+}
+iki-page-header .page-marker,
+iki-page-header .page-badge {
+  display: contents;
+}
+iki-page-header .eyebrow:empty,
+iki-page-header .page-actions-below:empty,
+iki-page-header .page-description[hidden] {
+  display: none;
+}
