@@ -21,7 +21,7 @@ serde_json.workspace = true
 # Apps' expressions (ADR 0090) and rules (step 58): Google's Common Expression Language,
 # with its times and durations (chrono), which rules compare. Without its regex and
 # encoder extras, which the module doesn't offer.
-cel = { version = "=0.15.0", default-features = false, features = ["json", "chrono"] }
+cel = { version = "=0.16.0", default-features = false, features = ["json", "chrono"] }
 # cel's times bring chrono-tz's IANA database (about 1 MB of the module), for getters'
 # time zones, which rules don't take: their times are UTC. Its filter keeps the zones
 # CHRONO_TZ_TIMEZONE_FILTER names when the module is built (UTC alone); unset, all.

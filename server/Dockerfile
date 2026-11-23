@@ -15,7 +15,7 @@ ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cb
 # The worker artifact's digest is pinned to this compiler host.
 ARG ANNOTATION_BUILD_PLATFORM=linux/amd64
 
-FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # --- Build the digest-pinned worker artifact on its canonical compiler host ------
 FROM --platform=$ANNOTATION_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation

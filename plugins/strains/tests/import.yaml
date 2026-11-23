@@ -1,0 +1,44 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: atcc_bacterial_and_yeast_strains
+action: import_base_strains
+files: { catalogue: data/atcc.csv }
+params: { file: { $file: catalogue } }
+expect:
+  output:
+    creates:
+      - type: iki/core.Organism
+        key: taxon_562
+        fills: [scientific_name]
+        values: { taxon_id: 562, scientific_name: Escherichia coli }
+      - type: iki/strains.BaseStrain
+        values:
+          authority: ATCC
+          accession: "700926"
+          name: MG1655
+          organism: { $create: taxon_562 }
+          kind: bacterium
+          genotype: F- lambda- ilvG- rfb-50 rph-1
+        origin: { source: Strain catalogue CSV, id: ATCC 700926 }
+      - type: iki/core.Organism
+        key: taxon_4932
+        fills: [scientific_name]
+        values: { taxon_id: 4932, scientific_name: Saccharomyces cerevisiae }
+      - type: iki/strains.BaseStrain
+        values:
+          authority: ATCC
+          accession: "201388"
+          name: BY4741
+          organism: { $create: taxon_4932 }
+          kind: yeast
+          genotype: MATa his3Δ1 leu2Δ0 met15Δ0 ura3Δ0
+        origin: { source: Strain catalogue CSV, id: ATCC 201388 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_repeated_catalogue_entry_identifies_its_row
+action: import_base_strains
+files: { catalogue: tests/duplicate.csv }
+params: { file: { $file: catalogue } }
+expect:
+  error: Line 3 repeats ATCC 700926.
