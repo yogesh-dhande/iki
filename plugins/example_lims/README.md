@@ -37,9 +37,9 @@ It shows the parts of Iki such a plugin needs:
   Registered, Received, In testing, In review, then Approved, Released or
   Rejected. Each state says which lab roles set it, from any other:
   Coordinators register and receive samples, Analysts test and submit
-  them, Reviewers approve them, and QA releases or rejects them. Rejecting a
-  sample or registering it again requires a reason. Saving a correction to an Approved sample
-  also returns it to In testing and records the editor and reason. Released
+  them, Reviewers approve them, and QA releases or rejects them. Setting a sample
+  to Registered, In testing or Rejected requires a reason. Saving a correction to an
+  Approved sample also returns it to In testing and records the editor and reason. Released
   and Rejected lock its values until an authorized person changes the status.
 - **Electronic signatures** under 21 CFR Part 11
   ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):

@@ -223,7 +223,8 @@ def test_entities_are_found_by_id_or_hrid_and_cached_by_etag(world: World) -> No
         "sign": [],
         "take": [],
     }
-    same = api.call("GET", f"/entities/{made['id']}", headers={"If-None-Match": '"1"'})
+    plain = create(api_as(world), world.project, {"name": "Freezer"}, "acme/protein.Freezer").json()
+    same = api.call("GET", f"/entities/{plain['id']}", headers={"If-None-Match": '"1"'})
     assert same.status_code == 304 and same["ETag"] == '"1"'
     assert same.content == b""
     # Nobody else can tell it exists.

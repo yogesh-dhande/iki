@@ -62,6 +62,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import (
     breaches,
     constraints,
+    holds,
     hrids,
     registry,
     requests,
@@ -111,6 +112,7 @@ class Report:
 
 def sync(analyst_role: str | None = None) -> Report:
     """Runs every step, in one transaction (the caller's)."""
+    holds.lock_rule_deploy(shared=False)
     report = Report()
     with connection.cursor() as cursor:
         for prefix in sorted(_prefixes()):

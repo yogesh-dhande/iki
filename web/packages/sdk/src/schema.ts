@@ -1366,11 +1366,11 @@ export interface paths {
         put?: never;
         /**
          * Review a hold
-         * @description Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
-         *     cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
-         *     an app or agent's token, with one of the rule's lab roles in the record's project, and
-         *     not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
-         *     record back within the rule doesn't clear a hold; only a review does.
+         * @description Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
+         *     record's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the
+         *     record, hold or deployed rule changed, it answers 412 and you need to read it again.
+         *     It takes a person with one of the rule's lab roles in the record's project, other than
+         *     whoever saved what held it: `holds[].can_review` says whether you may.
          */
         post: operations["iki_server_api_entities_review_hold"];
         delete?: never;
@@ -1690,9 +1690,11 @@ export interface paths {
          * @description Starts giving one of the signatures setting the record's state needs (ADR 0126),
          *     as the person in
          *     the web app's browser session: send the browser to `sign_in_url`, where the identity
-         *     provider signs them in again, however recently they did (ADR 0124). Its answer signs
-         *     the revision you read (send its ETag as If-Match), and comes back to `return_to`. No
-         *     token, app or AI agent can sign: they're refused with 403.
+         *     provider signs them in again, however recently they did (ADR 0124). Send the ETag of
+         *     the record you reviewed as If-Match and, if it has a registry entry, send its
+         *     `entry.revision` as `entry_revision`. Both revisions are checked when signing starts
+         *     and finishes. The identity provider's answer comes back to `return_to`. Tokens,
+         *     apps and AI agents are refused with 403.
          */
         post: operations["iki_server_api_signatures_start_signing"];
         delete?: never;
@@ -9418,6 +9420,11 @@ export interface components {
              */
             reason: string;
             /**
+             * Review Version
+             * @description The version of the hold and record you reviewed.
+             */
+            review_version: string;
+            /**
              * Reviewed By
              * @description The lab roles whose holders may review it.
              */
@@ -9442,6 +9449,11 @@ export interface components {
              * @description Why the record may stand as it is.
              */
             reason: string;
+            /**
+             * Review Version
+             * @description The `review_version` from the hold you read.
+             */
+            review_version: string;
         };
         /** HoldRuleOut */
         HoldRuleOut: {
@@ -15866,6 +15878,11 @@ export interface components {
              */
             acknowledge: boolean;
             /**
+             * Entry Revision
+             * @description Required for a record of a registry entry. Send `entry.revision` from the record you reviewed.
+             */
+            entry_revision?: number | null;
+            /**
              * Field
              * @description The state field (ADR 0125), such as status: a key of `can.states`.
              */
@@ -20197,7 +20214,9 @@ export interface operations {
             query?: {
                 project?: string | null;
             };
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 ref: string;
                 hold_id: string;

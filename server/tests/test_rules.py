@@ -2,6 +2,7 @@
 the record for review, and the database's own `unique` and `no_overlap` rules."""
 
 import uuid
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -300,16 +301,106 @@ def test_a_held_record_stays_held_until_its_reviewed(world: World) -> None:
     mine = list(api_as(world, "editor").get(f"/entities/{saved['id']}").json()["holds"])
     assert mine[0]["why_not"] == "Someone else reviews it: you saved what held it."
     review = f"/entities/{saved['id']}/holds/{hold['id']}/review"
-    problem(api_as(world, "editor").post(review, {"reason": "Fine."}), 403, "forbidden")
-    problem(api_as(world, "admin").post(review, {"reason": ""}), 422, "validation_failed")
-    answer = api_as(world, "admin").post(review, {"reason": "Retest within specification."})
+    payload = {"reason": "Retest within specification.", "review_version": hold["review_version"]}
+    headers = {"If-Match": f'"{body["revision"]}"'}
+    problem(api_as(world, "editor").post(review, payload, headers=headers), 403, "forbidden")
+    problem(
+        api_as(world, "admin").post(review, {**payload, "reason": ""}, headers=headers),
+        422,
+        "validation_failed",
+    )
+    problem(api_as(world, "admin").post(review, payload), 428, "precondition_required")
+    answer = api_as(world, "admin").post(review, payload, headers=headers)
     assert answer.status_code == 200, answer.content
     assert answer.json()["holds"] == []
+    refreshed = api_as(world, "admin").call(
+        "GET", f"/entities/{saved['id']}", headers={"If-None-Match": headers["If-Match"]}
+    )
+    assert refreshed.status_code == 200, refreshed.content
+    assert refreshed.json()["holds"] == []
     reviewed = RuleHold.objects.get(pk=hold["id"])
     assert reviewed.reviewed_by == world.users["admin"]
     assert reviewed.review_reason == "Retest within specification."
-    assert AuditEvent.objects.filter(action="entity.hold_reviewed").count() == 1
-    problem(api_as(world, "admin").post(review, {"reason": "Again."}), 409, "refused")
+    event = AuditEvent.objects.get(action="entity.hold_reviewed")
+    assert event.data["revision"] == body["revision"]
+    assert event.data["hold_last_revision"] == hold["last_revision"]
+    assert event.data["review_version"] == hold["review_version"]
+    problem(api_as(world, "admin").post(review, payload, headers=headers), 409, "refused")
+
+
+def test_hold_review_requires_the_record_revision_seen(world: World) -> None:
+    roles(world, admin=(QA,))
+    saved = made(world, {"purity": 82.0}, hold_reason="As measured.")
+    api = api_as(world, "admin")
+    record = f"/entities/{saved['id']}"
+    seen = api.get(record)
+    [hold] = seen.json()["holds"]
+    edited = change(world, saved["id"], {"purity": 95.0})
+    assert edited.status_code == 200, edited.content
+    [current] = edited.json()["holds"]
+    assert current["id"] == hold["id"]
+    assert current["last_revision"] == hold["last_revision"]
+    assert current["review_version"] != hold["review_version"]
+    rejected = api.post(
+        f"{record}/holds/{hold['id']}/review",
+        {"reason": "I reviewed the measurement.", "review_version": hold["review_version"]},
+        headers={"If-Match": seen["ETag"]},
+    )
+    problem(rejected, 412, "hold_changed")
+    assert rejected["ETag"] == edited["ETag"]
+    assert not AuditEvent.objects.filter(action="entity.hold_reviewed").exists()
+    assert RuleHold.objects.get(pk=hold["id"]).reviewed_at is None
+
+
+@pytest.mark.parametrize("removed", [False, True], ids=["replaced", "removed"])
+def test_hold_review_requires_the_deployed_rule_version_seen(
+    world: World, monkeypatch: pytest.MonkeyPatch, removed: bool
+) -> None:
+    roles(world, admin=(QA,))
+    saved = made(world, {"purity": 82.0}, hold_reason="As measured.")
+    api = api_as(world, "admin")
+    record = f"/entities/{saved['id']}"
+    RulesChecked.objects.update_or_create(
+        type=BATCH, defaults={"digest": checking.digest_of(BATCH)}
+    )
+    seen = api.get(record)
+    [hold] = seen.json()["holds"]
+    checks = checking.checks_of
+    (matching,) = [rule for rule in checks(BATCH) if rule.key == hold["rule"]]
+    updated = [rule for rule in checks(BATCH) if rule.key != hold["rule"]]
+    if not removed:
+        updated.append(replace(matching, check="record.purity >= 92.0"))
+    with monkeypatch.context() as deployment:
+        deployment.setattr(
+            checking, "checks_of", lambda t: tuple(updated) if t == BATCH else checks(t)
+        )
+        checking.digest_of.cache_clear()
+        try:
+            breaches.recheck()
+            generation = RulesChecked.objects.get(pk=BATCH)
+        finally:
+            checking.digest_of.cache_clear()
+
+    review = f"{record}/holds/{hold['id']}/review"
+    headers = {"If-Match": seen["ETag"]}
+    payload = {"reason": "I reviewed the hold.", "review_version": hold["review_version"]}
+    problem(api.post(review, payload, headers=headers), 412, "hold_changed")
+    assert not AuditEvent.objects.filter(action="entity.hold_reviewed").exists()
+    refreshed = api.call("GET", record, headers={"If-None-Match": seen["ETag"]})
+    assert refreshed.status_code == 200, refreshed.content
+    assert "no-store" in refreshed["Cache-Control"]
+    [current] = refreshed.json()["holds"]
+    assert refreshed["ETag"] == seen["ETag"]
+    assert current["id"] == hold["id"]
+    assert current["message"] == hold["message"]
+    assert current["review_version"] != hold["review_version"]
+    approved = api.post(
+        review, {**payload, "review_version": current["review_version"]}, headers=headers
+    )
+    assert approved.status_code == 200, approved.content
+    event = AuditEvent.objects.get(action="entity.hold_reviewed")
+    assert event.data["rule_digest"] == generation.digest
+    assert event.data["rules_checked_at"] == generation.checked_at.isoformat()
 
 
 def test_a_records_history_keeps_each_hold_and_its_review(world: World) -> None:
@@ -330,7 +421,14 @@ def test_a_records_history_keeps_each_hold_and_its_review(world: World) -> None:
     assert held["held_at"] is not None and held["last_revision"] == 1
     assert held["reviewer"] is None and held["reviewed_at"] is None
     review = f"/entities/{saved['id']}/holds/{held['id']}/review"
-    reviewed = api_as(world, "admin").post(review, {"reason": "SEC rerun within limits."})
+    api = api_as(world, "admin")
+    seen = api.get(f"/entities/{saved['id']}")
+    [hold] = seen.json()["holds"]
+    reviewed = api.post(
+        review,
+        {"reason": "SEC rerun within limits.", "review_version": hold["review_version"]},
+        headers={"If-Match": seen["ETag"]},
+    )
     assert reviewed.status_code == 200, reviewed.content
     # The hold is kept, reviewed: who, when and why.
     [kept] = api_as(world, "viewer").get(history).json()["items"][1]["holds"]
@@ -359,9 +457,11 @@ def test_a_held_record_cant_be_set_to_a_state_that_locks_it(world: World) -> Non
         headers={"If-Match": api.get(f"/entities/{saved['id']}")["ETag"]},
     )
     problem(answer, 409, "refused")
-    hold = body["holds"][0]["id"]
+    [hold] = body["holds"]
     review = api_as(world, "viewer").post(
-        f"/entities/{saved['id']}/holds/{hold}/review", {"reason": "Investigated: lab error."}
+        f"/entities/{saved['id']}/holds/{hold['id']}/review",
+        {"reason": "Investigated: lab error.", "review_version": hold["review_version"]},
+        headers={"If-Match": f'"{body["revision"]}"'},
     )
     assert review.status_code == 200, review.content
     assert set_(world, "admin", saved["id"], "status", "approved")["locked"]
@@ -543,8 +643,14 @@ def test_a_search_finds_what_rules_hold_and_break_and_says_which(world: World) -
         ("expires_after_made", "Expires after it's made")
     ]
     # Reviewed, it isn't held any more.
-    review = f"/entities/{records['held']['id']}/holds/{held_out['holds'][0]['id']}/review"
-    assert api_as(world, "admin").post(review, {"reason": "Investigated."}).status_code == 200
+    [hold] = held_out["holds"]
+    review = f"/entities/{records['held']['id']}/holds/{hold['id']}/review"
+    clearance = api_as(world, "admin").post(
+        review,
+        {"reason": "Investigated.", "review_version": hold["review_version"]},
+        headers={"If-Match": f'"{held_out["revision"]}"'},
+    )
+    assert clearance.status_code == 200, clearance.content
     assert found(world, held) == []
     # Without a type, any entity: a rule's name is any rule's of that name.
     assert found(world, held, type=None) == []

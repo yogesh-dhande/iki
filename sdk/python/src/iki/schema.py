@@ -2045,6 +2045,8 @@ with a reason.
     message: str
     #: Why it was saved anyway.
     reason: str
+    #: The version of the hold and record you reviewed.
+    review_version: str
     #: The lab roles whose holders may review it.
     reviewed_by: list[str]
     #: The revision that held it.
@@ -2057,6 +2059,8 @@ with a reason.
 class HoldReviewIn(TypedDict):
     #: Why the record may stand as it is.
     reason: str
+    #: The `review_version` from the hold you read.
+    review_version: str
 
 
 class HoldRuleOut(TypedDict):
@@ -5141,6 +5145,8 @@ class SignedReportExportOut(TypedDict):
 class SigningIn(TypedDict):
     #: Before your first signature: that you agree to `acknowledgment` in GET /me/signing.
     acknowledge: NotRequired[bool]
+    #: Required for a record of a registry entry. Send `entry.revision` from the record you reviewed.
+    entry_revision: NotRequired[int | None]
     #: The state field (ADR 0125), such as status: a key of `can.states`.
     field: str
     #: Which of its signatures you give, from 0. Without it, the first you may.

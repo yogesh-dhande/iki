@@ -1775,7 +1775,8 @@ def signing(
 ) -> Any:  # noqa: ANN401
     """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
     than the session's person, if `someone_else`), and returns what came of it."""
-    etag = api_call(session, "GET", f"/entities/{entity['id']}").headers["ETag"]
+    reviewed = api_call(session, "GET", f"/entities/{entity['id']}")
+    entry = reviewed.json()["entry"]
     started = api_call(
         session,
         "POST",
@@ -1783,11 +1784,12 @@ def signing(
         {
             "field": field,
             "state": state,
+            "entry_revision": entry["revision"] if entry else None,
             "acknowledge": True,
             "reason": reason,
             "return_to": f"/entities/{entity['hrid']}/",
         },
-        {"If-Match": etag},
+        {"If-Match": reviewed.headers["ETag"]},
     )
     if started.status_code != 201:
         fail(f"signing {entity['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
@@ -2028,13 +2030,13 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if made.status_code != 201:
         fail(f"making a sample answered HTTP {made.status_code}: {made.text[:300]}")
     sample = made.json()
-    for state in ("received", "in_testing"):
+    for state, reason in (("received", ""), ("in_testing", "Start testing the example sample")):
         etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
         moved = api_call(
             alice,
             "POST",
             f"/entities/{sample['id']}/states/status",
-            {"state": state, "reason": ""},
+            {"state": state, "reason": reason},
             {"If-Match": etag},
         )
         if moved.status_code != 200:

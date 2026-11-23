@@ -28,6 +28,7 @@ from test_states import ANALYST, QA, REVIEWER, roles, set_
 from iki_server.accounts import service_accounts
 from iki_server.accounts.models import IdentityProvider, UserSession
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import services as entity_services
 from iki_server.entities import states
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
@@ -120,6 +121,7 @@ def begin(
         state,
         index=index,
         expected_revision=entity.revision,
+        expected_entry_revision=entity_services.entry_revision(entity),
         reason=reason,
         return_to=f"/entities/{entity.hrid}",
         acknowledge=True,
@@ -485,17 +487,19 @@ def oidc(lab: World, fake_idp: FakeIdP) -> FakeIdP:
 
 
 def start(api: Api, ref: str, state: str, **body: Any) -> dict[str, Any]:
-    etag = api.get(f"/entities/{ref}")["ETag"]
+    reviewed = api.get(f"/entities/{ref}")
+    entry = reviewed.json()["entry"]
     answer = api.post(
         f"/entities/{ref}/signatures",
         {
             "field": "status",
             "state": state,
+            "entry_revision": entry["revision"] if entry else None,
             "acknowledge": True,
             "return_to": f"/entities/{ref}",
             **body,
         },
-        headers={"If-Match": etag},
+        headers={"If-Match": reviewed["ETag"]},
     )
     assert answer.status_code == 201, answer.content
     started: dict[str, Any] = answer.json()

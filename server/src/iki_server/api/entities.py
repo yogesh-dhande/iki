@@ -76,6 +76,7 @@ from iki_server.entities.models import (
     RevisionKind,
     RuleBreach,
     RuleHold,
+    RulesChecked,
 )
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.notifications import declared
@@ -803,6 +804,7 @@ class HoldOut(Schema):
     reason: str = Field(description="Why it was saved anyway.")
     revision: int = Field(description="The revision that held it.")
     last_revision: int = Field(description="The latest revision that broke the rule again.")
+    review_version: str = Field(description="The version of the hold and record you reviewed.")
     can_review: bool = Field(description="You may review it now.")
     why_not: str | None = Field(None, description="Why you may not, when you may not.")
 
@@ -958,6 +960,9 @@ class EntityOut(Schema):
 class HoldReviewIn(Schema):
     reason: str = Field(
         min_length=1, max_length=2000, description="Why the record may stand as it is."
+    )
+    review_version: str = Field(
+        pattern=r"^[0-9a-f]{64}$", description="The `review_version` from the hold you read."
     )
 
 
@@ -1650,6 +1655,10 @@ def _gone(user: User, ref: str) -> None:
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    # Read these versions before the values. A concurrent change may show newer values
+    # alongside an older version, which the review or signature then refuses.
+    entries = _entries_of(user, entities)
+    held, breaches = _holds_of(user, entities, entries)
     values = services.current_values_of(entities)
     projects = {
         p.pk: p
@@ -1661,11 +1670,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     asked = requests.summaries(user, entities)
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
-    entries = _entries_of(user, entities)
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
-    held, breaches = _holds_of(user, entities)
     belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
     from iki_server.storage import services as storage
@@ -1779,7 +1786,7 @@ def _projects_of(user: User, entities: list[Entity]) -> dict[Any, list[Any]]:
 
 
 def _holds_of(
-    user: User, entities: list[Entity]
+    user: User, entities: list[Entity], entries: dict[Any, dict[str, Any]]
 ) -> tuple[dict[Any, list[dict[str, Any]]], dict[Any, list[dict[str, Any]]]]:
     """The open holds and the breaches of these records (ADR 0127), as ``HoldOut`` and
     ``BreachOut``, by record."""
@@ -1789,11 +1796,12 @@ def _holds_of(
     breaches: dict[Any, list[dict[str, Any]]] = defaultdict(list)
     if not ids:
         return held, breaches
-    rows = (
+    rows = list(
         RuleHold.objects.filter(entity_id__in=ids, reviewed_at__isnull=True)
         .select_related("held_by", "held_agent")
         .order_by("held_at")
     )
+    generations = RulesChecked.objects.in_bulk({by_id[row.entity_id].type for row in rows})
     for row in rows:
         entity = by_id[row.entity_id]
         refusal = holds.why_not_review(user, entity, row)
@@ -1810,6 +1818,12 @@ def _holds_of(
                 "reason": row.reason,
                 "revision": row.revision,
                 "last_revision": row.last_revision,
+                "review_version": holds.review_version(
+                    row,
+                    entity.revision,
+                    entries.get(entity.entry_id, {}).get("revision"),
+                    generations.get(entity.type),
+                ),
                 "can_review": refusal is None,
                 "why_not": refusal[0] if refusal is not None else None,
             }
@@ -2609,18 +2623,24 @@ def get_entity(
     ``project`` to say whose, when you read more than one."""
     me = caller(request)
     entity = _find(me, ref, project)
-    # The clock or a role grant can change draw or correction eligibility without a revision.
+    # A draw guard, registry entry or hold review can change what a reader sees without
+    # changing the record's write ETag.
     if (
         if_none_match is not None
         and _etag(entity) in _etags(if_none_match)
+        and entity.entry_id is None
         and not entity.locked
         and not eligibility.draw_guards(entity.type)
         and not eligibility.purpose_roles(entity.type)
+        and not RuleHold.objects.filter(entity=entity).exists()
     ):
         unchanged = HttpResponse(status=304)  # no body, as RFC 9110 says
         unchanged["ETag"] = _etag(entity)
         return unchanged
-    return _one(me, entity, response)
+    read = _one(me, entity, response)
+    if entity.entry_id is not None or read["holds"]:
+        response["Cache-Control"] = "no-store"
+    return read
 
 
 def _etags(header: str) -> set[str]:
@@ -2873,21 +2893,37 @@ def review_hold(
     hold_id: UUID,
     payload: HoldReviewIn,
     response: HttpResponse,
+    if_match: Annotated[str | None, HeaderEx(alias="If-Match")] = None,
     project: UUID | None = None,
 ) -> dict[str, Any]:
-    """Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
-    cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
-    an app or agent's token, with one of the rule's lab roles in the record's project, and
-    not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
-    record back within the rule doesn't clear a hold; only a review does."""
+    """Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
+    record's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the
+    record, hold or deployed rule changed, it answers 412 and you need to read it again.
+    It takes a person with one of the rule's lab roles in the record's project, other than
+    whoever saved what held it: `holds[].can_review` says whether you may."""
     me = caller(request)
     entity = _find(me, ref, project)
+    expected = _expected(if_match)
     try:
-        holds.review(me, entity, hold_id, payload.reason)
+        holds.review(
+            me,
+            entity,
+            hold_id,
+            payload.reason,
+            expected_revision=expected,
+            expected_version=payload.review_version,
+        )
     except RuleHold.DoesNotExist:
         raise Problem(404, "It has no such hold.") from None
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
+    except holds.ReviewChanged as changed:
+        raise Problem(
+            412,
+            "The record, hold or its rules changed. Read the record again before reviewing.",
+            code="hold_changed",
+            headers={"ETag": f'"{changed.current}"'},
+        ) from None
     except Invalid as error:
         raise Problem(
             422,

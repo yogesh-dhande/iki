@@ -16,6 +16,7 @@ from django.db import transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
+from test_api_entities import patch
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -210,6 +211,28 @@ def exercise_qc() -> None:
     sign("editor", investigation, "submitted")
     with pytest.raises(Refused, match="independent reviewer"):
         begin(world, "editor", str(investigation.pk), "reviewed", field="review")
+    recorder_api, reviewer_api = Api(world.browser("editor")), Api(world.browser("runner"))
+    investigation_path = f"/entities/{investigation.pk}"
+    viewed = reviewer_api.get(investigation_path)
+    corrected = patch(
+        recorder_api,
+        str(investigation.pk),
+        {
+            "values": {"findings": "Synthetic correction clarifying the assignable cause."},
+            "reason": "Clarified the investigation finding.",
+        },
+        viewed["ETag"],
+    )
+    assert corrected.status_code == 200, corrected.content
+    assert corrected.json()["values"]["review"] == "recorded"
+    stale_review = reviewer_api.post(
+        f"{investigation_path}/signatures",
+        {"field": "review", "state": "reviewed", "acknowledge": True, "return_to": "/"},
+        headers={"If-Match": viewed["ETag"]},
+    )
+    assert "Read it again" in problem(stale_review, 412, "stale")["detail"]
+    assert reviewer_api.get(investigation_path)["ETag"] == corrected["ETag"]
+    sign("editor", investigation, "submitted")
     sign("runner", investigation, "reviewed")
     sign("admin", investigation, "released", reason="Training conclusion and assignable cause")
 
@@ -245,6 +268,28 @@ def exercise_qc() -> None:
     with pytest.raises(Refused, match="reviewer must be independent"):
         begin(world, "editor", str(certificate.pk), "reviewed", field="review")
     sign("runner", certificate, "reviewed")
+    qa_api = Api(world.browser("admin"))
+    certificate_path = f"/entities/{certificate.pk}"
+    qa_view = qa_api.get(certificate_path)
+    assert qa_view.json()["values"]["report"] == report
+    alternative = [dict(criterion) for criterion in report["specification"]["criteria"]]
+    alternative[0]["lower"] -= 0.1
+    for record, replacement, status, code in (
+        (original, {"value": 99.5}, 422, "validation_failed"),
+        (original, {"unit": "mg/g"}, 422, "validation_failed"),
+        (version, {"criteria": alternative}, 409, "refused"),
+    ):
+        path = f"/entities/{record.pk}"
+        before = recorder_api.get(path)
+        problem(
+            patch(recorder_api, str(record.pk), {"values": replacement}, before["ETag"]),
+            status,
+            code,
+        )
+        after = recorder_api.get(path)
+        assert after["ETag"] == before["ETag"]
+        assert after.json()["values"] == before.json()["values"]
+    assert qa_api.get(certificate_path)["ETag"] == qa_view["ETag"]
     sign("admin", certificate, "released")
     downloaded = reader.get(export, format="signed-report-json")
     assert downloaded.status_code == 200, downloaded.content

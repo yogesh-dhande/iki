@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
+from django.db.models.functions import Now
 
 from iki_server.audit import log as audit
 from iki_server.entities import checking, holds, registry
@@ -74,6 +75,7 @@ def _reason(type_name: str) -> str:
 def recheck() -> list[Checked]:
     """Checks each type's records whose checks changed since a deploy last did, and says
     what it found of each type with records. Call it in the sync's transaction."""
+    holds.lock_rule_deploy(shared=False)
     out = []
     for type_name in sorted(registry.types()):
         entity_type = registry.types()[type_name]
@@ -89,7 +91,9 @@ def recheck() -> list[Checked]:
             RuleBreach.objects.filter(entity__type=type_name).delete()
         elif (done := _check(type_name)).records:
             out.append(done)
-        RulesChecked.objects.update_or_create(type=type_name, defaults={"digest": digest})
+        RulesChecked.objects.update_or_create(
+            type=type_name, defaults={"digest": digest, "checked_at": Now()}
+        )
     _tell(out)
     return out
 

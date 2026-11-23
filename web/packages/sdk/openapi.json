@@ -8871,6 +8871,11 @@
             "title": "Reason",
             "type": "string"
           },
+          "review_version": {
+            "description": "The version of the hold and record you reviewed.",
+            "title": "Review Version",
+            "type": "string"
+          },
           "reviewed_by": {
             "description": "The lab roles whose holders may review it.",
             "items": {
@@ -8912,6 +8917,7 @@
           "reason",
           "revision",
           "last_revision",
+          "review_version",
           "can_review"
         ],
         "title": "HoldOut",
@@ -8925,10 +8931,17 @@
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "review_version": {
+            "description": "The `review_version` from the hold you read.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Review Version",
+            "type": "string"
           }
         },
         "required": [
-          "reason"
+          "reason",
+          "review_version"
         ],
         "title": "HoldReviewIn",
         "type": "object"
@@ -23328,6 +23341,19 @@
             "title": "Acknowledge",
             "type": "boolean"
           },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for a record of a registry entry. Send `entry.revision` from the record you reviewed.",
+            "title": "Entry Revision"
+          },
           "field": {
             "description": "The state field (ADR 0125), such as status: a key of `can.states`.",
             "maxLength": 63,
@@ -32978,7 +33004,7 @@
     },
     "/api/v1/entities/{ref}/holds/{hold_id}/review": {
       "post": {
-        "description": "Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is\ncleared, and the audit log keeps who reviewed it, when and why. It takes a person, not\nan app or agent's token, with one of the rule's lab roles in the record's project, and\nnot whoever saved what held it: `holds[].can_review` says whether you may. Editing the\nrecord back within the rule doesn't clear a hold; only a review does.",
+        "description": "Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the\nrecord's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the\nrecord, hold or deployed rule changed, it answers 412 and you need to read it again.\nIt takes a person with one of the rule's lab roles in the record's project, other than\nwhoever saved what held it: `holds[].can_review` says whether you may.",
         "operationId": "iki_server_api_entities_review_hold",
         "parameters": [
           {
@@ -32998,6 +33024,22 @@
               "format": "uuid",
               "title": "Hold Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           },
           {
@@ -33959,7 +34001,7 @@
         ]
       },
       "post": {
-        "description": "Starts giving one of the signatures setting the record's state needs (ADR 0126),\nas the person in\nthe web app's browser session: send the browser to `sign_in_url`, where the identity\nprovider signs them in again, however recently they did (ADR 0124). Its answer signs\nthe revision you read (send its ETag as If-Match), and comes back to `return_to`. No\ntoken, app or AI agent can sign: they're refused with 403.",
+        "description": "Starts giving one of the signatures setting the record's state needs (ADR 0126),\nas the person in\nthe web app's browser session: send the browser to `sign_in_url`, where the identity\nprovider signs them in again, however recently they did (ADR 0124). Send the ETag of\nthe record you reviewed as If-Match and, if it has a registry entry, send its\n`entry.revision` as `entry_revision`. Both revisions are checked when signing starts\nand finishes. The identity provider's answer comes back to `return_to`. Tokens,\napps and AI agents are refused with 403.",
         "operationId": "iki_server_api_signatures_start_signing",
         "parameters": [
           {

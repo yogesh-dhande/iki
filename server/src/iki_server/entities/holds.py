@@ -18,16 +18,19 @@ system, and a run's or a bulk import's results hold with a reason saying which r
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
 from iki_server.audit import log
-from iki_server.entities.models import Entity, RuleHold
+from iki_server.entities.models import Entity, RuleHold, RulesChecked
 from iki_server.entities.values import Invalid
 from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
@@ -40,16 +43,25 @@ if TYPE_CHECKING:
 __all__ = [
     "HELD",
     "MAX_REASON",
+    "ReviewChanged",
     "blocks_locking",
     "hold",
+    "lock_rule_deploy",
     "open_holds",
     "review",
+    "review_version",
     "reviewers",
     "why_not_review",
 ]
 
 #: The longest reason a hold, or its review, keeps.
 MAX_REASON = 2000
+
+
+class ReviewChanged(Exception):  # noqa: N818 - the review's content changed
+    def __init__(self, current: int) -> None:
+        self.current = current
+
 
 HELD = kinds.register(
     kinds.Kind(
@@ -209,10 +221,53 @@ def why_not_review(user: User, entity: Entity, made: RuleHold) -> tuple[str, boo
     return None
 
 
-def review(user: User, entity: Entity, hold_id: Any, reason: str) -> RuleHold:  # noqa: ANN401 - a UUID
-    """Reviews a hold: it's cleared, with who, when and why. Raises
+def review_version(
+    made: RuleHold, revision: int, entry_revision: int | None, rules: RulesChecked | None
+) -> str:
+    """The hold evidence and deployed rule generation the reviewer saw."""
+    data = {
+        "hold": str(made.pk),
+        "rule": made.rule,
+        "label": made.label,
+        "message": made.message,
+        "held_by": str(made.held_by_id) if made.held_by_id else None,
+        "held_agent": str(made.held_agent_id) if made.held_agent_id else None,
+        "held_at": made.held_at.isoformat(),
+        "reason": made.reason,
+        "roles": made.roles,
+        "hold_revision": made.revision,
+        "last_revision": made.last_revision,
+        "revision": revision,
+        "entry_revision": entry_revision,
+        "rules": [rules.digest, rules.checked_at.isoformat()] if rules is not None else None,
+    }
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def lock_rule_deploy(*, shared: bool) -> None:
+    """Order a hold review against plugin migrations and their rule recheck.
+
+    Call before taking record locks or doing plugin DDL. Reviews can run together;
+    a deploy waits for them, or they wait for its new rule generation.
+    """
+    function = "pg_advisory_xact_lock_shared" if shared else "pg_advisory_xact_lock"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT {function}(hashtextextended(%s, 0))", ["iki_rule_deploy"])
+
+
+def review(
+    user: User,
+    entity: Entity,
+    hold_id: UUID,
+    reason: str,
+    *,
+    expected_revision: int,
+    expected_version: str,
+) -> RuleHold:
+    """Reviews a hold at the version read: it's cleared, with who, when and why. Raises
     :class:`PermissionDenied` when ``user`` may not, ``RuleHold.DoesNotExist`` when the
-    record has no such hold, :class:`Refused` when it can't be now,
+    record has no such hold, :class:`Refused` when it can't be now, :class:`ReviewChanged`
+    when the reviewer needs to read it again,
     and :class:`Invalid` without a reason."""
     reason = reason.strip()
     if not reason:
@@ -220,6 +275,7 @@ def review(user: User, entity: Entity, hold_id: Any, reason: str) -> RuleHold:  
     if len(reason) > MAX_REASON:
         raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
     with transaction.atomic():
+        lock_rule_deploy(shared=True)
         locked = (
             Entity.objects.select_for_update(of=("self",))
             .select_related("owner_project")
@@ -232,6 +288,18 @@ def review(user: User, entity: Entity, hold_id: Any, reason: str) -> RuleHold:  
         if refusal is not None:
             why, forbidden = refusal
             raise PermissionDenied(why) if forbidden else Refused(why)
+        if locked.revision != expected_revision or locked.type != entity.type or locked.purged_at:
+            raise ReviewChanged(locked.revision)
+        entry_revision = None
+        if locked.entry_id is not None:
+            entry_revision = (
+                Entity.objects.select_for_update(no_key=True)
+                .values_list("revision", flat=True)
+                .get(pk=locked.entry_id)
+            )
+        rules = RulesChecked.objects.filter(pk=locked.type).first()
+        if review_version(made, locked.revision, entry_revision, rules) != expected_version:
+            raise ReviewChanged(locked.revision)
         made.reviewed_by = user
         made.reviewed_at = timezone.now()
         made.review_reason = reason
@@ -247,6 +315,12 @@ def review(user: User, entity: Entity, hold_id: Any, reason: str) -> RuleHold:  
                 "label": made.label,
                 "reason": reason,
                 "held_by": str(made.held_by_id) if made.held_by_id else None,
+                "revision": locked.revision,
+                "entry_revision": entry_revision,
+                "hold_last_revision": made.last_revision,
+                "review_version": expected_version,
+                "rule_digest": rules.digest if rules is not None else None,
+                "rules_checked_at": rules.checked_at.isoformat() if rules is not None else None,
             },
         )
         _emit("entity.hold_reviewed", locked, made, user)

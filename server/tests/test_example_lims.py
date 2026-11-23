@@ -49,6 +49,7 @@ def test_the_plugin_is_valid() -> None:
     # A sample's analyst, reviewer and QA each sign for their decision (ADR 0126).
     sample = result.plugin.types["iki/example_lims.Sample"]
     status = sample.fields["status"].states
+    assert status["in_testing"].reason == "required"
     signed = {n: [(s.meaning, s.label) for s in st.signatures] for n, st in status.items()}
     assert signed == {
         "registered": [],
