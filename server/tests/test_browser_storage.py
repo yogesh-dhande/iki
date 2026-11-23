@@ -155,6 +155,12 @@ def test_from_a_freezer_to_a_box_by_keyboard_and_a_bulk_move(
     page.context.close()
 
 
+def scan_label(page: Page, code: str) -> None:
+    # Playwright types a carriage return as the Enter key. Send the entire label in one
+    # keyboard call so there is no artificial delay or round trip before its terminator.
+    page.keyboard.type(code + "\r")
+
+
 def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) -> None:
     kept = a_freezer(world)
     page = open_as("admin", f"/storage/{kept['retains']['hrid']}/")
@@ -164,22 +170,21 @@ def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) ->
     # which mustn't press the button.
     show = page.get_by_role("button", name="Show free positions")
     show.focus()
-    page.keyboard.type("LB-0023", delay=5)
-    page.keyboard.press("Enter")
+    scan_label(page, "LB-0023")
     expect(grid.get_by_role("gridcell", name=re.compile(r"^B3, "))).to_be_focused()
     expect(page.get_by_role("status").filter(has_text="is at B3")).to_be_visible()
     expect(show).to_have_attribute("aria-pressed", "false")
     # Typing in the scan box is typing; its Enter finds what's typed.
     search = page.get_by_role("textbox", name="Scan to find")
-    search.fill(kept["spare"]["hrid"])
+    search.press_sequentially(kept["spare"]["hrid"])
+    expect(search).to_have_value(kept["spare"]["hrid"])
     search.press("Enter")
     page.get_by_role("heading", level=1, name="Spare box").wait_for()
     # From Storage, a scanned tube opens its box with its position marked.
     page.goto("/storage/")
     page.get_by_role("heading", level=1, name="Storage").wait_for()
     page.get_by_role("link", name="Storage", exact=True).first.focus()
-    page.keyboard.type("LB-0011", delay=5)
-    page.keyboard.press("Enter")
+    scan_label(page, "LB-0011")
     page.wait_for_url(re.compile(r"/storage/BOX-\d+/\?at=A1"))
     marked = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
     expect(marked).to_have_attribute("aria-current", "location")
@@ -251,8 +256,7 @@ def test_receiving_a_requests_tubes_with_one_of_each_outcome(
     scan.press("Enter")
     expect(page.get_by_role("status").filter(has_text="matched")).to_be_visible()
     page.get_by_role("heading", level=2, name="What’s expected").click()
-    page.keyboard.type("UNLABELLED-7", delay=5)
-    page.keyboard.press("Enter")
+    scan_label(page, "UNLABELLED-7")
     expect(checklist.get_by_role("listitem")).to_have_count(5)
     extra = checklist.get_by_role("listitem").filter(has_text="UNLABELLED-7")
     extra.get_by_role("textbox", name=re.compile("^Note on")).fill("No label, no paperwork")
