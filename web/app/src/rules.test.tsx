@@ -237,6 +237,65 @@ describe("rules in forms", () => {
     });
     expect(screen.queryByRole("textbox", { name: "Why save it anyway" })).not.toBeInTheDocument();
   });
+
+  it("checks a rule that reads the state a correction would return to", async () => {
+    onLab();
+    const draft = {
+      name: "draft",
+      label: "Draft",
+      description: null,
+      set_by: ["acme/lab.analyst"],
+      locks: false,
+      holds_amount: false,
+      reason: null,
+      signatures: [],
+    };
+    const reviewed = {
+      ...draft,
+      name: "reviewed",
+      label: "Reviewed",
+      locks: true,
+      on_edit: "draft",
+    };
+    answer("GET /api/v1/entity-types", [
+      {
+        ...LOT,
+        fields: [
+          ...LOT.fields,
+          field({ name: "review", label: "Review", type: "state", states: [draft, reviewed] }),
+        ],
+        rules: [
+          rule({
+            name: "draft_purity",
+            check: 'record.review != "draft" || record.purity >= 98.0',
+            message: "A draft needs purity of at least 98%.",
+            fields: ["purity"],
+            reads: ["review", "purity"],
+          }),
+        ],
+        rule_variables: {
+          record: {
+            type: "object",
+            label: "Lot",
+            fields: { review: { type: "string" }, purity: { type: "double" } },
+          },
+        },
+      },
+    ]);
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({
+        values: { ...lot().values, review: "reviewed" },
+        locked: true,
+        locked_by: ["review"],
+        can: { ...lot().can, edit: false, correct: true },
+      }),
+    );
+    const { user } = await renderApp("/entities/LOT-000001/edit");
+    await user.type(await screen.findByRole("textbox", { name: /^Name/ }), "B");
+    expect(await screen.findByText("A draft needs purity of at least 98%.")).toBeInTheDocument();
+    expect(calls("PATCH")).toHaveLength(0);
+  });
 });
 
 describe("holds and breaches", () => {
@@ -362,6 +421,7 @@ describe("guards", () => {
         values: { name: "Lot 7", purity: 97.5, status: "in_review" },
         can: {
           edit: true,
+          correct: false,
           edit_amount: false,
           draw: false,
           sign: [],

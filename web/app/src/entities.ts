@@ -556,6 +556,23 @@ export function stateFields(type: EntityType | undefined): FieldDef[] {
   return (type?.fields ?? []).filter((f) => f.type === "state");
 }
 
+/** The state changes a value correction would make, in the type's field order. */
+export function editReturns(entity: Entity, type: EntityType | undefined) {
+  return stateFields(type).flatMap((field) => {
+    if (field.detached || !entity.locked_by.includes(field.name)) return [];
+    const current = field.states.find((s) => s.name === entity.values[field.name]);
+    return current?.on_edit
+      ? [
+          {
+            field: field.name,
+            to: current.on_edit,
+            description: `${field.label} from ${current.label} to ${stateLabel(field, current.on_edit)}`,
+          },
+        ]
+      : [];
+  });
+}
+
 /** Who did something: their name, their email address if they gave no name. */
 export function personName(user: { name: string; email: string } | null | undefined): string {
   if (!user) return "Someone no longer here";

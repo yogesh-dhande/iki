@@ -1,6 +1,7 @@
 """Guards on setting a record's state (ADR 0128): allowed moves, four eyes, a person rather
 than an agent, and conditions across state fields, each refusing with its message."""
 
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -17,8 +18,10 @@ from iki_server.audit.models import Via
 from iki_server.entities import guards, states
 from iki_server.entities.models import Entity
 from iki_server.org.services import Refused
+from iki_server.plugins.models import HistoryChange
 from iki_server.signatures import services as signing
 from iki_server.signatures.models import Status
+from iki_spec.model import Guard
 
 pytestmark = pytest.mark.django_db
 
@@ -77,6 +80,82 @@ def test_a_guard_reads_another_state_field(world: World) -> None:
     )
     set_(world, "admin", batch["id"], "custody", "in_lab")
     assert set_(world, "admin", batch["id"], "status", "released")["values"]["status"] == "released"
+
+
+def test_a_guard_sees_who_changed_a_field_since_the_latest_state_entry(world: World) -> None:
+    roles(world, editor=(ANALYST,), admin=(ANALYST, REVIEWER))
+    batch = made(world, {"purity": 95})
+    ref = batch["id"]
+    entity = Entity.objects.select_related("owner_project").get(pk=ref)
+    field = states.state_fields(BATCH)["status"]
+    check = Guard(
+        name="independent",
+        check=(
+            'edits.status.in_testing.all(e, !("purity" in e.fields) || e.by != actor.person)'
+            " && size(edits.status.certified) == 0"
+        ),
+        message="Another person must review this value.",
+    )
+    reviewed = replace(field.states["approved"], guards={check.name: check})
+
+    def allowed(who: str) -> bool:
+        return not guards.refusals(world.users[who], entity, "status", [reviewed], {})
+
+    # Creation counts. Re-sending an equal measurement while editing another field does not.
+    assert not allowed("editor")
+    assert allowed("admin")
+    assert change(world, ref, {"purity": 95, "name": "Amended"}, who="admin").status_code == 200
+    assert allowed("admin")
+    # Even after a different editor restores the old value, both people edited this revision.
+    assert change(world, ref, {"purity": 96}, who="admin").status_code == 200
+    assert change(world, ref, {"purity": 95}, who="editor").status_code == 200
+    set_(world, "editor", ref, "status", "in_review")
+    assert not allowed("admin")
+    assert not allowed("editor")
+    # The guard looks back to the latest entry, including after a return to the same state.
+    set_(world, "admin", ref, "status", "in_testing")
+    assert allowed("admin")
+    assert allowed("editor")
+
+
+def test_a_guard_tracks_an_edit_across_a_field_rename(world: World) -> None:
+    ref = made(world, {})["id"]
+    assert change(world, ref, {"well": "A1"}, who="admin").status_code == 200
+    entity = Entity.objects.select_related("owner_project").get(pk=ref)
+    # The revision retains the old name after a migration renames the history column.
+    HistoryChange.objects.create(
+        plugin="acme/protein",
+        kind=HistoryChange.Kind.RENAME,
+        part=BATCH,
+        name="well",
+        to="plate",
+    )
+    check = Guard(
+        name="independent",
+        check='edits.status.in_testing.all(e, !("plate" in e.fields) || e.by != actor.person)',
+        message="Someone else must review this plate.",
+    )
+    state = states.state_fields(BATCH)["status"].states["approved"]
+    reviewed = replace(state, guards={check.name: check})
+    assert "approved" in guards.refusals(world.users["admin"], entity, "status", [reviewed], {})
+    assert "approved" not in guards.refusals(
+        world.users["editor"], entity, "status", [reviewed], {}
+    )
+
+
+def test_an_edit_window_starts_at_the_records_actual_initial_state(world: World) -> None:
+    roles(world, editor=(ANALYST,))
+    ref = made(world, {"purity": 95})["id"]
+    entity = Entity.objects.get(pk=ref)
+    # Later the manifest changed the default for new records.
+    fields = {"status": replace(states.state_fields(BATCH)["status"], initial="released")}
+    for current in ["in_testing", "in_review"]:
+        if current == "in_review":
+            set_(world, "editor", ref, "status", current)
+        history, edits = guards._history(entity, fields, {"status": current}, with_edits=True)
+        assert history["status"][0]["to"] == "in_testing"
+        assert edits["status"]["released"] == []
+        assert "purity" in edits["status"]["in_testing"][0]["fields"]
 
 
 def test_a_guard_over_a_list_reads_every_member(world: World) -> None:

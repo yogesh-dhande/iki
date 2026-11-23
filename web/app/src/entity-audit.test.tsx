@@ -96,7 +96,7 @@ const APPROVAL: Schemas["SignatureOut"] = {
   signature: "x",
 };
 
-function onPlasmid(): void {
+function onPlasmid(currentRevision: 2 | 3 = 3): void {
   withTypes();
   answer("GET /api/v1/entity-types", [PROTEIN, PLASMID]);
   answer(
@@ -105,12 +105,12 @@ function onPlasmid(): void {
       id: PLS_ID,
       hrid: "PLS-000001",
       type: "iki/dna.Plasmid",
-      revision: 3,
+      revision: currentRevision,
       values: {
         name: "pUC19c",
         bases: "ACGT".repeat(100),
         topology: "circular",
-        resistance: "Ampicillin",
+        resistance: currentRevision === 3 ? "Ampicillin" : null,
         features: [
           { type: "promoter", name: "lac promoter", start: 10, end: 90, strand: "reverse" },
           { type: "CDS", name: "AmpR", start: 200, end: 380, strand: "reverse" },
@@ -121,14 +121,18 @@ function onPlasmid(): void {
   answer(`GET /api/v1/entities/PLS-000001/provenance`, {
     name: revision({ number: 1, changed_fields: ["name", "bases"] }),
     bases: revision({ number: 1, changed_fields: ["name", "bases"] }),
-    resistance: revision({
-      number: 3,
-      kind: "edited",
-      changed_fields: ["resistance"],
-      user: ADA,
-      reason: "Confirmed from the GenBank record.",
-      created_at: "2026-11-19T16:40:00Z",
-    }),
+    ...(currentRevision === 3
+      ? {
+          resistance: revision({
+            number: 3,
+            kind: "edited",
+            changed_fields: ["resistance"],
+            user: ADA,
+            reason: "Confirmed from the GenBank record.",
+            created_at: "2026-11-19T16:40:00Z",
+          }),
+        }
+      : {}),
   });
   answer("GET /api/v1/entities/PLS-000001/contributors", [ADA, ALICE]);
   answer("GET /api/v1/entities/PLS-000001/revisions", ({ query }: { query: URLSearchParams }) => {
@@ -167,7 +171,10 @@ function onPlasmid(): void {
     const name = query.get("field");
     return page(
       all.filter(
-        (r) => (!person || r.user?.id === person) && (!name || r.changed_fields.includes(name)),
+        (r) =>
+          r.number <= currentRevision &&
+          (!person || r.user?.id === person) &&
+          (!name || r.changed_fields.includes(name)),
       ),
     );
   });
@@ -190,7 +197,7 @@ function onPlasmid(): void {
 
 describe("a record's header", () => {
   it("has its actions, its ⋯ menu, and tabs that count its links and revisions", async () => {
-    onPlasmid();
+    onPlasmid(2);
     const { user } = await renderApp("/entities/PLS-000001/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^pUC19c$/);
     expect(screen.getByRole("link", { name: "Edit" })).toHaveAttribute(
@@ -203,7 +210,7 @@ describe("a record's header", () => {
       await within(tabs).findByRole("link", { name: /^Lineage,\s*2\s*linked records$/ }),
     ).toBeInTheDocument();
     expect(
-      within(tabs).getByRole("link", { name: /^Audit trail,\s*3\s*revisions$/ }),
+      within(tabs).getByRole("link", { name: /^Audit trail,\s*2\s*revisions$/ }),
     ).toBeInTheDocument();
     // Signed, as its state was set by signing (ADR 0126).
     const title = screen.getByRole("heading", { level: 1 }).closest<HTMLElement>(".record-title");

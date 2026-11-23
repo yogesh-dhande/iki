@@ -24,6 +24,13 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument(
+            "--acknowledge-preflight",
+            action="append",
+            default=[],
+            metavar="DIGEST",
+            help="Acknowledge the preflight findings for this candidate digest (repeatable).",
+        )
+        parser.add_argument(
             "--role", help="The app's Postgres role (or IKI_DB_APP_ROLE, or IKI_APP_DATABASE_URL)."
         )
         parser.add_argument(
@@ -56,7 +63,12 @@ class Command(BaseCommand):
         if analyst and (problem := sync.check_analyst(analyst)):
             raise CommandError(problem)
         try:
-            report = migrate_deployment(self.stdout, app_role=role, analyst_role=analyst)
+            report = migrate_deployment(
+                self.stdout,
+                app_role=role,
+                analyst_role=analyst,
+                acknowledge_preflight=options["acknowledge_preflight"],
+            )
         except DeployError as error:
             raise CommandError(str(error)) from None
         except (unique.Clash, constraints.Clash) as error:

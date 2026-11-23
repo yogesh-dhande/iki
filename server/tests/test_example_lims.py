@@ -150,6 +150,7 @@ def allows(
     values: dict[str, Any],
     *,
     reviewed_from: str = "in_review",
+    value_editor: str | None = None,
 ) -> bool:
     """Evaluate the example's guards with the people who signed the latest transitions."""
     review = result_type.fields["review"]
@@ -169,6 +170,11 @@ def allows(
         "actor": {"person": person},
         "last": {"review": {change["to"]: change for change in history}},
         "history": {"review": history},
+        "edits": {
+            "review": {
+                "draft": [{"by": value_editor, "fields": ["purity"]}] if value_editor else []
+            }
+        },
     }
     checks = [
         (f"!({g.when}) || ({g.check})" if g.when else g.check, rules.CONDITION) for g in guards
@@ -219,6 +225,46 @@ def test_an_older_unsigned_review_needs_fresh_review(analysis_result: EntityType
     values = {"analysis": "sec_purity", "sample": "sample-id", "result": "pass", "purity": 99.0}
     assert allows(analysis_result, "reviewed", "draft", "analyst", values, reviewed_from="draft")
     assert not allows(analysis_result, "reviewed", "released", "qa", values, reviewed_from="draft")
+
+
+@pytest.mark.parametrize(
+    ("current", "target"), [("in_review", "reviewed"), ("reviewed", "released")]
+)
+def test_a_value_editor_cannot_sign_for_someone_elses_work(
+    analysis_result: EntityType, current: str, target: str
+) -> None:
+    assert not allows(analysis_result, current, target, "editor", {}, value_editor="editor")
+    assert allows(analysis_result, current, target, "independent", {}, value_editor="editor")
+
+
+def test_correcting_a_result_before_release_reopens_its_draft(analysis_result: EntityType) -> None:
+    states = analysis_result.fields["review"].states
+    assert {name: state.on_edit for name, state in states.items() if state.on_edit} == {
+        "in_review": "draft",
+        "reviewed": "draft",
+    }
+
+
+def test_correcting_an_approved_sample_reopens_testing_but_claiming_it_keeps_review() -> None:
+    loaded = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    assert loaded.plugin is not None
+    sample = loaded.plugin.types["iki/example_lims.Sample"]
+    status = sample.fields["status"]
+    assert {name: state.on_edit for name, state in status.states.items() if state.on_edit} == {
+        "approved": "in_testing",
+    }
+    schema = rules.record_schema(sample.label, sample.fields, None)
+    variables = rules.guard_variables(schema, {"status": status}, [], status)
+    for target in ("approved", "released"):
+        guard = status.states[target].guards["independent_measurement"]
+        for field in ("purity", "concentration", "result", "notes", "reviewer"):
+            context = {
+                "actor": {"person": "signer"},
+                "edits": {"status": {"in_testing": [{"by": "signer", "fields": [field]}]}},
+            }
+            ((outcome,),) = rules.evaluate(variables, [(guard.check, rules.CONDITION)], [context])
+            assert outcome.error is None
+            assert outcome.value is (field == "reviewer")
 
 
 def test_an_analysis_requires_independent_review_and_signed_release(

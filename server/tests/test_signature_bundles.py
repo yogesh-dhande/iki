@@ -10,18 +10,23 @@ from typing import Any
 
 import pytest
 from api_client import Api
+from django.db import transaction
 from org_world import World
 from test_bundle_imports import PUBLIC, applied, bundle_of, entities_of, protein, upload
 from test_bundle_imports import world as world  # a fixture
+from test_requests import Lab
+from test_requests import lab as lab
+from test_requests import signed_result as signed_result
 from test_signatures import lot, ready, signed, standing
 from test_states import ANALYST, QA, REVIEWER, roles
 
 from iki_cli import bundle as cli
 from iki_server.accounts.models import User
+from iki_server.bundles import export, reading
 from iki_server.bundles import keys as keys_module
-from iki_server.bundles import reading
 from iki_server.entities import services
 from iki_server.entities.models import Entity, Revision
+from iki_server.org.models import OrgRole, OrgRoleAssignment
 from iki_server.signatures import offline, proof
 from iki_server.signatures import services as signature_services
 from iki_server.signatures.models import ForeignSigningKey, Signature, SigningKey
@@ -282,6 +287,64 @@ def test_an_import_brings_signatures_that_still_verify(world: World, tmp_path: P
     assert [s["status"] for s in shown] == ["pending", "carried"]
     assert all(s["verification"]["valid"] for s in shown), shown
     assert shown[1]["signer"]["name"] == "Editor"
+
+
+@pytest.mark.parametrize("problem", ["", "missing review", "changed release"])
+def test_a_bundle_preserves_the_review_signed_for_at_release(
+    lab: Lab,
+    signed_result: tuple[str, str],
+    s3: Any,
+    settings: Any,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    problem: str,
+) -> None:
+    settings.IKI_BUNDLE_TRUSTED_KEYS = TRUSTED
+    admin = lab.users["core_admin"]
+    OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+    _, ref = signed_result
+    path = tmp_path / "result.tar.gz"
+    with transaction.atomic():
+        review = signed(lab.world, "admin", ref, "reviewed", field="review").signature
+        release = signed(lab.world, "core_qa", ref, "released", field="review").signature
+        assert review and release
+        if problem:
+            # Keep both signed documents. Change either what carried the review or
+            # the values delivered on release in the exporting deployment's history.
+            original = export._entity
+
+            def without_review(*args: Any) -> dict[str, Any]:
+                record = original(*args)
+                if problem == "missing review":
+                    for revision in record["revisions"]:
+                        if revision.get("signatures") == [str(review.pk)]:
+                            del revision["signatures"]
+                else:
+                    for row in record["history"]:
+                        if row["revision"] == release.revision + 1 and "purity" in row["values"]:
+                            row["values"]["purity"] = 6.0
+                return record
+
+            monkeypatch.setattr(export, "_entity", without_review)
+        export.write(
+            lab.core, [Entity.objects.get(pk=ref)], path, by=admin, reason="Results", selection=""
+        )
+        transaction.set_rollback(True)
+
+    bundle = reading.read(path, TRUSTED, limit=1024**3)
+    qa = next(v for v in offline.verify(bundle) if v.id == str(release.pk))
+    assert [c.ok for c in qa.checks if c.name == "review"] == [not bool(problem)]
+    api = lab.api("core_admin")
+    done = applied(api, upload(api, lab.core, path))
+    if problem:
+        assert done["state"] == "failed", done
+        assert "review" in done["error"]
+        assert not Signature.objects.filter(entity_id=ref).exists()
+    else:
+        assert done["state"] == "applied", done
+        found = Signature.objects.get(pk=release.pk)
+        assert all(c.ok for c in signature_services.verify(found))
+        assert found.entity.released_review_revision == review.revision
 
 
 def test_an_imported_signature_verifies_naming_people_and_entries_as_they_are_here(

@@ -619,12 +619,29 @@ def released(user: User | None, locked: Entity, field: str, state: str, revision
         # Already there some other way: released now, it stays as released results must.
         there.via_request = request.entity
         there.save(update_fields=["via_request"])
+    reviewed_revision = None
+    signed_revision = None
+    if revision.signatures:
+        from iki_server.signatures.models import Signature
+        from iki_server.signatures.services import parsed
+
+        signed = Signature.objects.get(pk=revision.signatures[-1])
+        signed_revision = signed.revision
+        if reviewed := parsed(signed).get("reviewed"):
+            reviewed_revision = reviewed["revision"]
+            Entity.objects.filter(pk=locked.pk).update(released_review_revision=reviewed_revision)
     log.record(
         "request.result_released",
         actor=user,
         target=locked,
         project=asking,
-        data={**data, "service": {"id": str(request.service_id), "name": request.service.name}},
+        data={
+            **data,
+            "service": {"id": str(request.service_id), "name": request.service.name},
+            "reviewed_revision": reviewed_revision,
+            "signed_revision": signed_revision,
+            "released_revision": revision.number,
+        },
     )
     from iki_server.notifications import declared
 

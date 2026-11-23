@@ -3,6 +3,7 @@ aliquots and adjusted, never below zero, each a movement of its ledger, safe whe
 people draw at once."""
 
 import threading
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -21,6 +22,7 @@ from iki_server.accounts.models import User
 from iki_server.amounts import services
 from iki_server.amounts.models import Amount, Movement
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import states
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
@@ -524,6 +526,38 @@ def test_pooling_sets_the_concentration_to_the_pools(world: World) -> None:
     )
     assert filled.status_code == 200, filled.content
     assert api.get(f"/entities/{empty['hrid']}").json()["values"]["concentration"] == 0
+
+
+def test_pooling_cannot_reopen_a_reviewed_record(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status = states.state_fields(SAMPLE)["status"].states
+    monkeypatch.setitem(status, "reviewed", replace(status["reviewed"], on_edit="in_testing"))
+    roles(world, editor=("acme/protein.reviewer",))
+    api = api_as(world)
+    source, target = [
+        sample(
+            world, label, {"value": 1, "unit": "mL"}, concentration={"value": c, "unit": "mg/mL"}
+        )
+        for label, c in [("S-1", 1), ("S-2", 3)]
+    ]
+    for record in (source, target):
+        set_(world, "editor", record["hrid"], "status", "reviewed")
+    # The states match, and the editor could correct the target explicitly. Pooling would
+    # change its concentration using the transfer's generated reason.
+    pooled = api.post(
+        f"/entities/{source['hrid']}/amount/transfer",
+        {"to": target["hrid"], "amount": {"value": 1, "unit": "mL"}},
+    )
+    assert "locked" in errors(pooled)["#/to"]
+    after = api.get(f"/entities/{target['hrid']}").json()
+    assert (after["revision"], after["values"]["status"], after["values"]["concentration"]) == (
+        2,
+        "reviewed",
+        3,
+    )
+    for record in (source, target):
+        assert api.get(f"/entities/{record['hrid']}/amount").json()["value"] == "1000"
 
 
 def test_a_locked_record_takes_nothing_that_would_change_it(world: World) -> None:

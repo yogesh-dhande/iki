@@ -335,6 +335,17 @@ def test_draws_tell_the_server_their_purpose(fake: FakeIki, client: Client) -> N
     }
 
 
+def test_read_the_revision_a_result_release_identifies(fake: FakeIki, client: Client) -> None:
+    ref = entity("ANR-000012")["id"]
+    release = {"entity": ref, "reviewed_revision": 4, "signed_revision": 5, "released_revision": 6}
+    fake.on("GET", "/api/v1/entities/REQ-000001/request", {"result_releases": [release]})
+    fake.on("GET", f"/api/v1/entities/{ref}/revisions/4", {"number": 4, "values": {"purity": 98}})
+    [received] = client.entities.request("REQ-000001")["result_releases"]
+    assert received["reviewed_revision"] is not None
+    reviewed = client.entities.revision(received["entity"], received["reviewed_revision"])
+    assert (reviewed["number"], reviewed["values"]["purity"]) == (4, 98)
+
+
 def test_changes_name_the_revision_they_were_decided_on(fake: FakeIki, client: Client) -> None:
     fake.on("PATCH", "/api/v1/entities/PRT-000001", entity(name="ABL1"))
     client.entities.update("PRT-000001", {"name": "ABL1"}, revision=3, reason="Typo")

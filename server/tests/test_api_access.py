@@ -182,6 +182,18 @@ def sample_amount(suffix: str, body: Any = None) -> Build:
     return build
 
 
+def plugin_candidate(w: World) -> tuple[str, Any]:
+    from iki_server.entities import registry
+    from iki_spec import API_VERSION
+    from iki_spec.model import plugin_to_dict
+
+    plugin = registry.plugins()["acme/dna"]
+    return f"/plugins/{plugin.name}/preflight", {
+        "apiVersion": API_VERSION,
+        "plugin": plugin_to_dict(plugin),
+    }
+
+
 def sample_take(w: World) -> tuple[Any, ...]:
     """Taking a received sample as its analyst (ADR 0122), which needs the role nobody has."""
     from iki_server.entities import services as entities
@@ -1081,6 +1093,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Searching everything (ADR 0176): anyone signed in, finding only what they can read.
     ("GET", "/search", fixed("/search?q=kin"), row(200)),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
+    ("POST", "/plugins/{name}/preflight", plugin_candidate, ORG_ADMIN_ONLY),
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
     ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),
     ("GET", "/entities", fixed("/entities"), row(200)),

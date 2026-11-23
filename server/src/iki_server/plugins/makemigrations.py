@@ -389,7 +389,7 @@ def _autodetector() -> type:
             if before is None or after is None or before == after:
                 return None
             owner = self._describe(app_label, op.model_name, self.from_state)
-            scale, offset = _linear_conversion(before, after, f"`{op.name}` of {owner}")
+            scale, offset = linear_conversion(before, after, f"`{op.name}` of {owner}")
             if _is_history(op.model_name):
                 # Recorded, for signatures of what history held before (ADR 0148).
                 part = _part(app_label, op.model_name)
@@ -537,7 +537,7 @@ def _unit(field: Any) -> str | None:  # noqa: ANN401 - a Django field
     return getattr(field, "unit", None)
 
 
-def _linear_conversion(before: str, after: str, what: str) -> tuple[float, float]:
+def linear_conversion(before: str, after: str, what: str) -> tuple[float, float]:
     """``new = old * scale + offset``, or an error for units that don't convert that way."""
     from django.core.management.base import CommandError
 

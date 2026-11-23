@@ -3,20 +3,23 @@ the records it's about; the service works it in its own fields and states, and r
 results back. Each side reads only what the request gives it, and writes only its own."""
 
 import hashlib
+import json
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import pytest
 from api_client import Api, problem
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from org_world import World, build_world
 from test_api_entities import create, patch
+from test_signatures import begin, evidence, past_the_triggers, ready, signed
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, requests
+from iki_server.entities import access, requests, states
 from iki_server.entities.models import Entity, ProjectLink, Request
+from iki_server.entities.values import shape
 from iki_server.files.models import Blob, File
 from iki_server.org import permissions
 from iki_server.org.models import (
@@ -26,6 +29,10 @@ from iki_server.org.models import (
     ProjectRole,
     Registry,
 )
+from iki_server.org.services import Refused
+from iki_server.signatures import services as signatures
+from iki_server.signatures.models import Status
+from iki_spec.model import Signature
 
 pytestmark = pytest.mark.django_db
 
@@ -673,6 +680,144 @@ def test_results_are_the_services_until_it_releases_them(lab: Lab) -> None:
         "refused",
     )
     assert "released" in refused["detail"]
+
+
+@pytest.fixture
+def signed_result(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
+    """Run the request fixture's review and release through SSO, as in example_lims."""
+    field = states.state_fields(RESULT)["review"]
+    for state_name, meaning in [("reviewed", "review"), ("released", "approval")]:
+        target = field.states[state_name]
+        signature = Signature.from_manifest({"meaning": meaning}, plugin="acme/protein")
+        monkeypatch.setitem(field.states, state_name, replace(target, signatures=(signature,)))
+    _member(lab.core, lab.users["admin"], ProjectRole.EDITOR, REVIEWER)
+    ready(lab.world)
+    request = sent(lab)
+    found = result(lab, request["id"], purity=97.5)
+    return request["id"], found["id"]
+
+
+def test_qa_signs_the_reviewed_revision_and_the_requester_receives_it(
+    lab: Lab, signed_result: tuple[str, str]
+) -> None:
+    request, ref = signed_result
+    reviewed = signed(lab.world, "admin", ref, "reviewed", field="review").signature
+    assert reviewed is not None
+    qa = signed(lab.world, "core_qa", ref, "released", field="review").signature
+    assert qa is not None
+    review_document = json.loads(reviewed.document)
+    assert json.loads(qa.document)["reviewed"] == {
+        "revision": reviewed.revision,
+        "content_sha256": review_document["record"]["content_sha256"],
+        "signatures": [str(reviewed.pk)],
+    }
+    requester = lab.api("editor")
+    detail = requester.get(f"/entities/{request}/request").json()
+    [receipt] = detail["result_releases"]
+    assert receipt == {
+        "entity": ref,
+        "reviewed_revision": reviewed.revision,
+        "signed_revision": qa.revision,
+        "released_revision": qa.revision + 1,
+    }
+    event = AuditEvent.objects.get(action="request.result_released", target_id=ref)
+    assert {name: event.data[name] for name in receipt if name != "entity"} == {
+        name: value for name, value in receipt.items() if name != "entity"
+    }
+    signed_values = json.loads(reviewed.content)["values"]
+    for rev in (
+        receipt["reviewed_revision"],
+        receipt["signed_revision"],
+        receipt["released_revision"],
+    ):
+        got = requester.get(f"/entities/{ref}/revisions/{rev}").json()["values"]
+        assert got["purity"] == signed_values["purity"] == 97.5
+        assert got["request"] == signed_values["request"] == request
+    [delivered] = detail["results"]
+    assert delivered["revision"] == receipt["released_revision"]
+    assert delivered["values"] == requester.get(f"/entities/{ref}").json()["values"]
+    assert delivered["values"]["purity"] == 97.5
+    # This fixture allows a manual return to draft. The completed release freezes it.
+    refused = problem(state(lab, "tech", ref, "review", "draft"), 409, "refused")
+    assert "released" in refused["detail"]
+    problem(change(lab, "tech", ref, {"purity": 80}), 409, "refused")
+    assert requester.get(f"/entities/{ref}").json()["revision"] == receipt["released_revision"]
+    options = lab.api("tech").get(f"/entities/{ref}").json()["can"]
+    assert not options["edit"]
+    assert not any(t["allowed"] for t in options["states"]["review"])
+    assert not any(t["allowed"] for t in options["sign"])
+    assert all(check.ok for signature in (reviewed, qa) for check in signatures.verify(signature))
+    assert "review" in {check.name for check in signatures.verify(qa)}
+    # Migrations and bundle imports cannot unlock it or append a later revision.
+    for changed in [{"locked_by": []}, {"revision": receipt["released_revision"] + 1}]:
+        with (
+            pytest.raises(IntegrityError, match="iki_released_review_locked"),
+            transaction.atomic(),
+        ):
+            Entity.objects.filter(pk=ref).update(**changed)
+
+
+@pytest.mark.parametrize("source", ["review_history", "live_values"])
+def test_release_refuses_another_measurement_in_the_review_transition(
+    lab: Lab, signed_result: tuple[str, str], source: str
+) -> None:
+    _, ref = signed_result
+    reviewed = signed(lab.world, "admin", ref, "reviewed", field="review").signature
+    assert reviewed is not None
+    underway = begin(lab.world, "core_qa", ref, "released", field="review")
+    part = shape(RESULT).parts[0]
+    with past_the_triggers():
+        if source == "review_history":
+            part.history._default_manager.filter(entity_id=ref, revision=underway.revision).update(
+                purity=80
+            )
+        else:
+            part.model._default_manager.filter(pk=ref).update(purity=80)
+    # Both the original signature and its transition metadata are intact. The *content*
+    # of the resulting revision must still agree before QA releases it.
+    assert all(check.ok for check in signatures.verify(reviewed))
+    assert signatures.finish(underway, evidence(lab.world, "core_qa")).status == Status.FAILED
+    problem(lab.api("editor").get(f"/entities/{ref}"), 404, "not_found")
+
+
+def test_a_previously_delivered_result_cannot_be_signed_as_a_fresh_release(
+    lab: Lab, signed_result: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A previously unsigned release may be read throughout a plugin upgrade."""
+    _, ref = signed_result
+    field = states.state_fields(RESULT)["review"]
+    with monkeypatch.context() as legacy:
+        target = field.states["released"]
+        legacy.setitem(field.states, "released", replace(target, signatures=()))
+        assert state(lab, "core_qa", ref, "review", "released").status_code == 200
+        assert state(lab, "tech", ref, "review", "draft").status_code == 200
+    signed(lab.world, "admin", ref, "reviewed", field="review")
+    with pytest.raises(Refused, match="already delivered"):
+        begin(lab.world, "core_qa", ref, "released", field="review")
+    assert AuditEvent.objects.filter(action="request.result_released", target_id=ref).count() == 1
+
+
+def test_release_requires_a_fresh_review_after_any_intervening_revision(
+    lab: Lab, signed_result: tuple[str, str]
+) -> None:
+    _, ref = signed_result
+    with pytest.raises(Refused, match="review"):
+        begin(lab.world, "core_qa", ref, "released", field="review")
+    signed(lab.world, "admin", ref, "reviewed", field="review")
+    underway = begin(lab.world, "core_qa", ref, "released", field="review")
+    # Reviewed on this type permits edits. Even a change back to identical values is
+    # another revision, and must go through review again.
+    for purity in [80, 97.5]:
+        assert change(lab, "tech", ref, {"purity": purity}).status_code == 200
+    assert signatures.finish(underway, evidence(lab.world, "core_qa")).status == Status.FAILED
+    with pytest.raises(Refused, match="review"):
+        begin(lab.world, "core_qa", ref, "released", field="review")
+    problem(lab.api("editor").get(f"/entities/{ref}"), 404, "not_found")
+    assert state(lab, "tech", ref, "review", "draft").status_code == 200
+    fresh = signed(lab.world, "admin", ref, "reviewed", field="review").signature
+    qa = signed(lab.world, "core_qa", ref, "released", field="review").signature
+    assert qa is not None and fresh is not None
+    assert json.loads(qa.document)["reviewed"]["signatures"] == [str(fresh.pk)]
 
 
 def told(kind: str) -> list[tuple[str, str, str]]:

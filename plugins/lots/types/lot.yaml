@@ -11,7 +11,7 @@ label_plural: Lots
 abstract: true
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
-schema_version: 1
+schema_version: 2
 description: >-
   A lot of a registered entity: what was made or bought of it at one time, which a
   label and a certificate of analysis name. The entity is the molecule, the same for
@@ -146,6 +146,10 @@ fields:
               who that was, whoever it says made it.
             check: record.source != "made" || history.disposition[0].by != actor.person
             message: You recorded this lot, so someone else in QA releases it.
+          not_who_edited_it:
+            when: record.source == "made"
+            check: edits.disposition.quarantined.all(e, e.by != actor.person)
+            message: You edited this lot's record, so someone else in QA releases it.
           a_person:
             check: actor.agent == null
             message: Release it yourself, in Iki, not through an app or agent.

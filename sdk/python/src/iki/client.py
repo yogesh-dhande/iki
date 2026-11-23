@@ -57,6 +57,7 @@ if TYPE_CHECKING:
         ProjectOut,
         ProjectRef,
         RequestOut,
+        RevisionDetailOut,
         RevisionOut,
         RunArtifactOut,
         RunAttemptOut,
@@ -528,9 +529,11 @@ class Entities(_Part):
         reason: str,
         hold_reason: str = "",
     ) -> EntityOut:
-        """Changes some of an entity's values as one new revision. `revision` is the
-        one you read: if it has changed since, nothing changes and ``iki.Conflict`` is
-        raised. A value of None unsets that field. ``hold_reason`` as for :meth:`create`."""
+        """Changes values at the revision you read. If a state locks the record and
+        ``can["correct"]`` is true, changing a value returns each locking field to its
+        state's ``on_edit`` destination. Supply a reason for the return and edit revisions.
+        A stale revision raises ``iki.Conflict``. None unsets a field. See :meth:`create`
+        for ``hold_reason``."""
         body: dict[str, Any] = {"values": dict(values), "reason": reason}
         if hold_reason:
             body["hold_reason"] = hold_reason
@@ -623,7 +626,8 @@ class Entities(_Part):
 
     def request(self, ref: str) -> RequestOut:
         """A request's two sides (ADR 0132): who asked and who serves it, what it sent the
-        service, and the results that came of it, as far as you can read them."""
+        service, and the results that came of it, as far as you can read them.
+        Its ``result_releases`` identify the revisions you can read with :meth:`revision`."""
         return cast(
             "RequestOut", self._client.request("GET", _path("/entities/{ref}/request", ref=ref))
         )
@@ -745,6 +749,15 @@ class Entities(_Part):
         client = self._client
         path = _path("/entities/{ref}/revisions", ref=ref)
         return Results(lambda c: client.request("GET", path, params={"cursor": c}))
+
+    def revision(self, ref: str, number: int) -> RevisionDetailOut:
+        """The record's values at that numbered revision, with its changes and provenance."""
+        return cast(
+            "RevisionDetailOut",
+            self._client.request(
+                "GET", _path("/entities/{ref}/revisions/{number}", ref=ref, number=number)
+            ),
+        )
 
     def provenance(self, ref: str) -> dict[str, Any]:
         """Where each of its values came from: the person, run or import that set it."""

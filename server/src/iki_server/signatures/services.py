@@ -28,7 +28,7 @@ from typing import Any
 from allauth.socialaccount.models import SocialAccount
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import Max, Q
+from django.db.models import F, Max, Q
 from django.utils import timezone
 
 from iki_server.accounts.models import IdentityProvider, User
@@ -37,7 +37,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.bundles import keys
 from iki_server.core.ids import uuid7
 from iki_server.entities import requests, states
-from iki_server.entities.models import Entity, Revision, RevisionKind
+from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
 from iki_server.entities.values import Invalid, shape
 from iki_server.org import lab_roles, permissions
 from iki_server.org.models import Project
@@ -281,7 +281,80 @@ def _condition(
         for _, s in sorted(counted.items())
     ]
     state = change.how.states[change.to]
-    return states.condition(user, entity, change.field, state, values, given)
+    why = states.condition(user, entity, change.field, state, values, given)
+    if why is not None or not _requires_review(entity, change):
+        return why
+    if ProjectLink.objects.filter(
+        entity=entity, project_id=F("via_request__owner_project_id")
+    ).exists():
+        return "This result was already delivered. Release a new result to send a new review."
+    if _review_reference(entity, entity.revision, change.field, change.current) is None:
+        return _NEEDS_REVIEW
+    return None
+
+
+_NEEDS_REVIEW = (
+    "Release needs a signed review of this revision. Submit the result for review again."
+)
+
+
+def _requires_review(entity: Entity, change: Change) -> bool:
+    spec = requests.result_spec(entity.type)
+    return (
+        spec is not None and change.how is not None and spec.requires_review(change.how, change.to)
+    )
+
+
+def _review_reference(
+    entity: Entity, number: int, field: str, state: str, *, trusted: dict[str, str] | None = None
+) -> dict[str, Any] | None:
+    """The review that made exactly this revision. Passing trusted keys checks the proofs
+    too (when signing or verifying), beyond locating the review for the offered actions."""
+    carried = (
+        Revision.objects.filter(
+            entity=entity,
+            number=number,
+            kind=RevisionKind.STATE_CHANGED,
+            state_field=field,
+            state_to=state,
+            changed_fields=[field],
+        )
+        .values_list("signatures", flat=True)
+        .first()
+    )
+    if not carried:
+        return None
+    rows = Signature.objects.filter(
+        entity=entity, revision=number - 1, field=field, state=state
+    ).in_bulk(carried)
+    if any(sid not in rows for sid in carried):
+        return None
+    if trusted is not None:
+        if any(not check.ok for row in rows.values() for check in verify(row, trusted)):
+            return None
+        if not _carries_content(rows[carried[0]], entity):
+            return None
+    return proof.review_reference(
+        str(entity.pk), number, field, state, [parsed(rows[sid]) for sid in carried]
+    )
+
+
+def _carries_content(signature: Signature, entity: Entity) -> bool:
+    """Compare the complete resulting snapshot with what was signed, read in the same
+    schema and units. Only the revision number and this one state value may differ."""
+    try:
+        migrations = since(signature, entity)
+        expected = proof.migrated(json.loads(signature.content), migrations)
+        field = signature.field
+        for migration in migrations:
+            if migration["kind"] == "rename" and migration["from"] == field:
+                field = migration["to"]
+        expected["revision"] = number = signature.revision + 1
+        expected["values"][field] = signature.state
+        actual = content_of(entity, number, signature.entry_revision)
+        return proof.canonical(expected) == proof.canonical(actual)
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _either(words: list[str]) -> str:
@@ -627,6 +700,13 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
         },
         "key": key.public,
     }
+    if _requires_review(locked, change):
+        reference = _review_reference(
+            locked, s.revision, change.field, change.current, trusted=signing_keys.trusted()
+        )
+        if reference is None:
+            raise Failure("review", _NEEDS_REVIEW)
+        document["reviewed"] = reference
     text = proof.canonical(document)
     signature = Signature.objects.create(
         id=signature_id,
@@ -674,6 +754,10 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
     if all(x.signature is not None for x in after):
         carried = tuple(x.signature.pk for x in after if x.signature is not None)
         changes.make(locked, change, user, _joined(after, s), carried)
+        if "reviewed" in document and not _carries_content(signature, locked):
+            raise Failure(
+                "review", "The released values differ from the review. Nothing was released."
+            )
     return signature
 
 
@@ -1032,6 +1116,15 @@ def verify(signature: Signature, trusted: dict[str, str] | None = None) -> list[
     checks.append(proof.check_content(document, signature.content))
     if entity is not None:
         checks.append(_record_check(signature, entity))
+        if "reviewed" in document:
+            reference = _review_reference(
+                entity,
+                signature.revision,
+                signature.field,
+                (document.get("change") or {}).get("from", ""),
+                trusted=trusted,
+            )
+            checks.append(proof.review_check(document["reviewed"], reference))
     revision = Revision.objects.filter(
         entity_id=signature.entity_id, signatures__contains=[signature.pk]
     ).first()
@@ -1043,6 +1136,8 @@ def verify(signature: Signature, trusted: dict[str, str] | None = None) -> list[
             moved.get("from"),
             moved.get("to"),
         )
+        if "reviewed" in document and entity is not None:
+            ok = ok and _carries_content(signature, entity)
         checks.append(
             proof.Check(
                 "change",

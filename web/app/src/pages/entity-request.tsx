@@ -30,6 +30,7 @@ import {
   twoSidesQuery,
   type RequestSides,
   type Service,
+  type TwoSides,
 } from "../requests";
 import {
   Button,
@@ -103,19 +104,39 @@ function RecordList({
   records,
   label,
   project,
+  releases,
 }: {
   records: readonly (Ref | Entity)[];
   label: string;
   /** For references, the project they're in: the request's. */
   project?: string | undefined;
+  releases?: TwoSides["result_releases"] | undefined;
 }) {
+  const receipts = new Map(releases?.map((r) => [r.entity, r]));
   return (
     <ul className="value-list" aria-label={label}>
-      {records.map((r) => (
-        <li key={r.hrid}>
-          <RecordLink record={r} project={"owner_project" in r ? r.owner_project?.slug : project} />
-        </li>
-      ))}
+      {records.map((r) => {
+        const receipt = "id" in r ? receipts.get(r.id) : undefined;
+        return (
+          <li key={r.hrid}>
+            <RecordLink
+              record={r}
+              project={"owner_project" in r ? r.owner_project?.slug : project}
+            />
+            {receipt ? (
+              <Link className="row-meta" to="/entities/$ref/audit/" params={{ ref: r.hrid }}>
+                {receipt.reviewed_revision != null
+                  ? `Reviewed revision ${String(receipt.reviewed_revision)} · `
+                  : ""}
+                {receipt.signed_revision != null
+                  ? `Signed revision ${String(receipt.signed_revision)} · `
+                  : ""}
+                Released at revision {receipt.released_revision}
+              </Link>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -188,7 +209,11 @@ export function EntityRequest({ entity, type }: { entity: Entity; type: EntityTy
             <dt>Results</dt>
             <dd>
               {!both.data ? null : both.data.results.length ? (
-                <RecordList records={both.data.results} label="Results" />
+                <RecordList
+                  records={both.data.results}
+                  label="Results"
+                  releases={both.data.result_releases}
+                />
               ) : (
                 <span className="muted">
                   {sides.yours.includes("service") ? "None yet" : "None released yet"}

@@ -11,6 +11,8 @@ code doesn't know. So before migrating, this:
    - a plugin missing from the build, unless the lockfile purges it
    - a migration that changed after it was applied
    - a plugin migration that isn't atomic
+   - a proposed schema with blocking preflight findings that the operator
+     hasn't acknowledged for this candidate (ADR 0181)
 2. Runs Iki's own migrations, and Django's, each in a transaction of its own as
    ``migrate`` does: some build indexes ``CONCURRENTLY``, which no transaction can
    hold. None of them touches a plugin's table.
@@ -71,9 +73,10 @@ from iki_server.entities import constraints, registry, targets, unique
 from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
 from iki_server.graph import edges
 from iki_server.org import holds
-from iki_server.plugins import sync
+from iki_server.plugins import baseline, preflight, sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
 from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import naming, releases
 
 Key = tuple[str, str]
@@ -140,6 +143,7 @@ def migrate_deployment(
     *,
     app_role: str | None = None,
     analyst_role: str | None = None,
+    acknowledge_preflight: Iterable[str] = (),
 ) -> Report:
     """Migrates the database to this build, syncs the plugins and grants ``app_role`` its
     privileges (none if it's None). ``analyst_role`` is ``sync_plugins``'s."""
@@ -196,6 +200,10 @@ def migrate_deployment(
             "their tables (ADR 0134), so each must be: take out `atomic = False`."
         )
 
+    try:
+        _check_preflight(applied, set(acknowledge_preflight))
+    except preflight.PreflightError as error:
+        raise DeployError(f"Plugin preflight could not finish. {error}") from error
     _migrate_iki(stdout, installed)
     try:
         with audit.cli(), transaction.atomic():
@@ -220,6 +228,54 @@ def migrate_deployment(
         error.add_note(KEPT_NOTHING)
         raise
     return report
+
+
+def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
+    """Check the candidate against the database before the deploy makes its first change."""
+    if not any(_could_be_plugin(app) for app, _ in applied):
+        return  # Fresh installation. Its sync will record the first baseline.
+    with preflight.read_snapshot():
+        saved = (
+            baseline.current() if ("iki_plugins", "0007_preflight_baseline") in applied else None
+        )
+        if saved is None:
+            raise DeployError(
+                "Preflight needs the manifests for the deployed schema. Run sync_plugins "
+                "from the currently deployed build with the baseline migration applied."
+            )
+        revision, current = saved
+        proposed = registry.plugins()
+        refusals = []
+        for plugin in proposed.values():
+            report = preflight.compare(current, proposed, revision, plugin)
+            if not report.blocking or report.candidate_revision in acknowledged:
+                continue
+            refusals.extend(_preflight_refusal(report))
+        if refusals:
+            raise DeployError(
+                "Plugin preflight requires review before deploying. Correct the records or "
+                "acknowledge the reviewed candidate:\n" + "\n".join(refusals)
+            )
+
+
+def _preflight_refusal(report: PreflightReport) -> list[str]:
+    lines = [f"{report.plugin} {report.version}, checked against {report.configuration_revision}:"]
+    for result in report.types:
+        if result.sampled:
+            checks = ", ".join(result.sampled_checks)
+            lines.append(
+                f"  Sampled {result.checked:,} of {result.total:,} {result.type} records "
+                f"for {checks}."
+            )
+        for finding in result.findings:
+            if finding.blocking:
+                precision = "at least" if finding.sampled else "exactly"
+                lines.append(
+                    f"  {result.type} {finding.subject} ({precision} {finding.count:,} affected): "
+                    f"{finding.message}"
+                )
+    lines.append(f"  --acknowledge-preflight {report.candidate_revision}")
+    return lines
 
 
 def _migrate_iki(stdout: Any, installed: Iterable[str]) -> None:  # noqa: ANN401 - a stream

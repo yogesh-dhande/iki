@@ -26,6 +26,7 @@ import { useState, type ReactNode, type SubmitEvent } from "react";
 import { iki, useApiMutation } from "../api";
 import {
   ENTITIES,
+  editReturns,
   entityQuery,
   inSentence,
   recordSearch,
@@ -51,7 +52,7 @@ import { usePageTitle } from "../layout";
 import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
 import { APP_TYPE } from "../apps";
 import { createdMessage } from "../registries";
-import { fieldLabels, isServiceField, writableFields } from "../requests";
+import { fieldLabels, isServiceField, listed, writableFields } from "../requests";
 
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
@@ -204,10 +205,12 @@ function Reason({
   value,
   onChange,
   error,
+  required = false,
 }: {
   value: string;
   onChange: (value: string) => void;
   error: string | undefined;
+  required?: boolean;
 }) {
   return (
     <TextField
@@ -216,7 +219,7 @@ function Reason({
       onChange={onChange}
       error={error}
       maxLength={2000}
-      optional
+      optional={!required}
       multiline
       help="Why, for the record. It’s kept in the entity’s history."
     />
@@ -546,7 +549,7 @@ export function EditEntity() {
   const types = useSuspenseQuery(typesQuery).data;
   const type = types.find((t) => t.name === entity.type);
   usePageTitle(`Edit ${entity.title} (${entity.hrid})`);
-  if (!type || !entity.can.edit || entity.archived) {
+  if (!type || !(entity.can.edit || entity.can.correct) || entity.archived) {
     return (
       <section className="card form-card">
         <PageHeader crumbs={editCrumbs(entity, type)} title={`Edit ${entity.title}`} />
@@ -555,7 +558,9 @@ export function EditEntity() {
             ? `Its type, ${entity.type}, isn’t installed any more, so it can’t be edited.`
             : entity.archived
               ? "It’s archived, so it can’t change. Restore it first."
-              : "Only Editors in its owner project can change it."}
+              : entity.locked
+                ? "Its current state prevents you from editing its values."
+                : "Only Editors in its owner project can change it."}
         </p>
         <Link to="/entities/$ref/" params={{ ref: entity.hrid }} search={recordSearch(entity)}>
           Back to {entity.hrid}
@@ -603,12 +608,24 @@ function EditEntityForm({
       )
       .map((f) => f.name),
   );
-  const changed = fields.filter(
-    (f) => !locked.has(f.name) && !same(drafts[f.name], base.drafts[f.name]),
-  );
+  const changed = fields.filter((f) => {
+    if (locked.has(f.name) || same(drafts[f.name], base.drafts[f.name])) return false;
+    // Reformatting a number or trimming a label can leave the submitted value unchanged.
+    const next = encode(f, drafts[f.name] ?? null, type);
+    const previous = encode(f, base.drafts[f.name] ?? null, type);
+    return !next.ok || !previous.ok || !same(next.value, previous.value);
+  });
+  const canSave = !base.entity.archived && (base.entity.can.edit || base.entity.can.correct);
+  const returns = changed.length && canSave ? editReturns(base.entity, type) : [];
   const [holdReason, setHoldReason] = useState("");
   // Only rules reading what it changes, as the server checks an edit.
-  const found = useRuleBreaks(type, typedValues(type, drafts), new Set(changed.map((f) => f.name)));
+  const proposed = { ...base.entity.values, ...typedValues(type, drafts) };
+  const changedNames = new Set(changed.map((f) => f.name));
+  for (const r of returns) {
+    proposed[r.field] = r.to;
+    changedNames.add(r.field);
+  }
+  const found = useRuleBreaks(type, proposed, changedNames);
 
   const save = useApiMutation(
     async (values: Record<string, unknown>) =>
@@ -654,8 +671,10 @@ function EditEntityForm({
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canSave) return;
     setUnchanged(false);
     const { values, errors } = encodeAll(type, changed, drafts);
+    if (returns.length && !reason.trim()) errors["reason"] = "Give a reason for this correction.";
     if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     if (changed.length === 0) {
       setUnchanged(true);
@@ -710,7 +729,11 @@ function EditEntityForm({
                 </li>
               ) : null}
             </ul>
-            <p>Save again to keep your changes.</p>
+            <p>
+              {canSave
+                ? "Save again to keep your changes."
+                : "You can no longer edit this record. Your unsaved values are shown below."}
+            </p>
           </div>
         ) : unchanged ? (
           <div className="alert alert-warning" role="alert">
@@ -751,9 +774,26 @@ function EditEntityForm({
               error={form.errors["hold_reason"]}
             />
           ) : null}
-          <Reason value={reason} onChange={setReason} error={form.errors["reason"]} />
+          {returns.length ? (
+            <div className="alert alert-warning" role="alert">
+              <p>Saving these changes will return {listed(returns.map((r) => r.description))}.</p>
+              <p>Earlier signatures apply only to the revisions they signed.</p>
+            </div>
+          ) : null}
+          <Reason
+            value={reason}
+            onChange={setReason}
+            error={form.errors["reason"]}
+            required={returns.length > 0}
+          />
           <div className="actions">
-            <Button type="submit" variant="primary" busy={save.isPending} busyText="Saving…">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canSave}
+              busy={save.isPending}
+              busyText="Saving…"
+            >
               Save changes
             </Button>
             <Link

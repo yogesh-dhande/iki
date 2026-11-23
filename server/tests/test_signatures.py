@@ -107,6 +107,7 @@ def begin(
     state: str,
     *,
     index: int | None = None,
+    field: str = "status",
     reason: str = "",
     session: str | None = None,
 ) -> Signing:
@@ -115,7 +116,7 @@ def begin(
         world.users[who],
         session or f"session-{who}",
         entity,
-        "status",
+        field,
         state,
         index=index,
         expected_revision=entity.revision,

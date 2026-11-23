@@ -7,9 +7,10 @@ form agree on what an expression means. An expression reads **variables**, each 
 schema the module type-checks it against: a rule reads ``record`` (the record as it will
 be saved, and one step into what it refers to), ``now`` and ``today``; a guard reads
 those, and who is acting (``actor``), the change (``state``), each state field's changes
-(``history``, and ``last``, the latest change into each state) and the record's open
-holds (``holds``). The server builds the same schemas from the installed types, so what
-was checked here is what is evaluated there.
+(``history``, and ``last``, the latest change into each state), the value edits since each
+state's latest entry (``edits``) and the record's open holds (``holds``). The server builds
+the same schemas from the installed types, so what was checked here is what is evaluated
+there.
 """
 
 from __future__ import annotations
@@ -191,6 +192,18 @@ def guard_variables(
             },
         }
 
+    value_names = sorted(record["fields"].keys() - {"id", "hrid"} - live.keys())
+    edit = {
+        "type": "object",
+        "label": "An edit to the record's values",
+        "fields": {
+            "by": dict(_STRING),
+            "fields": {
+                "type": "list",
+                "items": {"type": "string", "label": "A value field", "values": value_names},
+            },
+        },
+    }
     names = sorted(set(roles))
     return {
         **rule_variables(record),
@@ -237,6 +250,18 @@ def guard_variables(
                     "type": "object",
                     "label": f"The latest change into each of its {f.label}'s states",
                     "fields": {s: change(f) for s in f.states},
+                }
+                for n, f in live.items()
+            },
+        },
+        "edits": {
+            "type": "object",
+            "label": "Value edits since a state was entered",
+            "fields": {
+                n: {
+                    "type": "object",
+                    "label": f"Value edits since each of its {f.label}'s states",
+                    "fields": {s: {"type": "list", "items": edit} for s in f.states},
                 }
                 for n, f in live.items()
             },

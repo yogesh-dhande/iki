@@ -171,6 +171,15 @@ def test_a_guard_that_names_a_state_its_field_hasnt_is_refused(tmp_path: Path) -
     assert "in_reveiw" in only(make(tmp_path, TYPE + body, ROLES), "invalid-expression")
 
 
+def test_a_guard_names_the_state_and_values_whose_edits_it_checks(tmp_path: Path) -> None:
+    check = 'edits.status.received.all(e, !("purity" in e.fields) || e.by != actor.person)'
+    body = TYPE + FIELDS.replace('state.from == "in_review"', check)
+    assert make(tmp_path, body, ROLES).problems == []
+    for name, wrong in [(".received.", ".recieved."), ('"purity"', '"purty"')]:
+        bad = make(tmp_path, body.replace(check, check.replace(name, wrong)), ROLES)
+        assert wrong.strip('".') in only(bad, "invalid-expression")
+
+
 def test_draw_guards_are_typed_and_survive_the_plugin_build(tmp_path: Path) -> None:
     body = (
         TYPE

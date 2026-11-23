@@ -82,6 +82,10 @@ it again. Signatures, withdrawals, acknowledgments and certifications are
 append-only: triggers refuse to update, delete or truncate them, for every
 role.
 
+A correction starts a new review cycle. Earlier signatures keep their
+original place in history. For a result with signed review and release,
+the QA signature identifies the review on which release depends. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
+
 **Anyone who reads the record can check its signatures (§11.70).**
 Verifying one checks again that its key is one this deployment trusts and
 signed the document; that the document's record, revision, change and

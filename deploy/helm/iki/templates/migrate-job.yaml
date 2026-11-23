@@ -62,7 +62,12 @@ spec:
         - name: migrate
           image: {{ include "iki.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          args: ["migrate_deployment"]
+          args:
+            - migrate_deployment
+            {{- range .Values.migrate.acknowledgePreflight }}
+            - --acknowledge-preflight
+            - {{ . | quote }}
+            {{- end }}
           env:
             {{- include "iki.migratorEnv" . | nindent 12 }}
             # One short-lived connection is enough for migrations.

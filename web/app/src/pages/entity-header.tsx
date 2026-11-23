@@ -271,7 +271,12 @@ function TabCount({ n, what }: { n: number; what: string }) {
 /** What state it's in: its states, locked, signed, archived, superseded. */
 function StatusPills({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const signatures = useQuery(signaturesQuery(apiRef(entity), false)).data?.items ?? [];
-  const signed = signatures.some((s) => s.status === "carried");
+  const signed = signatures.some(
+    (s) =>
+      s.status === "carried" &&
+      s.carried_by === entity.revision &&
+      s.entry_revision === (entity.entry?.revision ?? null),
+  );
   return (
     <span className="record-pills">
       <StateBadges entity={entity} type={type} />
@@ -304,7 +309,7 @@ function RecordActions({ entity, type }: { entity: Entity; type: EntityType | un
           Run action
         </Link>
       ) : null}
-      {editable && !entity.archived ? (
+      {(editable || (type && entity.can.correct)) && !entity.archived ? (
         <Link
           to="/entities/$ref/edit/"
           params={{ ref: entity.hrid }}

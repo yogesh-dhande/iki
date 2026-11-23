@@ -73,6 +73,10 @@ the states, with their roles, that would unlock it: "SAM-000012 is locked
 by its Status (Approved): it can’t be changed until its Status is set to
 Registered (Coordinator), … or In review (Analyst)".
 
+A locking state may also name an unsigned destination with `on_edit`. Its
+role and guards apply to the return, which has its own state revision within
+the transaction that corrects the value. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
+
 **Upgrades can't strand values** (amending ADR 0121, per state field). A
 state that records may be in is kept, `removed: true`, with `moved_to:`
 another of its field's states. A state field that's dropped is kept,

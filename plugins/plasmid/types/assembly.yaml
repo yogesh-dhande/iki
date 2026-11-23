@@ -15,7 +15,7 @@ kind: EntityType
 name: Assembly
 label: Assembly
 label_plural: Assemblies
-schema_version: 3
+schema_version: 4
 description: >-
   A cloning plan: a backbone, the inserts going into it, and how they're joined
   (restriction-ligation with its enzymes, Golden Gate, Gibson, Gateway LR or BP, TOPO), or
@@ -213,6 +213,9 @@ fields:
           four_eyes:
             check: last.status.built == null || last.status.built.by != actor.person
             message: You built it, so someone else verifies it.
+          independent_verifier:
+            check: edits.status.built.all(e, e.by != actor.person)
+            message: You edited the record after it was built, so someone else verifies it.
           # Verified locks the record, so what it attests must hold at that moment: a
           # plan edited after it was checked is rechecked, and a check that found a
           # mismatch, or couldn't reach a result, leaves nothing to verify.

@@ -46,6 +46,7 @@ __all__ = [
     "apart",
     "broken",
     "cel_value",
+    "check_failure",
     "checks_of",
     "kept",
     "raise_broken",
@@ -157,21 +158,24 @@ def digest_of(type_name: str) -> str:
 # --- Values as CEL reads them -------------------------------------------------------------------
 
 
-def cel_value(f: Field, value: Any) -> Any:  # noqa: ANN401 - a database value in, JSON out
-    """A field's value as an expression reads it: JSON, with dates as midnight UTC (CEL
-    has timestamps, not dates)."""
+def cel_value(f: Field, value: Any, *, from_json: bool = False) -> Any:  # noqa: ANN401 - storage or JSON in, JSON out
+    """A stored value (or its JSON form) as an expression reads it, including dates as
+    midnight UTC. CEL has timestamps, not dates."""
     if value is None:
         return None
     if f.is_rows:
-        # Each row as a map of its cells, a reference as its ID (ADR 0137).
         assert f.items is not None  # noqa: S101 - lists always have items
         return [
-            {n: cel_value(cell, row.get(n)) for n, cell in f.items.fields.items()} for row in value
+            {
+                n: cel_value(cell, row.get(n), from_json=from_json)
+                for n, cell in f.items.fields.items()
+            }
+            for row in value
         ]
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
-        return [cel_value(f.items, item) for item in value]
-    out = to_json(f, value)
+        return [cel_value(f.items, item, from_json=from_json) for item in value]
+    out = value if from_json else to_json(f, value)
     if f.type == "date":
         return f"{out}T00:00:00Z"
     return out
@@ -361,7 +365,7 @@ def broken(type_name: str, savings: Sequence[Saving]) -> list[list[Broken]]:
                 found.append(Broken(rule, text, rule.fields or rule.reads))
                 continue
             check, when, message = at[rule.key]
-            why = _breaks(rule, outcomes[check], outcomes[when] if when is not None else None)
+            why = check_failure(outcomes[check], outcomes[when] if when is not None else None)
             if why is None:
                 continue
             if why == "":
@@ -400,10 +404,9 @@ def _groups(
     return out
 
 
-def _breaks(rule: Rule, check: spec_rules.Outcome, when: spec_rules.Outcome | None) -> str | None:
+def check_failure(check: spec_rules.Outcome, when: spec_rules.Outcome | None) -> str | None:
     """Why a rule is broken: "" when its check is false, the error when it can't be worked
     out for a reason other than an empty value; None when it's kept or doesn't apply."""
-    del rule
     if when is not None:
         if when.error is not None:
             return None if when.empty else when.error

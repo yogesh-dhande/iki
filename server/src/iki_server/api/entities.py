@@ -197,8 +197,13 @@ class StateOut(Schema):
         "sets."
     )
     locks: bool = Field(
-        description="A record in it is locked: its other fields can't change, and it can't be "
-        "archived, restored or moved, until its state field is set to a state that doesn't."
+        description="Locks the record against value edits, archiving, restoring and moving. "
+        "A declared `on_edit` permits a reasoned correction."
+    )
+    on_edit: str | None = Field(
+        None,
+        description="The state this field returns to when an editable value changes. The "
+        "correction needs a reason and permission to enter this state (ADR 0179).",
     )
     holds_amount: bool = Field(
         False,
@@ -316,7 +321,8 @@ class FieldOut(Schema):
     )
     states: list[StateOut] = Field(
         description="State fields (ADR 0125): its states, in order. It's set on its own, with "
-        "POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.",
+        "POST /entities/{ref}/states/{field}. A correction can also return it to the "
+        "current state's `on_edit` destination. Empty otherwise.",
     )
     registry: RegistryMark | None = Field(
         None,
@@ -674,6 +680,12 @@ class EntityCan(Schema):
         description="Change it, archive or restore it: false for everyone when its plugin is "
         "detached, or while a state locks it."
     )
+    correct: bool = Field(
+        False,
+        description="You may attempt a reasoned correction. Each locking field declares an "
+        "`on_edit` destination you have permission to enter, and the first return's guards "
+        "allow it. Later guards see each preceding return in the same save (ADR 0179).",
+    )
     edit_amount: bool = Field(
         description="Change its amount, including while a state locks the record's values."
     )
@@ -875,9 +887,8 @@ class EntityOut(Schema):
     archived: bool
     archived_at: datetime | None
     locked: bool = Field(
-        description="A state locks it (ADR 0125): its other fields can't change, and it can't "
-        "be archived, restored or moved, until each field in `locked_by` is set to a state "
-        "that doesn't lock."
+        description="A state locks it (ADR 0125). Archiving, restoring and moving need every "
+        "lock lifted first. A reasoned value edit may return it for review (see `can.correct`)."
     )
     locked_by: list[str] = Field(
         description="The state fields whose states lock it, in its type's order."
@@ -971,7 +982,12 @@ class EntityPatch(Schema):
     archived: bool | None = Field(
         None, description="Archived entities can't change: restore one to change it."
     )
-    reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reason: str = Field(
+        "",
+        max_length=2000,
+        description="Why the values changed. Required for an edit that returns a state "
+        "field to its declared `on_edit` destination.",
+    )
     hold_reason: str | None = Field(
         None,
         max_length=2000,
@@ -1448,6 +1464,7 @@ def _state_out(state: State) -> dict[str, Any]:
         "description": state.description,
         "set_by": list(state.set_by),
         "locks": state.locks,
+        "on_edit": state.on_edit,
         "holds_amount": state.holds_amount,
         "reason": state.reason,
         "guards": [
@@ -1663,6 +1680,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
+        transitions = states.options(user, entity, values[entity.pk])
         mine = _ids_in(fields, values[entity.pk])
         shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
         out.append(
@@ -1701,6 +1719,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ),
                 "can": {
                     "edit": editable_record and not entity.locked,
+                    "correct": editable_record
+                    and _can_correct(entity, values[entity.pk], transitions),
                     "edit_amount": edit_amount,
                     "draw": draw_amount,
                     "draw_purposes": [
@@ -1711,7 +1731,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     ]
                     if draw_amount
                     else [],
-                    "states": _states_can(user, entity, values[entity.pk]),
+                    "states": _states_can(transitions),
                     "sign": _sign_can(user, entity, values[entity.pk], signing),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
@@ -1789,7 +1809,24 @@ def _holds_of(
     return held, breaches
 
 
-def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str, Any]:
+def _can_correct(
+    entity: Entity, values: dict[str, Any], options: dict[str, list[states.Option]]
+) -> bool:
+    if not entity.locked_by or entity.released_review_revision is not None:
+        return False
+    targets = states.on_edit(states.state_fields(entity.type), values)
+    if set(entity.locked_by) != targets.keys():
+        return False
+    for index, (field, target) in enumerate(targets.items()):
+        option = next((o for o in options[field] if o.state.name == target), None)
+        # A later guard can become true when the preceding state returns. The save
+        # checks it then. Role and access refusals still apply to every return.
+        if option is None or (option.why_not is not None and (index == 0 or option.guard is None)):
+            return False
+    return True
+
+
+def _states_can(options: dict[str, list[states.Option]]) -> dict[str, Any]:
     return {
         name: [
             {
@@ -1804,7 +1841,7 @@ def _states_can(user: User, entity: Entity, values: dict[str, Any]) -> dict[str,
             }
             for o in found
         ]
-        for name, found in states.options(user, entity, values).items()
+        for name, found in options.items()
     }
 
 
@@ -2555,10 +2592,11 @@ def get_entity(
     ``project`` to say whose, when you read more than one."""
     me = caller(request)
     entity = _find(me, ref, project)
-    # The clock or a project role grant can change draw eligibility without a revision.
+    # The clock or a role grant can change draw or correction eligibility without a revision.
     if (
         if_none_match is not None
         and _etag(entity) in _etags(if_none_match)
+        and not entity.locked
         and not eligibility.draw_guards(entity.type)
         and not eligibility.purpose_roles(entity.type)
     ):
@@ -2690,7 +2728,9 @@ def patch_entity(
     response: HttpResponse,
     if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
-    """Send only the values to change. Each change is a revision, with your reason.
+    """Send only the values to change and the ETag you read. If `can.correct` is true,
+    changing a value requires a reason. Each locking state returns to its declared `on_edit`
+    destination, and the return and edit revisions commit together (ADR 0179).
     To restore an archived entity and change it, send both: it's restored first."""
     me = caller(request)
     entity = _find(me, ref)
@@ -2714,11 +2754,24 @@ def patch_entity(
                     locked,
                     payload.values,
                     expected_revision=_current(locked),
+                    allow_correction=True,
                     reason=payload.reason,
                     hold_reason=payload.hold_reason or "",
                 )
             if payload.archived is True:
                 services.set_archived(me, locked, True, reason=payload.reason)
+    except states.CorrectionReason as error:
+        raise Problem(
+            422,
+            "Correcting this record needs a reason.",
+            errors=[{"pointer": "#/reason", "detail": " ".join(error.errors["reason"])}],
+        ) from None
+    except states.GuardRefused as refused:
+        raise Problem(
+            409, str(refused), code="guard_refused", extensions={"guard": refused.guard}
+        ) from None
+    except PermissionDenied as denied:
+        raise Problem(403, str(denied)) from None
     except services.Stale as stale:
         raise Problem(
             412,
@@ -2753,8 +2806,8 @@ def set_entity_state(
     """Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
     as a revision of its own, with your reason. It needs one of the state's lab roles in the
     record's project (ADR 0116): `can.states` lists each state with whether you may and why
-    not. A state that locks the record freezes its other fields until the field is set to
-    one that doesn't; state fields stay settable. A state that needs electronic signatures
+    not. A state that locks the record may declare a return on a reasoned edit (ADR 0179).
+    State fields stay settable. A state that needs electronic signatures
     (ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`
     for it. Send If-Match with the ETag you read."""
     me = caller(request)
