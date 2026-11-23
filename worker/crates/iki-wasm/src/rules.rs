@@ -20,6 +20,7 @@ use crate::expressions::{self, MAX_DEPTH, MAX_LENGTH};
 use crate::templates::{self, Part};
 
 mod check;
+pub(crate) mod flow;
 #[cfg(test)]
 mod tests;
 mod types;

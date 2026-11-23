@@ -3720,6 +3720,7 @@
     "triggers": {},
     "components": {},
     "roles": {},
+    "starters": {},
     "apis": {}
   }
 }

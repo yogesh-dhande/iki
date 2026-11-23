@@ -1,0 +1,53 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: wi38_from_atcc
+description: >-
+  A catalogue excerpt from https://www.cellosaurus.org/CVCL_0579.txt, with
+  the supplier's reference from https://www.atcc.org/products/ccl-75.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+  supplier: ATCC
+  catalogue_id: CCL-75
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  output:
+    creates:
+      - type: iki/cell_lines.ParentalLine
+        key: line
+        values: { name: WI-38, cellosaurus_id: CVCL_0579 }
+        origin: { source: Cellosaurus, id: CVCL_0579 }
+      - type: iki/cell_lines.CellLineSource
+        values: { supplier: ATCC, catalogue_id: CCL-75, line: { $create: line } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: wi38_from_coriell
+description: The same Cellosaurus accession has another supplier's catalogue number.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+  supplier: Coriell
+  catalogue_id: AG06814-J
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  output:
+    creates:
+      - type: iki/cell_lines.ParentalLine
+        key: line
+        values: { name: WI-38, cellosaurus_id: CVCL_0579 }
+      - type: iki/cell_lines.CellLineSource
+        values: { supplier: Coriell, catalogue_id: AG06814-J, line: { $create: line } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: wrong_supplier
+description: A catalogue number from a different provider cannot be attributed to ATCC.
+action: import_parental_line
+params:
+  file: { $file: catalogue }
+  supplier: ATCC
+  catalogue_id: AG06814-J
+files: { catalogue: tests/data/wi-38.txt }
+expect:
+  error: The supplier and catalogue ID do not occur together in this record.

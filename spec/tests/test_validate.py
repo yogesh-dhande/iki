@@ -302,6 +302,14 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
     assert any("Constraints compare whole schema versions" in p.message for p in result.problems)
 
 
+def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "1.0.0"}\n')
+    assert result.plugin is not None and not result.problems
+    assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
+    bad = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "latest"}\n')
+    assert codes(bad) == ["schema"]
+
+
 # --- Rules across the plugin ---------------------------------------------------------------------
 
 
