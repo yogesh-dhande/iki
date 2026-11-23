@@ -431,8 +431,8 @@ describe("the sequence viewer's strands and selection", () => {
     if (!bar) throw new Error("No feature bar");
     await user.pointer({ keys: "[MouseLeft]", target: bar });
     const at = document.querySelector(".sequence-at");
-    // The last six of pUC19c and its first four, TTCGTCTCGC: the DNA plugin's gc_content
-    // and melting_temperature give 60.0 and 29.1 °C.
+    // The last six of pUC19c and its first four, TTCGTCTCGC: 60% GC, and 29.1 °C in
+    // sodium alone, which is what the readout beside a selection quotes (ADR 0201).
     expect(at).toHaveTextContent(
       "Bases 2,681–4, across the origin, selected: 10 bp · GC 60% · Tm 29.1 °C",
     );

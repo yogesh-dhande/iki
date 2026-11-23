@@ -35,6 +35,7 @@ EXPORTS = (
     "iki_pcr_products",
     "iki_duplex_temperature",
     "iki_digest",
+    "iki_check_oligos",
 )
 
 

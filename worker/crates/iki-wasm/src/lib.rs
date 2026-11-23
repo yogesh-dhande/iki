@@ -13,6 +13,7 @@ pub mod expressions;
 pub mod helm;
 pub mod priming;
 pub mod rules;
+pub mod structures;
 pub mod templates;
 pub mod thermodynamics;
 
@@ -616,6 +617,15 @@ pub mod exports {
     pub extern "C" fn iki_digest() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::digest::cut_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Checks the oligos in the input buffer for hairpins, dimers and their melting
+    /// temperature (see [`super::structures::check_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_check_oligos() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::structures::check_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

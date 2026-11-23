@@ -1,5 +1,6 @@
 //! The plasmid plugin's molecular biology in isolation: where primers bind a template,
-//! what a pair of them amplifies, and what restriction enzymes cut a molecule into.
+//! what a pair of them amplifies, what the two of them pair with each other into, and
+//! what restriction enzymes cut a molecule into.
 //!
 //! Built for wasm32-unknown-unknown with no host imports, so the plugin's action archive
 //! carries it and runs it under Wasmtime, and the browser runs the same bytes.
@@ -8,6 +9,8 @@
 pub mod digest;
 #[path = "../../../src/priming.rs"]
 pub mod priming;
+#[path = "../../../src/structures.rs"]
+pub mod structures;
 #[path = "../../../src/thermodynamics.rs"]
 pub mod thermodynamics;
 
@@ -58,6 +61,15 @@ mod exports {
     extern "C" fn iki_duplex_temperature() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::priming::temperature_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Checks the request's oligos, and the pairs it asks about: what each folds into or
+    /// pairs with itself as, and what a pair of them pairs with each other as.
+    #[unsafe(no_mangle)]
+    extern "C" fn iki_check_oligos() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::structures::check_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

@@ -24,3 +24,5 @@ take /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm \
   spec/src/iki_spec/iki_wasm.wasm
 take /src/plugins/plasmid/data/plasmid-tools.wasm \
   spec/src/iki_spec/modules/plasmid-tools.wasm
+take /src/plugins/dna/data/oligo-checks.wasm \
+  spec/src/iki_spec/modules/oligo-checks.wasm

@@ -50,7 +50,7 @@ effects:
     - input: plasmid
       fields: [primer_binding_sites, primer_binding_sites_found_with]
 software:
-  - { name: Iki molecular module, version: "0.2.0", url: https://ikisci.org/plugins/plasmid }
+  - { name: Iki molecular module, version: "0.3.0", url: https://ikisci.org/plugins/plasmid }
 runs_on: { tier: backend, environment: plasmid-tools }
 command: [python, ./scripts/plasmids.py, primer_sites]
 deterministic: true

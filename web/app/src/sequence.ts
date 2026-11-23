@@ -494,10 +494,16 @@ const SODIUM = 0.05;
  * complement, or 50 nM of one that pairs with itself. */
 const STRANDS = 50e-9;
 
-/** The melting temperature (°C, to one place) of `bases` with their complement, as the DNA
- * plugin's primers have it: SantaLucia's unified nearest-neighbour parameters (1998) with
- * his salt correction, at 50 mM Na+ alone and 50 nM of strands in all (his equation 3).
- * Null for fewer than two bases, or any but A, C, G and T. */
+/** The melting temperature (°C, to one place) of `bases` with their complement, for the
+ * readout beside a selection: SantaLucia's unified nearest-neighbour parameters (1998)
+ * with his own salt correction, at 50 mM Na+ alone and 50 nM of strands in all (his
+ * equation 3). Null for fewer than two bases, or any but A, C, G and T.
+ *
+ * It is a reference figure for a stretch of a molecule, in sodium and nothing else, and
+ * deliberately not a primer's own `melting_temperature`, which is quoted in the buffer a
+ * PCR runs in and reads several degrees higher (ADR 0201). A primer's record carries that
+ * one, computed once by the module the server and the worker share; this runs on every
+ * keystroke as a selection is dragged, which is why it is here at all. */
 export function meltingTemperature(bases: string): number | null {
   const upper = bases.toUpperCase();
   if (upper.length < 2 || !/^[ACGT]+$/.test(upper)) return null;

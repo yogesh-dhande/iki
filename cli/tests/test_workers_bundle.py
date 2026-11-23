@@ -152,26 +152,29 @@ def test_an_empty_digest_is_refused(tmp_path: Path) -> None:
         workers.bundle(directory, tmp_path / "bundle.tar.gz")
 
 
+@pytest.mark.parametrize(
+    ("plugin", "name"),
+    [("plasmid", "plasmid-tools.wasm"), ("dna", "oligo-checks.wasm")],
+)
 def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
-    tmp_path: Path,
+    tmp_path: Path, plugin: str, name: str
 ) -> None:
-    """The whole path, with no stand-ins: the plasmid plugin exported the way
+    """The whole path, with no stand-ins: a first-party plugin exported the way
     ``iki deploy build`` exports it, which carries the digest and not the module, bundled
-    with the module iki-spec was built with (ADR 0200).
+    with the module iki-spec was built with (ADR 0200, ADR 0201).
 
     The tracked digest is of the Linux x86-64 build, since that is what every image and
     deployment runs, and rustc's precompiled wasm32 standard library differs between host
     platforms, so the comparison is only asserted where it can hold.
     """
     root = Path(__file__).parents[2]
-    name = "plasmid-tools.wasm"
     carried = modules.module(name)
     if carried is None:
         pytest.skip(f"iki-spec hasn't got {name}: build it, see scripts/")
     exported = tmp_path / "exported"
     exported.mkdir()
     archive = subprocess.run(  # noqa: S603 - git, on this checkout
-        ["git", "-C", str(root), "archive", "--format=tar", "HEAD:plugins/plasmid"],  # noqa: S607
+        ["git", "-C", str(root), "archive", "--format=tar", f"HEAD:plugins/{plugin}"],  # noqa: S607
         capture_output=True,
         check=True,
     ).stdout

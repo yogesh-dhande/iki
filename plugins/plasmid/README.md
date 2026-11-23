@@ -327,14 +327,23 @@ out.
   95:1460, 1998), with Allawi & SantaLucia's Watson–Crick stacks (1997) and internal
   mismatches and SantaLucia & Peyret's terminal ones, and SantaLucia's monovalent salt
   correction (his equation 7), at 50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each
-  strand — the conditions `iki/dna` gives a primer's own Tm under, so a primer's record
-  and its exact site on a template agree. They are computed by the molecular module, and
+  strand. A primer's own record quotes a Tm in a PCR's buffer instead, several degrees
+  higher (ADR 0201): a site's Tm here says how warm that primer's duplex with this
+  template is under stated, comparable conditions, which is a different question. They are computed by the molecular module, and
   checked against Biopython's `MeltingTemp.Tm_NN` with `DNA_NN3`, `DNA_IMM1`, `DNA_TMM1`
   and `saltcorr=5`, which is where the same numbers used to come from. A site's Tm is of
   its annealed bases against the template's own, so a mismatch lowers it; where no
   published parameter covers a pair of neighbours, no Tm is given. This isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
   dNTPs), under which the same primer's Tm is some 5 to 6 °C higher, so compare a number
   here with one computed the same way; `tm_method` on a PCR says which that is.
+- **Primer dimers.** A PCR's record carries the free energy at 37 °C of the most stable
+  duplex its two primers form with each other, by the NNDB's DNA parameters
+  ([ADR 0201](../../docs/adr/0201-a-primers-checks-use-each-fields-own-parameter-set.md)).
+  A stable primer dimer is amplified in place of the template, and one reaching a primer's
+  3′ end is extended into a product of its own, so below about −9 kcal/mol the pair is
+  worth redesigning. It is reported whatever the template does — a reaction that gives no
+  product, or several, is told about its dimer just the same — because the pair is the
+  same pair whatever it was put in a tube with.
 - **PCR.** The product is the forward primer whole, the template between the two primers'
   3' ends, and the reverse primer's reverse complement whole: both 5' tails are in it, and
   so is every base a primer mismatched, since there the product is copied from the primer.

@@ -31,11 +31,12 @@ RUN rustup target add wasm32-unknown-unknown \
 # .wasm is tracked in git, so this stage is where a deployment's copy comes from; the
 # script checks what it built against the digest git tracks, and the build is reproducible,
 # so this stage and a developer's machine give the same bytes.
-COPY scripts/build-plasmid-tools-wasm.sh /src/scripts/
+COPY scripts/build-plasmid-tools-wasm.sh scripts/build-oligo-checks-wasm.sh /src/scripts/
 # --build-only: this stage is where the digest's bytes come from, so it compiles and
 # nothing more. CI checks the bytes against the tracked digest on Linux x86-64, and the
 # deployment CLI checks them again before they reach a worker.
-RUN /src/scripts/build-plasmid-tools-wasm.sh --build-only
+RUN /src/scripts/build-plasmid-tools-wasm.sh --build-only \
+ && /src/scripts/build-oligo-checks-wasm.sh --build-only
 
 # --- Web app: the React app the server serves (web/app) ----------------------
 FROM ${NODE_IMAGE} AS web
@@ -95,7 +96,7 @@ COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm
 # And the modules first-party plugins' actions call (ADR 0200). iki-spec carries them
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them.
-COPY --from=wasm /src/plugins/plasmid/data/plasmid-tools.wasm spec/src/iki_spec/modules/
+COPY --from=wasm /src/plugins/plasmid/data/plasmid-tools.wasm /src/plugins/dna/data/oligo-checks.wasm spec/src/iki_spec/modules/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM" \

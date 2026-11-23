@@ -27,7 +27,7 @@ from typing import Any
 WASM = Path("src", "iki_spec", "iki_wasm.wasm")
 #: A first-party plugin's own module, built from the same crates and checked against the
 #: digest git tracks beside it. Each is a script in ``scripts/``.
-PLUGIN_MODULES = ("build-plasmid-tools-wasm.sh",)
+PLUGIN_MODULES = ("build-plasmid-tools-wasm.sh", "build-oligo-checks-wasm.sh")
 
 
 def ensure_wasm(project: Path) -> Path:

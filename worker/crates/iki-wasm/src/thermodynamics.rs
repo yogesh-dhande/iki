@@ -37,12 +37,19 @@
 //! packages share one implementation and give one answer; Biopython stays in the tests as
 //! the oracle it is cross-checked against. That is why the steps below follow Biopython's
 //! order exactly, including where it reads a term from the untrimmed strand.
+//!
+//! A buffer with magnesium in it needs more than that term. [`Salt::Owczarzy`] gives the
+//! measured corrections of Owczarzy et al. (*Biochemistry* 43:3537-3554, 2004, and
+//! *Biochemistry* 47:5336-5353, 2008), which is what Primer3 computes a PCR primer's
+//! melting temperature with.
+
+use serde::{Deserialize, Serialize};
 
 /// Watson-Crick nearest-neighbour stacks, 5'->3' on the top strand over 3'->5' on the
 /// bottom: enthalpy in kcal/mol and entropy in cal/(mol*K). SantaLucia 1998, Table 1,
 /// unified parameters. A stack not listed here is the same duplex read from its other
 /// strand, which is the key reversed.
-const STACK: [(&[u8; 5], f64, f64); 10] = [
+pub(crate) const STACK: [(&[u8; 5], f64, f64); 10] = [
     (b"AA/TT", -7.9, -22.2),
     (b"AT/TA", -7.2, -20.4),
     (b"CA/GT", -8.5, -22.7),
@@ -59,7 +66,7 @@ const STACK: [(&[u8; 5], f64, f64); 10] = [
 /// Peyret et al. 1999, as Biopython's `DNA_IMM1` collects them. The inosine entries of
 /// that table (Watkins & SantaLucia 2005) are left out: Iki's templates and primers are
 /// A, C, G and T.
-const INTERNAL_MISMATCH: [(&[u8; 5], f64, f64); 51] = [
+pub(crate) const INTERNAL_MISMATCH: [(&[u8; 5], f64, f64); 51] = [
     (b"AA/TA", 1.2, 1.7),
     (b"AA/TC", 2.3, 4.6),
     (b"AA/TG", -0.6, -2.3),
@@ -116,7 +123,7 @@ const INTERNAL_MISMATCH: [(&[u8; 5], f64, f64); 51] = [
 /// A pair that isn't Watson-Crick at one end of the duplex, where the neighbouring stack
 /// is its only support. SantaLucia & Peyret 2001, as Biopython's `DNA_TMM1` collects
 /// them, from Bommarito et al. 2000.
-const TERMINAL_MISMATCH: [(&[u8; 5], f64, f64); 48] = [
+pub(crate) const TERMINAL_MISMATCH: [(&[u8; 5], f64, f64); 48] = [
     (b"AA/TA", -3.1, -7.8),
     (b"AA/TC", -1.6, -4.0),
     (b"AA/TG", -1.9, -4.4),
@@ -176,8 +183,32 @@ const SYMMETRY: (f64, f64) = (0.0, -1.4);
 /// The gas constant in cal/(mol*K), as the reference and Biopython use it.
 const GAS_CONSTANT: f64 = 1.987;
 
-/// What a duplex sits in and how much of it there is.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// How a buffer's salts are allowed for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Salt {
+    /// SantaLucia's own correction: a term on the entropy, `0.368 * (N - 1) * ln[Na+]`
+    /// (*PNAS* 95:1460-1465, 1998, equation 7), with magnesium folded into a sodium
+    /// equivalent by von Ahsen et al. It is what a primer's quoted melting temperature
+    /// uses, and what von Ahsen et al. recommend inside a normal PCR buffer's range.
+    SantaLucia,
+    /// Owczarzy's corrections, measured over a wide range of both cations: a correction on
+    /// `1/Tm` from the duplex's melting temperature in 1 M Na+. Monovalent ions alone take
+    /// the sodium equation (*Biochemistry* 43:3537-3554, 2004, equation 22); where there
+    /// is enough free magnesium to matter it takes the magnesium equation (*Biochemistry*
+    /// 47:5336-5353, 2008, equation 16), whose three monovalent-dependent coefficients are
+    /// used in between. This is the correction to quote above about 20 mM magnesium, where
+    /// a sodium equivalent stops holding.
+    Owczarzy,
+}
+
+/// What a duplex sits in and how much of it there is. Concentrations are millimolar for
+/// the salts and nanomolar for the strands, as a buffer is written down.
+///
+/// A request need only name what differs from [`Conditions::PRIMER`], which is what is
+/// left where a field is missing.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Conditions {
     /// Sodium, in millimolar.
     pub sodium: f64,
@@ -193,6 +224,16 @@ pub struct Conditions {
     pub strand: f64,
     /// The other strand (the template), in nanomolar.
     pub other_strand: f64,
+    /// Which published salt correction to apply.
+    pub salt: Salt,
+}
+
+impl Default for Conditions {
+    /// The conditions a primer's own melting temperature is quoted under, which is what a
+    /// request that says nothing about its buffer means.
+    fn default() -> Self {
+        Self::PRIMER
+    }
 }
 
 impl Conditions {
@@ -206,7 +247,42 @@ impl Conditions {
         dntp: 0.0,
         strand: 25.0,
         other_strand: 25.0,
+        salt: Salt::SantaLucia,
     };
+
+    /// A PCR buffer as Primer3 assumes one by default: 50 mM monovalent cation, 1.5 mM
+    /// Mg2+, 0.6 mM dNTPs, and 50 nM of strands in all.
+    pub const PCR: Self = Self {
+        sodium: 50.0,
+        potassium: 0.0,
+        tris: 0.0,
+        magnesium: 1.5,
+        dntp: 0.6,
+        strand: 25.0,
+        other_strand: 25.0,
+        salt: Salt::Owczarzy,
+    };
+
+    /// Total monovalent cation, in molar: sodium, potassium and half the Tris, since Tris
+    /// is about half ionised at pH 8.3 (Owczarzy et al. 2008, with its equation 5).
+    /// Magnesium is not in it.
+    #[must_use]
+    fn cations(&self) -> f64 {
+        (self.sodium + self.potassium + self.tris / 2.0) * 1e-3
+    }
+
+    /// Magnesium the dNTPs leave free, in molar. They bind it tightly enough that the
+    /// difference will do (Owczarzy et al. 2008; Sigel, *Chem Soc Rev* 22:255-267, 1993),
+    /// and a buffer with at least as much dNTP as magnesium is treated as having a trace
+    /// of it rather than none, so the logarithm of it stays finite.
+    #[must_use]
+    fn free_magnesium(&self) -> f64 {
+        if self.dntp >= self.magnesium {
+            1e-11
+        } else {
+            (self.magnesium - self.dntp) * 1e-3
+        }
+    }
 
     /// Total monovalent cation, in molar, by von Ahsen et al. (*Clin Chem*
     /// 47:1956-1961, 2001, <https://doi.org/10.1093/clinchem/47.11.1956>): sodium,
@@ -225,7 +301,7 @@ impl Conditions {
 }
 
 /// A key looked up in one of the tables above exactly as written.
-fn listed(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)> {
+pub(crate) fn listed(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)> {
     table
         .iter()
         .find(|(listed, _, _)| *listed == &key)
@@ -236,7 +312,7 @@ fn listed(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)> {
 /// other strand, which is the key reversed. The stacks and the internal mismatches are
 /// listed once per pair of neighbours and found either way round; the terminal mismatches
 /// are not, and are looked up with [`listed`] alone, which is how Biopython reads them.
-fn parameter(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)> {
+pub(crate) fn parameter(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)> {
     let mut flipped = key;
     flipped.reverse();
     listed(table, key).or_else(|| listed(table, flipped))
@@ -244,7 +320,7 @@ fn parameter(table: &[(&[u8; 5], f64, f64)], key: [u8; 5]) -> Option<(f64, f64)>
 
 /// A four-base key `top/bottom`, as the tables are written: the first two bases of each
 /// strand, in order.
-fn key(top: &[u8], bottom: &[u8]) -> Option<[u8; 5]> {
+pub(crate) fn key(top: &[u8], bottom: &[u8]) -> Option<[u8; 5]> {
     Some([
         *top.first()?,
         *top.get(1)?,
@@ -269,7 +345,7 @@ fn left_key(top: &[u8], bottom: &[u8]) -> Option<[u8; 5]> {
 }
 
 /// Whether every base is one the parameters are known for.
-fn only_dna(bases: &[u8]) -> bool {
+pub(crate) fn only_dna(bases: &[u8]) -> bool {
     bases
         .iter()
         .all(|base| matches!(base, b'A' | b'C' | b'G' | b'T'))
@@ -353,18 +429,36 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
     if strands <= 0.0 {
         return None;
     }
-    let monovalent = conditions.monovalent();
-    if monovalent <= 0.0 {
-        return None;
-    }
     #[expect(
         clippy::cast_precision_loss,
         reason = "a duplex is at most a few hundred bases"
     )]
     let length = (bases - 1) as f64;
-    entropy += 0.368 * length * monovalent.ln();
-
-    let celsius = 1000.0 * enthalpy / (entropy + GAS_CONSTANT * strands.ln()) - 273.15;
+    let celsius = match conditions.salt {
+        Salt::SantaLucia => {
+            let monovalent = conditions.monovalent();
+            if monovalent <= 0.0 {
+                return None;
+            }
+            entropy += 0.368 * length * monovalent.ln();
+            1000.0 * enthalpy / (entropy + GAS_CONSTANT * strands.ln()) - 273.15
+        }
+        Salt::Owczarzy => {
+            // The correction is on 1/Tm, measured from the duplex's melting temperature in
+            // 1 M Na+, where SantaLucia's own entropy term is ln(1) and so vanishes.
+            let kelvin = 1000.0 * enthalpy / (entropy + GAS_CONSTANT * strands.ln());
+            let gc = top
+                .iter()
+                .filter(|base| matches!(base, b'G' | b'C'))
+                .count();
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "a duplex is at most a few hundred bases"
+            )]
+            let fraction = gc as f64 / bases as f64;
+            1.0 / (1.0 / kelvin + owczarzy(conditions, fraction, length)?) - 273.15
+        }
+    };
     if celsius.is_finite() {
         Some(rounded(celsius))
     } else {
@@ -372,11 +466,77 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
     }
 }
 
+/// Where a buffer's magnesium stops being a detail and starts being what holds the duplex
+/// together, by Owczarzy et al. 2008: the ratio sqrt([Mg2+]) / [Mon+]. Below the first
+/// value the monovalent ions dominate; from the second the magnesium does, and in between
+/// the two compete.
+const MONOVALENT_UP_TO: f64 = 0.22;
+const DIVALENT_FROM: f64 = 6.0;
+
+/// Owczarzy's correction to add to `1/Tm(1 M Na+)`, in reciprocal Kelvin, for a duplex of
+/// `length` + 1 base pairs whose bases are `fraction` G or C. `None` where the buffer has
+/// no monovalent cation and no free magnesium either, so there is nothing to correct from.
+///
+/// The three regimes are the decision Owczarzy et al. 2008 set out (its figure 9), with
+/// the coefficients of its equation 16 and the monovalent-dependent forms of a, d and g
+/// that its competing regime calls for. Concentrations are molar and Tm is Kelvin, as the
+/// paper has them.
+#[expect(
+    clippy::many_single_char_names,
+    reason = "a to g are the coefficients' own names in Owczarzy et al. 2008"
+)]
+fn owczarzy(conditions: &Conditions, fraction: f64, length: f64) -> Option<f64> {
+    let cations = conditions.cations();
+    let magnesium = conditions.free_magnesium();
+    // Primer3 takes a buffer with no monovalent cation at all as magnesium-dominant,
+    // rather than dividing by zero.
+    let ratio = if cations <= 0.0 {
+        DIVALENT_FROM
+    } else {
+        magnesium.sqrt() / cations
+    };
+    if ratio < MONOVALENT_UP_TO {
+        // Owczarzy et al. 2004, equation 22: the monovalent correction, which that paper's
+        // central result is independent of the duplex's length.
+        if cations <= 0.0 {
+            return None;
+        }
+        let ln = cations.ln();
+        return Some((4.29 * fraction - 3.95) * 1e-5 * ln + 9.40e-6 * ln * ln);
+    }
+    // Owczarzy et al. 2008, equation 16, with the coefficients of its table 2 at a
+    // reference 1 M monovalent cation.
+    let (mut a, b, c, mut d, e, f, mut g) = (
+        3.92e-5, -9.11e-6, 6.26e-5, 1.42e-5, -4.82e-4, 5.25e-4, 8.31e-5,
+    );
+    if ratio < DIVALENT_FROM {
+        // The two compete, and a, d and g become functions of the monovalent cation.
+        let ln = cations.ln();
+        a = 3.92e-5 * (0.843 - 0.352 * cations.sqrt() * ln);
+        d = 1.42e-5 * (1.279 - 4.03e-3 * ln - 8.03e-3 * ln * ln);
+        g = 8.31e-5 * (0.486 - 0.258 * ln + 5.25e-3 * ln * ln * ln);
+    }
+    let ln = magnesium.ln();
+    Some(a + b * ln + fraction * (c + d * ln) + (1.0 / (2.0 * length)) * (e + f * ln + g * ln * ln))
+}
+
 /// Degrees Celsius for a primer against its exact complement.
+///
+/// An oligo that is its own complement -- `GCGCGC`, and every palindrome -- is handled as
+/// SantaLucia's self-complementary case rather than as two different strands: there is no
+/// second species in the tube, so all the strands are at the concentration `conditions`
+/// gives for the first, and the duplex carries his symmetry term (1998, equation 3). An
+/// oligo and a separate complement at the same total concentration melt about 3 degrees
+/// lower, which is the difference this avoids reporting.
 #[must_use]
 pub fn matched_melting_temperature(bases: &[u8], conditions: &Conditions) -> Option<f64> {
     let complement: Vec<u8> = bases.iter().map(|base| complement(*base)).collect();
-    melting_temperature(bases, &complement, conditions)
+    let mut conditions = *conditions;
+    if bases.iter().rev().eq(complement.iter()) {
+        conditions.strand += conditions.other_strand;
+        conditions.other_strand = 0.0;
+    }
+    melting_temperature(bases, &complement, &conditions)
 }
 
 /// The base that pairs with this one, or the byte itself where nothing pairs with it.
@@ -401,7 +561,7 @@ fn rounded(celsius: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Conditions, matched_melting_temperature, melting_temperature};
+    use super::{Conditions, Salt, matched_melting_temperature, melting_temperature};
 
     #[test]
     fn a_matched_primer_melts_where_the_reference_says() {
@@ -411,7 +571,11 @@ mod tests {
         for (bases, expected) in [
             (b"GTAAAACGACGGCCAGT".as_slice(), 49.2),
             (b"CAGGAAACAGCTATGAC".as_slice(), 43.6),
-            (b"ACGTACGTACGT".as_slice(), 34.9),
+            // Its own complement, so there is no second species: all 50 nM of strands
+            // are this one and the duplex carries the symmetry term. Biopython's Tm_NN
+            // with selfcomp=True and dnac1=50 gives 36.27; as two strands at 25 nM each
+            // it would give 34.87, which is the 1.4 degrees this convention is worth.
+            (b"ACGTACGTACGT".as_slice(), 36.3),
         ] {
             assert_eq!(
                 matched_melting_temperature(bases, &Conditions::PRIMER),
@@ -461,6 +625,126 @@ mod tests {
         assert_eq!(
             matched_melting_temperature(b"GTAAAACGACGGCCAGT", &dry),
             None
+        );
+    }
+
+    /// A buffer as Primer3's `oligotm` takes one: `-mv` monovalent, `-dv` magnesium, `-n`
+    /// dNTPs, all millimolar, and its default 50 nM of strands in all.
+    fn buffer(monovalent: f64, magnesium: f64, dntp: f64) -> Conditions {
+        Conditions {
+            sodium: monovalent,
+            magnesium,
+            dntp,
+            salt: Salt::Owczarzy,
+            ..Conditions::PRIMER
+        }
+    }
+
+    #[test]
+    fn owczarzys_corrections_give_primer3s_published_temperatures() {
+        // Every row of Primer3's own `test/oligotm.txt` computed with its SantaLucia 1998
+        // parameters and its Owczarzy salt correction (`-tp 1 -sc 2`), at its default
+        // 50 nM of strands. Primer3 prints six decimal places; a tenth of a degree is all
+        // Iki quotes, and the two agree to about a thousandth.
+        let rows: &[(&[u8], f64, f64, f64, f64)] = &[
+            (b"TCACGCTCACAAACGAGAGGAAG", 50.0, 0.0, 1.0, 56.755_143),
+            (b"TCCCTTGCCTCGTTCAGTGC", 50.0, 0.0, 0.0, 57.675_190),
+            (b"TCGGCCTCCCAAAGTGCTG", 50.0, 0.0, 1.5, 57.961_561),
+            (b"TCTCGCCATTTTGGTCTTGCAG", 50.0, 1.0, 0.0, 61.298_237),
+            (b"TGATCAGCACAGTGGCTCACG", 50.0, 1.5, 0.0, 63.610_135),
+            (b"TGCCGTTCACGTCGTAGCTG", 50.0, 1.5, 0.8, 62.043_487),
+            (b"TGGGCCTCCCAAAGTGCTG", 50.0, 2.5, 0.1, 64.566_813),
+            (b"TTGCATGCCCAGAGTTGACG", 50.0, 2.5, 1.0, 61.807_390),
+        ];
+        for &(bases, monovalent, magnesium, dntp, expected) in rows {
+            let got = matched_melting_temperature(bases, &buffer(monovalent, magnesium, dntp))
+                .expect("every row is DNA");
+            let name = String::from_utf8_lossy(bases);
+            assert!(
+                (got - expected).abs() < 0.05,
+                "{name}: {got} against Primer3's {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_regimes_part_where_owczarzy_says_they_do() {
+        // Primer3's `test/oligotm.txt` holds one sequence at six monovalent
+        // concentrations, chosen to sit either side of the ratio of 6 at which magnesium
+        // stops competing with the monovalent cations. Below it the three
+        // monovalent-dependent coefficients are used and the temperature moves; at and
+        // above it they are not, and the same temperature comes back however little
+        // monovalent cation there is.
+        let bases = b"AAGGCGAGTCAGGCTCAGTG";
+        for monovalent in [0.0, 0.5, 5.0, 5.5] {
+            let got = matched_melting_temperature(bases, &buffer(monovalent, 1.5, 0.0))
+                .expect("it is DNA");
+            assert!(
+                (got - 63.257_974).abs() < 0.05,
+                "{monovalent} mM: {got} against Primer3's 63.257_974"
+            );
+        }
+        let competing =
+            matched_melting_temperature(bases, &buffer(10.0, 1.5, 0.0)).expect("it is DNA");
+        assert!(
+            (competing - 62.346_915).abs() < 0.05,
+            "10 mM: {competing} against Primer3's 62.346_915"
+        );
+    }
+
+    #[test]
+    fn a_measured_duplex_melts_about_where_owczarzy_measured_it() {
+        // Owczarzy et al. 2008, Table S1: ATCAATCATA in 3.0 mM Mg2+ with no KCl, at a
+        // total strand concentration of 2 uM, melts at 27.4 C. The buffer is 2 mM
+        // Tris-HCl, about half of which is cation. The prediction is not the measurement,
+        // and the paper's own average error is a degree or so, so this asks for one
+        // degree -- enough to catch a wrong regime, a dropped length term or a sign.
+        let measured = Conditions {
+            sodium: 0.0,
+            tris: 2.0,
+            magnesium: 3.0,
+            dntp: 0.0,
+            strand: 1000.0,
+            other_strand: 1000.0,
+            salt: Salt::Owczarzy,
+            ..Conditions::PRIMER
+        };
+        let got = matched_melting_temperature(b"ATCAATCATA", &measured).expect("it is DNA");
+        assert!((got - 27.4).abs() < 1.0, "{got} against a measured 27.4");
+
+        // Its 1 M Na+ reference column, the state the correction is measured from, is
+        // 33.6 C measured against 31.3 C predicted from SantaLucia's parameters alone.
+        // That 2.3 C is the nearest-neighbour model's own error, largest for a short
+        // AT-rich duplex like this one, and not something a salt correction fixes:
+        // SantaLucia 1998 reports about 2 C on average over its own set. The corrected
+        // prediction above lands nearer the measurement than this reference does, because
+        // Owczarzy's coefficients were fitted on measured temperatures. So this asks only
+        // that the reference state is in the right place to a few degrees, which is what
+        // catches a sign or a dropped term.
+        let one_molar = Conditions {
+            sodium: 1000.0,
+            strand: 1000.0,
+            other_strand: 1000.0,
+            ..Conditions::PRIMER
+        };
+        let reference = matched_melting_temperature(b"ATCAATCATA", &one_molar).expect("it is DNA");
+        assert!(
+            (reference - 33.6).abs() < 3.0,
+            "{reference} against a measured 33.6"
+        );
+    }
+
+    #[test]
+    fn a_pcr_buffer_melts_a_primer_higher_than_sodium_alone() {
+        // The magnesium and dNTPs of a PCR buffer raise a primer's melting temperature by
+        // several degrees, which is why a primer's own quoted number and the one a PCR
+        // needs are not the same number.
+        let primer = b"GTAAAACGACGGCCAGT";
+        let quoted = matched_melting_temperature(primer, &Conditions::PRIMER).expect("DNA");
+        let in_pcr = matched_melting_temperature(primer, &Conditions::PCR).expect("DNA");
+        assert!(
+            in_pcr > quoted + 3.0 && in_pcr < quoted + 10.0,
+            "{in_pcr} in a PCR buffer against {quoted} in sodium alone"
         );
     }
 }

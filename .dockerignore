@@ -46,5 +46,6 @@ worker/target/
 # The scripts that build the plugins' modules in the wasm stage; no .wasm is sent, and
 # the stage compares nothing, so no digest is sent either (ADR 0200).
 !scripts/build-plasmid-tools-wasm.sh
+!scripts/build-oligo-checks-wasm.sh
 **/__pycache__/
 **/*.pyc
