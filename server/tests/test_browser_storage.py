@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 import pytest
+from browser_scan import observe_scan
 from org_world import World
 from playwright.sync_api import Page, expect
 from test_browser import (  # noqa: F401 - fixtures
@@ -164,17 +165,19 @@ def scan_label(page: Page, code: str) -> None:
 
 def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) -> None:
     kept = a_freezer(world)
-    page = open_as("admin", f"/storage/{kept['retains']['hrid']}/")
-    grid = page.get_by_role("grid", name="Kinase retains’s positions")
-    grid.wait_for()
-    # Focus on a button, not the scan box: a keyboard-mode scanner types fast, then Enter,
-    # which mustn't press the button.
-    show = page.get_by_role("button", name="Show free positions")
-    show.focus()
-    scan_label(page, "LB-0023")
-    expect(grid.get_by_role("gridcell", name=re.compile(r"^B3, "))).to_be_focused()
-    expect(page.get_by_role("status").filter(has_text="is at B3")).to_be_visible()
-    expect(show).to_have_attribute("aria-pressed", "false")
+    box_path = f"/storage/{kept['retains']['hrid']}/"
+    page = open_as("admin", box_path)
+    with observe_scan(page, "LB-0023", box_path, f"B3 focused on {box_path}"):
+        grid = page.get_by_role("grid", name="Kinase retains’s positions")
+        grid.wait_for()
+        # Focus on a button, not the scan box: a keyboard-mode scanner types fast, then Enter,
+        # which mustn't press the button.
+        show = page.get_by_role("button", name="Show free positions")
+        show.focus()
+        scan_label(page, "LB-0023")
+        expect(grid.get_by_role("gridcell", name=re.compile(r"^B3, "))).to_be_focused()
+        expect(page.get_by_role("status").filter(has_text="is at B3")).to_be_visible()
+        expect(show).to_have_attribute("aria-pressed", "false")
     # Typing in the scan box is typing; its Enter finds what's typed.
     search = page.get_by_role("textbox", name="Scan to find")
     search.press_sequentially(kept["spare"]["hrid"])
@@ -182,13 +185,14 @@ def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) ->
     search.press("Enter")
     page.get_by_role("heading", level=1, name="Spare box").wait_for()
     # From Storage, a scanned tube opens its box with its position marked.
-    page.goto("/storage/")
-    page.get_by_role("heading", level=1, name="Storage").wait_for()
-    page.get_by_role("link", name="Storage", exact=True).first.focus()
-    scan_label(page, "LB-0011")
-    page.wait_for_url(re.compile(r"/storage/BOX-\d+/\?at=A1"))
-    marked = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
-    expect(marked).to_have_attribute("aria-current", "location")
+    with observe_scan(page, "LB-0011", "/storage/", f"{box_path}?at=A1", new_document=True):
+        page.goto("/storage/")
+        page.get_by_role("heading", level=1, name="Storage").wait_for()
+        page.get_by_role("link", name="Storage", exact=True).first.focus()
+        scan_label(page, "LB-0011")
+        page.wait_for_url(re.compile(r"/storage/BOX-\d+/\?at=A1"))
+        marked = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
+        expect(marked).to_have_attribute("aria-current", "location")
     checked(page)
     page.context.close()
 
