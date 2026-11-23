@@ -46,15 +46,18 @@ export function ScanBar({
 }) {
   const id = useId();
   const [text, setText] = useState("");
+  const [unread, setUnread] = useState(false);
   const [camera, setCamera] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const take = (code: string) => {
+    setUnread(false);
     const trimmed = code.trim();
     if (!trimmed) return;
     onScan(trimmed);
   };
   useScanner((code) => {
-    take(code);
+    if (code === null) setUnread(true);
+    else take(code);
   }, !disabled && !camera);
   const submit = (event: SyntheticEvent) => {
     event.preventDefault();
@@ -98,6 +101,11 @@ export function ScanBar({
           {help} A scanner works wherever you are on this page.
         </p>
       </div>
+      {unread && (
+        <p className="field-error" role="alert">
+          Couldn’t read the scan. Scan again or type the code.
+        </p>
+      )}
       {camera ? (
         <CameraDialog
           onCode={(code) => {
