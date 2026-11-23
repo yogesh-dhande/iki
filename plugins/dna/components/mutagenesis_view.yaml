@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A mutagenesis's own tab (ADR 0204): the changes placed along the template, what they do
+# to the protein, and the oligos to order. The record's fields hold all three, and none of
+# them reads as a field: a change is a position on a molecule, a protein change is a
+# consequence of it, and a primer is a string of bases a person copies into an order form.
+# Iki sets `entity` to the mutagenesis, as the person viewing it may read it.
+apiVersion: iki/v1
+kind: Component
+name: mutagenesis_view
+label: Changes
+description: >-
+  The changes a design makes, placed along the template: a strip with a mark where each
+  one lies, every change as it was stated and as HGVS names it where it lies, what each
+  does to the protein, and the primers designed to make them with their bases, how much
+  of each matches the template and what the protocol's own acceptance rule measures.
+  Nothing is told by colour alone: the strip is said in words and every change and primer
+  is in a table beneath it.
+module: ./components/mutagenesis-view.js
+element: mutagenesis-view
+slots:
+  - slot: entity.tab
+    type: Mutagenesis
+    label: Changes
+# Until the changes have been made, the tab offers the action that makes them, where the
+# person viewing it may run it (ADR 0170).
+events: { run: { actions: [apply_mutagenesis] } }
