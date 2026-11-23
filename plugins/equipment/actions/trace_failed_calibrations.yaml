@@ -1,0 +1,31 @@
+apiVersion: iki/v1
+kind: Action
+name: trace_failed_calibrations
+label: Trace failed calibrations
+description: >-
+  For one instrument, compare signed calibration history and instrument uses. Open evidence-linked
+  impact cases for measurements between each suspected start and the next passing calibration.
+  Select all calibration records relevant to the interval, including any recovery, and any
+  existing impact cases for the uses being checked.
+inputs:
+  instrument: { type: iki/example_lims.Instrument }
+  calibrations: { type: EquipmentService, cardinality: many, max: 1000, label: Service history }
+  uses:
+    { type: InstrumentUse, cardinality: many, max: 1000, optional: true, label: Instrument uses }
+  existing:
+    {
+      type: CalibrationImpact,
+      cardinality: many,
+      max: 1000,
+      optional: true,
+      label: Existing impacts,
+    }
+effects:
+  creates:
+    - type: CalibrationImpact
+      cardinality: many
+      match_on: key
+      derived_from: [instrument, calibrations, uses]
+runs_on: { tier: backend, environment: equipment-tools }
+command: [python, ./scripts/equipment.py, trace]
+timeout: 2m

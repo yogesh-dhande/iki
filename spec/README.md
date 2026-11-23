@@ -66,7 +66,7 @@ with a letter. The namespace is your lab's or company's.
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
   `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`,
   `iki/plate_assays`, `iki/experiments`, `iki/reagents`, `iki/qc_release`,
-  `iki/stability` and `iki/example_lims`. No other plugin may use
+  `iki/stability`, `iki/equipment` and `iki/example_lims`. No other plugin may use
   it, or a namespace starting with `iki_` (`reserved-namespace`), and a
   lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace

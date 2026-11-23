@@ -3321,6 +3321,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{entity['hrid']} has no verifiable research sign-off")
     ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
     linked_experiment(alice, project, sample["id"], plate["values"]["reader_file"], entity["id"])
+    equipment_calibration(alice, project, entity)
 
 
 def fit_assay_plate(
@@ -3892,6 +3893,162 @@ def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]
     if not expected.issubset(found) or not values.get("library_annotated_with"):
         fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
     ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
+
+
+def equipment_calibration(
+    alice: requests.Session, project: dict[str, Any], measured: dict[str, Any]
+) -> None:
+    """Trace a synthetic calibration failure to an already signed measurement."""
+    prefix = "iki/equipment."
+    give_lab_roles(alice, project, "iki/example_lims.engineer", prefix + "qa")
+    engineer = api_call(alice, "GET", "/me").json()["id"]
+    result = record(alice, measured["id"])
+    instrument = created(
+        alice, project, "iki/example_lims.Instrument", {"name": "Synthetic MARS absorbance reader"}
+    )
+    now = datetime.now(UTC).replace(microsecond=0)
+    performed = now - timedelta(days=3)
+    measured_at = now - timedelta(days=2)
+    failed_at = now - timedelta(days=1)
+
+    def change(
+        entity: dict[str, Any], path: str, values: dict[str, Any], *, method: str = "PATCH"
+    ) -> None:
+        at = f"/entities/{entity['id']}"
+        etag = api_call(alice, "GET", at).headers["ETag"]
+        changed = api_call(alice, method, at + path, values, {"If-Match": etag})
+        if changed.status_code != 200:
+            fail(f"changing {entity['hrid']} answered HTTP {changed.status_code}: {changed.text}")
+
+    def appointment(at: datetime, outcome: str, more: dict[str, Any]) -> dict[str, Any]:
+        run = launch(
+            alice,
+            project,
+            prefix + "schedule_service",
+            {"instrument": instrument["id"]},
+            {
+                "kind": "calibration",
+                "due_on": at.date().isoformat(),
+                "procedure": "Synthetic optical check, demonstration revision 1",
+            },
+        )
+        [made] = [effect["entity"] for effect in run["effects"]]
+        service = record(alice, made)
+        report = upload(
+            alice,
+            project,
+            "synthetic-calibration-report.txt",
+            f"Synthetic service report for {instrument['hrid']}: {outcome}.\n".encode(),
+            "text/plain",
+        )
+        change(
+            service,
+            "",
+            {
+                "values": {
+                    "outcome": outcome,
+                    "performed_by": engineer,
+                    "performed_at": at.isoformat(),
+                    "report": report,
+                    **more,
+                }
+            },
+        )
+        signed = signing(alice, service, "signed_off", "alice", field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"signing the equipment service {service['hrid']} answered {signed}")
+        return record(alice, made)
+
+    passing = appointment(
+        performed, "in_tolerance", {"valid_until": (now + timedelta(days=10)).isoformat()}
+    )
+    change(instrument, "/states/calibration", {"state": "calibrated", "reason": ""}, method="POST")
+    used = launch(
+        alice,
+        project,
+        prefix + "record_instrument_use",
+        {"instrument": instrument["id"], "result": result["id"], "calibration": passing["id"]},
+        {"measurement_at": measured_at.isoformat()},
+    )
+    [use_id] = [effect["entity"] for effect in used["effects"]]
+    use = record(alice, use_id)
+    if (
+        use["values"]["calibration_revision"] != passing["revision"]
+        or use["values"]["result_revision"] != result["revision"]
+    ):
+        fail(f"{use['hrid']} did not pin the measurement and calibration revisions")
+
+    failure = appointment(
+        failed_at,
+        "out_of_tolerance",
+        {
+            "notes": "Synthetic failure. The passing check was the last known good evidence.",
+            "suspect_since": performed.isoformat(),
+        },
+    )
+    configured = api_call(
+        alice,
+        "POST",
+        f"/projects/{project['id']}/triggers/{prefix}trace_failed_instrument/enable",
+        {},
+    )
+    if configured.status_code != 200 or not configured.json()["enabled"]:
+        fail(
+            f"enabling the calibration trigger answered {configured.status_code}: {configured.text}"
+        )
+    for field, state in (("service", "out_of_service"), ("calibration", "failed")):
+        change(
+            instrument,
+            f"/states/{field}",
+            {"state": state, "reason": "Synthetic calibration failure"},
+            method="POST",
+        )
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        cases = api_call(
+            alice,
+            "POST",
+            "/entities/search",
+            {
+                "type": prefix + "CalibrationImpact",
+                "project": project["id"],
+                "where": {"field": "failure", "op": "eq", "value": failure["id"]},
+            },
+        )
+        if cases.status_code != 200:
+            fail(f"reading calibration impacts answered HTTP {cases.status_code}: {cases.text}")
+        if cases.json()["items"]:
+            break
+        time.sleep(2)
+    else:
+        fail(f"the calibration trigger did not find {use['hrid']} for {failure['hrid']}")
+    [impact] = cases.json()["items"]
+    if (
+        impact["values"]["use"] != use["id"]
+        or impact["values"]["failure_revision"] != failure["revision"]
+    ):
+        fail(f"calibration impact {impact['hrid']} does not identify the failure and use")
+    change(
+        impact,
+        "",
+        {
+            "values": {
+                "disposition": "repeat_required",
+                "reasoning": "Synthetic case; repeat the read.",
+            }
+        },
+    )
+    disposition = signing(alice, impact, "signed_off", "alice", field="review")
+    original = record(alice, result["id"])
+    proofs = api_call(alice, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
+    if (
+        disposition["status"] != "signed"
+        or not disposition["set"]
+        or original["revision"] != result["revision"]
+        or not proofs["items"][0]["verification"]["valid"]
+    ):
+        fail(f"{impact['hrid']} did not preserve {result['hrid']}'s signed revision")
+    ok(f"{use['hrid']} pins the calibration; {impact['hrid']} keeps QA's repeat decision")
 
 
 def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
