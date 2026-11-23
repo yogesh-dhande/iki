@@ -975,20 +975,31 @@ def receipt_history(
     return _observation_history(me, _receipt(me, receipt_id), line_id, params)
 
 
+_PATCH_NOTE = (
+    "Omit to keep the current note. Send null, an empty string, or whitespace to clear it."
+)
+
+
+def _patch_note(payload: ReceiptIn | ReceiptLineIn | ResolveIn) -> str | None:
+    if "note" not in payload.model_fields_set:
+        return None
+    return (payload.note or "").strip()
+
+
 class ReviewedReceiptIn(Schema):
     plan_revision: int = Field(ge=1, strict=True, description="The receipt revision you reviewed.")
 
 
 class ReceiptIn(ReviewedReceiptIn):
-    reason: str = Field(
-        "", max_length=2000, description="Why existing handoff information is corrected."
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when correcting existing handoff information.",
     )
     handed_over_by: str | None = Field(
         None, max_length=200, description="Who handed it over: a courier and waybill, a person."
     )
-    note: str | None = Field(
-        None, max_length=2000, description="Such as its temperature on arrival."
-    )
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
 
 
 @router.patch("/receipts/{receipt_id}", response=ReceiptOut, summary="Describe a receipt")
@@ -1001,9 +1012,9 @@ def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -
                 me,
                 receipt,
                 handed_over_by=payload.handed_over_by,
-                note=payload.note,
+                note=_patch_note(payload),
                 plan_revision=payload.plan_revision,
-                reason=payload.reason,
+                reason=payload.reason or "",
             )
         )
         return _receipt_out(me, changed, locked=True)
@@ -1040,12 +1051,16 @@ class ReceiptLineIn(Schema):
     outcome: Outcome | None = Field(
         description="Null clears an expected line. First observations can omit line_revision."
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
     line_revision: int | None = Field(
         None, ge=1, strict=True, description="Version of the line being corrected."
     )
-    reason: str = Field(
-        "", max_length=2000, description="Why an existing observation is being changed."
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description=(
+            "Defaults to empty. Required to change an existing outcome or replace a saved note."
+        ),
     )
 
 
@@ -1072,9 +1087,9 @@ def check_line(
                 receipt,
                 line_id,
                 payload.outcome,
-                payload.note if "note" in payload.model_fields_set else None,
+                _patch_note(payload),
                 line_revision=payload.line_revision,
-                reason=payload.reason,
+                reason=payload.reason or "",
             )
         )
         return {
@@ -1154,7 +1169,8 @@ class PutAwayIn(Schema):
 class CompleteReceiptIn(ReviewedReceiptIn):
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
     missing_rest: bool = Field(
-        False, description="Mark every expected line not yet checked missing."
+        default_factory=bool,
+        description="Mark every unchecked expected line missing. Defaults to false.",
     )
 
 
@@ -1450,8 +1466,10 @@ class ScansIn(Schema):
         max_length=3072,
         description="Prior observations to recheck or replace, including empty slots.",
     )
-    reason: str = Field(
-        "", max_length=2000, description="Why an earlier observation is being replaced."
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when replacing an earlier observation.",
     )
     scans: list[ScanIn] = Field(
         min_length=1,
@@ -1483,7 +1501,7 @@ def scan_positions(
                 reviewed_lines=[
                     (line.line_id, line.line_revision) for line in payload.reviewed_lines
                 ],
-                reason=payload.reason,
+                reason=payload.reason or "",
             )
         )
         return _reconciliation_out(me, r, locked=True)
@@ -1491,14 +1509,17 @@ def scan_positions(
 
 class ResolveIn(Schema):
     line_revision: int = Field(ge=1, strict=True)
-    reason: str = Field(
-        "", max_length=2000, description="Why a saved decision is being changed or cleared."
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when changing or clearing a saved decision.",
     )
     resolution: Resolution | None = Field(
         description="`moved` (a record in the wrong position), `removed` (one missing), "
-        "`placed` (one unexpected), or `kept`, with a note; null clears it."
+        "`placed` (one unexpected), or `kept`, with a note. Null clears the decision and its "
+        "attached note. The earlier decision and note remain in the history."
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
 
 
 @router.patch(
@@ -1521,9 +1542,9 @@ def resolve_line(
                 r,
                 line_id,
                 payload.resolution,
-                payload.note,
+                _patch_note(payload),
                 line_revision=payload.line_revision,
-                reason=payload.reason,
+                reason=payload.reason or "",
             )
         )
         return _reconciliation_out(me, r, locked=True)
@@ -1531,9 +1552,12 @@ def resolve_line(
 
 class CompleteReconciliationIn(ReviewedReconciliationIn):
     missing_rest: bool = Field(
-        False, description="Take each recorded position nobody scanned to be missing, removed."
+        default_factory=bool,
+        description="Treat unscanned occupants as missing and remove them. Defaults to false.",
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(
+        None, max_length=2000, description="Completion note. Defaults to empty."
+    )
 
 
 @router.post(
@@ -1555,7 +1579,7 @@ def complete_reconciliation(
                 r,
                 plan_revision=payload.plan_revision,
                 missing_rest=payload.missing_rest,
-                note=payload.note,
+                note=payload.note or "",
             )
         )
         return _reconciliation_out(me, r, locked=True)

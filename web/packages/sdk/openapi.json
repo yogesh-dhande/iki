@@ -3115,8 +3115,7 @@
       "CompleteReceiptIn": {
         "properties": {
           "missing_rest": {
-            "default": false,
-            "description": "Mark every expected line not yet checked missing.",
+            "description": "Mark every unchecked expected line missing. Defaults to false.",
             "title": "Missing Rest",
             "type": "boolean"
           },
@@ -3144,16 +3143,22 @@
       "CompleteReconciliationIn": {
         "properties": {
           "missing_rest": {
-            "default": false,
-            "description": "Take each recorded position nobody scanned to be missing, removed.",
+            "description": "Treat unscanned occupants as missing and remove them. Defaults to false.",
             "title": "Missing Rest",
             "type": "boolean"
           },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Completion note. Defaults to empty.",
+            "title": "Note"
           },
           "plan_revision": {
             "description": "The revision of the reconciliation plan being reviewed.",
@@ -16923,7 +16928,7 @@
                 "type": "null"
               }
             ],
-            "description": "Such as its temperature on arrival.",
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
             "title": "Note"
           },
           "plan_revision": {
@@ -16933,11 +16938,17 @@
             "type": "integer"
           },
           "reason": {
-            "default": "",
-            "description": "Why existing handoff information is corrected.",
-            "maxLength": 2000,
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when correcting existing handoff information.",
+            "title": "Reason"
           }
         },
         "required": [
@@ -16962,10 +16973,17 @@
             "title": "Line Revision"
           },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
+            "title": "Note"
           },
           "outcome": {
             "anyOf": [
@@ -16987,11 +17005,17 @@
             "title": "Outcome"
           },
           "reason": {
-            "default": "",
-            "description": "Why an existing observation is being changed.",
-            "maxLength": 2000,
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required to change an existing outcome or replace a saved note.",
+            "title": "Reason"
           }
         },
         "required": [
@@ -18569,17 +18593,30 @@
             "type": "integer"
           },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
+            "title": "Note"
           },
           "reason": {
-            "default": "",
-            "description": "Why a saved decision is being changed or cleared.",
-            "maxLength": 2000,
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when changing or clearing a saved decision.",
+            "title": "Reason"
           },
           "resolution": {
             "anyOf": [
@@ -18596,7 +18633,7 @@
                 "type": "null"
               }
             ],
-            "description": "`moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.",
+            "description": "`moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.",
             "title": "Resolution"
           }
         },
@@ -21458,11 +21495,17 @@
       "ScansIn": {
         "properties": {
           "reason": {
-            "default": "",
-            "description": "Why an earlier observation is being replaced.",
-            "maxLength": 2000,
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when replacing an earlier observation.",
+            "title": "Reason"
           },
           "reviewed_lines": {
             "description": "Prior observations to recheck or replace, including empty slots.",

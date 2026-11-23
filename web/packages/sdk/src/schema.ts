@@ -6872,10 +6872,9 @@ export interface components {
         CompleteReceiptIn: {
             /**
              * Missing Rest
-             * @description Mark every expected line not yet checked missing.
-             * @default false
+             * @description Mark every unchecked expected line missing. Defaults to false.
              */
-            missing_rest: boolean;
+            missing_rest?: boolean;
             /**
              * Plan Revision
              * @description The receipt revision you reviewed.
@@ -6888,15 +6887,14 @@ export interface components {
         CompleteReconciliationIn: {
             /**
              * Missing Rest
-             * @description Take each recorded position nobody scanned to be missing, removed.
-             * @default false
+             * @description Treat unscanned occupants as missing and remove them. Defaults to false.
              */
-            missing_rest: boolean;
+            missing_rest?: boolean;
             /**
              * Note
-             * @default
+             * @description Completion note. Defaults to empty.
              */
-            note: string;
+            note?: string | null;
             /**
              * Plan Revision
              * @description The revision of the reconciliation plan being reviewed.
@@ -13119,7 +13117,7 @@ export interface components {
             handed_over_by?: string | null;
             /**
              * Note
-             * @description Such as its temperature on arrival.
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
             note?: string | null;
             /**
@@ -13129,10 +13127,9 @@ export interface components {
             plan_revision: number;
             /**
              * Reason
-             * @description Why existing handoff information is corrected.
-             * @default
+             * @description Defaults to empty. Required when correcting existing handoff information.
              */
-            reason: string;
+            reason?: string | null;
         };
         /** ReceiptLineIn */
         ReceiptLineIn: {
@@ -13143,9 +13140,9 @@ export interface components {
             line_revision?: number | null;
             /**
              * Note
-             * @default
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
-            note: string;
+            note?: string | null;
             /**
              * Outcome
              * @description Null clears an expected line. First observations can omit line_revision.
@@ -13153,10 +13150,9 @@ export interface components {
             outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
             /**
              * Reason
-             * @description Why an existing observation is being changed.
-             * @default
+             * @description Defaults to empty. Required to change an existing outcome or replace a saved note.
              */
-            reason: string;
+            reason?: string | null;
         };
         /** ReceiptLineOut */
         ReceiptLineOut: {
@@ -13844,18 +13840,17 @@ export interface components {
             line_revision: number;
             /**
              * Note
-             * @default
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
-            note: string;
+            note?: string | null;
             /**
              * Reason
-             * @description Why a saved decision is being changed or cleared.
-             * @default
+             * @description Defaults to empty. Required when changing or clearing a saved decision.
              */
-            reason: string;
+            reason?: string | null;
             /**
              * Resolution
-             * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
+             * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.
              */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
         };
@@ -15179,10 +15174,9 @@ export interface components {
         ScansIn: {
             /**
              * Reason
-             * @description Why an earlier observation is being replaced.
-             * @default
+             * @description Defaults to empty. Required when replacing an earlier observation.
              */
-            reason: string;
+            reason?: string | null;
             /**
              * Reviewed Lines
              * @description Prior observations to recheck or replace, including empty slots.

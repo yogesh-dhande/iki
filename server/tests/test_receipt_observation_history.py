@@ -20,8 +20,8 @@ from iki_server.entities.models import Entity
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant
 from iki_server.storage import receipts
+from iki_server.storage.models import ObservationEvent, ReceiptLine
 from iki_server.storage.models import Receipt as ReceiptModel
-from iki_server.storage.models import ReceiptLine
 
 pytestmark = pytest.mark.django_db
 
@@ -112,6 +112,9 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
     )
     assert read(first, path) == matched
     assert read(second, path + "/history") == scan_history
+    observer = lab.users["tech"]
+    observer.email = "renamed-tech@example.com"
+    observer.save(update_fields=["email"])
     cleared = change(
         second, "PATCH", line_path, row(matched, line), outcome=None, reason="Adjacent tube"
     )
@@ -172,12 +175,18 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
         "Inspection after unpacking",
         "Inspected under light",
     ]
-    assert [event["actor"]["email"] for event in events] == [
-        "tech@example.com",
-        "core_qa@example.com",
-        "tech@example.com",
-        "core_qa@example.com",
-        "tech@example.com",
+    reviewer = lab.users["core_qa"]
+    assert [(event["actor"]["id"], event["actor"]["email"]) for event in events] == [
+        (str(user.pk), user.email) for user in (observer, reviewer, observer, reviewer, observer)
+    ]
+    stored = ObservationEvent.objects.filter(receipt_id=matched["id"], line_id=line).order_by("id")
+    observer_id, reviewer_id = str(observer.pk), str(reviewer.pk)
+    assert list(stored.values_list("before__checked_by", "after__checked_by")) == [
+        (None, observer_id),
+        (observer_id, None),
+        (None, observer_id),
+        (observer_id, reviewer_id),
+        (reviewer_id, reviewer_id),
     ]
     assert all(
         event["receipt_id"] == matched["id"] and event["line_id"] == line for event in events
@@ -186,13 +195,10 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
     for earlier, later in pairwise(events):
         assert later["previous"] == earlier["id"] and later["before"] == earlier["after"]
         assert later["revision"] == earlier["revision"] + 1
-    assert (
-        events[1]["before"]["checked_by"] == "tech@example.com"
-        and events[1]["before"]["checked_at"]
-    )
+    assert events[1]["before"]["checked_by"] == observer_id and events[1]["before"]["checked_at"]
     assert events[-1]["before"]["note"] == "Cracked cap"
     assert events[-1]["after"]["note"] == "Hairline crack"
-    assert events[-1]["after"]["checked_by"] == "core_qa@example.com"
+    assert events[-1]["after"]["checked_by"] == reviewer_id
 
 
 def test_a_removed_extra_can_only_be_restored_explicitly_to_the_same_line(
@@ -212,7 +218,8 @@ def test_a_removed_extra_can_only_be_restored_explicitly_to_the_same_line(
         note="Blue cap",
         reason="Inspected the packaging",
     )
-    change(second, "DELETE", line_path, row(noted, line), status=422)
+    for reason_fields in ({}, {"reason": None}, {"reason": ""}):
+        change(second, "DELETE", line_path, row(noted, line), status=422, **reason_fields)
     removed = change(
         second, "DELETE", line_path, row(noted, line), reason="Listed on a separate delivery"
     )
@@ -224,9 +231,15 @@ def test_a_removed_extra_can_only_be_restored_explicitly_to_the_same_line(
     )
     again = change(first, "POST", path + "/scan", code="EXTRA-71")
     assert again["found"] == "removed" and again["line"] == line and again["receipt"] == removed
-    change(
-        first, "POST", line_path + "/restore", removed["removed_lines"][0], status=422, reason=" "
-    )
+    for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": " "}):
+        change(
+            first,
+            "POST",
+            line_path + "/restore",
+            removed["removed_lines"][0],
+            status=422,
+            **reason_fields,
+        )
     restored = change(
         first,
         "POST",
@@ -283,7 +296,8 @@ def test_handoff_corrections_and_cancellation_are_attributed_to_the_receiver(
         note="Dry ice present",
         reason="Checked the consignment record",
     )
-    change(first, "POST", path + "/cancel", corrected, status=422, reason=" ")
+    for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": " "}):
+        change(first, "POST", path + "/cancel", corrected, status=422, **reason_fields)
     cancelled = change(first, "POST", path + "/cancel", corrected, reason="Request withdrawn")
     assert cancelled["lines"] == corrected["lines"]
     assert cancelled["status"] == "cancelled" and cancelled["received_by"] is None
@@ -363,6 +377,9 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     assert all(e["actor"]["id"] == final["received_by"]["id"] for e in final_events)
     missing = next(e for e in final_events if e["kind"] == "outcome")
     assert missing["before"]["outcome"] is None and missing["after"]["outcome"] == "missing"
+    assert ObservationEvent.objects.values_list("after__checked_by", flat=True).get(
+        pk=missing["id"]
+    ) == str(lab.users["core_qa"].pk)
 
 
 def test_receipt_scoped_writes_require_the_revision_the_receiver_read(receiving: Receiving) -> None:
@@ -568,7 +585,7 @@ def test_first_correction_of_a_legacy_line_preserves_its_known_check(
     (event,) = timeline(first, path, line_id=line)
     assert event["previous"] is None and event["actor"]["email"] == "core_qa@example.com"
     assert event["before"]["outcome"] == "damaged" and event["before"]["note"] == "Cap cracked"
-    assert event["before"]["checked_by"] == "tech@example.com"
+    assert event["before"]["checked_by"] == str(lab.users["tech"].pk)
     assert datetime.fromisoformat(event["before"]["checked_at"]) == checked_at
     assert event["after"]["outcome"] is None and event["reason"] == "Package re-inspected"
 
@@ -677,7 +694,7 @@ def test_resuming_an_open_receipt_returns_the_open_snapshot_before_completion(
 
 
 @pytest.mark.parametrize("code,outcome", [("RC000", "matched"), ("EXTRA-71", "extra")])
-def test_adding_the_first_note_to_a_checked_line_requires_a_review_and_reason(
+def test_a_receiver_can_volunteer_a_reason_for_a_first_note_on_a_reviewed_line(
     receiving: Receiving, code: str, outcome: str
 ) -> None:
     first, second, path = receiving
@@ -686,7 +703,8 @@ def test_adding_the_first_note_to_a_checked_line_requires_a_review_and_reason(
     observed = row(before, scan["line"])
     line_path = f"{path}/lines/{scan['line']}"
     history = timeline(first, path)
-    change(second, "PATCH", line_path, observed, status=422, outcome=outcome, note="Blue cap")
+    blind = second.patch(line_path, {"outcome": outcome, "note": "Blue cap"})
+    assert blind.status_code == 200 and blind.json()["found"] == "again"
     change(
         second,
         "PATCH",
@@ -761,3 +779,144 @@ def test_first_manual_check_accepts_an_optional_reason_without_a_line_revision(
     assert again.status_code == 200, again.content
     assert again.json() == {**result, "found": "again"}
     assert timeline(second, path, line_id=line) == observed
+
+
+@pytest.mark.parametrize("code,outcome", [("RC000", "matched"), ("EXTRA-71", "extra")])
+@pytest.mark.parametrize(
+    "first_reason", [{}, {"reason": None}, {"reason": ""}], ids=["omitted", "null", "empty"]
+)
+def test_a_first_condition_note_preserves_the_observer_and_later_corrections_need_a_reason(
+    receiving: Receiving, code: str, outcome: str, first_reason: dict[str, str | None]
+) -> None:
+    first, second, path = receiving
+    scan = change(first, "POST", path + "/scan", code=code)
+    line_id = scan["line"]
+    line_path = f"{path}/lines/{line_id}"
+    checked = row(scan["receipt"], line_id)
+    assert checked["outcome"] == outcome and checked["note"] == ""
+
+    response = second.patch(
+        line_path,
+        {
+            "outcome": outcome,
+            "note": "Blue cap",
+            "line_revision": checked["line_revision"],
+            **first_reason,
+        },
+    )
+    assert response.status_code == 200, response.content
+    assert response.json()["found"] == "recorded"
+    receipt = response.json()["receipt"]
+    noted = row(receipt, line_id)
+    assert noted["line_revision"] == checked["line_revision"] + 1
+    assert receipt["plan_revision"] == scan["receipt"]["plan_revision"] + 1
+    assert (
+        noted["checked_by"] == checked["checked_by"]
+        and noted["checked_at"] == checked["checked_at"]
+    )
+    observed, added = timeline(first, path, line_id=line_id)
+    assert added["previous"] == observed["id"] and added["before"] == observed["after"]
+    assert added["after"]["note"] == "Blue cap" and added["reason"] == ""
+    assert added["actor"]["email"] == "core_qa@example.com"
+    assert (
+        added["after"]["checked_by"]
+        == observed["after"]["checked_by"]
+        == checked["checked_by"]["id"]
+    )
+
+    change(first, "PATCH", line_path, checked, status=409, outcome=outcome, note="Different cap")
+    for attempted in ("Red cap", ""):
+        refusal = change(
+            first,
+            "PATCH",
+            line_path,
+            noted,
+            status=422,
+            outcome=outcome,
+            note=attempted,
+            reason=" ",
+        )
+        assert any(error["pointer"] == "#/reason" for error in refusal["errors"])
+    assert read(first, path) == receipt
+    assert timeline(first, path, line_id=line_id) == [observed, added]
+
+    corrected = change(
+        first,
+        "PATCH",
+        line_path,
+        noted,
+        outcome=outcome,
+        note="Red cap",
+        reason="Inspected in daylight",
+    )
+    assert row(corrected, line_id)["note"] == "Red cap"
+    replaced = timeline(second, path, line_id=line_id)[-1]
+    assert replaced["previous"] == added["id"] and replaced["before"] == added["after"]
+    assert replaced["after"]["note"] == "Red cap" and replaced["reason"] == "Inspected in daylight"
+
+
+@pytest.mark.parametrize("clear", [None, "", " \t "], ids=["null", "empty", "whitespace"])
+def test_an_explicit_note_clear_needs_its_review_and_reason_but_omission_retains_it(
+    receiving: Receiving, clear: str | None
+) -> None:
+    first, second, path = receiving
+    line = read(first, path)["lines"][0]["id"]
+    line_path = f"{path}/lines/{line}"
+    initial = change(first, "PATCH", line_path, outcome="damaged", note="Blue cap")
+    reviewed = change(
+        second, "PATCH", line_path, row(initial, line), outcome="matched", reason="Checked the seal"
+    )
+    saved = row(reviewed, line)
+    assert saved["outcome"] == "matched" and saved["note"] == "Blue cap"
+    events = timeline(first, path, line_id=line)
+    assert events[-1]["before"]["note"] == events[-1]["after"]["note"] == "Blue cap"
+
+    amendment = {"outcome": "matched", "note": clear}
+    for preconditions in (
+        {},
+        {"reason": "Note was a transcription error"},
+        {"line_revision": saved["line_revision"]},
+        {"line_revision": saved["line_revision"], "reason": None},
+        {"line_revision": saved["line_revision"], "reason": ""},
+        {"line_revision": saved["line_revision"], "reason": "   "},
+    ):
+        refusal = first.patch(line_path, {**amendment, **preconditions})
+        assert refusal.status_code == 422, refusal.content
+    assert read(first, path) == reviewed and timeline(second, path, line_id=line) == events
+
+    cleared = change(
+        first,
+        "PATCH",
+        line_path,
+        saved,
+        outcome="matched",
+        note=clear,
+        reason="Note was a transcription error",
+    )
+    assert row(cleared, line)["note"] == ""
+    assert row(cleared, line)["checked_by"] == saved["checked_by"]
+    removed = timeline(second, path, line_id=line)[-1]
+    assert removed["before"] == events[-1]["after"] and removed["after"]["note"] == ""
+    assert (
+        removed["previous"] == events[-1]["id"]
+        and removed["reason"] == "Note was a transcription error"
+    )
+
+
+@pytest.mark.parametrize("clear", [None, "", "   "], ids=["null", "empty", "whitespace"])
+def test_handoff_note_is_preserved_on_omission_and_needs_a_reason_to_clear(
+    receiving: Receiving, clear: str | None
+) -> None:
+    first, second, path = receiving
+    receipt = change(first, "PATCH", path, read(first, path), note="Dry ice", reason=None)
+    handoff = change(second, "PATCH", path, receipt, handed_over_by="Courier")
+    assert handoff["note"] == "Dry ice"
+    previous = timeline(first, path)
+    refused = change(first, "PATCH", path, handoff, status=422, note=clear, reason=None)
+    assert any(field["pointer"] == "#/reason" for field in refused["errors"])
+    assert read(second, path) == handoff and timeline(second, path) == previous
+    cleared = change(first, "PATCH", path, handoff, note=clear, reason="Correcting the handoff")
+    assert cleared["note"] == "" and cleared["handed_over_by"] == "Courier"
+    events = timeline(second, path)
+    assert events[:-1] == previous and events[-1]["reason"] == "Correcting the handoff"
+    assert events[-1]["before"]["note"] == "Dry ice" and events[-1]["after"]["note"] == ""

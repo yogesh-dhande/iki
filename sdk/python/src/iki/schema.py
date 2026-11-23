@@ -784,7 +784,7 @@ class ColumnReadingOut(TypedDict):
 
 
 class CompleteReceiptIn(TypedDict):
-    #: Mark every expected line not yet checked missing.
+    #: Mark every unchecked expected line missing. Defaults to false.
     missing_rest: NotRequired[bool]
     #: The receipt revision you reviewed.
     plan_revision: int
@@ -792,9 +792,10 @@ class CompleteReceiptIn(TypedDict):
 
 
 class CompleteReconciliationIn(TypedDict):
-    #: Take each recorded position nobody scanned to be missing, removed.
+    #: Treat unscanned occupants as missing and remove them. Defaults to false.
     missing_rest: NotRequired[bool]
-    note: NotRequired[str]
+    #: Completion note. Defaults to empty.
+    note: NotRequired[str | None]
     #: The revision of the reconciliation plan being reviewed.
     plan_revision: int
 
@@ -3778,22 +3779,23 @@ class ReassignOut(TypedDict):
 class ReceiptIn(TypedDict):
     #: Who handed it over: a courier and waybill, a person.
     handed_over_by: NotRequired[str | None]
-    #: Such as its temperature on arrival.
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
     note: NotRequired[str | None]
     #: The receipt revision you reviewed.
     plan_revision: int
-    #: Why existing handoff information is corrected.
-    reason: NotRequired[str]
+    #: Defaults to empty. Required when correcting existing handoff information.
+    reason: NotRequired[str | None]
 
 
 class ReceiptLineIn(TypedDict):
     #: Version of the line being corrected.
     line_revision: NotRequired[int | None]
-    note: NotRequired[str]
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
+    note: NotRequired[str | None]
     #: Null clears an expected line. First observations can omit line_revision.
     outcome: Literal['matched', 'missing', 'extra', 'damaged', 'rejected'] | None
-    #: Why an existing observation is being changed.
-    reason: NotRequired[str]
+    #: Defaults to empty. Required to change an existing outcome or replace a saved note.
+    reason: NotRequired[str | None]
 
 
 class ReceiptLineOut(TypedDict):
@@ -4129,10 +4131,11 @@ class RerunIn(TypedDict):
 
 class ResolveIn(TypedDict):
     line_revision: int
-    note: NotRequired[str]
-    #: Why a saved decision is being changed or cleared.
-    reason: NotRequired[str]
-    #: `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
+    note: NotRequired[str | None]
+    #: Defaults to empty. Required when changing or clearing a saved decision.
+    reason: NotRequired[str | None]
+    #: `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.
     resolution: Literal['moved', 'removed', 'placed', 'kept'] | None
 
 
@@ -4751,8 +4754,8 @@ class ScanParams(TypedDict):
 
 
 class ScansIn(TypedDict):
-    #: Why an earlier observation is being replaced.
-    reason: NotRequired[str]
+    #: Defaults to empty. Required when replacing an earlier observation.
+    reason: NotRequired[str | None]
     #: Prior observations to recheck or replace, including empty slots.
     reviewed_lines: NotRequired[list[ReviewedCountLine]]
     #: Each position scanned: one at a time, or a rack scanner's file.

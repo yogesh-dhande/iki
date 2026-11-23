@@ -482,15 +482,16 @@ def resolve(
     reconciliation: Reconciliation,
     line_id: UUID | str,
     resolution: str | None,
-    note: str = "",
+    note: str | None = None,
     *,
     line_revision: int,
     reason: str = "",
 ) -> ReconciliationLine | None:
     """Applies the decision to the physical observation the operator reviewed."""
-    note = note.strip()
-    if len(note) > MAX_NOTE:
-        raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
+    if note is not None:
+        note = note.strip()
+        if len(note) > MAX_NOTE:
+            raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
     with transaction.atomic():
         reconciliation = _open(user, reconciliation)
         lines = list(reconciliation.lines.select_related("entity"))
@@ -499,6 +500,8 @@ def resolve(
             raise LinesChanged([])
         if line.line_revision != line_revision:
             raise LinesChanged([line])
+        if note is None:
+            note = line.note if resolution is not None else ""
         found = finding(line, scanned_positions(lines))
         position = None
         evidence = None
@@ -528,22 +531,23 @@ def resolve(
                 raise Wrong({"note": ["is required: say why it's left as recorded."]})
         elif note:
             raise Wrong({"note": ["Use a correction reason when clearing a decision."]})
-        if (
-            line.resolution == resolution
-            and line.note == note
-            and not resolution_stale(line, found, position, evidence)
-        ):
+        decision_changed = line.resolution != resolution or resolution_stale(
+            line, found, position, evidence
+        )
+        if not decision_changed and line.note == note:
             return line
         before = _decision_snapshot(line) if line.resolution or line.note else None
-        if before:
+        # Adding the first note leaves the current decision and its evidence intact.
+        if before and (decision_changed or line.note.strip()):
             reason = _reason(reason)
         line.line_revision += 1
         line.resolved_finding = found if resolution else None
         line.resolution = resolution
         line.resolved_position = position
         line.note = note
-        line.resolved_by = user if resolution is not None else None
-        line.resolved_at = timezone.now() if resolution is not None else None
+        if decision_changed:
+            line.resolved_by = user if resolution is not None else None
+            line.resolved_at = timezone.now() if resolution is not None else None
         line.reviewed_observation_id = evidence
         observations.record(
             reconciliation,

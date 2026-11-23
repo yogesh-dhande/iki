@@ -52,7 +52,9 @@ def test_correcting_an_observed_slot_reviews_all_superseded_evidence_atomically(
     assert empty["before"] is None and empty["after"]["observed"] and empty["after"]["code"] is None
     assert not positive["before"]["observed"] and positive["after"]["code"] == "COUNT-A"
     # Another operator may add independent evidence against the same open count.
-    fresh = b.post(f"{path}/scans", {"scans": [{"position": "A4", "code": "OTHER"}]})
+    fresh = b.post(
+        f"{path}/scans", {"scans": [{"position": "A4", "code": "OTHER"}], "reason": None}
+    )
     assert fresh.status_code == 200
     before = fresh.json()
     now = history(b, path)
@@ -68,8 +70,9 @@ def test_correcting_an_observed_slot_reviews_all_superseded_evidence_atomically(
         assert {x["line_id"]: x["line_revision"] for x in conflict.json()["affected_lines"]} == {
             x["line_id"]: x["line_revision"] for x in expected
         }
-    denied = b.post(f"{path}/scans", {**change, "reviewed_lines": expected, "reason": " "})
-    assert "#/reason" in errors(denied)
+    for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": " "}):
+        denied = b.post(f"{path}/scans", {**change, "reviewed_lines": expected, **reason_fields})
+        assert "#/reason" in errors(denied)
     assert (
         a.get(path).json() == before
         and history(a, path) == now
@@ -235,8 +238,9 @@ def test_count_cancellation_requires_a_current_plan_and_who_why(world: World) ->
     path, _, opened = begin(a, world)
     v = opened["plan_revision"]
     assert b.post(f"{path}/cancel").status_code == 422
-    rejected = b.post(f"{path}/cancel", {"plan_revision": v, "reason": "  "})
-    assert "#/reason" in errors(rejected)
+    for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": "  "}):
+        rejected = b.post(f"{path}/cancel", {"plan_revision": v, **reason_fields})
+        assert "#/reason" in errors(rejected)
     assert a.get(path).json() == opened
     changed = a.post(f"{path}/scans", {"scans": [{"position": "A2", "code": "UNCATALOGUED"}]})
     assert changed.status_code == 200
@@ -539,3 +543,20 @@ def test_scan_reply_holds_its_parent_lock_through_the_returned_snapshot(
     assert second.json()["plan_revision"] == opened["plan_revision"] + 2
     assert {x["found"] for x in first.json()["lines"] if x["found"]} == {"A2"}
     assert {x["found"] for x in second.json()["lines"] if x["found"]} == {"A2", "A3"}
+
+
+@pytest.mark.parametrize(
+    "fields", [{}, {"note": None}, {"note": ""}], ids=["omitted", "null", "empty"]
+)
+def test_count_completion_accepts_an_optional_note(
+    world: World, fields: dict[str, str | None]
+) -> None:
+    api = Api(world.browser("editor"))
+    path, _, _ = begin(api, world)
+    scanned = api.post(f"{path}/scans", {"scans": [{"position": "A1", "code": "COUNT-A"}]})
+    assert scanned.status_code == 200, scanned.content
+    finished = api.post(
+        f"{path}/complete", {"plan_revision": scanned.json()["plan_revision"], **fields}
+    )
+    assert finished.status_code == 200, finished.content
+    assert finished.json()["status"] == "completed" and finished.json()["note"] == ""
