@@ -43,7 +43,7 @@ The gel shows relative migration of supplied linear DNA fragment sizes. It
 interpolates effective size ranges in log space and uses a near-semilog middle
 with compressed ends outside that range. Positions are schematic and stay in
 base-pair size order across lanes.
-[Southern's comparison of sizing curves](<https://doi.org/10.1016/0003-2697(79)90235-5>) ·
+[Southern's comparison of sizing curves](https://pubmed.ncbi.nlm.nih.gov/525781/) ·
 [Thermo Fisher agarose resolution ranges, Table 1](https://assets.thermofisher.com/TFS-Assets/LSG/manuals/MAN0012614_Gen_Recommend_DNA_Electrophoresis_UG.pdf)
 
 The ladder sizes and approximate band masses use the manufacturer's 500 ng
