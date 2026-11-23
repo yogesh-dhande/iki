@@ -27,7 +27,7 @@ function roles(names: string[], declared: readonly LabRole[]): string {
 }
 
 function Observations({ hold }: { hold: Hold }) {
-  const evidence = hold.occurrences ?? [];
+  const evidence = hold.occurrences;
   const latest = evidence.at(-1);
   return (
     <ul className="row-holds" aria-label="Failing observations">
