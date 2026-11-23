@@ -3212,13 +3212,16 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
         custody = api_call(alice, "PATCH", at, {"handed_over_by": "Example courier, training run"})
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
-        done = api_call(alice, "POST", f"{at}/complete", {})
+        done = api_call(
+            alice, "POST", f"{at}/complete", {"keep_in_custody": [scanned.json()["line"]]}
+        )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
     if len(completed) != 1 or [
-        (line["entity"], line["outcome"]) for line in completed[0]["lines"]
-    ] != [(tube_id, "matched")]:
+        (line["entity"], line["outcome"], line["received_unplaced"])
+        for line in completed[0]["lines"]
+    ] != [(tube_id, "matched", True)]:
         fail(f"the receipt did not account for the starter tube: {completed}")
 
 

@@ -151,9 +151,12 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     assert not requests.accepts(project, other, request.type)
     receipt = receipts.start(admin, request)
     tube = Entity.objects.get(pk=ids["tube"])
-    assert receipts.scan(admin, receipt, tube.hrid).found == "matched"
+    scanned = receipts.scan(admin, receipt, tube.hrid)
+    assert scanned.found == "matched"
     receipts.describe(admin, receipt, handed_over_by="Synthetic shipment")
-    assert receipts.complete(admin, receipt).received_by_id == admin.pk
+    completed = receipts.complete(admin, receipt, keep_in_custody=[scanned.line.pk])
+    assert completed.received_by_id == admin.pk
+    assert receipts.awaiting_put_away(admin).filter(entity=tube).exists()
 
     plate = UUID(ids["plate"])
     sample = UUID(ids["sample"])

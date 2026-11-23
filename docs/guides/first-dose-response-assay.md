@@ -50,7 +50,7 @@ under their original flow. A fit still running when the flow changes may need to
 1. **Coordinator** — In the assay project's **Requests → Sent to us**, open **Example dose-response
    assay (synthetic)** and select **Receive what it sent**. Enter who handed over the example tube,
    choose **Start receiving**, and enter the tube's `TUB-…` identifier in **Scan each tube**.
-   Check that the line is matched, then choose **Complete receiving** to record custody.
+   For the matched tube, choose **Keep in custody**, then **Complete receiving**.
 2. **Analyst** — Open **Example MARS dose-response plate (synthetic)** and its **Plate map** tab.
    Check the plate's request and the sample assigned to A1–A8. The concentrations double from
    1 nM at A1 to 128 nM at A8.
