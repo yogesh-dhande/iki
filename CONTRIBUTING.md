@@ -76,7 +76,7 @@ CI runs the Python tests in shards side by side, whole test files at a time
 (`scripts/ci/pytest_shards.py`). Each kind of test has shards of its own with
 only the setup it needs: `browser` (marked `built_web_app`) the built web app
 and browsers, `worker` (marked `worker_e2e`) iki-worker, and `plain` neither.
-Every shard builds iki-wasm, which saves evaluate plugins' rules with.
+Every shard builds the shared WASM for rules and the standalone modules included in its checkout.
 3.12 runs the plain tests; 3.14 runs every kind. The **Python tests (summary)**
 job fails if any test ran in no shard or in two, and combines the shards'
 coverage. To run a shard locally:
@@ -92,10 +92,13 @@ tests. The gate checks both web builds, their manifest assets, and axe-core.
 On Linux, `uv run --locked playwright install-deps chromium firefox webkit`
 installs the browsers' system libraries.
 
-`make test-wasm` builds the shared module for the browser and Python. When a
-checkout declares plugin modules in `plugins/*/data/*.wasm.sha256`, it runs
-each matching `scripts/build-<name>-wasm.sh` and checks the plugin and packaged
-copies. The builder verifies the digest on its canonical build platform.
+`make test-wasm` builds the shared module for the browser and Python, then
+runs the checkout's standalone module builders (`scripts/build-<name>-wasm.sh`).
+Each standalone crate and builder needs a matching lock under `plugins/*/data/`.
+For `<name>.sha256`, the gate verifies the delivered Python module's SHA-256
+and bundled Rust notice. For `<name>.wasm.sha256`, it checks the plugin and
+packaged copies against each other and delegates canonical-platform digest
+verification to the builder.
 
 Start Docker for the test suite's pinned PostgreSQL and SeaweedFS containers.
 If you provide test services, set `IKI_TEST_DATABASE_URL` and/or

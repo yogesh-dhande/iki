@@ -400,6 +400,8 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Tests
         run: cargo test --locked --all-targets
+      - name: Check the packaged DNA annotation module
+        run: ../scripts/build-dna-annotation-wasm.sh --check
 
   server-image:
     name: Server image

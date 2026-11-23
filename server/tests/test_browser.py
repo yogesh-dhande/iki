@@ -31,6 +31,7 @@ from playwright.sync_api import (
     Locator,
     Page,
     Playwright,
+    Route,
     sync_playwright,
 )
 from playwright.sync_api import Error as PlaywrightError
@@ -2323,6 +2324,106 @@ def _record(world: World, tmp_path: Path, accession: str, path: Path) -> tuple[s
     }
     made = entities.create(world.users["admin"], "acme/dna.Plasmid", world.project, values)
     return Entity.objects.get(pk=made.entity.pk).hrid, values
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_dna_feature_library_workflow_in_the_sequence_viewer(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    """Show the source sequence, launch annotation, and locate the T7 promoter the source
+    record OL989372.1 places at 4984..5002. Inject the first-party result and action into
+    the browser server's fixture plugin. The dev cluster runs the actual worker action.
+    """
+    accession = "OL989372.1"
+    hrid, _ = _record(
+        world, tmp_path, accession, Path(__file__).parent / "data" / "plasmids" / f"{accession}.gb"
+    )
+    type_name = "acme/dna.Plasmid"
+    action_name = "iki/plasmid.annotate_dna_sequence"
+    result: list[dict[str, Any]] | None = None
+    page = open_as("admin", "/projects/kinase-atlas/", color_scheme)
+    action_out = page.request.get("/api/v1/actions/acme/protein.compute_properties").json()
+    action_out.update(
+        name=action_name,
+        plugin="iki/plasmid",
+        label="Annotate from feature library",
+        inputs=[
+            {**action_out["inputs"][0], "name": "sequence", "type": type_name, "label": "Sequence"}
+        ],
+        params=[],
+        params_schema={"type": "object", "properties": {}},
+        updates=[{"input": "sequence", "fields": ["library_features"]}],
+    )
+
+    def with_library_field(route: Route) -> None:
+        response = route.fetch()
+        types = response.json()
+        sequence = next(t for t in types if t["name"] == type_name)
+        original = next(f for f in sequence["fields"] if f["name"] == "features")
+        sequence["fields"].append({**original, "name": "library_features", "computed": True})
+        route.fulfill(response=response, json=types)
+
+    def with_library_action(route: Route) -> None:
+        route.fulfill(json=[action_out])
+
+    def with_library_result(route: Route) -> None:
+        response = route.fetch()
+        entity = response.json()
+        entity["values"].update(
+            library_features=result,
+            library_annotated_with="Routine cloning-vector features 1.0"
+            if result is not None
+            else None,
+        )
+        route.fulfill(response=response, json=entity)
+
+    page.route(re.compile(r"/api/v1/entity-types$"), with_library_field)
+    page.route(re.compile(r"/api/v1/actions\?takes="), with_library_action)
+    page.route(re.compile(rf"/api/v1/entities/{hrid}(?:\?.*)?$"), with_library_result)
+    page.set_viewport_size({"width": 390, "height": 844})
+    viewer = f"/entities/{hrid}/viewers/sequence/?project=kinase-atlas"
+    page.goto(viewer)
+    # Find the section by its heading so Playwright's role lookup does not crash axe in Firefox.
+    panel = page.locator("section", has=page.get_by_role("heading", name="Library features"))
+    panel.get_by_text("No library search has run.").wait_for()
+    launch = page.get_by_role("link", name="Annotate from library")
+    launch.wait_for()
+    assert_clean(page)
+    launch.click()
+    page.get_by_role("heading", level=2, name="Run an action").wait_for()
+    action = page.get_by_role("combobox", name="Action")
+    action.wait_for()
+    assert action.input_value() == action_name
+    page.get_by_role("group", name="Sequence").get_by_text(accession).wait_for()
+
+    result = [
+        {
+            "type": "promoter",
+            "name": "T7 promoter",
+            "start": 4984,
+            "end": 5002,
+            "strand": "forward",
+            "qualifiers": {
+                "source": "INSDC OL989372.1 4984..5002 (Cloning vector pET-28a-ZaTdT12)",
+            },
+        }
+    ]
+    page.goto(viewer)
+    panel.get_by_text("Routine cloning-vector features 1.0").wait_for()
+    row = panel.get_by_role("row").filter(has_text="Cloning vector pET-28a-ZaTdT12")
+    row.get_by_role("cell", name="4984..5002", exact=True).wait_for()
+    row.get_by_role("cell", name="forward", exact=True).wait_for()
+    show = row.get_by_role("button", name="Show T7 promoter")
+    show.focus()
+    show.press("Enter")
+    assert (
+        row.get_by_role("button", name="Hide T7 promoter").get_attribute("aria-pressed") == "true"
+    )
+    page.locator('.feature-shown[title="T7 promoter (promoter, 4984..5002)"]').wait_for()
+    assert page.get_by_role("heading", name="Features", exact=True).is_visible()
+    assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
+    assert_clean(page)
+    page.unroute_all(behavior="wait")
 
 
 def _place(page: Page, row: int, after: int) -> tuple[float, float]:

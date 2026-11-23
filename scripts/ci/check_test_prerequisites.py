@@ -1,10 +1,13 @@
 """Build the modules declared by this checkout and check the assets its tests load."""
 
 import argparse
+import hashlib
 import json
 import re
 import subprocess
 from pathlib import Path
+
+WASM_HEADER = b"\x00asm\x01\x00\x00\x00"
 
 
 def populated(path: Path, fix: str) -> None:
@@ -16,7 +19,7 @@ def wasm_copies(source: Path, installed: Path, builder: Path) -> None:
     for path in (source, installed):
         populated(path, str(builder))
     binary = source.read_bytes()
-    if not binary.startswith(b"\x00asm\x01\x00\x00\x00") or installed.read_bytes() != binary:
+    if not binary.startswith(WASM_HEADER) or installed.read_bytes() != binary:
         raise SystemExit(f"Invalid or mismatched modules {source} and {installed}. Run {builder}.")
 
 
@@ -25,18 +28,52 @@ def wasm() -> None:
     wasm_copies(
         Path("web/app/wasm/iki_wasm.wasm"), package / "iki_wasm.wasm", Path("scripts/build-wasm.sh")
     )
-    # Plugin module locks name the output next to them. The branch's builder knows its
-    # toolchain, the platforms the digest covers, and how to install both copies.
-    for lock in sorted(Path("plugins").glob("*/data/*.wasm.sha256")):
-        module = lock.with_suffix("")
-        builder = Path("scripts") / f"build-{module.stem}-wasm.sh"
+    # A standalone crate or builder declares a module even if its lock was removed.
+    # Other data files can have checksums too.
+    locks = sorted(Path("plugins").glob("*/data/*.sha256"))
+    modules = {
+        lock.name.removesuffix(".wasm.sha256")
+        for lock in locks
+        if lock.name.endswith(".wasm.sha256")
+    }
+    modules.update(
+        p.parent.name for p in Path("worker/crates/iki-wasm/standalone").glob("*/Cargo.toml")
+    )
+    modules.update(
+        p.name.removeprefix("build-").removesuffix("-wasm.sh")
+        for p in Path("scripts").glob("build-*-wasm.sh")
+    )
+    for name in sorted(modules):
+        builder = Path("scripts") / f"build-{name}-wasm.sh"
+        matching = [
+            lock for lock in locks if lock.name in (f"{name}.wasm.sha256", f"{name}.sha256")
+        ]
+        if len(matching) != 1:
+            raise SystemExit(
+                f"Module {name} needs exactly one {name}.sha256 or {name}.wasm.sha256 "
+                f"under plugins/*/data. Found {matching}."
+            )
+        lock = matching[0]
         if not builder.is_file():
-            raise SystemExit(f"{lock} declares {module}. Restore its builder {builder}.")
+            raise SystemExit(f"{lock} declares {name}. Restore its builder {builder}.")
         try:
             subprocess.run([str(builder)], check=True)  # noqa: S603 - repository build script
         except (OSError, subprocess.CalledProcessError) as exc:
-            raise SystemExit(f"Failed to build {module}. Run {builder}: {exc}") from exc
-        wasm_copies(module, package / "modules" / module.name, builder)
+            raise SystemExit(f"Failed to build {name}. Run {builder}: {exc}") from exc
+        if lock.name.endswith(".wasm.sha256"):
+            module = lock.with_suffix("")
+            wasm_copies(module, package / "modules" / module.name, builder)
+        else:
+            # Package-only builders install their canonical bytes alongside iki_wasm.
+            module = package / f"{name}.wasm"
+            populated(module, str(builder))
+            binary = module.read_bytes()
+            if (
+                not binary.startswith(WASM_HEADER)
+                or hashlib.sha256(binary).hexdigest() != lock.read_text().strip()
+            ):
+                raise SystemExit(f"{module} does not match {lock}. Run {builder} --check.")
+            populated(package / "rust-standard-library.html", str(builder))
 
 
 def web() -> None:

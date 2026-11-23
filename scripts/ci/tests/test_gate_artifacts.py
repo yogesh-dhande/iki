@@ -86,3 +86,35 @@ def test_all_web_prerequisites(tmp_path: Path, missing: str, fix: str) -> None:
     ((tmp_path if missing.startswith("node_modules/") else static) / missing).unlink()
     failure = run_check(tmp_path, "web")
     assert failure.returncode != 0 and missing in failure.stderr and fix in failure.stderr
+
+
+def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path) -> None:
+    for name in ["web/app/wasm/iki_wasm.wasm", "spec/src/iki_spec/iki_wasm.wasm"]:
+        write(tmp_path, name, WASM)
+    write(tmp_path, "worker/crates/iki-wasm/standalone/sample/Cargo.toml", b"[package]")
+    write(tmp_path, "plugins/sample/data/unrelated.sha256", b"lock for a different asset")
+    lock = write(
+        tmp_path, "plugins/sample/data/sample.sha256", hashlib.sha256(WASM).hexdigest().encode()
+    )
+    builder = "scripts/build-sample-wasm.sh"
+    missing_builder = run_check(tmp_path, "wasm")
+    assert missing_builder.returncode != 0 and builder in missing_builder.stderr
+    script = write(tmp_path, builder, b"#!/bin/sh\nexit 0\n")
+    script.chmod(0o755)
+    package = tmp_path / "spec/src/iki_spec"
+    module = package / "sample.wasm"
+    missing = run_check(tmp_path, "wasm")
+    assert missing.returncode != 0 and "spec/src/iki_spec/sample.wasm" in missing.stderr
+    script.write_text("#!/bin/sh\ncp web/app/wasm/iki_wasm.wasm spec/src/iki_spec/sample.wasm\n")
+    notice = package / "rust-standard-library.html"
+    missing_notice = run_check(tmp_path, "wasm")
+    assert missing_notice.returncode != 0 and notice.name in missing_notice.stderr
+    notice.write_text("<p>Rust library notice</p>")
+    assert run_check(tmp_path, "wasm").returncode == 0
+    assert module.read_bytes() == WASM
+    lock.write_text("0" * 64)
+    mismatch = run_check(tmp_path, "wasm")
+    assert mismatch.returncode != 0 and "sample.sha256" in mismatch.stderr
+    lock.unlink()
+    no_lock = run_check(tmp_path, "wasm")
+    assert no_lock.returncode != 0 and "sample.sha256" in no_lock.stderr

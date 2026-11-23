@@ -204,6 +204,7 @@ check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
 	cd worker && cargo clippy --locked --all-targets -- -D warnings
 	cd worker && cargo test --locked --all-targets
+	scripts/build-dna-annotation-wasm.sh --check
 
 .PHONY: fmt
 fmt: ## Format all code
