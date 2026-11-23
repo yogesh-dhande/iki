@@ -12,8 +12,10 @@ import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import type { PlaceEntities } from "./component-entities";
 import {
   MIN_FRAME_HEIGHT,
+  pinnedRevisionUrl,
   readMessage,
   type FrameMessage,
+  type PinnedContext,
   type PlaceInfo,
   type PluginComponent,
   type Refinement,
@@ -26,7 +28,7 @@ export const START_TIMEOUT_MS = 15_000;
 type State = "starting" | "ready" | "failed" | "left";
 
 /** What the frame is given: the entity whose page it is, or that a panel names. */
-export interface GivenEntity {
+export interface GivenEntity extends PinnedContext {
   hrid: string;
 }
 
@@ -105,6 +107,11 @@ export function ComponentFrame(props: FrameProps) {
         if (now.place.runs?.includes(message.action)) now.onRun?.(message.action);
         return;
       case "open": {
+        if (message.revision !== undefined) {
+          const url = pinnedRevisionUrl(now.entity, message.entity, message.revision);
+          if (url) window.location.assign(url);
+          return;
+        }
         // Only an entity it was given: Iki opens its page, as the person may read it.
         const given = new Set([
           ...(now.entity ? [now.entity.hrid.toUpperCase()] : []),

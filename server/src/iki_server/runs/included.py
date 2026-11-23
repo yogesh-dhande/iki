@@ -84,7 +84,7 @@ def resolve(
     if not wanted:
         return []
     targets = {w[4] for w in wanted}
-    readable = access.visible(user) if user is not None else Entity.objects.all()
+    readable = access.visible(user) if user is not None else Entity.objects.filter(registry=None)
     readable = readable.filter(purged_at__isnull=True)
     found = {e.pk: e for e in readable.filter(pk__in=targets)}
     # A reference to a registry entry (ADR 0115) reads a record of it: the one in the
@@ -94,7 +94,8 @@ def resolve(
     for record in readable.filter(entry_id__in=targets - found.keys()).order_by("created_at"):
         assert record.entry_id is not None  # noqa: S101 - filtered so
         records[record.entry_id].append(record)
-    entries = dict(Entity.objects.filter(pk__in=list(records)).values_list("pk", "revision"))
+    entry_ids = set(records) | {e.entry_id for e in found.values() if e.entry_id is not None}
+    entries = dict(Entity.objects.filter(pk__in=entry_ids).values_list("pk", "revision"))
     errors: dict[str, list[str]] = defaultdict(list)
     pins = []
     for name, position, reference, index, pk, owner in wanted:
@@ -195,14 +196,41 @@ def keyed(pins: Iterable[Pin]) -> list[list[Any]]:
     )
 
 
+def document(
+    entity: Entity, revision: int, entry_revision: int | None, files: set[UUID]
+) -> dict[str, Any]:
+    """Serialize a direct or included input at its pins, also collecting its files."""
+    from iki_server.entities.services import values_and_entry_at
+    from iki_server.runs import input_files
+
+    values, entry = values_and_entry_at(entity, revision, entry_revision)
+    fields = shape(entity.type).fields()
+    visible_values = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
+    for name in visible_values:
+        files.update(input_files.file_ids(fields[name], values[name]))
+    row = {
+        "id": str(entity.pk),
+        "hrid": entity.hrid,
+        "type": entity.type,
+        "schema_version": registry.types()[entity.type].schema_version,
+        "revision": revision,
+        "values": visible_values,
+    }
+    if entity.entry_id is not None and entry is not None:
+        entry_id, _ = entry
+        row["entry_id"] = str(entry_id)
+        if entry_revision is not None:
+            row["entry_revision"] = entry_revision
+        if entity.entry_id != entry_id:
+            row["hrid"] = Entity.objects.values_list("hrid", flat=True).get(pk=entry_id)
+    return row
+
+
 def documents(
     runs: Sequence[ActionRun],
 ) -> tuple[dict[tuple[UUID, str, int], dict[str, list[dict[str, Any]]]], set[UUID]]:
     """For a job's runs: each input entity's ``included``, by (run, input, position), as the
     run input has it, and the files their values hold."""
-    from iki_server.entities.services import values_at
-    from iki_server.runs import input_files
-
     out: dict[tuple[UUID, str, int], dict[str, list[dict[str, Any]]]] = defaultdict(dict)
     files: set[UUID] = set()
     rows = (
@@ -210,23 +238,7 @@ def documents(
         .select_related("entity")
         .order_by("run_id", "input", "position", "field", "index")
     )
-    types = registry.types()
     for row in rows:
-        entity = row.entity
-        values = values_at(entity, row.revision, row.entry_revision)
-        fields = shape(entity.type).fields()
-        for name, value in values.items():
-            if name in fields:
-                files |= input_files.file_ids(fields[name], value)
-        out[(row.run_id, row.input, row.position)].setdefault(row.field, []).append(
-            {
-                "id": str(entity.pk),
-                "hrid": entity.hrid,
-                **({"entry_id": str(entity.entry_id)} if entity.entry_id is not None else {}),
-                "type": entity.type,
-                "schema_version": types[entity.type].schema_version,
-                "revision": row.revision,
-                "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
-            }
-        )
+        item = document(row.entity, row.revision, row.entry_revision, files)
+        out[(row.run_id, row.input, row.position)].setdefault(row.field, []).append(item)
     return out, files
