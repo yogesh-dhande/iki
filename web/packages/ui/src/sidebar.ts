@@ -61,6 +61,99 @@ function suffix(className: string) {
   };
 }
 
+/**
+ * Each keyed control keeps its original DOM nodes across updates. Rebuilding a
+ * control would detach the pressed SVG path between pointerdown and pointerup,
+ * cancelling the click even if the new control looks identical.
+ */
+function createLink(host: IkiSidebar, href: string, headingAction: boolean) {
+  const link = navigationLink(host, href);
+  const graphic = icon([]);
+  const mark = part("span", "");
+  const label = part("span", headingAction ? "visually-hidden" : "nav-label");
+  const qualifier = suffix("type-plugin");
+  const count = suffix("nav-count");
+  const badge = suffix("nav-badge");
+  const description = suffix("visually-hidden");
+
+  return (data: SidebarLink) => {
+    link.className = headingAction ? "nav-add" : data.quiet ? "nav-item nav-quiet" : "nav-item";
+    link.ariaCurrent = data.current ? "page" : null;
+    if (headingAction) link.title = data.label;
+
+    const children: Node[] = data.icon ? [icon(data.icon, graphic)] : [];
+    if (data.mark) {
+      mark.className = data.mark.shape === "dot" ? "type-dot" : "swatch swatch-large";
+      mark.ariaHidden = "true";
+      mark.dataset["swatch"] = String(data.mark.swatch);
+      children.push(mark);
+    }
+    const name = setText(label, data.label);
+    arrange(label, data.qualifier ? [name, ...qualifier(data.qualifier)] : [name]);
+    children.push(label);
+    if (data.count != null) children.push(...count(data.count.toLocaleString()));
+    if (data.badge) {
+      children.push(...badge(data.badge.text), ...description(data.badge.description));
+    }
+    arrange(link, children);
+    return link;
+  };
+}
+
+function createDisclosure(host: IkiSidebar, id: string) {
+  const button = part("button", "nav-item nav-toggle");
+  button.type = "button";
+  button.setAttribute("aria-controls", id);
+  const items = part("div", "nav-sub");
+  items.id = id;
+  const show = (open: boolean) => {
+    items.hidden = !open;
+    button.ariaExpanded = String(open);
+  };
+  button.addEventListener("click", () => {
+    const open = items.hidden === true;
+    show(open);
+    host.dispatchEvent(
+      new CustomEvent<SidebarToggleDetail>("iki-toggle", {
+        bubbles: true,
+        composed: true,
+        detail: { id, open },
+      }),
+    );
+  });
+  const graphic = icon([]);
+  const name = part("span", "nav-label");
+  const arrow = icon(["m9 6 6 6-6 6"]);
+  return (
+    label: string,
+    disclosure: NonNullable<SidebarSection["disclosure"]>,
+    links: HTMLAnchorElement[],
+  ) => {
+    setText(name, label);
+    arrange(
+      button,
+      disclosure.icon ? [icon(disclosure.icon, graphic), name, arrow] : [name, arrow],
+    );
+    show(disclosure.open);
+    arrange(items, links);
+    return [button, items];
+  };
+}
+
+function createGroup(label: string) {
+  const group = part("div", "nav-group");
+  group.role = "group";
+  group.ariaLabel = label;
+  const heading = part("div", "nav-heading");
+  const text = part("span", "", label);
+  text.ariaHidden = "true";
+  return (links: HTMLAnchorElement[], action?: HTMLAnchorElement) => {
+    arrange(heading, action ? [text, action] : [text]);
+    arrange(group, [heading, ...links]);
+    return group;
+  };
+}
+
 export class IkiSidebar extends HTMLElement {
   readonly #items = new NavigationItems();
   readonly #nav = part("nav", "sidebar-nav");
@@ -86,40 +179,10 @@ export class IkiSidebar extends HTMLElement {
     retain: Retain,
     headingAction = false,
   ): HTMLAnchorElement {
-    const key = [headingAction ? "action" : "link", scope, data.href];
-    const { link, graphic, mark, label, qualifier, count, badge, description } = retain(
-      key,
-      () => ({
-        link: navigationLink(this, data.href),
-        graphic: icon([]),
-        mark: part("span", ""),
-        label: part("span", headingAction ? "visually-hidden" : "nav-label"),
-        qualifier: suffix("type-plugin"),
-        count: suffix("nav-count"),
-        badge: suffix("nav-badge"),
-        description: suffix("visually-hidden"),
-      }),
+    const update = retain([headingAction ? "action" : "link", scope, data.href], () =>
+      createLink(this, data.href, headingAction),
     );
-    link.className = headingAction ? "nav-add" : data.quiet ? "nav-item nav-quiet" : "nav-item";
-    link.ariaCurrent = data.current ? "page" : null;
-    if (headingAction) link.title = data.label;
-
-    const children: Node[] = data.icon ? [icon(data.icon, graphic)] : [];
-    if (data.mark) {
-      mark.className = data.mark.shape === "dot" ? "type-dot" : "swatch swatch-large";
-      mark.ariaHidden = "true";
-      mark.dataset["swatch"] = String(data.mark.swatch);
-      children.push(mark);
-    }
-    const name = setText(label, data.label);
-    arrange(label, data.qualifier ? [name, ...qualifier(data.qualifier)] : [name]);
-    children.push(label);
-    if (data.count != null) children.push(...count(data.count.toLocaleString()));
-    if (data.badge) {
-      children.push(...badge(data.badge.text), ...description(data.badge.description));
-    }
-    arrange(link, children);
-    return link;
+    return update(data);
   }
 
   #section(section: SidebarSection, retain: Retain): HTMLElement[] {
@@ -129,61 +192,14 @@ export class IkiSidebar extends HTMLElement {
     const links = section.links.map((link) => this.#link(link, scope, retain));
     if (!label) return [...nodes, ...links];
     if (disclosure) {
-      const { id } = disclosure;
-      const { button, items, show, graphic, name, arrow } = retain(["disclosure", id], () => {
-        const button = part("button", "nav-item nav-toggle");
-        button.type = "button";
-        button.setAttribute("aria-controls", id);
-        const items = part("div", "nav-sub");
-        items.id = id;
-        const show = (open: boolean) => {
-          items.hidden = !open;
-          button.ariaExpanded = String(open);
-        };
-        button.addEventListener("click", () => {
-          const open = items.hidden === true;
-          show(open);
-          this.dispatchEvent(
-            new CustomEvent<SidebarToggleDetail>("iki-toggle", {
-              bubbles: true,
-              composed: true,
-              detail: { id, open },
-            }),
-          );
-        });
-        return {
-          button,
-          items,
-          show,
-          graphic: icon([]),
-          name: part("span", "nav-label"),
-          arrow: icon(["m9 6 6 6-6 6"]),
-        };
-      });
-      setText(name, label);
-      arrange(
-        button,
-        disclosure.icon ? [icon(disclosure.icon, graphic), name, arrow] : [name, arrow],
+      const update = retain(["disclosure", disclosure.id], () =>
+        createDisclosure(this, disclosure.id),
       );
-      show(disclosure.open);
-      arrange(items, links);
-      return [...nodes, button, items];
+      return [...nodes, ...update(label, disclosure, links)];
     }
-    const { group, heading, text } = retain(["group", label], () => {
-      const group = part("div", "nav-group");
-      group.role = "group";
-      group.ariaLabel = label;
-      const heading = part("div", "nav-heading");
-      const text = part("span", "", label);
-      text.ariaHidden = "true";
-      return { group, heading, text };
-    });
-    arrange(
-      heading,
-      section.action ? [text, this.#link(section.action, scope, retain, true)] : [text],
-    );
-    arrange(group, [heading, ...links]);
-    return [...nodes, group];
+    const update = retain(["group", label], () => createGroup(label));
+    const action = section.action ? this.#link(section.action, scope, retain, true) : undefined;
+    return [...nodes, update(links, action)];
   }
 
   #render(): void {

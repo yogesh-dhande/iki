@@ -49,7 +49,7 @@ export function trailQuery(ref: string, filter: TrailFilter) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "revisions", ref.toUpperCase(), filterQuery(filter)],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/revisions", {
           params: {
@@ -60,6 +60,7 @@ export function trailQuery(ref: string, filter: TrailFilter) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -73,7 +74,7 @@ export function entryTrailQuery(entry: string, filter: TrailFilter) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "entry-revisions", entry.toUpperCase(), filterQuery(filter)],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entries/{ref}/revisions", {
           params: {
@@ -84,6 +85,7 @@ export function entryTrailQuery(entry: string, filter: TrailFilter) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -95,7 +97,9 @@ export function entryTrailQuery(entry: string, filter: TrailFilter) {
 export function contributorsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "contributors", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/contributors", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/contributors", { params: { path: { ref } }, signal }),
+      ),
   });
 }

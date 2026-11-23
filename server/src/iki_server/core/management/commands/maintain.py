@@ -16,6 +16,7 @@
   projects under a legal hold.
 - Discards spreadsheet imports (ADR 0178) nobody committed or touched for a fortnight,
   and the rows their previews kept.
+- Notifies project stock managers of catalogue items at or below their reorder threshold.
 """
 
 from typing import Any
@@ -25,6 +26,7 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from iki_server.accounts.models import UserSession
+from iki_server.amounts import stock_alerts
 from iki_server.bundles import exports as bundle_exports
 from iki_server.entities import app_drafts
 from iki_server.files import services as files
@@ -62,6 +64,7 @@ class Command(BaseCommand):
         detached = queue.end_detached()
         tombstoned = purge.tombstone_due()
         sheets = spreadsheets.expire()
+        alerts = stock_alerts.send_alerts()
         logger.info(
             "maintenance_done",
             expired_sessions=sessions,
@@ -80,6 +83,7 @@ class Command(BaseCommand):
             ended_detached_runs=detached,
             tombstoned_entities=tombstoned,
             abandoned_spreadsheet_imports=sheets,
+            low_stock_notifications=alerts,
         )
         self.stdout.write(
             f"Deleted {sessions} expired session(s), {counters} old rate-limit window(s), "
@@ -92,5 +96,6 @@ class Command(BaseCommand):
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
             f"draft(s), deleted {bundles} expired bundle(s), discarded {sheets} abandoned "
             f"spreadsheet import(s), ended {detached} run(s) of detached plugins, and tombstoned "
-            f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins."
+            f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins. "
+            f"Sent {alerts} low-stock notification(s)."
         )

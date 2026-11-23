@@ -25,10 +25,11 @@ export const REGISTRY_SETTINGS = "/admin/registries/";
 export function registriesQuery(team?: string) {
   return queryOptions({
     queryKey: [...REGISTRIES, "list", team ?? null],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/registries", {
           params: { query: { limit: 100, ...(team ? { team } : {}) } },
+          signal,
         }),
       ).items,
   });
@@ -37,10 +38,11 @@ export function registriesQuery(team?: string) {
 export function registryQuery(id: string) {
   return queryOptions({
     queryKey: [...REGISTRIES, "one", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/registries/{registry_id}", {
           params: { path: { registry_id: id } },
+          signal,
         }),
       ),
   });
@@ -58,7 +60,7 @@ export function registryEntriesQuery(id: string, filter: EntryFilter) {
   return infiniteQueryOptions({
     queryKey: [...REGISTRIES, "entries", id, filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/registries/{registry_id}/entries", {
           params: {
@@ -71,6 +73,7 @@ export function registryEntriesQuery(id: string, filter: EntryFilter) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -83,8 +86,8 @@ export function registryEntriesQuery(id: string, filter: EntryFilter) {
 export function entryQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "entry", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entries/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/entries/{ref}", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -94,13 +97,14 @@ export function entryRevisionsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "entry-revisions", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entries/{ref}/revisions", {
           params: {
             path: { ref },
             query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -112,10 +116,11 @@ export function entryRevisionsQuery(ref: string) {
 export function entryRevisionQuery(ref: string, number: number) {
   return queryOptions({
     queryKey: [...ENTITIES, "entry-revision", ref.toUpperCase(), number],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entries/{ref}/revisions/{number}", {
           params: { path: { ref, number } },
+          signal,
         }),
       ),
     // A revision never changes.

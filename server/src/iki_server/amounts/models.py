@@ -38,6 +38,21 @@ class Amount(models.Model):
         ]
 
 
+class LowStockAlert(models.Model):
+    """A recipient already told during this catalogue item's current low-stock episode."""
+
+    item = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+"
+    )
+
+    class Meta:
+        db_table = "iki_amount_low_stock_alert"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["item", "recipient"], name="iki_low_stock_alert_once"),
+        ]
+
+
 class MovementKind(models.TextChoices):
     #: How much it had when it was recorded.
     RECORDED = "recorded", "Recorded"
