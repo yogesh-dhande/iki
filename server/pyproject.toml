@@ -54,5 +54,5 @@ iki-server = "iki_server.manage:main"
 module-name = ["iki_server", "iki_plugin_iki__core"]
 
 [build-system]
-requires = ["uv_build>=0.13.7,<0.14"]
+requires = ["uv_build>=0.13.8,<0.14"]
 build-backend = "uv_build"
