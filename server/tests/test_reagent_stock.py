@@ -17,9 +17,9 @@ from uuid import uuid4
 import pytest
 from django.db import connection, transaction
 from django.utils import timezone
+from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_api_entities import api_as
-from test_first_party_plugins import FIRST_PARTY, PLUGINS
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 
@@ -48,7 +48,7 @@ def test_supplier_receipts_keep_the_order_inventory_and_storage_consistent(
     tmp_path: Path, database: str
 ) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *FIRST_PARTY[PLUGIN], PLUGIN, "--output", build, cwd=PLUGINS)
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)

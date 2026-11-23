@@ -46,6 +46,16 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/conjugate.conjugate-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/polymer.polymer-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/lots.lot-tools
 templates: [{ template: backend-small }]
 ---
@@ -67,6 +77,11 @@ templates: [{ template: backend-small }]
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: iki/example_lims.lims-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/cell_lines.cell-line-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1

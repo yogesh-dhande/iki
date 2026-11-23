@@ -14,22 +14,20 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 
 from iki_spec import rules, schemas
 from iki_spec.model import EntityType
 from iki_spec.validate import load_plugin
 
-PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
 PLUGIN = PLUGINS / "example_lims"
-#: What it depends on, directly or through iki/lots.
-DEPENDENCIES = [PLUGINS / p for p in ("protein", "dna", "lots", "oligo", "plasmid")]
 SCRIPTS = PLUGIN / "scripts"
 HOST = "lims.acme.example"
 TOKEN = "lims-test-token"
 
 
 def test_the_plugin_is_valid() -> None:
-    result = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
+    result = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
     assert result.problems == []
     assert result.plugin is not None
     actions = result.plugin.actions
@@ -136,7 +134,7 @@ def test_the_plugin_is_valid() -> None:
 
 @pytest.fixture(scope="module")
 def analysis_result() -> EntityType:
-    loaded = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
+    loaded = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
     assert loaded.problems == []
     assert loaded.plugin is not None
     return loaded.plugin.types["iki/example_lims.AnalysisResult"]
@@ -246,7 +244,7 @@ def test_correcting_a_result_before_release_reopens_its_draft(analysis_result: E
 
 
 def test_correcting_an_approved_sample_reopens_testing_but_claiming_it_keeps_review() -> None:
-    loaded = load_plugin(PLUGIN, dependencies=DEPENDENCIES)
+    loaded = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
     assert loaded.plugin is not None
     sample = loaded.plugin.types["iki/example_lims.Sample"]
     status = sample.fields["status"]
