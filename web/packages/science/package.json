@@ -98,6 +98,16 @@
       "types": "./dist/plasmid-thumbnail.d.ts",
       "default": "./dist/plasmid-thumbnail.js"
     },
+    "./virtual-gel": {
+      "@ikisci/source": "./src/virtual-gel.ts",
+      "types": "./dist/virtual-gel.d.ts",
+      "default": "./dist/virtual-gel.js"
+    },
+    "./virtual-gel.css": {
+      "@ikisci/source": "./src/virtual-gel.css",
+      "types": "./style.d.ts",
+      "default": "./dist/virtual-gel.css"
+    },
     "./sequence-viewer": {
       "@ikisci/source": "./src/sequence-viewer.tsx",
       "types": "./dist/sequence-viewer.d.ts",
@@ -167,6 +177,8 @@
     "./restriction-map": 832,
     "./plasmid-map": 6656,
     "./plasmid-thumbnail": 3072,
+    "./virtual-gel": 3072,
+    "./virtual-gel.css": 1152,
     "./sequence-viewer": 102400,
     "./alignment-viewer": 80000,
     "./alignment-compare": 1500,
