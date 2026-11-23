@@ -38,7 +38,6 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^31.0.0",
-    "molstar": "5.13.1",
     "vite": "^8.3.7"
   }
 }

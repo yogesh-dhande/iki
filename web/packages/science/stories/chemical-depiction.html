@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <style>
+      html {
+        color-scheme: light dark;
+        color: CanvasText;
+        background-color: Canvas;
+      }
+    </style>
+    <title>Chemical depiction</title>
+  </head>
+  <body>
+    <h1>Chemical depiction</h1>
+    <label>SMILES <input id="smiles" value="CC(=O)Oc1ccccc1C(=O)O" /></label>
+    <iki-chemical-depiction></iki-chemical-depiction>
+    <p>Aspirin, <a href="https://pubchem.ncbi.nlm.nih.gov/compound/2244">PubChem CID 2244</a>.</p>
+    <script type="module">
+      import "../dist/chemical-depiction.js";
+      const viewer = document.querySelector("iki-chemical-depiction");
+      const input = document.querySelector("#smiles");
+      const draw = () => {
+        viewer.data = {
+          smiles: input.value,
+          name: input.value === input.defaultValue ? "aspirin" : "compound",
+        };
+      };
+      input.addEventListener("input", draw);
+      draw();
+    </script>
+  </body>
+</html>

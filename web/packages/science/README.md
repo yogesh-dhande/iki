@@ -97,6 +97,19 @@ navigation events. The separate `@ikisci/science/alignment-compare` entry compar
 aligned rows as plain data. [Data and events](stories/alignment-viewer.md) ·
 [Alignment story](stories/alignment-viewer.html)
 
+## Molecular viewers
+
+Import `@ikisci/science/chemical-depiction` to register `<iki-chemical-depiction>`.
+Set `.data` to `{ smiles, name?, label? }`. The element draws a stereochemically
+annotated SVG, displays the SMILES, and emits `depiction-ready` or `depiction-error`.
+[Data and events](stories/chemical-depiction.md) · [Aspirin example](stories/chemical-depiction.html)
+
+Import `@ikisci/science/structure-viewer` to register `<iki-structure-viewer>`.
+Set `.data` to `{ structures, camera? }`. Each structure has a label, `pdb` or `mmcif`
+format, and coordinate text or an ArrayBuffer. The Mol* scene supports colours, saved
+cameras, residue selections and multi-structure superposition.
+[Data, methods and events](stories/structure-viewer.md) · [Crambin example](stories/structure-viewer.html)
+
 ## Next.js
 
 Create the element inside a Client Component. Import the browser module in an

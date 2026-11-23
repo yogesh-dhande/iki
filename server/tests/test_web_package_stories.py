@@ -14,8 +14,11 @@ from test_browser import AXE, RUN_AXE, WCAG_22_AA, browser, playwright  # noqa: 
 
 pytestmark = pytest.mark.built_web_app
 PACKAGES = Path(__file__).resolve().parents[2] / "web" / "packages"
+# The rendering engines have their own readiness, interaction and accessibility tests.
+ENGINE_STORIES = {"science/chemical-depiction", "science/structure-viewer"}
 STORIES = sorted(
-    f"{path.parents[1].name}/{path.stem}" for path in PACKAGES.glob("*/stories/*.html")
+    {f"{path.parents[1].name}/{path.stem}" for path in PACKAGES.glob("*/stories/*.html")}
+    - ENGINE_STORIES
 )
 
 
@@ -139,7 +142,6 @@ def test_standalone_story(
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert not errors, errors
         assert all(url.startswith(f"{gallery_url}/") for url in requests), requests
-        if component != "chemical-depiction":
-            assert not any(url.endswith(".wasm") for url in requests), requests
+        assert not any(url.endswith(".wasm") for url in requests), requests
     finally:
         context.close()

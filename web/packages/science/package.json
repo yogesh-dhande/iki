@@ -112,6 +112,15 @@
       "@ikisci/source": "./src/alignment-compare.ts",
       "types": "./dist/alignment-compare.d.ts",
       "default": "./dist/alignment-compare.js"
+    },
+    "./structure-viewer": {
+      "@ikisci/source": "./src/structure-viewer.ts",
+      "types": "./dist/structure-viewer.d.ts",
+      "default": "./dist/structure-viewer.js"
+    },
+    "./chemical-depiction": {
+      "types": "./dist/chemical-depiction.d.ts",
+      "default": "./dist/chemical-depiction.js"
     }
   },
   "files": [
@@ -124,11 +133,12 @@
     "!src/*.test.tsx",
     "wasm/iki_wasm.wasm",
     "style.d.ts",
+    "src/structure/residues.ts",
     "LICENSE",
     "NOTICE"
   ],
   "scripts": {
-    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node ../../../scripts/check-web-package-size.js",
+    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node build-viewers.mjs && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -153,11 +163,16 @@
     "./plasmid-thumbnail": 3072,
     "./sequence-viewer": 102400,
     "./alignment-viewer": 80000,
-    "./alignment-compare": 1500
+    "./alignment-compare": 1500,
+    "./structure-viewer": 1200000,
+    "./chemical-depiction": 2500000
   },
   "devDependencies": {
+    "@rdkit/rdkit": "2026.9.2",
+    "@types/react-dom": "^19.3.0",
     "jsdom": "^31.0.0",
-    "@types/react-dom": "^19.3.0"
+    "molstar": "5.13.1",
+    "vite": "^8.3.7"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.26",

@@ -23,7 +23,9 @@
     "src/plasmid-thumbnail.ts",
     "src/sequence-viewer.tsx",
     "src/alignment-compare.ts",
-    "src/alignment-viewer.tsx"
+    "src/alignment-viewer.tsx",
+    "src/structure-viewer.ts",
+    "src/chemical-depiction.ts"
   ],
   "exclude": ["src/**/*.test.ts"]
 }
