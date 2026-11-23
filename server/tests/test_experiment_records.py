@@ -15,6 +15,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from api_client import Api, problem
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.utils import timezone
@@ -192,6 +193,59 @@ def concurrent_draws(world: World, sample: Entity) -> None:
     assert [Amount.objects.get(entity=lot).value for lot in lots] == [Decimal("0.875")] * 2
 
 
+def duplicate_observations(world: World) -> None:
+    author = Api(world.browser("editor"))
+    colleague = Api(world.browser("admin"))
+    note = {"observed_at": OBSERVED_AT, "note": "Duplicate observation"}
+    made = author.post(
+        "/entities",
+        {
+            "type": PREFIX + "Experiment",
+            "project": str(world.project.pk),
+            "values": {"title": "Two independent observations", "observations": [note]},
+        },
+    )
+    assert made.status_code == 201, made.content
+    ref = f"/entities/{made.json()['id']}"
+    (first,) = made.json()["values"]["observations"]
+    appended = colleague.patch(
+        ref,
+        {"values": {"observations": [first, note]}},
+        headers={"If-Match": made["ETag"]},
+    )
+    assert appended.status_code == 200, appended.content
+    old, duplicate = appended.json()["values"]["observations"]
+    assert old["observation_id"] == first["observation_id"] != duplicate["observation_id"]
+    assert old["note"] == duplicate["note"] and old["observed_at"] == duplicate["observed_at"]
+
+    # An older client cannot silently choose between the two indistinguishable rows.
+    ambiguous = problem(
+        author.patch(
+            ref, {"values": {"observations": [note]}}, headers={"If-Match": appended["ETag"]}
+        ),
+        422,
+        "validation_failed",
+    )
+    assert ambiguous["errors"][0]["pointer"] == "#/values/observations/0/observation_id"
+
+    removed = author.patch(
+        ref,
+        {"values": {"observations": [duplicate]}},
+        headers={"If-Match": appended["ETag"]},
+    )
+    assert removed.status_code == 200, removed.content
+    assert removed.json()["values"]["observations"] == [duplicate]
+    one = author.get(f"{ref}/revisions/1").json()
+    two = author.get(f"{ref}/revisions/2").json()
+    three = author.get(f"{ref}/revisions/3").json()
+    assert one["values"]["observations"] == [first]
+    assert two["values"]["observations"] == [first, duplicate]
+    assert three["changes"]["observations"] == {"before": [first, duplicate], "after": [duplicate]}
+    assert [revision["user"]["id"] for revision in (one, two, three)] == [
+        str(world.users[who].pk) for who in ("editor", "admin", "editor")
+    ]
+
+
 def exercise(flow: str) -> None:
     world = build_world(flow + "-")
     ready(world)
@@ -264,6 +318,7 @@ def exercise(flow: str) -> None:
     signed(world, "admin", str(lot.pk), "released", field="disposition")
     lot.refresh_from_db()
     if flow == "research":
+        duplicate_observations(world)
         concurrent_draws(world, result)
         denied_draws(world, lot, given)
     capture(world, experiment, result)

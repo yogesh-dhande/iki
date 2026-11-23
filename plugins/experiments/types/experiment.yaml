@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: EntityType
 name: Experiment
-schema_version: 1
+schema_version: 2
 label: Experiment
 hrid: { prefix: EXP }
 description: A project record for an experiment, its external notebook entry and the evidence the lab signed.
@@ -48,6 +48,12 @@ fields:
       fields:
         observed_at: { type: datetime, required: true, label: Observed at }
         note: { type: text, required: true, max_length: 10000 }
+        observation_id:
+          type: string
+          label: Observation ID
+          max_length: 36
+          pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          description: The stable row ID. Preserve it on edits and leave it out for a new observation.
   attachments:
     type: list
     items: { type: file }
