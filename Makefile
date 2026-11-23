@@ -220,10 +220,15 @@ dev-up: ## Create the kind cluster and start Tilt (interactive)
 	deploy/dev/up.sh
 	tilt up
 
+#: How long `make dev-ci` waits for the cluster to come up. The images build from scratch on a
+#: cold cache, and on a machine running several gates at once they build alongside each other, so
+#: a timeout tuned to an idle machine fails a run that was only sharing the disk and the cores.
+DEV_CI_TIMEOUT ?= 40m
+
 .PHONY: dev-ci
 dev-ci: ## Bring the dev cluster up headless; run the end-to-end checks, then the restore test
 	deploy/dev/up.sh
-	tilt ci --timeout 20m
+	tilt ci --timeout $(DEV_CI_TIMEOUT)
 	deploy/dev/e2e.sh
 	deploy/dev/restore-test.sh
 
