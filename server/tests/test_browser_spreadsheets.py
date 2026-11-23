@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, Route, expect
 from real_server import Server
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
@@ -23,11 +23,12 @@ from test_browser import (  # noqa: F401 - fixtures
     tasks,
     world,
 )
-from workbook_files import Date, xlsx
+from workbook_files import XLSX_TYPE, Date, xlsx
 
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.runs.models import ActionRun, ExternalOrigin
+from iki_server.spreadsheets.models import PreviewRow, SpreadsheetImport
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -86,6 +87,130 @@ def fits_a_phone(page: Page) -> None:
     page.set_viewport_size({"width": 1440, "height": 900})
 
 
+def choose_manifest(page: Page) -> None:
+    page.get_by_label("Upload a workbook").set_input_files(
+        {
+            "name": "kinase-domains-batch-12.xlsx",
+            "mimeType": XLSX_TYPE,
+            "buffer": xlsx(("About", ABOUT), ("Samples", SAMPLES)),
+        }
+    )
+
+
+@pytest.fixture
+def sample_manifest(open_as: Any, world: World, tasks: Server) -> tuple[Page, SpreadsheetImport]:
+    kinases(world)
+    page: Page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}", "dark")
+    expect(page.get_by_role("combobox", name="Its rows are")).to_have_value(SAMPLE)
+    choose_manifest(page)
+    page.get_by_role("heading", name="Sheet and rows").wait_for(timeout=60_000)
+    page.reload()
+    page.get_by_role("heading", name="Sheet and rows").wait_for(timeout=60_000)
+    return page, SpreadsheetImport.objects.get(project=world.project)
+
+
+def test_row_edits_wait_for_the_chosen_sheet_and_a_shorter_sheet_explains_its_reset(
+    sample_manifest: tuple[Page, SpreadsheetImport],
+) -> None:
+    page, imported = sample_manifest
+    sheet = page.get_by_role("combobox", name="Sheet", exact=True)
+    header = page.get_by_role("spinbutton", name="Header row")
+    first = page.get_by_role("spinbutton", name="First row")
+    next_step = page.get_by_role("button", name="Next: columns")
+    endpoint = f"**/api/v1/spreadsheet-imports/{imported.pk}"
+    held: list[Route] = []
+    patches: list[Request] = []
+
+    def record_patch(request: Request) -> None:
+        if request.method == "PATCH" and request.url.endswith(str(imported.pk)):
+            patches.append(request)
+
+    page.on("request", record_patch)
+    page.route(endpoint, lambda route: held.append(route), times=1)
+
+    with page.expect_request(lambda r: r.method == "PATCH" and r.url.endswith(str(imported.pk))):
+        sheet.select_option("Samples")
+    expect(header).to_be_disabled()
+    expect(first).to_be_disabled()
+    expect(next_step).to_be_disabled()
+    header.focus()
+    expect(header).not_to_be_focused()
+    page.keyboard.press("3")
+    page.keyboard.press("Enter")
+    expect(header).to_have_value("1")
+    assert len(patches) == 1
+    requested = patches[0].post_data_json
+    assert isinstance(requested, dict) and requested["sheet"] == "Samples"
+    imported.refresh_from_db()
+    assert (imported.sheet, imported.header_row, imported.first_row) == ("About", 1, 2)
+    held[0].continue_()
+    expect(header).to_be_enabled()
+    header.fill("3")
+    with page.expect_response(
+        lambda r: r.request.method == "PATCH" and r.url.endswith(str(imported.pk))
+    ) as saving:
+        header.press("Enter")
+    assert saving.value.status == 200
+    body = saving.value.request.post_data_json
+    assert isinstance(body, dict) and body["header_row"] == 3
+    assert (body.get("basis") or body)["sheet"] == "Samples"
+    expect(first).to_have_value("4")
+    imported.refresh_from_db()
+    assert (imported.sheet, imported.header_row, imported.first_row) == ("Samples", 3, 4)
+
+    sheet.select_option("About")
+    notice = page.get_by_role("status").filter(has_text="About")
+    expect(notice).to_contain_text(re.compile(r"header", re.I))
+    expect(notice).to_contain_text(re.compile(r"\b3\b"))
+    expect(notice).to_contain_text(re.compile(r"\b1\b"))
+    expect(header).to_have_value("1")
+    expect(first).to_have_value("2")
+    imported.refresh_from_db()
+    assert (imported.sheet, imported.header_row, imported.first_row) == ("About", 1, 2)
+
+
+def test_a_rejected_header_cannot_advance_or_preview_until_its_saved_value_is_restored(
+    sample_manifest: tuple[Page, SpreadsheetImport],
+) -> None:
+    page, imported = sample_manifest
+    page.get_by_role("combobox", name="Sheet", exact=True).select_option("Samples")
+    sample = page.get_by_role("table", name="Its first rows")
+    expect(sample.get_by_text("ABL1-KD-001")).to_be_visible()
+    header = page.get_by_role("spinbutton", name="Header row")
+    first = page.get_by_role("spinbutton", name="First row")
+    header.fill("3")
+    header.press("Enter")
+    expect(first).to_have_value("4")
+
+    header.fill("99")
+    header.press("Enter")
+    expect(header).to_have_attribute("aria-invalid", "true")
+    expect(header).to_have_accessible_description(re.compile(r"1 to 11"))
+    expect(header).to_have_value("99")
+    next_step = page.get_by_role("button", name="Next: columns")
+    expect(next_step).to_be_disabled()
+    next_step.click(force=True)
+    expect(header).to_be_visible()
+    expect(header).to_have_attribute("aria-invalid", "true")
+    expect(page.get_by_role("button", name="Check every row")).to_have_count(0)
+    imported.refresh_from_db()
+    assert (imported.sheet, imported.header_row, imported.first_row) == ("Samples", 3, 4)
+    assert imported.state == "mapping" and imported.round == 0 and imported.run_id is None
+
+    header.press("Escape")
+    expect(header).to_have_value("3")
+    expect(header).not_to_have_attribute("aria-invalid", "true")
+    expect(first).to_have_value("4")
+    next_step.click()
+    page.get_by_role("button", name="Check every row").click()
+    page.get_by_role("heading", name="Rows of Samples").wait_for(timeout=60_000)
+    imported.refresh_from_db()
+    rows = PreviewRow.objects.filter(spreadsheet_import_id=imported.pk, round=imported.round)
+    assert sorted(rows.values_list("row", flat=True)) == list(range(4, 12))
+    assert (imported.sheet, imported.header_row, imported.first_row) == ("Samples", 3, 4)
+    assert imported.state == "previewed" and imported.run_id is None
+
+
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_a_sample_manifest_is_imported_from_the_entities_tab(
     open_as: Any, world: World, tasks: Server, color_scheme: str
@@ -100,13 +225,7 @@ def test_a_sample_manifest_is_imported_from_the_entities_tab(
     expect(page.get_by_role("combobox", name="Its rows are")).to_have_value(SAMPLE)
     checked(page)
     fits_a_phone(page)
-    page.locator("input[type=file]").set_input_files(
-        {
-            "name": "kinase-domains-batch-12.xlsx",
-            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "buffer": xlsx(("About", ABOUT), ("Samples", SAMPLES)),
-        }
-    )
+    choose_manifest(page)
     page.wait_for_url(re.compile(r"/entities/import/[0-9a-f-]+/$"), timeout=60_000)
     # An import has an address of its own, to come back to.
     page.reload()
@@ -218,20 +337,13 @@ def test_a_workbook_already_in_the_project_is_picked_from_its_files(
     open_as: Any, world: World, tasks: Server
 ) -> None:
     from iki_server.files.models import File
-    from iki_server.spreadsheets.models import SpreadsheetImport
 
     kinases(world)
     page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}")
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("heading", level=2, name="Import a spreadsheet").wait_for()
     # Someone uploaded the core's manifest once, and left that import.
-    page.locator("input[type=file]").first.set_input_files(
-        {
-            "name": "kinase-domains-batch-12.xlsx",
-            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            "buffer": xlsx(("About", ABOUT), ("Samples", SAMPLES)),
-        }
-    )
+    choose_manifest(page)
     page.get_by_role("heading", level=3, name="Sheet and rows").wait_for(timeout=60_000)
     page.get_by_role("button", name="Discard", exact=True).click()
     page.get_by_role("alertdialog").get_by_role("button", name="Discard", exact=True).click()
