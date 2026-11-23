@@ -12,7 +12,7 @@ description: >-
   A prep of a plasmid from its host: its scale and method, its concentration from its
   A260 (50 µg/mL of double-stranded DNA for each unit, over 1 cm), its purity by
   A260/A280 and A260/A230, its supercoiled share and endotoxin, and how its sequence
-  was verified.
+  was checked. Open its Verification tab for the evidence, reference revision and signed outcome.
 hrid: { prefix: PREP }
 # How much of it is left (ADR 0139): kept by mass, drawn by volume at its
 # concentration, so 2 µg of a 500 ng/µL prep is 4 µL; only its plasmid's.
@@ -136,7 +136,8 @@ fields:
     values: [whole_plasmid, sanger, restriction_digest]
     description: >-
       How it was checked to be its plasmid: whole-plasmid sequencing, Sanger
-      sequencing of its insert, or a restriction digest's bands.
+      sequencing of its insert, or a restriction digest's bands. The Verification tab links
+      each evidence record for this physical prep.
 rules:
   path_length_is_positive:
     label: Its path length is more than 0

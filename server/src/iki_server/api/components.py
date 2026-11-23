@@ -171,6 +171,10 @@ class ComponentEntitiesIn(Schema):
     limit: int = Field(100, ge=1, le=100, description="Items per page.")
 
 
+class ComponentPersonOut(Schema):
+    name: str = Field(description="The person's display name for this record.")
+
+
 class ComponentEntityOut(Schema):
     id: UUID
     hrid: str
@@ -181,6 +185,9 @@ class ComponentEntityOut(Schema):
     values: dict[str, Any] = Field(description="The values of the fields the component reads.")
     refs: dict[str, RefOut] = Field(
         description="The entities those fields refer to that you can read, by ID."
+    )
+    people: dict[str, ComponentPersonOut] = Field(
+        default_factory=dict, description="Display names for the people those fields name, by ID."
     )
 
 
@@ -256,7 +263,8 @@ def _projected(component: Component, full: dict[str, Any]) -> dict[str, Any]:
         for name in component.entities.fields
         if name in fields and name in full["values"]
     }
-    ids = {str(i) for i in _ids_in({n: fields[n] for n in values}, values)["ref"]}
+    # Values in the full API response already hold JSON (string) IDs.
+    ids = _ids_in({n: fields[n] for n in values}, values)
     return {
         "id": full["id"],
         "hrid": full["hrid"],
@@ -265,7 +273,15 @@ def _projected(component: Component, full: dict[str, Any]) -> dict[str, Any]:
         "revision": full["revision"],
         "project": full["owner_project"],
         "values": values,
-        "refs": {i: ref for i, ref in full["refs"].items() if i in ids},
+        "refs": {i: ref for i, ref in full["refs"].items() if i in ids["ref"]},
+        "people": {
+            i: {
+                # A full entity can use a visible colleague's email as their fallback name.
+                "name": p["name"] if p["name"] != p["email"] else "Someone without a name"
+            }
+            for i, p in full["people"].items()
+            if i in ids["person"]
+        },
     }
 
 
