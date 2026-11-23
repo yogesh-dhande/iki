@@ -1200,6 +1200,7 @@ def actions() -> None:
     polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
+    mouse_stocks(alice, project)
 
 
 def strain_stocks(
@@ -3765,6 +3766,105 @@ LYSOZYME = (
     "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"
     "LLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
 )
+
+
+def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import MGI nomenclature and trace genotyping data to a specific cryopreserved carrier."""
+    plugin = "iki/mouse_strains."
+    catalogue = (
+        Path(__file__).resolve().parents[2] / "plugins/mouse_strains/tests/data/MGI_Strain.rpt"
+    )
+    report = upload(alice, project, "MGI_Strain.rpt", catalogue.read_bytes(), "text/plain")
+    imported = launch(
+        alice,
+        project,
+        plugin + "register_mgi_strain",
+        {},
+        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+    )
+    [effect] = imported["effects"]
+    reference = record(alice, effect["entity"])["values"]
+    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+        fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
+    # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
+    allele = created(
+        alice, project, plugin + "MouseAllele", {"mgi_id": "MGI:1855985", "symbol": "Tyr<c-2J>"}
+    )
+    strain = created(
+        alice,
+        project,
+        plugin + "MouseStrain",
+        {
+            "mgi_id": "MGI:2163869",
+            "nomenclature": "B6(Cg)-Tyr<c-2J>/J",
+            "jax_stock": "000058",
+            "alleles": [entry_of(allele)],
+        },
+    )
+    # All local specimens, dates, amounts and test results are synthetic.
+    tag = secrets.token_hex(4)
+    genotype = {
+        "strain": entry_of(strain),
+        "alleles": [entry_of(allele)],
+        "notation": "Tyr<c-2J>/Tyr<c-2J>",
+    }
+    donor = created(
+        alice, project, plugin + "MouseGenotype", {**genotype, "subject": f"Synthetic donor {tag}"}
+    )
+    banked = {"strain": entry_of(strain), "banked_on": "2026-01-08"}
+    sperm = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+    )
+    embryo_code = f"SYNTHETIC-E-{tag}"
+    embryos = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {"value": 100, "unit": "uL"},
+    )
+    box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
+    moved(alice, [(sperm, box, "A1"), (embryos, box, "A2")], "Synthetic bank deposit")
+    for stock, position in ((sperm, "A1"), (embryos, "A2")):
+        location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
+        if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], position)]:
+            fail(f"{stock['hrid']}'s cryobank location is {location}")
+    assay_file = upload(
+        alice,
+        project,
+        "synthetic-genotype.txt",
+        b"Synthetic embryo genotype report\n",
+        "text/plain",
+    )
+    tested = created(
+        alice,
+        project,
+        plugin + "MouseGenotype",
+        {**genotype, "subject": f"Synthetic embryo sample {tag}", "report": assay_file},
+    )
+    draw = api_call(
+        alice,
+        "POST",
+        f"/entities/{embryos['id']}/amount/draw",
+        {
+            "amount": {"value": 10, "unit": "uL"},
+            "confirm": embryo_code,
+            "reason": "Synthetic genotyping",
+            "used_in": tested["id"],
+        },
+    )
+    if draw.status_code != 200 or Decimal(draw.json()["amount"]["value"]) != 90:
+        fail(f"Draw for {tested['hrid']} answered HTTP {draw.status_code}: {draw.text[:300]}")
+    ancestry = api_call(alice, "GET", f"/entities/{tested['id']}/graph?up=3&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {tested['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
+    if not {embryos["id"], strain["id"], allele["id"]} <= {e["id"] for e in graph["entities"]}:
+        fail(f"{tested['hrid']}'s report lost the banked carrier, strain or MGI allele")
+    ok(f"{tested['hrid']}'s genotyping report traces to {embryos['hrid']} from JAX stock 000058")
 
 
 def lots(alice: requests.Session, project: dict[str, Any]) -> None:

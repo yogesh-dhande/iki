@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: MouseGenotype
+label: Mouse genotype
+schema_version: 1
+hrid: { prefix: MGT }
+sample: true
+description: >-
+  A project's genotype record for a particular mouse or group of embryos, with the
+  allele combination as reported and any supporting data.
+fields:
+  strain:
+    type: ref
+    to: MouseStrain
+    required: true
+    immutable: true
+  subject:
+    type: string
+    required: true
+    immutable: true
+    max_length: 200
+    description: Local identifier for the animal or specimen group described by the report.
+  notation:
+    type: string
+    required: true
+    max_length: 2000
+    description: The reported genotype including zygosity, retaining the laboratory's notation.
+  alleles:
+    type: list
+    items: { type: ref, to: MouseAllele }
+    max_items: 200
+    description: Alleles identified in this report that have MGI entries.
+  report:
+    type: file
+    description: The original genotyping report or data file.
+display:
+  title: "{{ subject }} · {{ notation }}"
