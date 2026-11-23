@@ -13,13 +13,17 @@ import {
   columnsWith,
   counted,
   importable,
+  moved,
+  older,
+  overlaid,
   parseRanges,
   rangesText,
   type ColumnChoice,
+  type SheetChange,
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, page, respond } from "./test-server";
+import { answer, calls, page, problem, respond, type Sent } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -97,6 +101,7 @@ function field(
 function sheet(overrides: Partial<SheetImport> = {}): SheetImport {
   return {
     id: ID,
+    revision: 2,
     project: KINASE.id,
     type: PROTEIN.name,
     file: {
@@ -227,6 +232,48 @@ describe("what the steps work out", () => {
     });
   });
 
+  it("never takes an import back to a revision older than one shown", () => {
+    const shown = sheet({ revision: 4, updated_at: "2026-11-22T09:00:02Z" });
+    expect(older(shown, sheet({ revision: 3, updated_at: "2026-11-22T09:00:05Z" }))).toBe(true);
+    expect(older(shown, sheet({ revision: 5, updated_at: "2026-11-22T09:00:01Z" }))).toBe(false);
+    // The same revision, as it was before the one shown was written: its preview started.
+    expect(older(shown, sheet({ revision: 4, updated_at: "2026-11-22T09:00:01Z" }))).toBe(true);
+    expect(older(shown, sheet({ revision: 4, updated_at: "2026-11-22T09:00:03Z" }))).toBe(false);
+    expect(older(undefined, shown)).toBe(false);
+  });
+
+  it("says which choices changed between two revisions", () => {
+    const before = sheet();
+    expect([...moved(before, sheet({ revision: 3 }))]).toEqual([]);
+    const after = sheet({
+      sheet: "Notes",
+      header_row: 2,
+      columns: COLUMNS.map((c) => (c.index === 0 ? { ...c, field: null } : c)),
+    });
+    expect([...moved(before, after)].sort()).toEqual(["columns", "header_row", "sheet"]);
+  });
+
+  it("shows a choice on its way on what's saved", () => {
+    const made = sheet();
+    expect(overlaid(made, { header_row: 3, first_row: 4 })).toMatchObject({
+      header_row: 3,
+      first_row: 4,
+      sheet: "Kinases",
+    });
+    expect(overlaid(made, { last_row: 0 }).last_row).toBeNull();
+    const columns = overlaid(made, { columns: [{ index: 2, field: "name", unit: "mg" }] }).columns;
+    expect(columns.map((c) => [c.index, c.field, c.unit])).toEqual([
+      [0, null, null],
+      [1, null, null],
+      [2, "name", "mg"],
+    ]);
+    expect(overlaid(made, { locale: { decimal: "comma", serial_dates: false } }).locale).toEqual({
+      decimal: "comma",
+      dates: null,
+      serial_dates: false,
+    });
+  });
+
   it("counts what importing would do, and what it would write or keep", () => {
     expect(counted(PREVIEWED)).toEqual([
       { outcome: "create", count: 2 },
@@ -347,6 +394,123 @@ describe("where an import starts", () => {
       "value",
       PROTEIN.name,
     );
+  });
+});
+
+describe("saving an import's choices", () => {
+  it("saves them one at a time, each from the revision the one before left", async () => {
+    onImport(sheet({ sheet: "Notes", header_row: 1, first_row: 2 }));
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer(`PATCH ${BASE}`, async (call: Sent) => {
+      const body = call.body as SheetChange;
+      if (body.sheet) {
+        // The sheet's answer is slow: the header row is typed meanwhile.
+        await held;
+        return sheet({ revision: 3, sheet: "Kinases", header_row: 1, first_row: 2 });
+      }
+      return sheet({ revision: 4, sheet: "Kinases", header_row: 3, first_row: 4 });
+    });
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const chosen = await screen.findByRole("combobox", { name: "Sheet" });
+    await user.selectOptions(chosen, "Kinases");
+    // What the person chose shows while it's saved.
+    expect(chosen).toHaveProperty("value", "Kinases");
+    expect(screen.getByText("Saving…")).toBeTruthy();
+    const header = screen.getByRole("spinbutton", { name: "Header row" });
+    await user.clear(header);
+    await user.type(header, "3{Enter}");
+    // Not sent until the change before it is saved.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([{ sheet: "Kinases" }]);
+    release?.();
+    await waitFor(() => {
+      expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([
+        { sheet: "Kinases" },
+        { header_row: 3 },
+      ]);
+    });
+    expect(calls("PATCH", BASE).map((c) => c.headers.get("If-Match"))).toEqual(['"2"', '"3"']);
+    await waitFor(() => {
+      expect(screen.getByRole("spinbutton", { name: "First row" })).toHaveProperty("value", "4");
+    });
+    expect(screen.getByRole("spinbutton", { name: "Header row" })).toHaveProperty("value", "3");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows what's saved when it changed elsewhere, and keeps what wasn't saved", async () => {
+    onImport(sheet());
+    answer(
+      `PATCH ${BASE}`,
+      problem(412, "stale", "It changed since you read it, in another tab or session."),
+    );
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    // Someone changed its first row in another tab.
+    answer(`GET ${BASE}`, sheet({ revision: 5, first_row: 3, updated_at: "2026-11-22T09:05:00Z" }));
+    const skip = await screen.findByRole("textbox", { name: /Rows to leave out/ });
+    await user.type(skip, "4{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("changed in another tab or session");
+    expect(alert.textContent).toContain("with its first row as changed there");
+    expect(within(alert).getByText("Rows to leave out: 4")).toBeTruthy();
+    // What's saved, with what the person chose that wasn't, shown on it.
+    expect(screen.getByRole("spinbutton", { name: "First row" })).toHaveProperty("value", "3");
+    expect(skip).toHaveProperty("value", "4");
+    answer(`PATCH ${BASE}`, sheet({ revision: 6, first_row: 3, skip: [[4, 4]] }));
+    await user.click(within(alert).getByRole("button", { name: "Save my change" }));
+    await waitFor(() => {
+      expect(calls("PATCH", BASE)).toHaveLength(2);
+    });
+    const again = calls("PATCH", BASE)[1];
+    expect(again?.headers.get("If-Match")).toBe('"5"');
+    expect(again?.body).toEqual({ skip: [[4, 4]] });
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+
+  it("lets go of a choice that was changed elsewhere too", async () => {
+    onImport(sheet());
+    answer(
+      `PATCH ${BASE}`,
+      problem(412, "stale", "It changed since you read it, in another tab or session."),
+    );
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    answer(`GET ${BASE}`, sheet({ revision: 5, first_row: 4, updated_at: "2026-11-22T09:05:00Z" }));
+    const first = await screen.findByRole("spinbutton", { name: "First row" });
+    await user.clear(first);
+    await user.type(first, "3{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(within(alert).getByText("First row: 3")).toBeTruthy();
+    expect(alert.textContent).toContain("Changed there too");
+    await waitFor(() => {
+      expect(first).toHaveProperty("value", "4");
+    });
+    await user.click(within(alert).getByRole("button", { name: "OK" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(calls("PATCH", BASE)).toHaveLength(1);
+  });
+
+  it("keeps a choice that's refused, with what's wrong with it", async () => {
+    onImport(sheet());
+    answer(
+      `PATCH ${BASE}`,
+      problem(422, "validation_failed", "Some fields are invalid.", [
+        { pointer: "#/header_row", detail: "must be a row of the sheet, from 1 to 4, or 0." },
+      ]),
+    );
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const header = await screen.findByRole("spinbutton", { name: "Header row" });
+    await user.clear(header);
+    await user.type(header, "9{Enter}");
+    expect(await screen.findByText("must be a row of the sheet, from 1 to 4, or 0.")).toBeTruthy();
+    expect(header).toHaveProperty("value", "9");
+    await user.click(screen.getByRole("button", { name: "Next: columns" }));
+    expect(
+      screen.getByRole("button", { name: "Check every row" }).getAttribute("aria-disabled"),
+    ).toBe("true");
   });
 });
 
