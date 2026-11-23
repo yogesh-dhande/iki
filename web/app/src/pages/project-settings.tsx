@@ -8,7 +8,9 @@ import { APP_TYPE, dashboardChoicesQuery, dashboardKey, dashboardQuery } from ".
 import { required, useForm } from "../forms";
 import { usePageTitle } from "../layout";
 import { registriesQuery, REGISTRY_SETTINGS } from "../registries";
+import { startersQuery } from "../starters";
 import {
+  Badge,
   Button,
   CheckboxField,
   ConfirmDialog,
@@ -56,6 +58,7 @@ export function ProjectSettings() {
         </section>
         {project.can.change_registry ? <RegistrySetting project={project} /> : null}
         {project.can.read ? <Intake project={project} /> : null}
+        {project.can.read ? <Starters project={project} /> : null}
       </div>
     );
   }
@@ -66,6 +69,7 @@ export function ProjectSettings() {
       <Dashboard project={project} />
       <Sharing project={project} />
       <Intake project={project} />
+      <Starters project={project} />
       {project.can.export ? <Exports project={project} /> : null}
       {project.can.import_bundles && !project.archived ? <Imports project={project} /> : null}
       {project.archived ? <Restore project={project} /> : <Archive project={project} />}
@@ -127,6 +131,44 @@ function Details({ project }: { project: Project }) {
           </form>
         </>
       )}
+    </section>
+  );
+}
+
+/** The starters installed to set it up as a service (ADR 0198), and what's applied. */
+function Starters({ project }: { project: Project }) {
+  const starters = useQuery(startersQuery(project.id)).data;
+  if (!starters?.length) return null;
+  return (
+    <section className="card">
+      <h2 className="section-title">Starters</h2>
+      <ul className="rows" aria-label="Starters">
+        {starters.map((s) => {
+          const flow = s.flows.find((f) => f.id === s.applied?.flow);
+          return (
+            <li className="row" key={s.id}>
+              <div className="row-main">
+                <span className="row-title">{s.label}</span>
+                <span className="row-meta">{s.description}</span>
+              </div>
+              <div className="row-tags">
+                {s.applied ? (
+                  <Badge>Applied: {flow?.label ?? s.applied.flow}</Badge>
+                ) : (
+                  <Badge muted>Not applied</Badge>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <p>
+        <Link to="/projects/$slug/settings/starters/" params={{ slug: project.slug }}>
+          {project.can.manage && !project.archived
+            ? "Set it up from a starter"
+            : "See its starters and their review flows"}
+        </Link>
+      </p>
     </section>
   );
 }

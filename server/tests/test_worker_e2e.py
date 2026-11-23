@@ -49,7 +49,12 @@ PREFIX = f"worker-e2e-{uuid.uuid4().hex}"
 def worker_bin() -> Path:
     named = os.environ.get("IKI_WORKER_BIN")
     if named:
-        return Path(named)
+        found = shutil.which(named)
+        assert found is not None and Path(found).is_file(), (
+            f"IKI_WORKER_BIN={named} must name an executable file. Set it to the built worker "
+            "or unset it so pytest can run cargo build --locked -p iki-worker in worker/."
+        )
+        return Path(found).absolute()
     cargo = shutil.which("cargo")
     assert cargo is not None, "Install Rust (https://rustup.rs) to build iki-worker"
     built = subprocess.run(  # noqa: S603 - fixed argv

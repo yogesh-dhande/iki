@@ -14,41 +14,75 @@ CASE = "server/tests/test_plate_map_component.py::test_preview_issues_and_repeat
 
 
 @pytest.mark.parametrize(
-    ("opt_out", "gate"),
-    [(False, None), (True, None), (True, "CI"), (True, "IKI_GATE")],
-    ids=["required", "explicit-local-opt-out", "ci-requires-browsers", "gate-requires-browsers"],
+    ("gate", "opt_out"),
+    [
+        (None, False),
+        ("CI", False),
+        ("IKI_GATE", False),
+        (None, True),
+        ("CI", True),
+        ("IKI_GATE", True),
+    ],
 )
 def test_browser_coverage_with_an_empty_installation(
-    tmp_path: Path, opt_out: bool, gate: str | None
+    tmp_path: Path, gate: str | None, opt_out: bool
 ) -> None:
     env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(tmp_path), PYTEST_ADDOPTS="")
-    env.pop("CI", None)
-    env.pop("IKI_GATE", None)
-    env.pop("IKI_SKIP_BROWSER_TESTS", None)
+    for key in ("CI", "IKI_GATE", "IKI_SKIP_BROWSER_TESTS"):
+        env.pop(key, None)
     if opt_out:
         env["IKI_SKIP_BROWSER_TESTS"] = "1"
     if gate:
         env[gate] = "1"
+    args = [sys.executable, "-m", "pytest", "-q", "-rN", "-c", str(ROOT / "pyproject.toml"), CASE]
+    if opt_out:
+        # This test launches a disposable browser in a subprocess without a browser fixture.
+        args.append("server/tests/test_browser_artifacts.py")
+        other = tmp_path / "test_other.py"
+        other.write_text(
+            "import pytest\ndef test_plain(): pass\n"
+            "def test_capability(): pytest.skip('unrelated capability')\n"
+        )
+        args.append(str(other))
     result = subprocess.run(  # noqa: S603 - fixed argv
-        [sys.executable, "-m", "pytest", "-q", "-rs", CASE],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
+        args, cwd=ROOT, env=env, capture_output=True, text=True, timeout=60, check=False
     )
     output = result.stdout + result.stderr
-    if opt_out and not gate:
-        assert result.returncode == 0 and "1 skipped" in output, output
-        assert "IKI_SKIP_BROWSER_TESTS" in output, output
+    if opt_out and gate:
+        assert result.returncode == pytest.ExitCode.USAGE_ERROR, output
+        assert "full gate" in output and "partial local" in output, output
+        assert "playwright install" not in output
+    elif opt_out:
+        assert result.returncode == 0 and "1 passed, 4 skipped" in output, output
+        assert "3 selected tests skipped by opt-out" in output, output
+        assert "IKI_SKIP_BROWSER_TESTS=1" in output and "browser coverage disabled" in output, (
+            output
+        )
     else:
         assert result.returncode == 1 and "1 error" in output, output
         assert "playwright install" in output, output
 
 
+@pytest.mark.parametrize("goal", ["check", "check-python"])
 @pytest.mark.parametrize("command_line", [False, True], ids=["inherited", "command-line"])
-def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool) -> None:
+def test_full_make_refuses_a_requested_browser_opt_out(
+    tmp_path: Path, goal: str, command_line: bool
+) -> None:
+    env = os.environ.copy()
+    env.pop("IKI_SKIP_BROWSER_TESTS", None)
+    args = ["make", "-n", "-k", "-f", str(ROOT / "Makefile"), goal]
+    if command_line:
+        args.append("IKI_SKIP_BROWSER_TESTS=1")
+    else:
+        env["IKI_SKIP_BROWSER_TESTS"] = "1"
+    run = subprocess.run(  # noqa: S603 - fixed make recipe
+        args, cwd=tmp_path, env=env, capture_output=True, text=True, check=False, timeout=10
+    )
+    assert run.returncode != 0 and "partial local" in run.stderr, run.stderr
+    assert "IKI_SKIP_BROWSER_TESTS=1" in run.stderr
+
+
+def test_make_runs_the_locked_browsers_and_retains_failures(tmp_path: Path) -> None:
     # Run the actual recipe against recording tools, without starting a second full gate.
     check_imports = tmp_path / "scripts" / "check-imports-py312"
     check_imports.parent.mkdir()
@@ -77,10 +111,6 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
     env.pop("IKI_SKIP_BROWSER_TESTS", None)
     env.pop("IKI_BROWSER_ARTIFACTS", None)
     args = ["make", "-f", str(ROOT / "Makefile"), "-k", "check-python", "PYTEST_PARALLEL="]
-    if command_line:
-        args.append("IKI_SKIP_BROWSER_TESTS=1")
-    else:
-        env["IKI_SKIP_BROWSER_TESTS"] = "1"
     artifacts = tmp_path / "build/browser-failures"
     bundles: dict[Path, bytes] = {}
     for label in ("first", "second"):

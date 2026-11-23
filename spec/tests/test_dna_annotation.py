@@ -4,7 +4,7 @@ import pytest
 
 from iki_spec import wasm
 
-pytestmark = pytest.mark.skipif(not wasm.WASM.exists(), reason="needs iki-wasm built")
+pytestmark = pytest.mark.wasm
 
 
 def test_dna_annotation_uses_genbank_coordinates_and_provenance() -> None:

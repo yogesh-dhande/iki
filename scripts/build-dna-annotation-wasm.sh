@@ -5,7 +5,7 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 module=dna-annotation.wasm
 notice=rust-standard-library.html
-digest="$root/plugins/plasmid/data/dna-annotation.sha256"
+digest="$root/plugins/plasmid/data/dna-annotation.wasm.sha256"
 
 build() {
   cd "$root/worker"
@@ -57,8 +57,10 @@ if "$check"; then
   else
     actual=$(shasum -a 256 "$staged/$module")
   fi
-  if [ "${actual%% *}" != "$(cat "$digest")" ]; then
-    echo "DNA annotation Wasm differs from the pinned SHA-256." >&2
+  actual=${actual%% *}
+  expected=$(cat "$digest")
+  if [ "$actual" != "$expected" ]; then
+    printf '%s SHA-256 mismatch. Expected %s, actual %s\n' "$module" "$expected" "$actual" >&2
     exit 1
   fi
 else

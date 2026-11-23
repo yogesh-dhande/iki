@@ -3,6 +3,7 @@ import socket
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
@@ -10,6 +11,7 @@ import pytest
 import pytest_django
 from browser_evidence import _browser_evidence as _browser_evidence
 from browser_evidence import report_browser_evidence
+from check_test_prerequisites import app_assets, populated
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
@@ -64,6 +66,13 @@ FAKE_VIEWER_FILES = {
 }
 
 
+@pytest.fixture(scope="session")
+def browser_app_assets() -> None:
+    root = Path(__file__).resolve().parents[2]
+    app_assets(root / "server/src/iki_server/web/static")
+    populated(root / "node_modules/axe-core/axe.min.js", "pnpm install --frozen-lockfile")
+
+
 @pytest.fixture(autouse=True)
 def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pages load a stand-in app, so the tests don't depend on a ``pnpm build``.
@@ -110,15 +119,6 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if (
-        os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1"
-        and not os.environ.get("CI")
-        and os.environ.get("IKI_GATE") != "1"
-    ):
-        skip_browser = pytest.mark.skip(reason="IKI_SKIP_BROWSER_TESTS=1")
-        for item in items:
-            if isinstance(item, pytest.Function) and "browser" in item.fixturenames:
-                item.add_marker(skip_browser)
     opted = {
         "scale": (
             config.getoption("--scale"),

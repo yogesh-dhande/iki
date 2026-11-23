@@ -86,3 +86,45 @@ def test_skipping_a_module_at_collection_fails_the_gate(tmp_path: Path, workers:
     assert run.returncode == 1, output
     assert "Unexpected skip in gate: optional module absent" in output, output
     assert "test_absent.py" in output, output
+
+
+def test_direct_pytest_requires_the_shared_wasm(tmp_path: Path) -> None:
+    # Exercise the spec suite that used to turn a missing build into a green skip.
+    suite = CONFIG.parent / "spec/tests/test_dna_annotation.py"
+    (tmp_path / suite.name).write_bytes(suite.read_bytes())
+    (tmp_path / "conftest.py").write_text(
+        "import threading\nfrom pathlib import Path\nfrom iki_spec import wasm\n"
+        "wasm.WASM = Path(__file__).with_name('missing.wasm')\n"
+        "wasm._compiled = None\n"
+        "wasm._local = threading.local()\n"
+    )
+    run = run_suite(tmp_path, gate=None)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1, output
+    assert "missing.wasm" in output and "Run scripts/build-wasm.sh" in output, output
+
+
+def test_configured_worker_binary_must_be_executable(tmp_path: Path) -> None:
+    for kind in ("missing", "directory", "nonexecutable", "executable"):
+        candidate = tmp_path / kind / "iki-worker"
+        candidate.parent.mkdir()
+        if kind == "directory":
+            candidate.mkdir()
+        elif kind != "missing":
+            candidate.write_bytes(b"#!/bin/sh\n")
+            candidate.chmod(0o755 if kind == "executable" else 0o644)
+        (tmp_path / f"test_{kind}.py").write_text(
+            "from pathlib import Path\nimport pytest\nfrom test_worker_e2e import worker_bin\n"
+            "@pytest.fixture(scope='module', autouse=True)\ndef choose():\n"
+            "    with pytest.MonkeyPatch.context() as patch:\n"
+            f"        patch.setenv('IKI_WORKER_BIN', {str(candidate)!r})\n"
+            "        yield\n"
+            "def test_configured(worker_bin):\n"
+            f"    assert worker_bin == Path({str(candidate)!r})\n"
+        )
+    run = run_suite(tmp_path, gate=None)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1 and "1 passed, 3 errors" in output, output
+    for kind in ("missing", "directory", "nonexecutable"):
+        assert f"IKI_WORKER_BIN={tmp_path / kind / 'iki-worker'}" in output, output
+    assert "cargo build --locked -p iki-worker" in output, output

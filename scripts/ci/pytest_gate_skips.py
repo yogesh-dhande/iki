@@ -5,6 +5,11 @@ from collections.abc import Generator
 
 import pytest
 
+_LOCAL_OPT_OUT = (
+    "Partial local run: browser coverage disabled by IKI_SKIP_BROWSER_TESTS=1 "
+    "(browser fixtures and built_web_app tests)."
+)
+
 # These separately invoked suites attach an exact opt-in reason to marked tests.
 _SUITE_BY_REASON = {
     "a load test: run it with --scale (make check-scale)": "scale",
@@ -72,6 +77,32 @@ class _GateSkips:
         return report
 
 
+class _LocalBrowserOptOut:
+    def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
+        skip = pytest.mark.skip(reason=_LOCAL_OPT_OUT)
+        for item in items:
+            if item.get_closest_marker("built_web_app") or (
+                isinstance(item, pytest.Function) and "browser" in item.fixturenames
+            ):
+                item.add_marker(skip)
+
+    def pytest_terminal_summary(self, terminalreporter: pytest.TerminalReporter) -> None:
+        count = sum(
+            _reason(report) == _LOCAL_OPT_OUT
+            for report in terminalreporter.stats.get("skipped", [])
+            if isinstance(report, pytest.TestReport)
+        )
+        terminalreporter.write_line(f"{_LOCAL_OPT_OUT} {count} selected tests skipped by opt-out.")
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    if os.environ.get("IKI_GATE") == "1" or os.environ.get("CI"):
+    gate = os.environ.get("IKI_GATE") == "1" or os.environ.get("CI")
+    if os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1":
+        if gate:
+            raise pytest.UsageError(
+                "IKI_SKIP_BROWSER_TESTS=1 is refused by the full gate. "
+                "For a partial local run use IKI_SKIP_BROWSER_TESTS=1 uv run pytest outside CI."
+            )
+        config.pluginmanager.register(_LocalBrowserOptOut())
+    if gate:
         config.pluginmanager.register(_GateSkips())

@@ -1200,6 +1200,7 @@ def actions() -> None:
     polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
+    mouse_stocks(alice, project)
 
 
 def strain_stocks(
@@ -2321,29 +2322,79 @@ def receive_at_core(
     if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
         fail(f"{request['hrid']}'s receipt counted {outcomes}")
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "A2"]:
-        fail(f"{incoming['hrid']} holds {contents}, not two tubes at A1 and A2")
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "A2"),
+    ]:
+        fail(f"{incoming['hrid']} did not receive the expected tubes at A1 and A2: {contents}")
     ok(f"the core received {request['hrid']}'s tubes, one damaged, put away in {incoming['hrid']}")
+
+    def review(plan: dict[str, Any], decision: str | None) -> str:
+        """Check the two tubes and the empty slot before approving this version."""
+        lines = plan["lines"]
+        actual = {
+            (line["entity"], line["expected"], line["found"], line["finding"], line["resolution"])
+            for line in lines
+        }
+        expected = {
+            (tubes[0]["id"], "A1", "A1", "matched", None),
+            (tubes[1]["id"], "A2", "B1", "wrong_slot", decision),
+            (None, None, "A2", "empty", None),
+        }
+        if (
+            plan["container"]["id"] != incoming["id"]
+            or plan["status"] != "open"
+            or actual != expected
+            or any(line["resolution_stale"] for line in lines)
+        ):
+            fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
+        return str(next(line["id"] for line in lines if line["entity"] == tubes[1]["id"]))
+
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
+    if started.status_code != 201:
+        fail(
+            f"starting a count for {incoming['hrid']} answered {started.status_code}: "
+            f"{started.text[:300]}"
+        )
     count = f"/reconciliations/{started.json()['id']}"
     scans = [
         {"position": "A1", "code": first},
         {"position": "A2", "code": None},
         {"position": "B1", "code": second},
     ]
-    found = api_call(alice, "POST", f"{count}/scans", {"scans": scans}).json()
-    wrong = next(x for x in found["lines"] if x["finding"] == "wrong_slot")
-    api_call(alice, "PATCH", f"{count}/lines/{wrong['id']}", {"resolution": "moved"})
-    finished = api_call(alice, "POST", f"{count}/complete", {"note": "Weekly count"})
+    observed = api_call(alice, "POST", f"{count}/scans", {"scans": scans})
+    if observed.status_code != 200:
+        fail(f"scanning {incoming['hrid']} answered {observed.status_code}: {observed.text[:300]}")
+    found = observed.json()
+    wrong = review(found, None)
+    resolved = api_call(
+        alice,
+        "PATCH",
+        f"{count}/lines/{wrong}",
+        {"resolution": "moved", "plan_revision": found["plan_revision"]},
+    )
+    if resolved.status_code != 200:
+        fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")
+    plan = resolved.json()
+    review(plan, "moved")
+    finished = api_call(
+        alice,
+        "POST",
+        f"{count}/complete",
+        {"note": "Weekly count", "plan_revision": plan["plan_revision"]},
+    )
     if finished.status_code != 200:
         fail(
             f"reconciling {incoming['hrid']} answered {finished.status_code}: {finished.text[:300]}"
         )
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "B1"]:
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "B1"),
+    ]:
         fail(f"after reconciling, {incoming['hrid']} holds {contents}")
-    ok(f"reconciling {incoming['hrid']} by scan moved the tube found at B1 to where it was")
+    ok(f"reconciling {incoming['hrid']} by scan moved {tubes[1]['hrid']} from A2 to B1")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
@@ -3762,6 +3813,105 @@ LYSOZYME = (
     "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"
     "LLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
 )
+
+
+def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import MGI nomenclature and trace genotyping data to a specific cryopreserved carrier."""
+    plugin = "iki/mouse_strains."
+    catalogue = (
+        Path(__file__).resolve().parents[2] / "plugins/mouse_strains/tests/data/MGI_Strain.rpt"
+    )
+    report = upload(alice, project, "MGI_Strain.rpt", catalogue.read_bytes(), "text/plain")
+    imported = launch(
+        alice,
+        project,
+        plugin + "register_mgi_strain",
+        {},
+        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+    )
+    [effect] = imported["effects"]
+    reference = record(alice, effect["entity"])["values"]
+    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+        fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
+    # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
+    allele = created(
+        alice, project, plugin + "MouseAllele", {"mgi_id": "MGI:1855985", "symbol": "Tyr<c-2J>"}
+    )
+    strain = created(
+        alice,
+        project,
+        plugin + "MouseStrain",
+        {
+            "mgi_id": "MGI:2163869",
+            "nomenclature": "B6(Cg)-Tyr<c-2J>/J",
+            "jax_stock": "000058",
+            "alleles": [entry_of(allele)],
+        },
+    )
+    # All local specimens, dates, amounts and test results are synthetic.
+    tag = secrets.token_hex(4)
+    genotype = {
+        "strain": entry_of(strain),
+        "alleles": [entry_of(allele)],
+        "notation": "Tyr<c-2J>/Tyr<c-2J>",
+    }
+    donor = created(
+        alice, project, plugin + "MouseGenotype", {**genotype, "subject": f"Synthetic donor {tag}"}
+    )
+    banked = {"strain": entry_of(strain), "banked_on": "2026-01-08"}
+    sperm = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+    )
+    embryo_code = f"SYNTHETIC-E-{tag}"
+    embryos = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {"value": 100, "unit": "uL"},
+    )
+    box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
+    moved(alice, [(sperm, box, "A1"), (embryos, box, "A2")], "Synthetic bank deposit")
+    for stock, position in ((sperm, "A1"), (embryos, "A2")):
+        location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
+        if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], position)]:
+            fail(f"{stock['hrid']}'s cryobank location is {location}")
+    assay_file = upload(
+        alice,
+        project,
+        "synthetic-genotype.txt",
+        b"Synthetic embryo genotype report\n",
+        "text/plain",
+    )
+    tested = created(
+        alice,
+        project,
+        plugin + "MouseGenotype",
+        {**genotype, "subject": f"Synthetic embryo sample {tag}", "report": assay_file},
+    )
+    draw = api_call(
+        alice,
+        "POST",
+        f"/entities/{embryos['id']}/amount/draw",
+        {
+            "amount": {"value": 10, "unit": "uL"},
+            "confirm": embryo_code,
+            "reason": "Synthetic genotyping",
+            "used_in": tested["id"],
+        },
+    )
+    if draw.status_code != 200 or Decimal(draw.json()["amount"]["value"]) != 90:
+        fail(f"Draw for {tested['hrid']} answered HTTP {draw.status_code}: {draw.text[:300]}")
+    ancestry = api_call(alice, "GET", f"/entities/{tested['id']}/graph?up=3&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {tested['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
+    if not {embryos["id"], strain["id"], allele["id"]} <= {e["id"] for e in graph["entities"]}:
+        fail(f"{tested['hrid']}'s report lost the banked carrier, strain or MGI allele")
+    ok(f"{tested['hrid']}'s genotyping report traces to {embryos['hrid']} from JAX stock 000058")
 
 
 def lots(alice: requests.Session, project: dict[str, Any]) -> None:

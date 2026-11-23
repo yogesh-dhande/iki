@@ -57,6 +57,11 @@ def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
     mismatch = run_check(tmp_path, "wasm")
     assert mismatch.returncode != 0
     assert copy in mismatch.stderr
+    write(
+        tmp_path, module + ".sha256", f"{hashlib.sha256(WASM).hexdigest()}  other.wasm\n".encode()
+    )
+    wrong_pin = run_check(tmp_path, "wasm")
+    assert wrong_pin.returncode != 0 and f"Invalid pin in {module}.sha256" in wrong_pin.stderr
 
 
 @pytest.mark.parametrize(
@@ -67,6 +72,9 @@ def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
         ("app/assets/deferred.wasm", "make web"),
         ("app/assets/nested.wasm", "make web"),
         ("node_modules/axe-core/axe.min.js", "pnpm install --frozen-lockfile"),
+        ("web/packages/sample/dist/story.js", "make web"),
+        ("web/packages/sample/dist/helper.js", "make web"),
+        ("web/packages/sample/dist/fonts/example.woff2", "make web"),
     ],
 )
 def test_all_web_prerequisites(tmp_path: Path, missing: str, fix: str) -> None:
@@ -82,19 +90,31 @@ def test_all_web_prerequisites(tmp_path: Path, missing: str, fix: str) -> None:
         write(static / area, "manifest.json", json.dumps(manifest).encode())
         write(static / area, "assets/bundle.js", b"export {};")
     write(tmp_path, "node_modules/axe-core/axe.min.js", b"axe()")
+    package = tmp_path / "web/packages/sample"
+    write(package, "stories/sample.html", b"<script type=module></script>")
+    exports = {
+        "./story": {"default": "./dist/story.js"},
+        "./fonts.css": {"default": "./dist/fonts.css"},
+    }
+    write(package, "package.json", json.dumps({"exports": exports}).encode())
+    write(package, "dist/story.js", b'import { shared } from "./helper.js";')
+    write(package, "dist/helper.js", b"export const shared = true;")
+    write(package, "dist/fonts.css", b'@font-face { src: url("fonts/example.woff2") }')
+    write(package, "dist/fonts/example.woff2", b"font")
     assert run_check(tmp_path, "web").returncode == 0
-    ((tmp_path if missing.startswith("node_modules/") else static) / missing).unlink()
+    ((tmp_path if missing.startswith(("node_modules/", "web/")) else static) / missing).unlink()
     failure = run_check(tmp_path, "web")
     assert failure.returncode != 0 and missing in failure.stderr and fix in failure.stderr
 
 
-def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("marker", ["sample.sha256", "sample.wasm.sha256"])
+def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path, marker: str) -> None:
     for name in ["web/app/wasm/iki_wasm.wasm", "spec/src/iki_spec/iki_wasm.wasm"]:
         write(tmp_path, name, WASM)
     write(tmp_path, "worker/crates/iki-wasm/standalone/sample/Cargo.toml", b"[package]")
     write(tmp_path, "plugins/sample/data/unrelated.sha256", b"lock for a different asset")
     lock = write(
-        tmp_path, "plugins/sample/data/sample.sha256", hashlib.sha256(WASM).hexdigest().encode()
+        tmp_path, f"plugins/sample/data/{marker}", hashlib.sha256(WASM).hexdigest().encode()
     )
     builder = "scripts/build-sample-wasm.sh"
     missing_builder = run_check(tmp_path, "wasm")
@@ -114,7 +134,7 @@ def test_builds_packaged_module_and_checks_delivered_bytes(tmp_path: Path) -> No
     assert module.read_bytes() == WASM
     lock.write_text("0" * 64)
     mismatch = run_check(tmp_path, "wasm")
-    assert mismatch.returncode != 0 and "sample.sha256" in mismatch.stderr
+    assert mismatch.returncode != 0 and marker in mismatch.stderr
     lock.unlink()
     no_lock = run_check(tmp_path, "wasm")
     assert no_lock.returncode != 0 and "sample.sha256" in no_lock.stderr

@@ -56,30 +56,60 @@ def wasm() -> None:
         lock = matching[0]
         if not builder.is_file():
             raise SystemExit(f"{lock} declares {name}. Restore its builder {builder}.")
+        # The pin's contents describe the distribution. Both forms use .wasm.sha256.
+        # A filename in a sha256sum record names the plugin's mirrored module.
+        pin = lock.read_text().split()
+        filename = f"{name}.wasm"
+        if (
+            len(pin) not in (1, 2)
+            or not re.fullmatch(r"[0-9a-f]{64}", pin[0])
+            or (len(pin) == 2 and pin[1].removeprefix("*") != filename)
+        ):
+            raise SystemExit(f"Invalid pin in {lock}. Expected a SHA-256 digest for {filename}.")
         try:
             subprocess.run([str(builder)], check=True)  # noqa: S603 - repository build script
         except (OSError, subprocess.CalledProcessError) as exc:
             raise SystemExit(f"Failed to build {name}. Run {builder}: {exc}") from exc
-        if lock.name.endswith(".wasm.sha256"):
-            module = lock.with_suffix("")
-            wasm_copies(module, package / "modules" / module.name, builder)
+        if len(pin) == 2:
+            wasm_copies(lock.parent / filename, package / "modules" / filename, builder)
         else:
             # Package-only builders install their canonical bytes alongside iki_wasm.
-            module = package / f"{name}.wasm"
+            module = package / filename
             populated(module, str(builder))
             binary = module.read_bytes()
-            if (
-                not binary.startswith(WASM_HEADER)
-                or hashlib.sha256(binary).hexdigest() != lock.read_text().strip()
-            ):
+            if not binary.startswith(WASM_HEADER) or hashlib.sha256(binary).hexdigest() != pin[0]:
                 raise SystemExit(f"{module} does not match {lock}. Run {builder} --check.")
             populated(package / "rust-standard-library.html", str(builder))
 
 
-def web() -> None:
-    populated(Path("node_modules/axe-core/axe.min.js"), "pnpm install --frozen-lockfile")
+def story_assets(packages: Path) -> None:
+    """Check the published entries loaded by standalone stories and their local imports."""
+    pending: list[Path] = []
+    for stories in packages.glob("*/stories"):
+        package = stories.parent
+        manifest = json.loads((package / "package.json").read_text())
+        pending.extend(package / entry["default"] for entry in manifest["exports"].values())
+    checked: set[Path] = set()
+    while pending:
+        asset = pending.pop().resolve()
+        if asset in checked:
+            continue
+        checked.add(asset)
+        populated(asset, "make web")
+        if asset.suffix == ".js":
+            paths = re.findall(
+                r"""\b(?:from\s*|import\s*(?:\(\s*)?)["'](\.{1,2}/[^"']+)["']""", asset.read_text()
+            )
+        elif asset.suffix == ".css":
+            paths = re.findall(r"""url\(\s*["']?([\w./-]+)["']?\s*\)""", asset.read_text())
+        else:
+            continue
+        pending.extend(asset.parent / path for path in paths)
+
+
+def app_assets(static: Path) -> None:
     for name in ("app", "viewers"):
-        out = Path("server/src/iki_server/web/static") / name
+        out = static / name
         path = out / "manifest.json"
         populated(path, "make web")
         # Vite lists the worker script in the manifest. WASM emitted by a worker's
@@ -103,6 +133,12 @@ def web() -> None:
                             populated(out / target.decode(), "make web")
         except (AttributeError, KeyError, TypeError, ValueError) as exc:
             raise SystemExit(f"Invalid {path} ({exc}). Run make web.") from exc
+
+
+def web() -> None:
+    populated(Path("node_modules/axe-core/axe.min.js"), "pnpm install --frozen-lockfile")
+    app_assets(Path("server/src/iki_server/web/static"))
+    story_assets(Path("web/packages"))
 
 
 if __name__ == "__main__":

@@ -87,7 +87,7 @@ def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
     (source / "plugin.yaml").write_text(
         "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\n"
     )
-    marker = data / "dna-annotation.sha256"
+    marker = data / "dna-annotation.wasm.sha256"
     marker.write_text(hashlib.sha256(module).hexdigest() + "\n")
     stale = data / "dna-annotation.wasm"
     stale.write_bytes(b"stale build product")
@@ -134,8 +134,9 @@ def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
     assert not (data / "rust-standard-library.html").exists()
 
 
+@pytest.mark.parametrize("marker_name", ["dna-annotation.wasm.sha256", "dna-annotation.sha256"])
 def test_preparing_an_annotation_requires_a_matching_digest_and_regular_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marker_name: str
 ) -> None:
     source = tmp_path / "source"
     data = source / "data"
@@ -148,10 +149,11 @@ def test_preparing_an_annotation_requires_a_matching_digest_and_regular_files(
     output = tmp_path / "prepared"
     assert workers.prepared_source("iki/plasmid", source, output) == source
 
-    marker = data / "dna-annotation.sha256"
+    marker = data / marker_name
     marker.write_text("0" * 64)
     assert workers.prepared_source("acme/plasmid", source, output) == source
-    with pytest.raises(ValueError, match="pinned digest"):
+    actual = hashlib.sha256(b"\0asm").hexdigest()
+    with pytest.raises(ValueError, match=rf"pinned digest.*Expected {'0' * 64}, actual {actual}"):
         workers.prepared_source("iki/plasmid", source, output)
     marker.unlink()
     marker.symlink_to(tmp_path / "missing")

@@ -88,17 +88,20 @@ coverage. To run a shard locally:
 Before running Python browser tests, run `pnpm install --frozen-lockfile`
 and `make web test-wasm test-browsers`. Both `make check` and `make check-python`
 install the project's locked Chromium, Firefox, and WebKit and run the browser
-tests. The gate checks both web builds, their manifest assets, and axe-core.
+tests. The gate checks both web builds, their manifest assets, the published
+science and UI story assets, and axe-core. `make web` builds the app and both
+story packages.
 On Linux, `uv run --locked playwright install-deps chromium firefox webkit`
 installs the browsers' system libraries.
 
 `make test-wasm` builds the shared module for the browser and Python, then
 runs the checkout's standalone module builders (`scripts/build-<name>-wasm.sh`).
 Each standalone crate and builder needs a matching lock under `plugins/*/data/`.
-For `<name>.sha256`, the gate verifies the delivered Python module's SHA-256
-and bundled Rust notice. For `<name>.wasm.sha256`, it checks the plugin and
-packaged copies against each other and delegates canonical-platform digest
-verification to the builder.
+A pin may use `<name>.wasm.sha256` or the earlier `<name>.sha256` name.
+A bare digest pins the module delivered by the Python package, which also
+carries the Rust notice. A checksum record naming the module identifies
+the copies in the plugin and Python package. The gate checks both copies
+and the builder verifies the canonical-platform digest.
 
 Start Docker for the test suite's pinned PostgreSQL and SeaweedFS containers.
 If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
@@ -106,8 +109,12 @@ If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
 `server/tests/conftest.py`.
 
 For a partial local pytest run without browsers, use
-`IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. The full gate (`IKI_GATE=1`) and
-CI require browsers. A gate failure lists each unexpected pytest skip. When a
+`IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. Its summary counts the selected
+browser fixture and `built_web_app` tests skipped by this opt-out. Use pytest
+with `-rs` to list skip reasons. Direct pytest otherwise fails when
+a required browser is missing and reports the install command. CI,
+`make check`, and `make check-python` reject the opt-out even when all browsers
+are installed. A gate failure lists each unexpected pytest skip. When a
 new capability or opt-in suite warrants a skip, record its exact reason and
 the tests it applies to in `scripts/ci/pytest_gate_skips.py`.
 

@@ -429,6 +429,13 @@ const projectSettingsRoute = createRoute({
   component: ProjectSettings,
 });
 
+// The starters a project's Admins set it up from (ADR 0198): Settings' tab stays current.
+const projectStartersRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "settings/starters",
+  component: lazyRouteComponent(() => import("./pages/project-starters"), "ProjectStarters"),
+});
+
 const projectImportRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "imports/$importId",
@@ -775,6 +782,7 @@ const routeTree = rootRoute.addChildren([
         projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
       ]),
       projectSettingsRoute,
+      projectStartersRoute,
       projectImportRoute,
       projectAppDraftRoute,
     ]),
