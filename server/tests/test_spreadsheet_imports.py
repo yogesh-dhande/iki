@@ -108,6 +108,7 @@ def previewed(world: World, imported: dict[str, Any], principal: str = "editor")
     settle()
     body: dict[str, Any] = api.get(f"/spreadsheet-imports/{imported['id']}").json()
     assert body["state"] == "previewed", (body["error"], body["preview"])
+    assert body["preview"]["round"] == asked.json()["preview"]["round"]
     return body
 
 

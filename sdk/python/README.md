@@ -326,13 +326,12 @@ To look before importing, take it a step at a time:
 sheet = iki.spreadsheets.start("manifest.xlsx", type="acme/protein.Sample", project=project)
 sheet["columns"]  # each column's header, the field Iki suggests, a few of its cells
 sheet["readings"]  # how its numbers and dates read, cell by cell
-sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "label"}, ...])
-sheet = iki.spreadsheets.preview(sheet)
-sheet["preview"]["counts"]  # rows to create, register, add, reuse, merge, or fix
-for row in iki.spreadsheets.rows(sheet, outcome=["problem"]):
+sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "label"}])
+reviewed = iki.spreadsheets.preview(sheet)
+reviewed["preview"]["counts"]  # rows to create, register, add, reuse, merge, or fix
+for row in iki.spreadsheets.rows(reviewed, outcome=["problem"]):
     print(row["row"], row["problems"])
-iki.spreadsheets.save_mapping(sheet, "Core facility manifest")
-iki.spreadsheets.commit(sheet, reason="Batch 12")
+iki.spreadsheets.commit(reviewed, reason="Batch 12")
 ```
 
 Pass the import returned by `start`, `get`, or the previous `change` so the SDK
@@ -344,15 +343,29 @@ before submitting your choices.
 
 Pass the completed preview to `commit` to approve the exact rows you reviewed.
 With a bare import ID, supply its round explicitly, for example
-`iki.spreadsheets.commit(sheet["id"], preview_round=sheet["preview"]["round"])`.
+`iki.spreadsheets.commit(reviewed["id"], preview_round=reviewed["preview"]["round"])`.
 If someone starts another preview, Iki raises `iki.Conflict`. Review the new
 preview before approving it. A one-shot import also stops if another preview
 replaces the one it started.
 
-Importing requires project Editor access and the `write` scope. The REST API
-is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
-`POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then
-`POST …/commit`.
+To reuse column choices in future imports, `iki.spreadsheets.save_mapping(sheet, name)`
+saves the import's current column mapping and locale as a project template.
+
+Importing requires project Editor access and the `write` scope. For a raw
+HTTP client, the routes below are relative to `/api/v1`.
+
+1. Start with `POST /projects/{project_id}/spreadsheet-imports`, sending
+   the workbook's file ID and entity type as `file` and `type`. Poll
+   `GET /spreadsheet-imports/{id}` until the state is `mapping`.
+2. Send worksheet choices to `PATCH /spreadsheet-imports/{id}`. For example,
+   if you reviewed the Assays sheet with its header on row 2, map its first
+   column with `{"basis":{"sheet":"Assays","header_row":2},"columns":[{"index":0,"field":"label"}]}`.
+3. `POST /spreadsheet-imports/{id}/preview` and save the response's
+   `preview.round`. Poll the import until it is `previewed` with that same
+   round, then review the counts and `GET /spreadsheet-imports/{id}/rows`.
+4. `POST /spreadsheet-imports/{id}/commit` with the saved round, for example
+   `{"preview_round":3}` if you reviewed round 3. If the round changes during
+   polling or the commit returns 409, review the replacement before approving it.
 
 ## Errors
 
