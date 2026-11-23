@@ -1,0 +1,32 @@
+#!/bin/sh
+# Only the dispatcher is shared. Each worktree supplies its own version of the check.
+set -eu
+
+if git config --get core.hooksPath >/dev/null; then
+    echo 'core.hooksPath is configured. Add scripts/git-hooks/pre-commit to your existing pre-commit hook.' >&2
+    exit 1
+fi
+
+hooks=$(git rev-parse --git-path hooks)
+mkdir -p "$hooks"
+candidate=$(mktemp "$hooks/.iki-pre-commit.XXXXXX")
+trap 'rm -f "$candidate"' EXIT
+cat >"$candidate" <<'DISPATCH'
+#!/bin/sh
+# Git starts pre-commit at the root of the worktree being committed.
+if test -e scripts/git-hooks/pre-commit; then
+    exec scripts/git-hooks/pre-commit "$@"
+fi
+DISPATCH
+chmod 755 "$candidate"
+target=$hooks/pre-commit
+# A hard link publishes the complete file and can never overwrite an existing hook.
+if test ! -e "$target" && test ! -L "$target" && ln "$candidate" "$target" 2>/dev/null; then
+    echo 'Installed the Iki pre-commit hook.'
+elif test -f "$target" && test ! -L "$target" && cmp -s "$candidate" "$target"; then
+    chmod +x "$target"
+    echo 'The Iki pre-commit hook is installed.'
+else
+    echo "Could not install $target. To keep an existing hook, have it run scripts/git-hooks/pre-commit." >&2
+    exit 1
+fi

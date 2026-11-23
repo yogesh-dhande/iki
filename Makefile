@@ -16,6 +16,10 @@ setup: ## Install all toolchains' dependencies from the lockfiles
 	cd worker && cargo fetch --locked
 	uv run playwright install chromium firefox webkit
 
+.PHONY: hooks
+hooks: ## Install the pre-commit hook for this clone and its worktrees
+	scripts/git-hooks/install
+
 .PHONY: check
 # check-web builds the web app, which the browser tests in check-python load.
 check: check-workflows check-chart check-infra check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
@@ -85,7 +89,8 @@ check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS
 PYTEST_PARALLEL ?= -n auto --dist worksteal
 
 .PHONY: check-python
-check-python: ## Ruff, mypy (strict) and pytest
+check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy

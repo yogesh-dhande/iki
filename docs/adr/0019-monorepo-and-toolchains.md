@@ -18,7 +18,9 @@ All code lives in one repo, `ikisci/iki`, with one workspace per language.
 
 - **Python**: a uv workspace. ruff for lint and format, mypy in strict mode,
   pytest. Development and server images use Python 3.14. Packages support
-  Python 3.12 and newer, and CI tests 3.12 and 3.14.
+  Python 3.12 and newer, and CI tests 3.12 and 3.14. The pre-commit hook
+  imports staged package modules on 3.12. CI and `make check-python` import
+  the full workspace on 3.12 to catch failures during module initialization.
 - **TypeScript**: a pnpm workspace on Node 24 LTS. TypeScript 6.0, ESLint
   10 with flat config and typescript-eslint, Prettier, and Vitest.
 - **Rust**: a cargo workspace in `worker/` with a pinned toolchain.

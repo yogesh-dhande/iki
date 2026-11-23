@@ -13,6 +13,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "worker/target/**",
       ".venv/**",
+      ".venv-py312/**",
       // Claude Code's git worktrees: other checkouts, each checked on its own.
       ".claude/**",
       // The dev deployment's build (Tilt): copies of the plugins, linted where they live.
