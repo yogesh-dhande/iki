@@ -17,7 +17,7 @@ homepage: https://ikisci.org/plugins/plasmid
 dependencies:
   iki/dna:
     types:
-      DNASequence: ">=3"
+      DNASequence: ">=4"
       Primer: ">=1"
 roles:
   cloner:

@@ -133,6 +133,13 @@ only where that means something, and writes the digest from a Docker build of
 the server image's wasm stage. The deployment CLI verifies it again before the
 bytes reach a worker archive or the preinstalled worker image.
 
+Both digests above have since been produced by two independent builders from
+this commit's Rust: Docker `linux/amd64` running that stage, and the Linux
+x86-64 test VM compiling natively in the merge gate's `--check`. They agree to
+the byte. That is a measurement of these two modules, not an inference from
+ADR 0200's: it says the build is reproducible within Linux x86-64, and says
+nothing about any other host, where it is not expected to be.
+
 The same function is exported from the server's own `iki-wasm` as
 `iki_check_oligos`, so a primer view in the browser and a run on a worker quote
 the same free energy.

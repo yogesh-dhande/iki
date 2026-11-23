@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod annotation;
 pub mod digest;
 pub mod expressions;
 pub mod helm;
@@ -626,6 +627,14 @@ pub mod exports {
     pub extern "C" fn iki_check_oligos() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::structures::check_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Annotates a DNA sequence from the feature library.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_annotate_dna_sequence() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::annotation::annotate_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

@@ -12,8 +12,18 @@ ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c00
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 # The worker's Rust image (worker/Dockerfile), for the web app's parsers.
 ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
+# The worker artifact's digest is pinned to this compiler host.
+ARG ANNOTATION_BUILD_PLATFORM=linux/amd64
 
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
+
+# --- Build the digest-pinned worker artifact on its canonical compiler host ------
+FROM --platform=$ANNOTATION_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation
+WORKDIR /src/worker
+COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
+COPY worker/crates crates
+COPY scripts/build-dna-annotation-wasm.sh /src/scripts/build-dna-annotation-wasm.sh
+RUN /src/scripts/build-dna-annotation-wasm.sh --build-here /src/worker
 
 # --- The web app's parsers: iki-wasm, Rust built for browsers (ADR 0088) ----
 FROM ${RUST_IMAGE} AS wasm
@@ -27,14 +37,15 @@ COPY worker/.cargo .cargo
 RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
  && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm
+COPY --from=dna-annotation /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html ./
 # And the plasmid plugin's own module, which places primers and cuts DNA (ADR 0200). No
 # .wasm is tracked in git, so this stage is where a deployment's copy comes from; the
-# script checks what it built against the digest git tracks, and the build is reproducible,
-# so this stage and a developer's machine give the same bytes.
+# script checks what it built against the digest git tracks on the one platform where that
+# comparison holds, Linux x86-64, which is what this stage and every deployment are.
 COPY scripts/build-plasmid-tools-wasm.sh scripts/build-oligo-checks-wasm.sh /src/scripts/
 # --build-only: this stage is where the digest's bytes come from, so it compiles and
-# nothing more. CI checks the bytes against the tracked digest on Linux x86-64, and the
-# deployment CLI checks them again before they reach a worker.
+# nothing more. The merge gate checks the bytes against the tracked digest on Linux
+# x86-64, and the deployment CLI checks them again before they reach a worker.
 RUN /src/scripts/build-plasmid-tools-wasm.sh --build-only \
  && /src/scripts/build-oligo-checks-wasm.sh --build-only
 
@@ -93,6 +104,7 @@ COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_ser
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
 COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm spec/src/iki_spec/
+COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html spec/src/iki_spec/
 # And the modules first-party plugins' actions call (ADR 0200). iki-spec carries them
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them.
