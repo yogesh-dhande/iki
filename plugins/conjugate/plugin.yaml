@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/conjugate
+version: 0.1.0
+title: Conjugates
+description: >-
+  Register antibody–drug conjugates, oligo conjugates and PEGylated proteins
+  by carrier, attachment sites and loading. Compute elemental composition and
+  masses for a specified molecular species and link measured loading to its lots.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/conjugate
+dependencies:
+  iki/antibody: { types: { Antibody: ">=2" } }
+  iki/oligo: { types: { Oligonucleotide: ">=1", Duplex: ">=2" } }
+  iki/protein: { types: { Protein: ">=3" } }
+  iki/small_molecule: { types: { Compound: ">=1" } }
