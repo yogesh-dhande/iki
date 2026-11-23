@@ -1192,6 +1192,7 @@ def actions() -> None:
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
     reads_aligned(alice, project)
     sequences_aligned(alice, project)
+    sequence_library_annotation(alice, project)
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
@@ -1199,6 +1200,83 @@ def actions() -> None:
     polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
+
+
+def strain_stocks(
+    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
+) -> None:
+    """A catalogue strain, a local transformant and the data from a scanned stock draw."""
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/data/atcc.csv"
+    file_id = upload(alice, project, "atcc.csv", catalogue.read_bytes(), "text/csv")
+    imported = launch(alice, project, "iki/strains.import_base_strains", {}, {"file": file_id})
+    entries = [
+        record(alice, effect["entity"])
+        for effect in imported["effects"]
+        if effect["type"] == "iki/strains.BaseStrain"
+    ]
+    strains = {row["values"]["accession"]: row for row in entries}
+    if {key: row["values"]["name"] for key, row in strains.items()} != {
+        "700926": "MG1655",
+        "201388": "BY4741",
+    }:
+        fail(f"{imported['hrid']} did not register the two ATCC catalogue strains")
+    # The local transformant, barcode, quantities and sequence read are synthetic test data.
+    base = strains["700926"]
+    identity = {"base": entry_of(base), "plasmids": [entry_of(plasmid)]}
+    strain = created(alice, project, "iki/strains.TransformedStrain", identity)
+    again = created(alice, project, "iki/strains.TransformedStrain", identity)
+    if not again["reused"] or again["id"] != strain["id"]:
+        fail(f"Registering {strain['hrid']}'s base and plasmid again created another strain")
+    barcode = f"SYNTHETIC-{secrets.token_hex(4)}"
+    stock = created(
+        alice,
+        project,
+        "iki/strains.GlycerolStock",
+        {"strain": entry_of(strain), "barcode": barcode},
+        {"value": 100, "unit": "uL"},
+    )
+    box = created(alice, project, "iki/strains.StrainBox", {"name": "Synthetic glycerol stocks"})
+    moved(alice, [(stock, box, "A1")], "Synthetic inventory example")
+    location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
+    if [(step["hrid"], step["position"]) for step in location["path"]] != [(box["hrid"], "A1")]:
+        fail(f"{stock['hrid']} has an unexpected storage path {location['path']}")
+    read = created(
+        alice,
+        project,
+        "iki/dna.DNASequence",
+        {
+            "name": "Synthetic sequence read",
+            "bases": "".join(secrets.choice("ACGT") for _ in range(32)),
+        },
+    )
+    drawn = api_call(
+        alice,
+        "POST",
+        f"/entities/{stock['id']}/amount/draw",
+        {
+            "amount": {"value": 10, "unit": "uL"},
+            "used_in": read["id"],
+            "reason": "Synthetic sequencing example",
+            "confirm": barcode,
+        },
+    )
+    if drawn.status_code != 200:
+        fail(f"Drawing from {stock['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
+    movement = drawn.json()["movement"]
+    if (
+        Decimal(drawn.json()["amount"]["value"]) != 90
+        or movement["used_in"] != read["id"]
+        or movement["confirmed"] != barcode
+    ):
+        fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
+    ancestors = {entity["id"] for entity in graph["entities"]}
+    if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
+        fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
+    ok(f"{read['hrid']} traces to {strain['hrid']} through the draw from {stock['hrid']} at A1")
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -3143,6 +3221,38 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
         fail(f"the receipt did not account for the starter tube: {completed}")
 
 
+def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Find routine vector features on a DNA sequence and retain its GenBank features."""
+    # INSDC OL989372.1, the published circular vector pET-28a-ZaTdT12. Import the
+    # pinned GenBank record so the original feature table is present before the run.
+    accession = "OL989372.1"
+    fixture = Path(__file__).resolve().parents[2] / "server/tests/data/plasmids" / f"{accession}.gb"
+    source = upload(alice, project, fixture.name, fixture.read_bytes(), "chemical/seq-na-genbank")
+    imported = launch(alice, project, "iki/dna.import_sequences", {}, {"file": source})
+    sequences = [e for e in imported["effects"] if e["type"] == "iki/dna.DNASequence"]
+    if len(sequences) != 1:
+        fail(f"{imported['hrid']} did not import one DNA sequence from {accession}")
+    entity = sequences[0]["entity"]
+    before = record(alice, entity)["values"]
+    if not before.get("features") or before.get("topology") != "circular":
+        fail(f"{accession} did not retain its original features and circular topology on import")
+
+    action = "iki/plasmid.annotate_dna_sequence"
+    run = launch(alice, project, action, {"sequence": entity})
+    dna = record(alice, entity)
+    values = dna["values"]
+    if values.get("features") != before["features"] or values.get("bases") != before["bases"]:
+        fail(f"{run['hrid']} changed {dna['hrid']}'s imported features or bases")
+    # The GenBank FEATURES table independently gives these locations on opposite strands.
+    expected = {("T7 promoter", 4984, 5002, "forward"), ("lacI promoter", 4598, 4675, "reverse")}
+    found = {
+        (f["name"], f["start"], f["end"], f["strand"]) for f in values.get("library_features") or []
+    }
+    if not expected.issubset(found) or not values.get("library_annotated_with"):
+        fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
+    ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
+
+
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
     2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
@@ -3251,6 +3361,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     read_bases(alice, project, plasmid)
     plan = assembled(alice, project, plasmid)
     constructs(alice, project, plan)
+    strain_stocks(alice, project, plasmid)
 
 
 #: NEB's M13/pUC sequencing primers (#S1201S and #S1233S), the pair pUC19's polylinker is

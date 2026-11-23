@@ -4,6 +4,10 @@ Copyright 2026 The Iki Authors
 This product includes software developed by The Iki Authors
 (https://ikisci.org).
 
+The compiled WebAssembly modules include portions of the Rust standard library.
+Its copyright notices and license texts accompany the modules in
+iki_spec/rust-standard-library.html.
+
 This product includes the Unified Code for Units of Measure (UCUM) table,
 src/iki_spec/units/ucum-essence.xml (UCUM version 2.2), unmodified.
 Copyright 1999-2024 Regenstrief Institute, Inc. All rights reserved.

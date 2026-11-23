@@ -1,13 +1,14 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
 # Biopython from PyPI, on the backend tier as the DNA plugin's sequence tools: its wheels
-# hold everything it needs, so it needs no image of its own. Annotation aligns the
-# library's parts; cloning cuts with Biopython's REBASE-derived restriction enzymes.
+# hold everything it needs, so it needs no image of its own. Biopython aligns parts
+# for plasmid annotation and cuts with REBASE-derived restriction enzymes. Wasmtime
+# executes the exact library matcher shipped with the plugin for DNA sequences.
 apiVersion: iki/v1
 kind: Environment
 name: plasmid-tools
 label: Plasmid tools
-description: Biopython 1.88, on Python 3.12.
+description: Biopython 1.88 and Wasmtime 50.0.1 on Python 3.12.
 tiers: [backend, self_hosted]
 # What it needs at least: the library, a plasmid and its alignments fit in 512 MiB.
 resources: { cpu: 0.25, memory: 512Mi }

@@ -26,7 +26,14 @@ WASM = Path(__file__).with_name("iki_wasm.wasm")
 #: length (a list of 450 numbers) takes about 70 million.
 FUEL = 200_000_000
 #: The exports a call can name.
-EXPORTS = ("iki_check", "iki_check_rules", "iki_evaluate_rules", "iki_state_origins", "iki_helm")
+EXPORTS = (
+    "iki_check",
+    "iki_check_rules",
+    "iki_evaluate_rules",
+    "iki_state_origins",
+    "iki_helm",
+    "iki_annotate_dna_sequence",
+)
 
 
 class UnavailableError(RuntimeError):

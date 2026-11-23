@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from iki_cli.workers import prepared_source
 from iki_spec import action_tests, outputs, schemas
 from iki_spec.action_tests import ActionTest
 from iki_spec.builtin import core_plugin
@@ -158,7 +159,15 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         worker = _worker(args.worker, err)
         if worker is None:
             return 1
-        failed = not _action_tests(tests, plugin, types, installed, directory, worker, out)
+        with tempfile.TemporaryDirectory(prefix="iki-test-code-") as staging:
+            code = directory
+            if any(test.action.name == "annotate_dna_sequence" for test in tests):
+                try:
+                    code = prepared_source(plugin.name, directory, Path(staging) / "plugin")
+                except ValueError as error:
+                    err.write(f"error: {error}\n")
+                    return 1
+            failed = not _action_tests(tests, plugin, types, installed, code, worker, out)
     elif not args.upgrade_from:
         matching = f" matching {args.select}" if args.select else ""
         out.write(
