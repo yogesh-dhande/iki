@@ -197,6 +197,37 @@ def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) ->
     page.context.close()
 
 
+def test_a_stalled_scan_can_be_retried_without_activating_the_button(
+    open_as: Any, world: World
+) -> None:
+    kept = a_freezer(world)
+    box_path = f"/storage/{kept['retains']['hrid']}/"
+    page = open_as("admin", box_path)
+    show = page.get_by_role("button", name="Show free positions")
+    code = "LB-0023"
+    retry = page.get_by_role("alert").filter(has_text="Couldn’t read the scan")
+    with observe_scan(
+        page,
+        code,
+        box_path,
+        "retry with focus still on the button",
+        gaps_ms=(5, 51, 5, 51, 5, 5, 5),
+    ):
+        show.focus()
+        scan_label(page, code)
+        expect(retry).to_be_visible()
+        expect(show).to_be_focused()
+        expect(show).to_have_attribute("aria-pressed", "false")
+    with observe_scan(
+        page, code, box_path, f"B3 focused on {box_path}", gaps_ms=(5, 250, 5, 5, 5, 5, 5)
+    ):
+        scan_label(page, code)
+        expect(page.get_by_role("gridcell", name=re.compile(r"^B3, "))).to_be_focused()
+        expect(retry).to_be_hidden()
+        expect(show).to_have_attribute("aria-pressed", "false")
+    page.context.close()
+
+
 def sent_to_a_core(world: World, n: int) -> dict[str, Any]:
     """A core facility serving the world's project, with an analyst to receive; an assay
     request sent to it with `n` tubes; and an empty box of the core's to put them in."""
