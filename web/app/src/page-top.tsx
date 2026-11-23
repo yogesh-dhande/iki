@@ -14,6 +14,7 @@
  * page with a title row (`PageHeader`, a record's) go under that title, in `PhoneActions`.
  */
 
+import { PHONE } from "@ikisci/ui/page-header";
 import { useMatch } from "@tanstack/react-router";
 import {
   createContext,
@@ -222,7 +223,7 @@ const noSubscribe = () => () => undefined;
 const noOwner = () => undefined;
 
 /** A phone's screen (iki.css): a page's actions go under its title there. */
-export const PHONE = "(max-width: 36rem)";
+export { PHONE };
 
 /** Whether the screen is a phone's. jsdom, which the tests run in, has no `matchMedia`. */
 export function usePhone(): boolean {

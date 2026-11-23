@@ -7,8 +7,13 @@
  * searches as people type; people with one that finds only those the field can name.
  */
 
+import "@ikisci/science/quantity-input";
+import "@ikisci/science/sequence-input";
+import type { QuantityInputData } from "@ikisci/science/quantity-input";
+import type { SequenceInputData } from "@ikisci/science/sequence-input";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  createElement,
   useEffect,
   useId,
   useLayoutEffect,
@@ -39,7 +44,6 @@ import {
 import {
   emptyDraft,
   newItem,
-  OTHER_UNIT,
   propertySchema,
   rowFields,
   type Draft,
@@ -200,6 +204,20 @@ function roleChoice(field: FieldDef, cell: FieldDef): FieldDef {
   };
 }
 
+/** Expose the native input to the containing field's label, help and validation. */
+function fieldOptions(id: string, props: InputProps, error = props.error) {
+  const help = helpText(props.field, props.note);
+  const description = describedBy(error && `${id}-error`, help && `${id}-help`);
+  return {
+    inputId: id,
+    label: props.itemLabel ?? props.field.label,
+    required: props.field.required,
+    disabled: !!props.disabled,
+    invalid: !!error,
+    ...(description && { describedBy: description }),
+  };
+}
+
 function TextInput(props: InputProps) {
   const schema = propertySchema(props.type, props.field.name);
   if (schema["x-iki-format"] === "helm") return <HelmInput {...props} />;
@@ -211,7 +229,8 @@ function TextInput(props: InputProps) {
  * saying what it holds or what's wrong and where. The reading is announced politely, so
  * a screen reader hears it once typing settles.
  */
-function HelmInput({ field, draft, onChange, error, note, disabled, itemLabel }: InputProps) {
+function HelmInput(props: InputProps) {
+  const { field, draft, onChange, error, note, itemLabel } = props;
   const id = useId();
   const help = helpText(field, note);
   const text = (draft as string | null) ?? "";
@@ -227,42 +246,23 @@ function HelmInput({ field, draft, onChange, error, note, disabled, itemLabel }:
       help={help}
       hiddenLabel={itemLabel !== undefined}
     >
-      <textarea
-        id={id}
-        rows={3}
-        className="input-code"
-        spellCheck={false}
-        autoComplete="off"
-        value={text}
-        disabled={disabled}
-        aria-invalid={shown ? "true" : undefined}
-        aria-describedby={describedBy(
-          shown && `${id}-error`,
-          `${id}-reading`,
-          help && `${id}-help`,
-        )}
-        aria-required={field.required || undefined}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
-      />
-      <p className="field-help" id={`${id}-reading`} role="status">
-        {reading && !isProblem(reading) ? describeHelm(reading) : ""}
-      </p>
+      {createElement("iki-sequence-input", {
+        data: {
+          ...fieldOptions(id, props, shown),
+          value: text,
+          format: "helm",
+          reading: reading && !isProblem(reading) ? describeHelm(reading) : "",
+        } satisfies SequenceInputData,
+        "onvalue-change": (event: CustomEvent<string>) => {
+          onChange(event.detail);
+        },
+      })}
     </Shell>
   );
 }
 
-function PlainTextInput({
-  field,
-  draft,
-  onChange,
-  error,
-  note,
-  disabled,
-  type,
-  itemLabel,
-}: InputProps) {
+function PlainTextInput(props: InputProps) {
+  const { field, draft, onChange, error, note, disabled, type, itemLabel } = props;
   const id = useId();
   const help = helpText(field, note);
   const schema = propertySchema(type, field.name);
@@ -307,14 +307,18 @@ function PlainTextInput({
       break;
     default: {
       const sequence = schema["x-iki-format"]?.endsWith("_sequence");
-      input = (
-        <input
-          type="text"
-          autoComplete="off"
-          spellCheck={sequence ? false : undefined}
-          className={sequence ? "input-code" : undefined}
-          {...shared}
-        />
+      input = sequence ? (
+        createElement("iki-sequence-input", {
+          data: {
+            ...fieldOptions(id, props),
+            value: (draft as string | null) ?? "",
+          } satisfies SequenceInputData,
+          "onvalue-change": (event: CustomEvent<string>) => {
+            onChange(event.detail);
+          },
+        })
+      ) : (
+        <input type="text" autoComplete="off" {...shared} />
       );
     }
   }
@@ -334,14 +338,10 @@ function PlainTextInput({
   );
 }
 
-function QuantityInput({ field, draft, onChange, error, note, disabled, itemLabel }: InputProps) {
+function QuantityInput(props: InputProps) {
+  const { field, draft, onChange, error, note, itemLabel } = props;
   const id = useId();
-  const q = draft as QuantityDraft;
   const help = helpText(field, note);
-  const units = field.input_units;
-  const set = (change: Partial<QuantityDraft>) => {
-    onChange({ ...q, ...change });
-  };
   return (
     <Shell
       id={id}
@@ -351,67 +351,17 @@ function QuantityInput({ field, draft, onChange, error, note, disabled, itemLabe
       help={help}
       hiddenLabel={itemLabel !== undefined}
     >
-      <div className="input-with-unit">
-        <input
-          id={id}
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
-          spellCheck={false}
-          className="input-number"
-          value={q.number}
-          disabled={disabled}
-          aria-invalid={error ? "true" : undefined}
-          aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
-          aria-required={field.required || undefined}
-          onChange={(event) => {
-            set({ number: event.target.value });
-          }}
-        />
-        <label className="visually-hidden" htmlFor={`${id}-unit`}>
-          Unit for {itemLabel ?? field.label}
-        </label>
-        <select
-          id={`${id}-unit`}
-          value={q.unit}
-          disabled={disabled}
-          onChange={(event) => {
-            set({ unit: event.target.value });
-          }}
-        >
-          {units.map((u) => (
-            <option key={u.code} value={u.code}>
-              {u.symbol}
-            </option>
-          ))}
-          <option value={OTHER_UNIT}>Other unit…</option>
-        </select>
-      </div>
-      {q.unit === OTHER_UNIT ? (
-        <div className="field-sub">
-          <label htmlFor={`${id}-other`}>UCUM unit code</label>
-          <input
-            id={`${id}-other`}
-            type="text"
-            autoComplete="off"
-            spellCheck={false}
-            className="input-code"
-            value={q.other}
-            disabled={disabled}
-            aria-describedby={`${id}-other-help`}
-            onChange={(event) => {
-              set({ other: event.target.value });
-            }}
-          />
-          <p className="field-help" id={`${id}-other-help`}>
-            Any unit that converts to {field.unit_symbol ?? field.unit}, written as{" "}
-            <a href="https://ucum.org/ucum" target="_blank" rel="noreferrer">
-              UCUM
-            </a>{" "}
-            codes are, such as <code>ug/mL</code> for μg/mL.
-          </p>
-        </div>
-      ) : null}
+      {createElement("iki-quantity-input", {
+        data: {
+          ...fieldOptions(id, props),
+          value: draft as QuantityDraft,
+          units: field.input_units,
+          referenceUnit: field.unit_symbol ?? field.unit ?? "",
+        } satisfies QuantityInputData,
+        "onvalue-change": (event: CustomEvent<QuantityDraft>) => {
+          onChange(event.detail);
+        },
+      })}
     </Shell>
   );
 }

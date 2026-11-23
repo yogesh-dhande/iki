@@ -8,6 +8,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
+import { pageReadSignal } from "./page-reads";
 
 export type SheetImport = Schemas["SpreadsheetImportOut"];
 export type SheetColumn = Schemas["SheetColumnOut"];
@@ -80,10 +81,11 @@ export function busy(state: SheetImport["state"] | undefined): boolean {
 export function importQuery(id: string) {
   return queryOptions({
     queryKey: [SPREADSHEETS, id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}", {
           params: { path: { import_id: id } },
+          signal: pageReadSignal(signal),
         }),
       ),
     refetchInterval: (query) => (busy(query.state.data?.state) ? 1000 : false),
@@ -155,10 +157,11 @@ export async function discardImport(id: string) {
   );
 }
 
-export async function savedMappings(project: string, type: string) {
+export async function savedMappings(project: string, type: string, signal: AbortSignal) {
   return unwrap(
     await iki.GET("/api/v1/projects/{project_id}/spreadsheet-mappings", {
       params: { path: { project_id: project }, query: { type } },
+      signal,
     }),
   );
 }

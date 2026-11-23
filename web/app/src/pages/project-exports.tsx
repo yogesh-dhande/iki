@@ -8,7 +8,7 @@ import { queryOptions, useQuery, type UseQueryResult } from "@tanstack/react-que
 import { useState, type ReactNode, type SubmitEvent } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
-import { formatSize } from "../entities";
+import { searchEntities, formatSize } from "../entities";
 import { required, useForm } from "../forms";
 import {
   Badge,
@@ -52,15 +52,13 @@ function collectionsQuery(projectId: string) {
     queryKey: ["entities", "collections", projectId],
     queryFn: async () =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
-            project: projectId,
-            type: "iki/core.Collection",
-            exact_type: true,
-            archived: false,
-            limit: 100,
-            sort: { field: "updated_at", descending: true },
-          },
+        await searchEntities({
+          project: projectId,
+          type: "iki/core.Collection",
+          exact_type: true,
+          archived: false,
+          limit: 100,
+          sort: { field: "updated_at", descending: true },
         }),
       ).items,
   });

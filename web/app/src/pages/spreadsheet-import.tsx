@@ -28,6 +28,7 @@ import { formatSize, inSentence, typesQuery, type EntityType } from "../entities
 import { FilePicker } from "../file-picker";
 import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
+import { pageReadSignal } from "../page-reads";
 import {
   changeImport,
   columnName,
@@ -1040,11 +1041,12 @@ function SaveMappingDialog({ initial, close }: { initial: SheetImport; close: ()
     staleTime: "static",
     gcTime: 0,
     retry: false,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
+      const read = pageReadSignal(signal);
       const source =
         round === 0 ? initial : await client.query({ ...importQuery(initial.id), staleTime: 0 });
       const target = initial.mapping
-        ? (await savedMappings(initial.project, initial.type)).find(
+        ? (await savedMappings(initial.project, initial.type, read)).find(
             (m) => m.id === initial.mapping?.id,
           )
         : undefined;
