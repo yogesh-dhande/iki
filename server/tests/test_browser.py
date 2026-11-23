@@ -2353,6 +2353,7 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     import sys
 
     sys.path.insert(0, str(Path(__file__).parents[2] / "plugins" / "dna" / "scripts"))
+    import oligos  # type: ignore[import-not-found]
     import sequences  # type: ignore[import-not-found]
 
     hrid, values = _record(
@@ -2377,7 +2378,32 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     page.mouse.click(*_place(page, 0, 24))
     page.keyboard.up("Shift")
     first = bases[:24]
-    gc, tm = sequences.gc_content(first), sequences.melting_temperature(first)
+    # The readout's Tm is the viewer's own TypeScript, which runs on every keystroke as a
+    # selection is dragged, and quotes a stretch of a molecule in sodium alone -- not a
+    # primer's Tm in a PCR buffer, which is what a primer record carries and reads several
+    # degrees higher (ADR 0201). So the reference here comes from the shared Rust at those
+    # same conditions, `Conditions::PRIMER`: 50 mM Na+, no Mg2+ or dNTPs, 25 nM of each
+    # strand, SantaLucia's own salt correction. Checking the page against the module keeps
+    # the two implementations of one model honest; the module is the authority, and the
+    # TypeScript exists only because a module call per keystroke would be too slow.
+    gc = sequences.gc_content(first)
+    checked = oligos.call(
+        "iki_check_oligos",
+        {
+            "oligos": [{"hrid": "selection", "bases": first}],
+            "conditions": {
+                "sodium": 50.0,
+                "potassium": 0.0,
+                "tris": 0.0,
+                "magnesium": 0.0,
+                "dntp": 0.0,
+                "strand": 25.0,
+                "other_strand": 25.0,
+                "salt": "santalucia",
+            },
+        },
+    )
+    tm = checked["oligos"][0]["melting_temperature"]
     assert (gc, tm) == (62.5, 64.2)
     readout = page.get_by_text(re.compile("^Bases 1–24 selected"))
     readout.wait_for()
@@ -2387,7 +2413,10 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     page.get_by_role("status").filter(has_text="Copied 24 bases.").wait_for()
     page.get_by_role("button", name="Copy reverse complement").click()
     page.get_by_role("status").filter(has_text="reverse complement").wait_for()
-    assert page.evaluate("window.__copied") == [first, sequences.reverse_complement(first)]
+    # Spelled out rather than taken from the plugin: what is under test is the button, and
+    # a reverse complement the test computed the same way the page does would prove nothing.
+    backwards = first.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    assert page.evaluate("window.__copied") == [first, backwards]
 
     # By keyboard: the whole of it, whose GC content is what compute_composition records.
     rows.focus()
