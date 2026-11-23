@@ -85,16 +85,16 @@ function container(): Schemas["ContainerOut"] {
   };
 }
 
-function onBox() {
+function onBox(found = container()) {
   withTypes();
   answer("GET /api/v1/entity-types", [PROTEIN, TUBE_TYPE]);
-  answer("GET /api/v1/storage/containers/BOX-000014", container());
-  answer(`GET /api/v1/storage/containers/${BOX_ID}`, container());
+  answer("GET /api/v1/storage/containers/BOX-000014", found);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, found);
 }
 
 /** Types `code` as a keyboard-mode scanner does, at whatever has focus. */
-function wedge(code: string, gaps: number[] = []) {
-  let t = 1000;
+function wedge(code: string, gaps: number[] = [], startAt = 1000) {
+  let t = startAt;
   const target = document.activeElement ?? document.body;
   const press = (key: string, gap = 4) => {
     const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
@@ -156,6 +156,54 @@ describe("a container's page", () => {
       expect(screen.queryByText("TUBE-000023 is at B3.")).toBeNull();
     }
   });
+
+  it.each([
+    { code: "XRC001", gaps: [251], accepted: false },
+    { code: "ABXRC001", gaps: [90, 90, 251], accepted: false },
+    { code: "XRC001", gaps: [250], accepted: true },
+  ])(
+    "keeps the whole code or requests a rescan for $code with gaps $gaps",
+    async ({ code, gaps, accepted }) => {
+      const target = { ...occupant(23, 2, 3), code };
+      onBox({ ...container(), contents: [target] });
+      const lookup = "/api/v1/storage/scan";
+      answer(`GET ${lookup}`, { code: "RC001", items: [] });
+      await renderApp("/storage/BOX-000014/");
+      const button = screen.getByRole("button", { name: "Show free positions" });
+      button.focus();
+      let enters = 0;
+      let activations = 0;
+      button.addEventListener("click", () => {
+        activations++;
+      });
+      button.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") enters++;
+      });
+      await act(async () => {
+        expect(wedge(code, gaps)).toBe(true);
+        // Let a wrongly accepted suffix reach the API before checking its requests.
+        await Promise.resolve();
+      });
+      expect(calls("GET", lookup).map((call) => call.query.get("code"))).toEqual([]);
+      expect(enters).toBe(0);
+      expect(button).toHaveAttribute("aria-pressed", "false");
+      if (!accepted) {
+        expect(button).toHaveFocus();
+        expect(screen.getByRole("alert")).toHaveTextContent("Scan again or type the code.");
+        expect(screen.queryByText("TUBE-000023 is at B3.")).toBeNull();
+        act(() => {
+          expect(wedge(code, [], 3000)).toBe(true);
+        });
+      }
+      expect(await screen.findByText("TUBE-000023 is at B3.")).toBeInTheDocument();
+      expect(screen.getByRole("gridcell", { name: /^B3, TUBE-000023/ })).toHaveFocus();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(calls("GET", lookup)).toHaveLength(0);
+      expect(activations).toBe(0);
+      expect(enters).toBe(0);
+      expect(button).toHaveAttribute("aria-pressed", "false");
+    },
+  );
 
   it("lets a person type at a steady 90 ms per key and use Enter", async () => {
     onBox();

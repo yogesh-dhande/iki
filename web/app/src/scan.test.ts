@@ -40,12 +40,33 @@ describe("the keyboard wedge", () => {
     expect(feedAll(new Wedge(), "A1", 5).at(-1)).toEqual({ kind: "rejected" });
   });
 
-  it("starts again after a pause, so typed keys before a scan aren't part of it", () => {
+  it.each([
+    { gap: 250, expected: { kind: "scan", code: "XBOX-000014" } },
+    { gap: 251, expected: { kind: "rejected" } },
+  ])("judges the first $gap ms interval as part of the whole label", ({ gap, expected }) => {
     const wedge = new Wedge();
-    wedge.feed("x", 0);
-    wedge.feed("y", 400);
-    const out = feedAll(wedge, "BOX-000014", 6, 2000);
-    expect(out.at(-1)).toEqual({ kind: "scan", code: "BOX-000014" });
+    wedge.feed("X", 0);
+    expect(feedAll(wedge, "BOX-000014", 6, gap).at(-1)).toEqual(expected);
+  });
+
+  it.each([
+    { times: [0, 90, 180], prefix: "three human-speed keys" },
+    { times: [0, 400, 900], prefix: "repeated long pauses" },
+  ])("rejects a fast suffix after $prefix and a further pause", ({ times }) => {
+    const wedge = new Wedge();
+    times.forEach((at) => wedge.feed("X", at));
+    Array.from("BOX-000014").forEach((key, i) => wedge.feed(key, 2000 + i * 6));
+    expect(wedge.feed("Tab", 2060)).toEqual({ kind: "rejected" });
+    expect(feedAll(wedge, "BOX-000014", 6, 2400).at(-1)).toEqual({
+      kind: "scan",
+      code: "BOX-000014",
+    });
+  });
+
+  it("leaves human keys and Enter alone even after pauses longer than a scanner stall", () => {
+    const result = feedAll(new Wedge(), "BOX-000014", 400);
+    expect(result.slice(0, -1).every((key) => key.kind === "char" && !key.swallow)).toBe(true);
+    expect(result.at(-1)).toEqual({ kind: "none" });
   });
 
   it("drops a burst when a modifier is held: a shortcut, not a scan", () => {

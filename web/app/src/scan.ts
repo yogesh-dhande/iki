@@ -20,9 +20,10 @@ export type Fed =
 
 /** Tells a scanner's keystrokes from a person's, a key at a time. */
 export class Wedge {
-  private chars: string[] = [];
+  // null discards a mistimed sequence's text until its terminator.
+  private chars: string[] | null = [];
   private last = Number.NEGATIVE_INFINITY;
-  private stalls = 0;
+  private usedStall = false;
   private plausible = false;
 
   /** A key pressed at `at` (ms): whether it's part of a scan, or ends one. */
@@ -38,18 +39,18 @@ export class Wedge {
     }
 
     const gap = at - this.last;
-    if (!this.plausible && gap > MAX_STALL_MS) this.reset();
     if (this.last !== Number.NEGATIVE_INFINITY) {
-      if (gap > MAX_STALL_MS) this.stalls = 2;
-      else if (gap > MAX_GAP_MS) this.stalls++;
-      else if (!end) this.plausible = true;
+      if (gap > MAX_GAP_MS) {
+        if (this.usedStall || gap > MAX_STALL_MS) this.chars = null;
+        this.usedStall = true;
+      } else if (!end) this.plausible = true;
     }
 
     if (end) {
       let result: Fed = { kind: "none" };
       if (this.plausible) {
         result =
-          this.stalls <= 1 && this.chars.length >= MIN_LENGTH
+          this.chars && this.chars.length >= MIN_LENGTH
             ? { kind: "scan", code: this.chars.join("") }
             : { kind: "rejected" };
       }
@@ -57,9 +58,8 @@ export class Wedge {
       return result;
     }
 
-    // Once two characters arrive quickly, keep the terminator even if later timing
-    // rules out the scan. Never start a second code from the rejected burst's tail.
-    if (this.stalls <= 1) this.chars.push(key);
+    // A fast pair owns the terminator even if an earlier gap already ruled out the scan.
+    this.chars?.push(key);
     this.last = at;
     return { kind: "char", swallow: this.plausible };
   }
@@ -67,7 +67,7 @@ export class Wedge {
   reset(): void {
     this.chars = [];
     this.last = Number.NEGATIVE_INFINITY;
-    this.stalls = 0;
+    this.usedStall = false;
     this.plausible = false;
   }
 }

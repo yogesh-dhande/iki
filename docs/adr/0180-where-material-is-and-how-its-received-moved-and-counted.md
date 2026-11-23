@@ -195,12 +195,16 @@ and counting pages, typing in an editable field belongs to that field. With
 focus elsewhere, at least four characters form a scan if the gaps between
 them, including the final Enter or Tab, are at most 50 ms, with one gap
 allowed up to 250 ms. This accommodates a brief scheduling or rendering
-stall while excluding a person's steadily slower typing. Two consecutive
-characters within 50 ms identify a possible scan. From then until its
-terminator, a longer pause or a second stall rejects the whole code. Iki
-consumes the terminator either way so it cannot activate the focused
-control. For an unreadable scan the scan box asks the person to try again
-or type the code. On a tablet, the camera reads codes where
+stall while excluding a person's steadily slower typing. The gap budget
+applies from the first character. A gap longer than 250 ms or a second
+gap over 50 ms invalidates the whole sequence through its terminator.
+Otherwise a stalled label such as `XRC001` could be accepted as `RC001`.
+
+Two consecutive characters within 50 ms identify a possible scan. Once that
+happens, Iki consumes Enter or Tab even when an earlier gap invalidated the
+code. The scan box asks the operator to scan again or type the full code.
+A stray key followed by a long pause and a scanner burst therefore costs
+one retry. Steadily slow typing retains its ordinary keyboard behavior. On a tablet, the camera reads codes where
 the browser has `BarcodeDetector`; elsewhere, Iki says so and offers the
 code typed.
 
