@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import platform
 import re
 import subprocess
 from pathlib import Path
@@ -15,19 +16,54 @@ def populated(path: Path, fix: str) -> None:
         raise SystemExit(f"{path} is missing or empty. Run {fix}.")
 
 
-def wasm_copies(source: Path, installed: Path, builder: Path) -> None:
+def wasm_copies(source: Path, installed: Path, builder: Path) -> bytes:
     for path in (source, installed):
         populated(path, str(builder))
     binary = source.read_bytes()
     if not binary.startswith(WASM_HEADER) or installed.read_bytes() != binary:
         raise SystemExit(f"Invalid or mismatched modules {source} and {installed}. Run {builder}.")
+    return binary
+
+
+def oligo_module(package: Path, builder: Path, pin: Path) -> None:
+    """build-wasm.sh already installed both copies using this output-taking builder."""
+    filename = "oligo-measurement.wasm"
+    factory = Path("scripts/build-wasm.sh")
+    digest = pin.read_text().rstrip("\n") if pin.is_file() else ""
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise SystemExit(f"Restore the release SHA-256 pin in {pin}.")
+    if not builder.is_file():
+        raise SystemExit(f"Restore {builder}, which builds {filename}.")
+    module = package / filename
+    binary = wasm_copies(module, pin.parent / filename, factory)
+    populated(package / "rust-standard-library.html", str(factory))
+    if platform.system() == "Linux" and platform.machine().lower() in ("x86_64", "amd64"):
+        if hashlib.sha256(binary).hexdigest() != digest:
+            raise SystemExit(f"{module} does not match {pin}. Run {factory}.")
+    else:
+        # Release pins come from Linux x86-64. On another host, compare to the
+        # pinned Rust toolchain's fresh native build instead.
+        try:
+            subprocess.run([str(builder), "--check", str(module)], check=True)  # noqa: S603
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise SystemExit(f"{module} failed {builder} --check. Run {factory}.") from exc
 
 
 def wasm() -> None:
     package = Path("spec/src/iki_spec")
-    wasm_copies(
-        Path("web/app/wasm/iki_wasm.wasm"), package / "iki_wasm.wasm", Path("scripts/build-wasm.sh")
-    )
+    for consumer in ("web/app/wasm", "web/packages/science/wasm"):
+        wasm_copies(
+            package / "iki_wasm.wasm",
+            Path(consumer) / "iki_wasm.wasm",
+            Path("scripts/build-wasm.sh"),
+        )
+    # This standalone is an individual Rust source. Its installed filename and pin
+    # differ from its builder's stem, and the shared factory supplies its output path.
+    oligo_builder = Path("scripts/build-oligo-wasm.sh")
+    oligo_pin = Path("plugins/dna/data/oligo-measurement.sha256")
+    oligo_source = Path("worker/crates/iki-wasm/standalone/oligo.rs")
+    if any(path.exists() for path in (oligo_builder, oligo_pin, oligo_source)):
+        oligo_module(package, oligo_builder, oligo_pin)
     # A standalone crate or builder declares a module even if its lock was removed.
     # Other data files can have checksums too.
     locks = sorted(Path("plugins").glob("*/data/*.sha256"))
@@ -42,6 +78,7 @@ def wasm() -> None:
     modules.update(
         p.name.removeprefix("build-").removesuffix("-wasm.sh")
         for p in Path("scripts").glob("build-*-wasm.sh")
+        if p != oligo_builder
     )
     for name in sorted(modules):
         builder = Path("scripts") / f"build-{name}-wasm.sh"
@@ -83,12 +120,13 @@ def wasm() -> None:
 
 
 def story_assets(packages: Path) -> None:
-    """Check the published entries loaded by standalone stories and their local imports."""
+    """Check the published entries, the gallery's separate bundles and their local assets."""
     pending: list[Path] = []
     for stories in packages.glob("*/stories"):
         package = stories.parent
         manifest = json.loads((package / "package.json").read_text())
         pending.extend(package / entry["default"] for entry in manifest["exports"].values())
+        pending.extend(stories.glob("*.html"))
     checked: set[Path] = set()
     while pending:
         asset = pending.pop().resolve()
@@ -96,10 +134,28 @@ def story_assets(packages: Path) -> None:
             continue
         checked.add(asset)
         populated(asset, "make web")
-        if asset.suffix == ".js":
+        if asset.suffix in {".js", ".html"}:
+            source = asset.read_text()
             paths = re.findall(
-                r"""\b(?:from\s*|import\s*(?:\(\s*)?)["'](\.{1,2}/[^"']+)["']""", asset.read_text()
+                r"""\b(?:from\s*|import\s*(?:\(\s*)?)["'](\.{1,2}/[^"']+)["']""", source
             )
+            # The package's parser loads WASM this way. The gallery bundler also
+            # emits these URLs for CSS, relative to the entry or a hashed chunk.
+            paths.extend(
+                re.findall(
+                    r"""\bnew URL\(\s*["'`]((?!/)[\w./-]+\.\w+)(?:\?[^"'`]*)?["'`]"""
+                    r"""\s*,\s*import\.meta\.url\s*\)""",
+                    source,
+                )
+            )
+            if asset.suffix == ".html":
+                paths.extend(
+                    re.findall(
+                        r"""(?:<(?:link|script)\b[^>]*?\b(?:href|src)=|\bfetch\(\s*)"""
+                        r"""["'](\.{1,2}/[\w./-]+)["']""",
+                        source,
+                    )
+                )
         elif asset.suffix == ".css":
             paths = re.findall(r"""url\(\s*["']?([\w./-]+)["']?\s*\)""", asset.read_text())
         else:
