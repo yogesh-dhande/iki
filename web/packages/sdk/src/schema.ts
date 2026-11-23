@@ -3383,8 +3383,8 @@ export interface paths {
         put?: never;
         /**
          * Complete a reconciliation
-         * @description Applies every resolution as one change. Refused (422) if anything moved into or out of
-         *     the container since it started.
+         * @description Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
+         *     that needs review or a change in the container's recorded contents returns 422.
          */
         post: operations["iki_server_api_storage_complete_reconciliation"];
         delete?: never;
@@ -3406,7 +3406,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Resolve a reconciliation's line */
+        /**
+         * Resolve a reconciliation's line
+         * @description Saves or clears a line decision for the reviewed revision. Returns 409 if the
+         *     observations or another decision changed in the meantime.
+         */
         patch: operations["iki_server_api_storage_resolve_line"];
         trace?: never;
     };
@@ -6793,6 +6797,11 @@ export interface components {
              * @default
              */
             note: string;
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
         };
         /** ComponentEntitiesIn */
         ComponentEntitiesIn: {
@@ -13065,7 +13074,7 @@ export interface components {
              * Finding
              * @enum {string}
              */
-            finding: "matched" | "missing" | "unexpected" | "wrong_slot" | "unchecked" | "empty" | "checked_out";
+            finding: "matched" | "missing" | "unexpected" | "wrong_slot" | "unchecked" | "empty" | "checked_out" | "no_longer_found";
             /**
              * Found
              * @description Where it was scanned.
@@ -13081,6 +13090,11 @@ export interface components {
             ref: components["schemas"]["RefOut"] | null;
             /** Resolution */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
+            /**
+             * Resolution Stale
+             * @description The open count's saved decision needs review.
+             */
+            resolution_stale: boolean;
             resolved_by: components["schemas"]["UserOut"] | null;
         };
         /** ReconciliationOut */
@@ -13104,6 +13118,11 @@ export interface components {
             lines: components["schemas"]["ReconciliationLineOut"][];
             /** Note */
             note: string;
+            /**
+             * Plan Revision
+             * @description The version of the count's observations and decisions.
+             */
+            plan_revision: number;
             shape: components["schemas"]["ShapeOut"];
             /**
              * Started At
@@ -13586,6 +13605,11 @@ export interface components {
              * @default
              */
             note: string;
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
             /**
              * Resolution
              * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.

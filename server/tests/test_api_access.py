@@ -785,7 +785,12 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         tube = _tube(w, into=box)
         started = reconciliations.start(w.users["editor"], box)
         line = started.lines.get(entity=tube)
-        return suffix.format(reconciliation=started.pk, line=line.pk), body
+        payload = (
+            {**body, "plan_revision": started.plan_revision}
+            if suffix.endswith(("/complete", "/lines/{line}"))
+            else body
+        )
+        return suffix.format(reconciliation=started.pk, line=line.pk), payload
 
     return build
 

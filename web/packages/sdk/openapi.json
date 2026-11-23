@@ -3072,8 +3072,17 @@
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
+          },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -16994,7 +17003,8 @@
               "wrong_slot",
               "unchecked",
               "empty",
-              "checked_out"
+              "checked_out",
+              "no_longer_found"
             ],
             "title": "Finding",
             "type": "string"
@@ -17047,6 +17057,11 @@
             ],
             "title": "Resolution"
           },
+          "resolution_stale": {
+            "description": "The open count's saved decision needs review.",
+            "title": "Resolution Stale",
+            "type": "boolean"
+          },
           "resolved_by": {
             "anyOf": [
               {
@@ -17067,6 +17082,7 @@
           "found",
           "finding",
           "resolution",
+          "resolution_stale",
           "note",
           "resolved_by"
         ],
@@ -17127,6 +17143,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The version of the count's observations and decisions.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "shape": {
             "$ref": "#/components/schemas/ShapeOut"
           },
@@ -17150,6 +17172,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "container",
           "shape",
           "status",
@@ -18129,6 +18152,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "resolution": {
             "anyOf": [
               {
@@ -18149,6 +18178,7 @@
           }
         },
         "required": [
+          "plan_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -40457,7 +40487,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -40509,6 +40539,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
+        "description": "Saves or clears a line decision for the reviewed revision. Returns 409 if the\nobservations or another decision changed in the meantime.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
