@@ -17,6 +17,11 @@
         "id": { "type": "string", "format": "uuid" },
         "hrid": { "type": "string", "pattern": "^RUN-[0-9]{6,}$" },
         "attempt": { "type": "integer", "minimum": 1 },
+        "requested_by": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The authenticated account that requested this run. Commands can attribute decisions in the output to its requester."
+        },
         "seed": {
           "description": "For the command's random numbers, also in `IKI_SEED`. A run reproduced exactly gets its seed again.",
           "type": "integer",
@@ -347,6 +352,11 @@
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "hrid": { "type": "string" },
+        "entry_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "For a registered entity, its registry entry ID, which references to this record hold."
+        },
         "type": {
           "type": "string",
           "description": "The qualified type, such as `iki/protein.Protein`."

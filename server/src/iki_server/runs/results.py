@@ -281,6 +281,7 @@ class _Update:
     pointer: str
     entity: UUID
     values: Mapping[str, Any]
+    expected_revision: int | None
 
 
 def _updates(check: Check, given: Mapping[str, Any]) -> list[_Update]:
@@ -313,7 +314,8 @@ def _updates(check: Check, given: Mapping[str, Any]) -> list[_Update]:
                     )
             entity_type = Entity.objects.values_list("type", flat=True).get(pk=entity)
             _check_files(check, _pointer(*at), entity_type, item["values"])
-            out.append(_Update(_pointer(*at), entity, item["values"]))
+            revision = check.inputs[name][entity] if item.get("require_unchanged") else None
+            out.append(_Update(_pointer(*at), entity, item["values"], revision))
     return out
 
 
@@ -562,7 +564,11 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
                 user,
                 entity,
                 update.values,
-                expected_revision=entity.revision,
+                expected_revision=(
+                    entity.revision
+                    if update.expected_revision is None
+                    else update.expected_revision
+                ),
                 by_run=True,
                 hold_reason=holds.run_reason(check.run),
                 acting_in=check.run.project,
@@ -570,6 +576,12 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
         except Invalid as error:
             invalid(check, update.pointer, error)
             continue
+        except entities.Stale as error:
+            raise Rejected(
+                "conflict",
+                f"{entity.hrid} changed after this run read revision {update.expected_revision}. "
+                f"It is at revision {error.current} now.",
+            ) from None
         except Refused as error:
             raise Rejected("conflict", f"{entity.hrid}: {error}") from None
         RunEffect.objects.create(

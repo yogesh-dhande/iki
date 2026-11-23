@@ -1,0 +1,94 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: preview_an_incomplete_layout
+description: The synthetic 96-well file contains ten readings. A layout with one assignment reports the other nine before any measurement is written.
+action: preview_reader
+files: { reader: tests/data/mars-96-series.csv }
+inputs:
+  plate:
+    - values:
+        name: Synthetic preview
+        reader_file: { $file: reader }
+        size: plate_96
+        assignments: [{ well: A9, control: low, replicate: 1 }]
+expect:
+  output:
+    updates:
+      plate:
+        - require_unchanged: true
+          values:
+            preview:
+              issues: ["Measured wells without assignments: A1, A2, A3, A4, A5, A6, A7, A8, A10."]
+              readings:
+                [{ well: A9, control: low, value: 0.1, channel: Absorbance 484 nm, unit: AU }]
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: no_partial_commit
+action: commit_reader
+files: { reader: tests/data/mars-96-series.csv }
+inputs:
+  plate:
+    - values:
+        name: Synthetic commit
+        reader_file: { $file: reader }
+        size: plate_96
+        assignments: [{ well: A9, control: low, replicate: 1 }]
+expect: { error: Resolve the preview issues before committing }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: qc_fit_with_attributable_exclusion
+description: Synthetic collection with two readings. Keep the unsuccessful fit and the excluded well so QA can review why it has no endpoint.
+action: fit_curve
+settings: { review_flow: regulated_qc }
+params: { endpoint_kind: EC50, exclusions: "A2: bubble in well" }
+files: { raw: tests/data/mars-96-series.csv }
+inputs:
+  sample: [{ type: iki/core.Organism, values: {} }]
+  read:
+    - values:
+        plate: 00000000-0000-7000-8003-000000000021
+        import_key: 00000000-0000-7000-8003-000000000021
+        request: 00000000-0000-7000-8003-000000000022
+        reader_file: { $file: raw }
+      included:
+        measurements:
+          - values:
+              plate: 00000000-0000-7000-8003-000000000021
+              reader_file: { $file: raw }
+              sample: 00000000-0000-7000-8003-000000000001
+              well: A1
+              channel: Absorbance 484 nm
+              concentration: 10
+              concentration_unit: nM
+              replicate: 1
+              signal: 0.933769
+          - values:
+              plate: 00000000-0000-7000-8003-000000000021
+              reader_file: { $file: raw }
+              sample: 00000000-0000-7000-8003-000000000001
+              well: A2
+              channel: Absorbance 484 nm
+              concentration: 20
+              concentration_unit: nM
+              replicate: 1
+              signal: 0.866429
+expect:
+  output:
+    creates:
+      - type: iki/plate_assays.RequestedQCAssayResult
+        values:
+          review_flow: regulated_qc
+          endpoint_kind: EC50
+          fit_status: unreportable
+          point_count: 1
+          endpoint_value: null
+          points:
+            - { well: A1, revision: 1, excluded_by: null }
+            - {
+                well: A2,
+                revision: 1,
+                exclusion_reason: bubble in well,
+                excluded_by: 00000000-0000-7000-8005-000000000001,
+              }

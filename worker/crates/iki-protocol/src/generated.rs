@@ -20,6 +20,9 @@ pub struct RunInputFile {
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
+    /// For a registered entity, its registry entry ID, which references to this record hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_id: Option<String>,
     /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
     pub schema_version: i64,
@@ -83,6 +86,9 @@ pub struct RunInputRun {
     pub id: String,
     pub hrid: String,
     pub attempt: i64,
+    /// The authenticated account that requested this run. Commands can attribute decisions in the output to its requester.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_by: Option<String>,
     /// For the command's random numbers, also in `IKI_SEED`. A run reproduced exactly gets its seed again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
@@ -437,6 +443,9 @@ pub struct RunOutputUpdatesValueItem {
     /// The input entity's ID, from input.json.
     pub entity: String,
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// When true, write this output only if the record is still at the revision this input read. Any intervening revision rejects the entire result, including its creates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_unchanged: Option<bool>,
 }
 
 /// Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.
