@@ -177,6 +177,28 @@
           "items": {
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
           }
+        },
+        "receives": {
+          "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
+          "type": "object",
+          "required": ["field"],
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "by": {
+              "description": "The lab roles, held in the service's project, that receive them. Any Editor of the service, if none are named.",
+              "type": "array",
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            }
+          }
         }
       },
       "additionalProperties": false
@@ -241,6 +263,70 @@
         "$ref": "#/$defs/export"
       }
     },
+    "storage": {
+      "description": "Its records are kept somewhere, or keep others (ADR 0180): Iki keeps where each is, in which container and position, who has it, and every move, as a ledger of its own.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "holds": {
+          "description": "The types (or their ancestors) of what can be kept in it, such as racks and boxes in a freezer, or tubes in a box.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "grid": {
+          "description": "Its positions, in rows and columns: a box's, a rack's or a plate's. Each record it holds is at one of them, and no two at one.",
+          "type": "object",
+          "required": ["rows", "columns"],
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "description": "How many rows: a number (at most 32), or the name of one of its own required, immutable int fields.",
+              "$ref": "#/$defs/gridSize"
+            },
+            "columns": {
+              "description": "How many columns: a number (at most 48), or the name of one of its own required, immutable int fields.",
+              "$ref": "#/$defs/gridSize"
+            },
+            "labels": {
+              "description": "How its positions are named. `letter_number`: rows A, B, … and columns 1, 2, …, so A1 to H12; `number`: 1, 2, … in its order.",
+              "enum": ["letter_number", "number"],
+              "default": "letter_number"
+            },
+            "order": {
+              "description": "The order its positions are numbered and filled in: `by_row` (A1, A2, …) or `by_column` (A1, B1, …).",
+              "enum": ["by_row", "by_column"],
+              "default": "by_row"
+            }
+          }
+        },
+        "barcode": {
+          "description": "A unique string field holding the code on it already, such as a pre-barcoded tube's: what a scan reads and a label prints. Its HRID, if it has none.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "label": {
+          "description": "A label's line under its title: text with `{{ }}` parts, as a display title has.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "confirm": {
+          "description": "What needs its code scanned first, to confirm the record in someone's hand is the one they chose: a `draw` from its amount, or a `move`.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["draw", "move"]
+          }
+        }
+      }
+    },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
       "type": "object",
@@ -277,6 +363,16 @@
           "description": "A required, immutable reference of the type naming what its amount is of, such as a lot's molecule. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
+        "follows": {
+          "description": "References whose records' eligibility a draw from it also meets (ADR 0180), such as a tube's lot: a state holding the source's amount holds its, and the source's draw guards are checked with the source as `record`. The first that's set is the draw's source, kept with its movement.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
+        },
         "aliquots": {
           "description": "What its aliquots are: records of another type, with a reference to the record each was split from. Its own type, by default.",
           "type": "object",
@@ -300,6 +396,12 @@
   },
   "additionalProperties": false,
   "$defs": {
+    "gridSize": {
+      "oneOf": [
+        { "type": "integer", "minimum": 1, "maximum": 48 },
+        { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+      ]
+    },
     "export": {
       "type": "object",
       "required": ["export", "sequence"],

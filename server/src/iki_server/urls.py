@@ -98,6 +98,16 @@ urlpatterns: list[URLPattern | URLResolver] = [
     # Files across projects, and one file (ADR 0177); a project's are in org.urls.
     path("files/", web.app, name="files"),
     path("files/<uuid:file_id>/", web.app, name="file"),
+    # Storage (ADR 0180): its places, receiving a request's material, a reconciliation, and
+    # a container's map.
+    path("storage/", web.app, name="storage"),
+    path("storage/receive/<str:ref>/", web.app, name="storage_receive"),
+    path(
+        "storage/reconciliations/<uuid:reconciliation_id>/",
+        web.app,
+        name="storage_reconciliation",
+    ),
+    path("storage/<str:ref>/", web.app, name="storage_container"),
     path("batches/<str:ref>/", web.app, name="batch"),
     path("workflow-runs/<str:ref>/", web.app, name="workflow_run"),
     path("csp-report/", web.csp_report, name="csp_report"),

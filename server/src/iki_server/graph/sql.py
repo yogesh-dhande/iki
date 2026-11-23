@@ -264,6 +264,29 @@ DROP_ROWS = "DROP FUNCTION IF EXISTS iki_graph_rows() CASCADE;"
 
 #: An aliquot's and a transfer's edges (ADR 0139), from the amounts' append-only ledger:
 #: the aliquot, or the record transferred into, depends on the other.
+#: As ADR 0139 made them, before a draw named what it went into: its first migration's.
+MOVEMENTS_0139 = (
+    _function(
+        "iki_graph_movements",
+        _execute(
+            "INSERT INTO %1$I.iki_graph_edge (node_id, on_id, kind) "
+            "SELECT DISTINCT a.entity_id, a.counterpart_id, "
+            "CASE a.kind WHEN 'aliquot' THEN 'aliquot' ELSE 'transfer' END "
+            "FROM added a "
+            "WHERE a.counterpart_id IS NOT NULL AND a.kind IN ('aliquot', 'transferred_in') "
+            # One edge however many times some was moved between them.
+            "AND NOT EXISTS (SELECT 1 FROM %1$I.iki_graph_edge e WHERE e.node_id = a.entity_id "
+            "AND e.on_id = a.counterpart_id "
+            "AND e.kind = CASE a.kind WHEN 'aliquot' THEN 'aliquot' ELSE 'transfer' END)"
+        ),
+    )
+    + """
+CREATE TRIGGER iki_graph_movements AFTER INSERT ON iki_amount_movement
+REFERENCING NEW TABLE AS added FOR EACH STATEMENT EXECUTE FUNCTION iki_graph_movements();
+"""
+)
+#: An aliquot depends on what it was split from, a record on what was transferred into it
+#: (ADR 0139), and what a draw went into on what it was drawn from (ADR 0180).
 MOVEMENTS = (
     _function(
         "iki_graph_movements",
@@ -277,6 +300,14 @@ MOVEMENTS = (
             "AND NOT EXISTS (SELECT 1 FROM %1$I.iki_graph_edge e WHERE e.node_id = a.entity_id "
             "AND e.on_id = a.counterpart_id "
             "AND e.kind = CASE a.kind WHEN 'aliquot' THEN 'aliquot' ELSE 'transfer' END)"
+        )
+        + "\n"
+        + _execute(
+            "INSERT INTO %1$I.iki_graph_edge (node_id, on_id, kind) "
+            "SELECT DISTINCT a.used_in_id, a.entity_id, 'used' FROM added a "
+            "WHERE a.used_in_id IS NOT NULL AND a.kind = 'drawn' "
+            "AND NOT EXISTS (SELECT 1 FROM %1$I.iki_graph_edge e WHERE e.node_id = a.used_in_id "
+            "AND e.on_id = a.entity_id AND e.kind = 'used')"
         ),
     )
     + """

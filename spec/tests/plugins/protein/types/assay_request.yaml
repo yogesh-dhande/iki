@@ -9,10 +9,13 @@ hrid: { prefix: ARQ }
 # the asking project's.
 request:
   service_fields: [status, priority, scheduled_on, technician, core_notes]
-  sends: [samples, protein]
+  sends: [samples, protein, tubes]
+  # The core's analysts receive the tubes against what was sent (ADR 0180).
+  receives: { field: tubes, by: [analyst] }
 fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
+  tubes: { type: list, items: { type: ref, to: Tube }, max_items: 96 }
   protein: { type: ref, to: Protein }
   # What to measure, from the core's assays: a list of choices.
   assays:

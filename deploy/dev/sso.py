@@ -1574,6 +1574,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
+    bench_material(alice, project, core, protein)
 
 
 def analytical_core(
@@ -1735,6 +1736,257 @@ def analysis_result(
     ):
         fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
     ok(f"{result['hrid']}: QA released corrected revision {review['revision']} to the requester")
+
+
+#: Example LIMS types (ADR 0180).
+LIMS_TYPE = "iki/example_lims."
+
+
+def moved(
+    session: requests.Session, items: list[tuple[Any, Any, str | None]], reason: str
+) -> dict[str, Any]:
+    """Moves records, all or none (ADR 0180)."""
+    answer = api_call(session, "POST", "/storage/moves", moves_body(items, reason))
+    if answer.status_code != 200:
+        fail(f"moving {len(items)} records answered HTTP {answer.status_code}: {answer.text[:300]}")
+    done: dict[str, Any] = answer.json()
+    return done
+
+
+def moves_body(items: list[tuple[Any, Any, str | None]], reason: str) -> dict[str, Any]:
+    return {
+        "items": [
+            {"record": r["id"], "to": t["id"] if t else None, "position": p} for r, t, p in items
+        ],
+        "reason": reason,
+    }
+
+
+def bench_material(
+    alice: requests.Session,
+    project: dict[str, Any],
+    core: dict[str, Any],
+    protein: dict[str, Any],
+) -> None:
+    """Material at the bench (ADR 0180): a freezer, shelf, rack and box of tubes, each
+    position checked; a draw scanned and linked to what it went into and its lot's guards
+    refusing its tubes; tubes sent with a request, received against it at the core and put
+    away; the core's box reconciled by scan; and labels as ZPL."""
+    tag = secrets.token_hex(3).upper()
+    freezer = created(
+        alice,
+        project,
+        f"{LIMS_TYPE}Freezer",
+        {
+            "name": "-80 °C freezer 3",
+            "asset_tag": f"FRZ-{tag}",
+            "set_point_c": -80,
+            "room": "B2.14",
+        },
+    )
+    shelf = created(alice, project, f"{LIMS_TYPE}Shelf", {"name": "Shelf 2"})
+    rack = created(alice, project, f"{LIMS_TYPE}Rack", {"name": "Rack C"})
+    box = created(
+        alice,
+        project,
+        f"{LIMS_TYPE}Box",
+        {"name": "Kinase retains", "rows": 9, "columns": 9, "contents": "Lot release retains"},
+    )
+    # A lot in quarantine, which only QA samples; one past its expiry, which nobody draws from.
+    give_lab_roles(alice, project, "iki/lots.qa")
+    quarantined = created(
+        alice,
+        project,
+        "iki/lots.ProteinLot",
+        {"protein": entry_of(protein), "lot_number": f"KIN-{tag}-1"},
+        {"value": 5, "unit": "mg"},
+    )
+    expired = created(
+        alice,
+        project,
+        "iki/lots.ProteinLot",
+        {
+            "protein": entry_of(protein),
+            "lot_number": f"KIN-{tag}-0",
+            "made_on": "2024-01-10",
+            "expires_on": "2025-01-10",
+        },
+        {"value": 5, "unit": "mg"},
+    )
+    named = (
+        ("Kinase 2 mg/mL", None),
+        ("Kinase QC", quarantined),
+        ("Kinase 2024", expired),
+        ("Kinase ship A", None),
+        ("Kinase ship B", None),
+    )
+    tubes = [
+        created(
+            alice,
+            project,
+            f"{LIMS_TYPE}Tube",
+            {"name": name, "barcode": f"{tag}{i:04}", **({"lot": lot["id"]} if lot else {})},
+            {"value": 200, "unit": "uL"},
+        )
+        for i, (name, lot) in enumerate(named)
+    ]
+    moved(
+        alice,
+        [(shelf, freezer, None), (rack, shelf, None), (box, rack, "3")]
+        + [(t, box, None) for t in tubes],
+        "Set up freezer 3",
+    )
+    where = api_call(alice, "GET", f"/entities/{tubes[2]['id']}/location").json()
+    path = [(s["hrid"], s["position"]) for s in where["path"]]
+    expected = [
+        (freezer["hrid"], None),
+        (shelf["hrid"], None),
+        (rack["hrid"], "3"),
+        (box["hrid"], "A3"),
+    ]
+    if path != expected:
+        fail(f"{tubes[2]['hrid']} is at {path}, not {expected}")
+    clash = api_call(alice, "POST", "/storage/moves", moves_body([(tubes[0], box, "A3")], "Swap"))
+    outside = api_call(alice, "POST", "/storage/moves", moves_body([(tubes[0], box, "J1")], "Out"))
+    if clash.status_code != 422 or outside.status_code != 422:
+        fail(f"a taken position answered {clash.status_code}, one outside {outside.status_code}")
+    ok(f"{tubes[2]['hrid']} is in freezer 3, shelf 2, rack slot 3, at A3, where nothing else goes")
+    # A draw scans the tube, and names what it went into.
+    experiment = created(
+        alice, project, f"{LIMS_TYPE}AnalysisRequest", {"title": "Kinase SEC, run 12"}
+    )
+    draw = f"/entities/{tubes[0]['id']}/amount/draw"
+    body = {"amount": {"value": 20, "unit": "uL"}, "reason": "SEC", "used_in": experiment["id"]}
+    unscanned = api_call(alice, "POST", draw, body)
+    drawn = api_call(alice, "POST", draw, {**body, "confirm": tubes[0]["values"]["barcode"]})
+    if unscanned.status_code != 422 or drawn.status_code != 200:
+        fail(f"drawing unscanned answered {unscanned.status_code}, scanned {drawn.status_code}")
+    movement = drawn.json()["movement"]
+    if movement["used_in"] != experiment["id"] or drawn.json()["amount"]["value"] != "180":
+        fail(f"{tubes[0]['hrid']}'s draw didn't say what it went into: {movement}")
+    # A tube of a quarantined lot gives only a QA sample; of an expired one, nothing.
+    qc = f"/entities/{tubes[1]['id']}/amount/draw"
+    scan = {"confirm": tubes[1]["values"]["barcode"], "amount": {"value": 5, "unit": "uL"}}
+    routine = api_call(alice, "POST", qc, scan)
+    sampled = api_call(alice, "POST", qc, {**scan, "purpose": "qa_sampling", "reason": "QC"})
+    old = api_call(
+        alice,
+        "POST",
+        f"/entities/{tubes[2]['id']}/amount/draw",
+        {"confirm": tubes[2]["values"]["barcode"], "amount": {"value": 5, "unit": "uL"}},
+    )
+    if (routine.status_code, sampled.status_code, old.status_code) != (422, 200, 422):
+        fail(
+            f"a quarantined lot's tube answered {routine.status_code} routine and "
+            f"{sampled.status_code} sampled; an expired one's {old.status_code}"
+        )
+    if sampled.json()["movement"]["source"] != quarantined["id"] or "expiry" not in old.text:
+        fail(f"a lot's guards weren't its tubes': {sampled.text[:200]} {old.text[:200]}")
+    ok(
+        f"{tubes[0]['hrid']}'s draw was scanned and went into {experiment['hrid']}; "
+        f"{quarantined['hrid']}'s tube gave only a QA sample, {expired['hrid']}'s nothing"
+    )
+    receive_at_core(alice, project, core, tubes[3:])
+    labels = api_call(
+        alice,
+        "POST",
+        "/storage/labels",
+        {"records": [box["id"], tubes[0]["id"]], "size": "standard", "format": "zpl"},
+    )
+    if labels.status_code != 200 or labels.json()["zpl"].count("^BXN") != 2:
+        fail(f"labels answered HTTP {labels.status_code}: {labels.text[:300]}")
+    ok(f"labels for {box['hrid']} and {tubes[0]['hrid']} came as ZPL with DataMatrix codes")
+
+
+def receive_at_core(
+    alice: requests.Session,
+    project: dict[str, Any],
+    core: dict[str, Any],
+    tubes: list[dict[str, Any]],
+) -> None:
+    """Tubes sent with a request, received at the core against it, put away and counted."""
+    give_lab_roles(alice, core, f"{LIMS_TYPE}coordinator")
+    incoming = created(
+        alice, core, f"{LIMS_TYPE}Box", {"name": "Incoming", "rows": 2, "columns": 5}
+    )
+    request = created(
+        alice,
+        project,
+        f"{LIMS_TYPE}AnalysisRequest",
+        {"title": "Kinase intact mass", "tubes": [t["id"] for t in tubes]},
+    )
+    path = f"/entities/{request['id']}"
+    sent = api_call(
+        alice,
+        "POST",
+        f"{path}/submit",
+        {"service": core["id"]},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if sent.status_code != 200:
+        fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+    started = api_call(alice, "POST", f"{path}/receipts")
+    if started.status_code != 201:
+        fail(
+            f"receiving {request['hrid']} answered HTTP {started.status_code}: {started.text[:300]}"
+        )
+    receipt = started.json()
+    at = f"/receipts/{receipt['id']}"
+    lines = {x["code"]: x["id"] for x in receipt["lines"]}
+    first, second = (t["values"]["barcode"] for t in tubes)
+    scanned = api_call(alice, "POST", f"{at}/scan", {"code": first}).json()
+    damaged = api_call(
+        alice,
+        "PATCH",
+        f"{at}/lines/{lines[second]}",
+        {"outcome": "damaged", "note": "Cap cracked; contents frozen"},
+    )
+    described = api_call(
+        alice, "PATCH", at, {"handed_over_by": "Courier, waybill 1Z-DEV", "note": "Dry ice present"}
+    )
+    if (
+        scanned.get("found") != "matched"
+        or damaged.status_code != 200
+        or described.status_code != 200
+    ):
+        fail(f"checking {request['hrid']}'s tubes gave {scanned} and {damaged.text[:200]}")
+    done = api_call(
+        alice,
+        "POST",
+        f"{at}/complete",
+        {"put_away": [{"line": lines[c], "to": incoming["id"]} for c in (first, second)]},
+    )
+    if done.status_code != 200:
+        fail(
+            f"completing {request['hrid']}'s receipt answered {done.status_code}: {done.text[:300]}"
+        )
+    outcomes = done.json()["outcomes"]
+    if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
+        fail(f"{request['hrid']}'s receipt counted {outcomes}")
+    contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
+    if [c["position"] for c in contents] != ["A1", "A2"]:
+        fail(f"{incoming['hrid']} holds {contents}, not two tubes at A1 and A2")
+    ok(f"the core received {request['hrid']}'s tubes, one damaged, put away in {incoming['hrid']}")
+    # Counting the core's box: one where it should be, the other found in the wrong position.
+    started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
+    count = f"/reconciliations/{started.json()['id']}"
+    scans = [
+        {"position": "A1", "code": first},
+        {"position": "A2", "code": None},
+        {"position": "B1", "code": second},
+    ]
+    found = api_call(alice, "POST", f"{count}/scans", {"scans": scans}).json()
+    wrong = next(x for x in found["lines"] if x["finding"] == "wrong_slot")
+    api_call(alice, "PATCH", f"{count}/lines/{wrong['id']}", {"resolution": "moved"})
+    finished = api_call(alice, "POST", f"{count}/complete", {"note": "Weekly count"})
+    if finished.status_code != 200:
+        fail(
+            f"reconciling {incoming['hrid']} answered {finished.status_code}: {finished.text[:300]}"
+        )
+    contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
+    if [c["position"] for c in contents] != ["A1", "B1"]:
+        fail(f"after reconciling, {incoming['hrid']} holds {contents}")
+    ok(f"reconciling {incoming['hrid']} by scan moved the tube found at B1 to where it was")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).

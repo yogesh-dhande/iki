@@ -158,7 +158,9 @@ def test_a_type_says_its_records_are_requests_or_results(lab: Lab) -> None:
     asked = api.get(f"/entity-types/{ASK}").json()
     assert asked["request"] == {
         "service_fields": ["status", "priority", "scheduled_on", "technician", "core_notes"],
-        "sends": ["samples", "protein"],
+        "sends": ["samples", "protein", "tubes"],
+        "receives": "tubes",
+        "receives_by": [ANALYST],
     }
     assert asked["result"] is None
     found = api.get(f"/entity-types/{RESULT}").json()
@@ -329,7 +331,7 @@ def test_a_request_isnt_the_services_until_its_sent(lab: Lab) -> None:
         "submitted_at": None,
         "submitted_by": None,
         "service_fields": ["status", "priority", "scheduled_on", "technician", "core_notes"],
-        "sends": ["samples", "protein"],
+        "sends": ["samples", "protein", "tubes"],
         "yours": ["asker"],
     }
     assert made["values"]["status"] == "submitted"

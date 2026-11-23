@@ -15,6 +15,7 @@
     "fonts": "cp node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2 node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2 node_modules/@fontsource-variable/inter/files/inter-greek-wght-normal.woff2 ../../server/src/iki_server/web/static/iki/fonts/ && cp node_modules/@fontsource-variable/inter/LICENSE ../../server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt"
   },
   "dependencies": {
+    "@bwip-js/browser": "4.11.4",
     "@ikisci/sdk": "workspace:*",
     "@noble/hashes": "^2.4.0",
     "@tanstack/react-query": "^5.107.1",

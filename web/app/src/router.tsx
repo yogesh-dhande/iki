@@ -43,6 +43,10 @@ import { ProjectList } from "./pages/project-list";
 import { ProjectNew } from "./pages/project-new";
 import { fileQuery, validateFileSearch } from "./files";
 import { AllFiles, FilePage, ProjectFiles } from "./pages/files";
+import { ContainerPage, StoragePage, validateContainerSearch } from "./pages/storage";
+import { ReceivePage } from "./pages/storage-receive";
+import { ReconcilePage } from "./pages/storage-reconcile";
+import { containerQuery, placesQuery, receiptsQuery, reconciliationQuery } from "./storage";
 import { ProjectOverview, ProjectTabs } from "./pages/project-overview";
 import { ProjectSettings } from "./pages/project-settings";
 import { AppDraft } from "./pages/app-draft";
@@ -655,6 +659,40 @@ const fileRoute = createRoute({
   component: FilePage,
 });
 
+const storageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "storage",
+  loader: ({ context }) => context.queryClient.query(placesQuery).catch(() => undefined),
+  component: StoragePage,
+});
+
+const containerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "storage/$ref",
+  // A position to mark: where a scanned tube is.
+  validateSearch: validateContainerSearch,
+  // The page says why if it can't be read.
+  loader: ({ context, params }) =>
+    context.queryClient.query(containerQuery(params.ref)).catch(() => undefined),
+  component: ContainerPage,
+});
+
+const receiveRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "storage/receive/$ref",
+  loader: ({ context, params }) =>
+    context.queryClient.query(receiptsQuery(params.ref)).catch(() => undefined),
+  component: ReceivePage,
+});
+
+const reconcileRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "storage/reconciliations/$id",
+  loader: ({ context, params }) =>
+    context.queryClient.query(reconciliationQuery(params.id)).catch(() => undefined),
+  component: ReconcilePage,
+});
+
 const runRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "runs/$ref",
@@ -759,6 +797,10 @@ const routeTree = rootRoute.addChildren([
   runsRoute,
   filesRoute,
   fileRoute,
+  storageRoute,
+  receiveRoute,
+  reconcileRoute,
+  containerRoute,
   registryEntriesRoute,
   entryRoute,
   runRoute,

@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Tube
+label: Tube
+schema_version: 1
+description: >-
+  A tube of a sample, whose volume is drawn at the bench (ADR 0180): the sample's holds and
+  purposes apply to it, and a draw needs its barcode scanned.
+hrid: { prefix: TUB }
+amount: { unit: uL, label: Volume, follows: [sample, lot] }
+storage:
+  barcode: barcode
+  label: "{{ barcode }}"
+  confirm: [draw]
+fields:
+  barcode: { type: string, unique: true, indexed: true, max_length: 64 }
+  sample: { type: ref, to: Sample }
+  lot: { type: ref, to: Lot }

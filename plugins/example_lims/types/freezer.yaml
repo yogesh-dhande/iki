@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Freezer
+label: Freezer
+schema_version: 1
+description: >-
+  A freezer, refrigerator, cold room or liquid nitrogen dewar, holding shelves
+  (ADR 0180). Its asset tag is what a scanner reads.
+hrid: { prefix: FRZ }
+storage:
+  holds: [Shelf]
+  barcode: asset_tag
+fields:
+  name:
+    type: string
+    required: true
+    max_length: 100
+    indexed: true
+    description: What the lab calls it, such as "-80 °C freezer 3".
+  asset_tag:
+    type: string
+    label: Asset tag
+    max_length: 64
+    unique: true
+    indexed: true
+    description: Its asset tag, as its label's barcode reads.
+  set_point_c:
+    type: int
+    label: Set point (°C)
+    min: -196
+    max: 25
+    description: The temperature it keeps, such as -80.
+  room:
+    type: string
+    max_length: 100
+    description: Where it is, such as "B2.14".
+display:
+  title: "{{ name }}"

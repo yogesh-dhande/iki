@@ -84,6 +84,17 @@ class Movement(models.Model):
     counterpart = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
+    #: What a draw went into, such as an analysis or an experiment (ADR 0180): an edge of the
+    #: graph, so it depends on what was drawn.
+    used_in = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: Where a container's material came from, as its type's ``follows`` says: its lot.
+    source = models.ForeignKey(
+        Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    #: The code scanned to confirm it, when its type asks for one.
+    confirmed = models.CharField(max_length=200, blank=True, default="")
     #: One per request: a transfer's two movements, a split's and its aliquots', share it.
     operation = models.UUIDField(default=uuid7)
     user = models.ForeignKey(
@@ -117,5 +128,9 @@ class Movement(models.Model):
             ),
             models.CheckConstraint(
                 condition=Q(balance__gte=0), name="iki_amount_movement_not_negative"
+            ),
+            models.CheckConstraint(
+                condition=Q(kind=MovementKind.DRAWN) | Q(used_in__isnull=True),
+                name="iki_amount_used_in_a_draw",
             ),
         ]

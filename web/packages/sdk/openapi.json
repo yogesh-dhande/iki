@@ -2601,6 +2601,189 @@
         "title": "ChangesParams",
         "type": "object"
       },
+      "CheckInIn": {
+        "properties": {
+          "confirmations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Confirmations",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckInItemIn"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "CheckInIn",
+        "type": "object"
+      },
+      "CheckInItemIn": {
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "record": {
+            "maxLength": 64,
+            "title": "Record",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Another container to put it in; null: where it was.",
+            "title": "To"
+          }
+        },
+        "required": [
+          "record"
+        ],
+        "title": "CheckInItemIn",
+        "type": "object"
+      },
+      "CheckOutIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Records",
+            "type": "array"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who has them: you, if null.",
+            "title": "To"
+          }
+        },
+        "required": [
+          "records"
+        ],
+        "title": "CheckOutIn",
+        "type": "object"
+      },
+      "CheckedOutOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "custodian": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "custody_since": {
+            "format": "date-time",
+            "title": "Custody Since",
+            "type": "string"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationOut"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where, in it, the next step in is (or the record): such as C7.",
+            "title": "Position"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "position",
+          "custodian",
+          "custody_since",
+          "location"
+        ],
+        "title": "CheckedOutOut",
+        "type": "object"
+      },
       "CheckpointOut": {
         "properties": {
           "attempt": {
@@ -2811,6 +2994,44 @@
           "cells"
         ],
         "title": "ColumnReadingOut",
+        "type": "object"
+      },
+      "CompleteReceiptIn": {
+        "properties": {
+          "missing_rest": {
+            "default": false,
+            "description": "Mark every expected line not yet checked missing.",
+            "title": "Missing Rest",
+            "type": "boolean"
+          },
+          "put_away": {
+            "items": {
+              "$ref": "#/components/schemas/PutAwayIn"
+            },
+            "maxItems": 1536,
+            "title": "Put Away",
+            "type": "array"
+          }
+        },
+        "title": "CompleteReceiptIn",
+        "type": "object"
+      },
+      "CompleteReconciliationIn": {
+        "properties": {
+          "missing_rest": {
+            "default": false,
+            "description": "Take each recorded position nobody scanned to be missing, removed.",
+            "title": "Missing Rest",
+            "type": "boolean"
+          },
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "CompleteReconciliationIn",
         "type": "object"
       },
       "ComponentEntitiesIn": {
@@ -3325,6 +3546,158 @@
         "title": "ConsentStatementOut",
         "type": "object"
       },
+      "ContainerCan": {
+        "properties": {
+          "keep": {
+            "description": "Put things in it, take them out, check them out and reconcile it: Editor in its project.",
+            "title": "Keep",
+            "type": "boolean"
+          },
+          "label": {
+            "description": "Print its label.",
+            "title": "Label",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "keep",
+          "label"
+        ],
+        "title": "ContainerCan",
+        "type": "object"
+      },
+      "ContainerOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "can": {
+            "$ref": "#/components/schemas/ContainerCan"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "contents": {
+            "description": "What's in it, in its grid's order.",
+            "items": {
+              "$ref": "#/components/schemas/OccupantOut"
+            },
+            "title": "Contents",
+            "type": "array"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "free": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many of its positions are free.",
+            "title": "Free"
+          },
+          "holds": {
+            "description": "The types it holds, qualified.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationOut"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "reconciliation": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its open reconciliation, if there is one.",
+            "title": "Reconciliation"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShapeOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its grid of positions, if it has one."
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "project",
+          "shape",
+          "holds",
+          "code",
+          "location",
+          "contents",
+          "free",
+          "reconciliation",
+          "can"
+        ],
+        "title": "ContainerOut",
+        "type": "object"
+      },
       "ContentUrlOut": {
         "properties": {
           "expires_at": {
@@ -3568,7 +3941,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.",
+            "description": "The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.",
             "propertyNames": {
               "$ref": "#/components/schemas/DrawPurpose"
             },
@@ -3766,6 +4139,28 @@
           "derived_from"
         ],
         "title": "CreatesOut",
+        "type": "object"
+      },
+      "CustodyOut": {
+        "properties": {
+          "operation": {
+            "format": "uuid",
+            "title": "Operation",
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Records",
+            "type": "array"
+          }
+        },
+        "required": [
+          "records",
+          "operation"
+        ],
+        "title": "CustodyOut",
         "type": "object"
       },
       "DashboardIn": {
@@ -4130,6 +4525,13 @@
             "$ref": "#/components/schemas/AmountIn",
             "description": "How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass."
           },
+          "confirm": {
+            "default": "",
+            "description": "The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.",
+            "maxLength": 200,
+            "title": "Confirm",
+            "type": "string"
+          },
           "purpose": {
             "allOf": [
               {
@@ -4145,6 +4547,19 @@
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
+          },
+          "used_in": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it went into, by ID or HRID: a record in a project you edit, such as an analysis or an experiment, which depends on it from then on (ADR 0180).",
+            "title": "Used In"
           }
         },
         "required": [
@@ -4350,6 +4765,51 @@
         "title": "EnableIn",
         "type": "object"
       },
+      "EndOut": {
+        "properties": {
+          "container": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a place you can't read.",
+            "title": "Container"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "container",
+          "ref",
+          "position"
+        ],
+        "title": "EndOut",
+        "type": "object"
+      },
       "EntitiesOut": {
         "properties": {
           "fields": {
@@ -4408,6 +4868,12 @@
             "default": false,
             "description": "You may attempt a reasoned correction. Each locking field declares an `on_edit` destination you have permission to enter, and the first return's guards allow it. Later guards see each preceding return in the same save (ADR 0179).",
             "title": "Correct",
+            "type": "boolean"
+          },
+          "draw": {
+            "default": false,
+            "description": "Draw from its amount: Editor in its project, or in the project whose storage keeps it (ADR 0180). Transfers, splits and adjustments need `edit_amount`.",
+            "title": "Draw",
             "type": "boolean"
           },
           "draw_purposes": {
@@ -4704,7 +5170,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.",
+            "description": "The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.",
             "propertyNames": {
               "$ref": "#/components/schemas/DrawPurpose"
             },
@@ -5110,6 +5576,17 @@
             "description": "Its records are samples (ADR 0177): a project's files are found by them.",
             "title": "Sample",
             "type": "boolean"
+          },
+          "storage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeStorageOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its records are kept somewhere, or hold others (ADR 0180): freezers, racks, boxes and tubes."
           },
           "subtypes": {
             "description": "The types that extend it, at any depth.",
@@ -5565,6 +6042,142 @@
         "title": "EstimateOut",
         "type": "object"
       },
+      "EventOut": {
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client": {
+            "title": "Client",
+            "type": "string"
+          },
+          "confirmed": {
+            "description": "The code scanned to confirm it, if one was.",
+            "title": "Confirmed",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "custodian": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_custodian": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was: null if nowhere."
+          },
+          "handed_over_by": {
+            "title": "Handed Over By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "`placed`: put away from nowhere; `moved`; `removed`: out of storage; `checked_out`, its position kept; `checked_in`; `handed_over`, from one person to another; `received`, with a request's receipt.",
+            "enum": [
+              "placed",
+              "moved",
+              "removed",
+              "checked_out",
+              "checked_in",
+              "handed_over",
+              "received"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "operation": {
+            "description": "A bulk move's, receipt's or reconciliation's events share it.",
+            "format": "uuid",
+            "title": "Operation",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "to_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it went: null if out of storage."
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "from_place",
+          "to_place",
+          "from_custodian",
+          "custodian",
+          "handed_over_by",
+          "confirmed",
+          "operation",
+          "user",
+          "via",
+          "client",
+          "agent",
+          "reason",
+          "created_at"
+        ],
+        "title": "EventOut",
+        "type": "object"
+      },
       "EventTypeOut": {
         "properties": {
           "description": {
@@ -5581,6 +6194,35 @@
           "description"
         ],
         "title": "EventTypeOut",
+        "type": "object"
+      },
+      "EventsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "EventsOut",
         "type": "object"
       },
       "ExportCounts": {
@@ -7707,6 +8349,32 @@
         "title": "GuardOut",
         "type": "object"
       },
+      "HandOverIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "record": {
+            "maxLength": 64,
+            "title": "Record",
+            "type": "string"
+          },
+          "to": {
+            "format": "uuid",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record",
+          "to"
+        ],
+        "title": "HandOverIn",
+        "type": "object"
+      },
       "HeldOut": {
         "description": "A hold a revision opened (ADR 0127), as the record's history keeps it: why the save\nwas kept, and its review, once someone has reviewed it.",
         "properties": {
@@ -9695,6 +10363,194 @@
         "title": "LabRolesIn",
         "type": "object"
       },
+      "LabelOut": {
+        "properties": {
+          "code": {
+            "description": "What its barcodes encode: its barcode, or its HRID.",
+            "title": "Code",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "line": {
+            "title": "Line",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "line",
+          "code"
+        ],
+        "title": "LabelOut",
+        "type": "object"
+      },
+      "LabelSizeOut": {
+        "properties": {
+          "code128": {
+            "description": "It has room for a Code 128 beside the 2D code.",
+            "title": "Code128",
+            "type": "boolean"
+          },
+          "height_mm": {
+            "title": "Height Mm",
+            "type": "number"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "width_mm": {
+            "title": "Width Mm",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "width_mm",
+          "height_mm",
+          "code128"
+        ],
+        "title": "LabelSizeOut",
+        "type": "object"
+      },
+      "LabelSizesOut": {
+        "properties": {
+          "dpis": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Dpis",
+            "type": "array"
+          },
+          "sizes": {
+            "items": {
+              "$ref": "#/components/schemas/LabelSizeOut"
+            },
+            "title": "Sizes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sizes",
+          "dpis"
+        ],
+        "title": "LabelSizesOut",
+        "type": "object"
+      },
+      "LabelsIn": {
+        "properties": {
+          "copies": {
+            "default": 1,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Copies",
+            "type": "integer"
+          },
+          "dpi": {
+            "default": 203,
+            "description": "For ZPL: the printer's resolution, 203 or 300 dpi.",
+            "title": "Dpi",
+            "type": "integer"
+          },
+          "format": {
+            "description": "`print`: for the browser to print; `zpl`: ZPL II for a Zebra printer.",
+            "enum": [
+              "print",
+              "zpl"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "preview": {
+            "default": false,
+            "description": "Only to show them: not recorded as prepared, and with no ZPL.",
+            "title": "Preview",
+            "type": "boolean"
+          },
+          "records": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Records",
+            "type": "array"
+          },
+          "size": {
+            "description": "One of `GET /storage/labels`' sizes.",
+            "maxLength": 32,
+            "title": "Size",
+            "type": "string"
+          },
+          "symbology": {
+            "default": "datamatrix",
+            "enum": [
+              "datamatrix",
+              "qr"
+            ],
+            "title": "Symbology",
+            "type": "string"
+          }
+        },
+        "required": [
+          "records",
+          "size",
+          "format"
+        ],
+        "title": "LabelsIn",
+        "type": "object"
+      },
+      "LabelsOut": {
+        "properties": {
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/LabelOut"
+            },
+            "title": "Labels",
+            "type": "array"
+          },
+          "size": {
+            "$ref": "#/components/schemas/LabelSizeOut"
+          },
+          "zpl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zpl"
+          }
+        },
+        "required": [
+          "labels",
+          "size",
+          "zpl"
+        ],
+        "title": "LabelsOut",
+        "type": "object"
+      },
       "LastDelivery": {
         "properties": {
           "created_at": {
@@ -9717,6 +10573,73 @@
           "created_at"
         ],
         "title": "LastDelivery",
+        "type": "object"
+      },
+      "LocationOut": {
+        "properties": {
+          "custodian": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who has it: checked out (its position kept for it), or received and not put away yet."
+          },
+          "custody_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custody Since"
+          },
+          "hidden": {
+            "description": "It's in a place you can't open: the path stops there, with nothing of what's beyond it.",
+            "title": "Hidden",
+            "type": "boolean"
+          },
+          "path": {
+            "description": "The containers it's in, outermost first, as far as you can read.",
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its position in the innermost container shown.",
+            "title": "Position"
+          },
+          "stored": {
+            "description": "It's in a container, whether you can read it or not.",
+            "title": "Stored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "hidden",
+          "stored",
+          "position",
+          "custodian",
+          "custody_since"
+        ],
+        "title": "LocationOut",
         "type": "object"
       },
       "LocationsOut": {
@@ -10231,6 +11154,48 @@
         "title": "MoveIn",
         "type": "object"
       },
+      "MoveItemIn": {
+        "properties": {
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its position there, such as A1 or 17; null for the container's next free one, in its order.",
+            "title": "Position"
+          },
+          "record": {
+            "description": "By ID or HRID.",
+            "maxLength": 64,
+            "title": "Record",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The container it goes in, by ID or HRID; null: out of storage.",
+            "title": "To"
+          }
+        },
+        "required": [
+          "record",
+          "to"
+        ],
+        "title": "MoveItemIn",
+        "type": "object"
+      },
       "MovedOut": {
         "properties": {
           "amount": {
@@ -10290,7 +11255,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.",
+            "description": "The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.",
             "propertyNames": {
               "$ref": "#/components/schemas/DrawPurpose"
             },
@@ -10485,6 +11450,12 @@
             "title": "Client",
             "type": "string"
           },
+          "confirmed": {
+            "default": "",
+            "description": "The code scanned to confirm it, if one was.",
+            "title": "Confirmed",
+            "type": "string"
+          },
           "counterpart": {
             "anyOf": [
               {
@@ -10554,9 +11525,35 @@
             "title": "Reason",
             "type": "string"
           },
+          "source": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where a container's material came from, as its type's `follows` says: its lot (ADR 0180).",
+            "title": "Source"
+          },
           "unit": {
             "title": "Unit",
             "type": "string"
+          },
+          "used_in": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What a draw went into, such as an analysis or an experiment.",
+            "title": "Used In"
           },
           "user": {
             "anyOf": [
@@ -10618,7 +11615,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/RefOut"
             },
-            "description": "The counterparts you can read, by ID.",
+            "description": "The counterparts, sources and what draws went into that you can read, by ID.",
             "title": "Refs",
             "type": "object"
           }
@@ -10628,6 +11625,81 @@
           "next_cursor"
         ],
         "title": "MovementsOut",
+        "type": "object"
+      },
+      "MovesIn": {
+        "properties": {
+          "confirmations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.",
+            "title": "Confirmations",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MoveItemIn"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Items",
+            "type": "array"
+          },
+          "preview": {
+            "default": false,
+            "description": "Say what each move would do, changing nothing.",
+            "title": "Preview",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why: required to change anything.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "MovesIn",
+        "type": "object"
+      },
+      "MovesOut": {
+        "properties": {
+          "done": {
+            "description": "Every move was made. False for a preview.",
+            "title": "Done",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "operation": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The moves' operation, once they're made.",
+            "title": "Operation"
+          }
+        },
+        "required": [
+          "items",
+          "done",
+          "operation"
+        ],
+        "title": "MovesOut",
         "type": "object"
       },
       "MySigningOut": {
@@ -10979,6 +12051,124 @@
           "type"
         ],
         "title": "NotificationRecordOut",
+        "type": "object"
+      },
+      "OccupantOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What's scanned to find it: its barcode or HRID.",
+            "title": "Code"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "container": {
+            "description": "It holds things of its own, such as a rack's boxes.",
+            "title": "Container",
+            "type": "boolean"
+          },
+          "count": {
+            "default": 0,
+            "description": "How many things are in it, for a container.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "custodian": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "custody_since": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custody Since"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a record you can't read: its position is taken.",
+            "title": "Id"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          }
+        },
+        "required": [
+          "id",
+          "ref",
+          "row",
+          "column",
+          "position",
+          "code",
+          "custodian",
+          "custody_since",
+          "container"
+        ],
+        "title": "OccupantOut",
         "type": "object"
       },
       "OrgParams": {
@@ -13115,6 +14305,96 @@
         "title": "PersonRef",
         "type": "object"
       },
+      "PlaceOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "free": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "shape": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ShapeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "project",
+          "shape",
+          "count",
+          "free"
+        ],
+        "title": "PlaceOut",
+        "type": "object"
+      },
       "PlaceSearchIn": {
         "additionalProperties": false,
         "description": "A search, as ``POST /entities/search`` takes it, without its paging.",
@@ -13202,6 +14482,59 @@
           "type"
         ],
         "title": "PlaceSearchIn",
+        "type": "object"
+      },
+      "PlannedOut": {
+        "properties": {
+          "from_place": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it is now: null if nowhere."
+          },
+          "kind": {
+            "enum": [
+              "placed",
+              "moved",
+              "removed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "record": {
+            "$ref": "#/components/schemas/StepOut"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "record",
+          "to",
+          "from_place",
+          "kind",
+          "problems"
+        ],
+        "title": "PlannedOut",
         "type": "object"
       },
       "PluginCandidateIn": {
@@ -14618,6 +15951,40 @@
         "title": "ProjectTriggerOut",
         "type": "object"
       },
+      "PutAwayIn": {
+        "properties": {
+          "line": {
+            "format": "uuid",
+            "title": "Line",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null: its next free one.",
+            "title": "Position"
+          },
+          "to": {
+            "description": "The container, by ID or HRID.",
+            "maxLength": 64,
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line",
+          "to"
+        ],
+        "title": "PutAwayIn",
+        "type": "object"
+      },
       "QueryIn": {
         "description": "A search, as ``POST /entities/search`` takes it, without its project or paging.",
         "properties": {
@@ -15039,6 +16406,576 @@
           "why"
         ],
         "title": "ReassignOut",
+        "type": "object"
+      },
+      "ReceiptIn": {
+        "properties": {
+          "handed_over_by": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who handed it over: a courier and waybill, a person.",
+            "title": "Handed Over By"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Such as its temperature on arrival.",
+            "title": "Note"
+          }
+        },
+        "title": "ReceiptIn",
+        "type": "object"
+      },
+      "ReceiptLineIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "matched",
+                  "missing",
+                  "extra",
+                  "damaged",
+                  "rejected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null clears an expected line's. Damaged, rejected and extra need a note.",
+            "title": "Outcome"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "ReceiptLineIn",
+        "type": "object"
+      },
+      "ReceiptLineOut": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "checked_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "expected": {
+            "title": "Expected",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "matched",
+                  "missing",
+                  "extra",
+                  "damaged",
+                  "rejected"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
+          },
+          "put_away": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StepOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was put away, once completed."
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "entity",
+          "ref",
+          "code",
+          "expected",
+          "outcome",
+          "note",
+          "checked_by",
+          "checked_at",
+          "put_away"
+        ],
+        "title": "ReceiptLineOut",
+        "type": "object"
+      },
+      "ReceiptOut": {
+        "properties": {
+          "can_receive": {
+            "description": "You may change it, while it's open.",
+            "title": "Can Receive",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "handed_over_by": {
+            "title": "Handed Over By",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "How many lines are each outcome, and `unchecked`.",
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "project": {
+            "description": "The service receiving it.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "received_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "request": {
+            "$ref": "#/components/schemas/StepOut"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "completed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "request",
+          "project",
+          "status",
+          "handed_over_by",
+          "note",
+          "started_by",
+          "started_at",
+          "received_by",
+          "completed_at",
+          "lines",
+          "outcomes",
+          "can_receive"
+        ],
+        "title": "ReceiptOut",
+        "type": "object"
+      },
+      "ReceiptScanIn": {
+        "properties": {
+          "code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ReceiptScanIn",
+        "type": "object"
+      },
+      "ReceiptScanOut": {
+        "properties": {
+          "found": {
+            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.",
+            "enum": [
+              "matched",
+              "again",
+              "extra"
+            ],
+            "title": "Found",
+            "type": "string"
+          },
+          "line": {
+            "format": "uuid",
+            "title": "Line",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptOut"
+          }
+        },
+        "required": [
+          "found",
+          "line",
+          "receipt"
+        ],
+        "title": "ReceiptScanOut",
+        "type": "object"
+      },
+      "ReceiptsOut": {
+        "properties": {
+          "can_receive": {
+            "description": "You may receive what it sends.",
+            "title": "Can Receive",
+            "type": "boolean"
+          },
+          "expected": {
+            "description": "How many it expects that no receipt has received.",
+            "title": "Expected",
+            "type": "integer"
+          },
+          "receipts": {
+            "items": {
+              "$ref": "#/components/schemas/ReceiptOut"
+            },
+            "title": "Receipts",
+            "type": "array"
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why you may not, when you may not.",
+            "title": "Why Not"
+          }
+        },
+        "required": [
+          "receipts",
+          "can_receive",
+          "why_not",
+          "expected"
+        ],
+        "title": "ReceiptsOut",
+        "type": "object"
+      },
+      "ReconciliationLineOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entity": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its recorded position, when this started.",
+            "title": "Expected"
+          },
+          "finding": {
+            "enum": [
+              "matched",
+              "missing",
+              "unexpected",
+              "wrong_slot",
+              "unchecked",
+              "empty",
+              "checked_out"
+            ],
+            "title": "Finding",
+            "type": "string"
+          },
+          "found": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was scanned.",
+            "title": "Found"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "moved",
+                  "removed",
+                  "placed",
+                  "kept"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "entity",
+          "ref",
+          "code",
+          "expected",
+          "found",
+          "finding",
+          "resolution",
+          "note",
+          "resolved_by"
+        ],
+        "title": "ReconciliationLineOut",
+        "type": "object"
+      },
+      "ReconciliationOut": {
+        "properties": {
+          "can_change": {
+            "title": "Can Change",
+            "type": "boolean"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "completed_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "container": {
+            "$ref": "#/components/schemas/StepOut"
+          },
+          "findings": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Findings",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/ShapeOut"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "started_by": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "completed",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "container",
+          "shape",
+          "status",
+          "note",
+          "started_by",
+          "started_at",
+          "completed_by",
+          "completed_at",
+          "lines",
+          "findings",
+          "can_change"
+        ],
+        "title": "ReconciliationOut",
         "type": "object"
       },
       "RefOut": {
@@ -15911,6 +17848,26 @@
       "RequestTypeOut": {
         "description": "What makes a type's records requests between projects (ADR 0132).",
         "properties": {
+          "receives": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reference whose records the service receives against what was sent, such as its tubes (ADR 0180).",
+            "title": "Receives"
+          },
+          "receives_by": {
+            "description": "The lab roles in the service that receive it: any of its Editors, if none.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Receives By",
+            "type": "array"
+          },
           "sends": {
             "description": "Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.",
             "items": {
@@ -15974,6 +17931,39 @@
           }
         },
         "title": "RerunIn",
+        "type": "object"
+      },
+      "ResolveIn": {
+        "properties": {
+          "note": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "enum": [
+                  "moved",
+                  "removed",
+                  "placed",
+                  "kept"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.",
+            "title": "Resolution"
+          }
+        },
+        "required": [
+          "resolution"
+        ],
+        "title": "ResolveIn",
         "type": "object"
       },
       "ResultReleaseOut": {
@@ -18632,6 +20622,175 @@
         "title": "SavedSearchPatch",
         "type": "object"
       },
+      "ScanIn": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null: it's empty.",
+            "title": "Code"
+          },
+          "position": {
+            "maxLength": 8,
+            "title": "Position",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "ScanIn",
+        "type": "object"
+      },
+      "ScanMatchOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "container": {
+            "description": "Its type holds things.",
+            "title": "Container",
+            "type": "boolean"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LocationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where, in it, the next step in is (or the record): such as C7.",
+            "title": "Position"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "storable": {
+            "description": "Its type is kept somewhere.",
+            "title": "Storable",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "position",
+          "storable",
+          "container",
+          "location"
+        ],
+        "title": "ScanMatchOut",
+        "type": "object"
+      },
+      "ScanOut": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "items": {
+            "description": "Every record the code names that you can read: usually one.",
+            "items": {
+              "$ref": "#/components/schemas/ScanMatchOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "code",
+          "items"
+        ],
+        "title": "ScanOut",
+        "type": "object"
+      },
+      "ScanParams": {
+        "properties": {
+          "code": {
+            "description": "What was scanned.",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "ScanParams",
+        "type": "object"
+      },
+      "ScansIn": {
+        "properties": {
+          "scans": {
+            "description": "Each position scanned: one at a time, or a rack scanner's file.",
+            "items": {
+              "$ref": "#/components/schemas/ScanIn"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Scans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scans"
+        ],
+        "title": "ScansIn",
+        "type": "object"
+      },
       "ScopeOut": {
         "properties": {
           "id": {
@@ -20049,6 +22208,48 @@
           "message"
         ],
         "title": "SetupVolumeOut",
+        "type": "object"
+      },
+      "ShapeOut": {
+        "properties": {
+          "columns": {
+            "title": "Columns",
+            "type": "integer"
+          },
+          "labels": {
+            "enum": [
+              "letter_number",
+              "number"
+            ],
+            "title": "Labels",
+            "type": "string"
+          },
+          "order": {
+            "enum": [
+              "by_row",
+              "by_column"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "size": {
+            "description": "How many positions it has.",
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "columns",
+          "labels",
+          "order",
+          "size"
+        ],
+        "title": "ShapeOut",
         "type": "object"
       },
       "SheetColumnIn": {
@@ -22525,6 +24726,68 @@
         "title": "StepErrorOut",
         "type": "object"
       },
+      "StepOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where, in it, the next step in is (or the record): such as C7.",
+            "title": "Position"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "position"
+        ],
+        "title": "StepOut",
+        "type": "object"
+      },
       "StepRunOut": {
         "properties": {
           "hrid": {
@@ -23317,6 +25580,14 @@
             "description": "The unit it's shown in, if not `unit`.",
             "title": "Display Unit"
           },
+          "follows": {
+            "description": "The references, such as a tube's lot and sample, whose holds and draw guards apply to its draws (ADR 0180): the first set is each draw's source.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Follows",
+            "type": "array"
+          },
           "label": {
             "description": "What it's called, such as Volume.",
             "title": "Label",
@@ -23384,6 +25655,60 @@
           "count"
         ],
         "title": "TypeCountOut",
+        "type": "object"
+      },
+      "TypeGridOut": {
+        "properties": {
+          "columns": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "A number, or the field each record's are in.",
+            "title": "Columns"
+          },
+          "labels": {
+            "description": "`letter_number`: A1 to H12; `number`: 1 to 81, in its order.",
+            "enum": [
+              "letter_number",
+              "number"
+            ],
+            "title": "Labels",
+            "type": "string"
+          },
+          "order": {
+            "description": "The order positions are numbered and filled in.",
+            "enum": [
+              "by_row",
+              "by_column"
+            ],
+            "title": "Order",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "description": "A number, or the field each record's rows are in.",
+            "title": "Rows"
+          }
+        },
+        "required": [
+          "rows",
+          "columns",
+          "labels",
+          "order"
+        ],
+        "title": "TypeGridOut",
         "type": "object"
       },
       "TypeNotificationOut": {
@@ -23460,6 +25785,75 @@
           "required"
         ],
         "title": "TypeNotificationOut",
+        "type": "object"
+      },
+      "TypeStorageOut": {
+        "description": "Where its records are kept, and what they hold (ADR 0180).",
+        "properties": {
+          "barcode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The field a scanner reads: its HRID, if none.",
+            "title": "Barcode"
+          },
+          "confirm": {
+            "description": "What needs its barcode scanned first, so it's the right one.",
+            "items": {
+              "enum": [
+                "draw",
+                "move"
+              ],
+              "type": "string"
+            },
+            "title": "Confirm",
+            "type": "array"
+          },
+          "grid": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypeGridOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its positions, if it has them."
+          },
+          "holds": {
+            "description": "The types it holds: none, if it holds nothing.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Holds",
+            "type": "array"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The line its label shows, as a template.",
+            "title": "Label"
+          }
+        },
+        "required": [
+          "holds",
+          "grid",
+          "barcode",
+          "label",
+          "confirm"
+        ],
+        "title": "TypeStorageOut",
         "type": "object"
       },
       "UnitOption": {
@@ -29676,7 +32070,7 @@
     },
     "/api/v1/entities/{ref}/amount/draw": {
       "post": {
-        "description": "Takes some of it for the given purpose. A purpose you cannot use answers 403.\nAn insufficient balance, a state hold or a draw guard refusing the draw answers 422.\nTwo people drawing at once take turns.",
+        "description": "Takes some of it for the given purpose, saying what it went into. Editors of its\nproject may draw, and so may those of the project keeping it (ADR 0180). A purpose you\ncannot use answers 403.\nAn insufficient balance, a state hold or a draw guard refusing the draw answers 422.\nTwo people drawing at once take turns.",
         "operationId": "iki_server_api_amounts_draw",
         "parameters": [
           {
@@ -30563,6 +32957,120 @@
         ]
       }
     },
+    "/api/v1/entities/{ref}/location": {
+      "get": {
+        "description": "Its path, outermost first, its position, and who has it. 404 for a type that isn't\nkept anywhere.",
+        "operationId": "iki_server_api_storage_get_location",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Where it is",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/location/events": {
+      "get": {
+        "description": "Newest first: each time it was put away, moved, taken out, checked out or in, handed\nover or received, who did it, how, when and why.",
+        "operationId": "iki_server_api_storage_list_events",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Its location history",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/entities/{ref}/making": {
       "get": {
         "description": "How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records\nfirst: a run of an action that lists its software, or what a record it was imported\nfrom says. Empty when it was made by hand, or its source doesn't say.",
@@ -30894,6 +33402,86 @@
         "summary": "Where each value came from",
         "tags": [
           "entities"
+        ]
+      }
+    },
+    "/api/v1/entities/{ref}/receipts": {
+      "get": {
+        "description": "Newest first, for whoever can read the request: what each received, and how.",
+        "operationId": "iki_server_api_storage_list_receipts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A request's receipts",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "description": "Its open receipt, or a new one listing what it expects that no receipt received.\nNeeds Editor in the service it's sent to, and the lab roles its type names.",
+        "operationId": "iki_server_api_storage_start_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Start receiving a request",
+        "tags": [
+          "storage"
         ]
       }
     },
@@ -36858,6 +39446,600 @@
         ]
       }
     },
+    "/api/v1/receipts/{receipt_id}": {
+      "get": {
+        "operationId": "iki_server_api_storage_get_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A receipt",
+        "tags": [
+          "storage"
+        ]
+      },
+      "patch": {
+        "operationId": "iki_server_api_storage_update_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Describe a receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/cancel": {
+      "post": {
+        "description": "An open receipt, abandoned: nothing is received with it. It's kept, cancelled.",
+        "operationId": "iki_server_api_storage_cancel_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/complete": {
+      "post": {
+        "description": "Takes custody of what was received, puts each away where it's given, and tells the\nrequester of anything missing, extra, damaged or rejected: all of it, or none.",
+        "operationId": "iki_server_api_storage_complete_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteReceiptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Complete a receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
+      "delete": {
+        "description": "An extra line scanned by mistake, while the receipt is open.",
+        "operationId": "iki_server_api_storage_drop_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Drop an extra line",
+        "tags": [
+          "storage"
+        ]
+      },
+      "patch": {
+        "operationId": "iki_server_api_storage_check_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptLineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check a receipt's line",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/scan": {
+      "post": {
+        "description": "Ticks the expected line the code names as matched, or adds an extra line for it.",
+        "operationId": "iki_server_api_storage_scan_receipt",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptScanIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptScanOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Scan into a receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}": {
+      "get": {
+        "operationId": "iki_server_api_storage_get_reconciliation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A reconciliation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/cancel": {
+      "post": {
+        "operationId": "iki_server_api_storage_cancel_reconciliation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Cancel a reconciliation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/complete": {
+      "post": {
+        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "operationId": "iki_server_api_storage_complete_reconciliation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteReconciliationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Complete a reconciliation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
+      "patch": {
+        "operationId": "iki_server_api_storage_resolve_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Resolve a reconciliation's line",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/scans": {
+      "post": {
+        "description": "What's in each position, or that it's empty. A position scanned again replaces what\nwas scanned there.",
+        "operationId": "iki_server_api_storage_scan_positions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScansIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Scan positions",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/registrations": {
       "get": {
         "description": "Newest first.",
@@ -39587,6 +42769,515 @@
         "summary": "Delete a saved mapping",
         "tags": [
           "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/storage/check-in": {
+      "post": {
+        "description": "Each goes back to the position it kept, or to ``to`` and ``position``, in the same\nchange.",
+        "operationId": "iki_server_api_storage_check_in",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckInIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustodyOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check records in",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/check-out": {
+      "post": {
+        "description": "Each keeps its position, which nothing else can take, until it's checked in. ``to``\nmust be able to read them. Needs Editor in their containers' projects.",
+        "operationId": "iki_server_api_storage_check_out",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckOutIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustodyOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Check records out",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/checked-out": {
+      "get": {
+        "description": "What ``custodian`` (you, by default) has, of what you can read, longest held first.",
+        "operationId": "iki_server_api_storage_list_checked_out",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "custodian",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Custodian"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CheckedOutOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "What someone has checked out",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/containers/{ref}": {
+      "get": {
+        "description": "Where it is, its grid, and what's in each position: a record you can't read shows as\na position taken, and nothing more.",
+        "operationId": "iki_server_api_storage_get_container",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A container and what's in it",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/containers/{ref}/reconciliations": {
+      "get": {
+        "description": "Newest first.",
+        "operationId": "iki_server_api_storage_list_reconciliations",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReconciliationOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A container's reconciliations",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "description": "Its open reconciliation, or a new one noting what's recorded in each position. Needs\nEditor in its project.",
+        "operationId": "iki_server_api_storage_start_reconciliation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "title": "Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationOut"
+                }
+              }
+            },
+            "description": "Created"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Start reconciling a container",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/hand-over": {
+      "post": {
+        "description": "Passes a record that's checked out to someone else: whoever has it, or an Editor of\nits container's project, hands it over.",
+        "operationId": "iki_server_api_storage_hand_over",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandOverIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustodyOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Hand a record over",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/labels": {
+      "get": {
+        "operationId": "iki_server_api_storage_label_sizes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelSizesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Label sizes",
+        "tags": [
+          "storage"
+        ]
+      },
+      "post": {
+        "description": "Each record's label, recorded as prepared on it, as ZPL or for the browser to lay out\nand print.",
+        "operationId": "iki_server_api_storage_prepare_labels",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Prepare labels",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/moves": {
+      "post": {
+        "description": "Puts each record in its container, at its position or the next free one, or takes it\nout of storage, as one change with one reason. Any move refused refuses them all (422),\nsaying which and why. ``preview`` answers the plan, with each problem, and changes\nnothing. Needs Editor in the project of each container a record goes into or leaves.",
+        "operationId": "iki_server_api_storage_move",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MovesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Move records, all or none",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/places": {
+      "get": {
+        "description": "The containers you can read that aren't in another you can read: freezers, rooms,\nshelves. ``project`` narrows them to one project's.",
+        "operationId": "iki_server_api_storage_list_places",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlaceOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The outermost places",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/scan": {
+      "get": {
+        "description": "By a link to it in Iki, its HRID, or a storable type's barcode, among the records you\ncan read.",
+        "operationId": "iki_server_api_storage_scan",
+        "parameters": [
+          {
+            "description": "What was scanned.",
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "description": "What was scanned.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Find what a code names",
+        "tags": [
+          "storage"
         ]
       }
     },

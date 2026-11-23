@@ -254,19 +254,27 @@ def draw(
     *,
     purpose: str = DrawPurpose.ROUTINE,
     reason: str = "",
+    used_in: Entity | None = None,
+    confirm: str = "",
 ) -> Movement:
-    """Takes ``given`` from ``entity``'s amount: used up, in an assay or a reaction."""
+    """Takes ``given`` from ``entity``'s amount: used up, in an assay or a reaction.
+    ``used_in`` is what it went into (ADR 0180), which depends on it from then on; ``confirm``
+    the code scanned, for a type that asks for one before a draw."""
     if purpose not in DrawPurpose.values:
         raise Wrong({"purpose": ["Choose routine use or QA sampling."]})
+    if used_in is not None and used_in.pk == entity.pk:
+        raise Wrong({"used_in": [f"is {entity.hrid}, what it's drawn from."]})
+    _confirmed(entity, confirm)
     with transaction.atomic():
         _lock_records([entity])
-        refused = eligibility.purpose_refusal(
-            user, entity.type, entity.owner_project, DrawPurpose(purpose)
-        )
+        from iki_server.entities import services
+
+        current = services.current_values_of([entity])[entity.pk]
+        refused = eligibility.purpose_refusals(user, entity, DrawPurpose(purpose), current)
         if refused is not None:
             raise PermissionDenied(refused)
         (amount,) = _locked([entity])
-        change = _taking(entity, amount, given, operation="draw", purpose=purpose)
+        change = _taking(entity, amount, given, operation="draw", purpose=purpose, values=current)
         return _change(
             user,
             entity,
@@ -276,6 +284,26 @@ def draw(
             given,
             reason,
             purpose=purpose,
+            used_in=used_in,
+            source=eligibility.source_of(entity, current),
+            confirmed=confirm,
+        )
+
+
+def _confirmed(entity: Entity, code: str) -> None:
+    """Refuses a draw its type asks a scan for, without the record's code (ADR 0180)."""
+    from iki_server.storage import services as storage
+
+    found = storage.spec(entity.type)
+    if found is None or "draw" not in found.confirm:
+        return
+    if not code.strip():
+        raise Wrong(
+            {"confirm": [f"Scan {entity.hrid} to confirm it's the one you're drawing from."]}
+        )
+    if not storage.confirms(entity, code):
+        raise Wrong(
+            {"confirm": [f"“{code.strip()}” isn't {entity.hrid}: check you have the right one."]}
         )
 
 
@@ -583,7 +611,9 @@ def _taking(
     values: Mapping[str, Any] | None = None,
 ) -> Decimal:
     """The withdrawal in the record's unit after checking holds, draw guards and balance."""
-    if values is None and eligibility.draw_guards(entity.type):
+    if values is None and (
+        eligibility.draw_guards(entity.type) or eligibility.follows(entity.type)
+    ):
         from iki_server.entities import services
 
         values = services.current_values_of([entity])[entity.pk]
@@ -626,6 +656,9 @@ def _change(
     purpose: str | None = None,
     counterpart: Entity | None = None,
     operation: Any = None,  # noqa: ANN401 - a UUID
+    used_in: Entity | None = None,
+    source: Entity | None = None,
+    confirmed: str = "",
 ) -> Movement:
     amount.value = _EXACT.add(amount.value, change)
     Amount.objects.filter(pk=amount.pk).update(value=amount.value, updated_at=Now())
@@ -641,6 +674,9 @@ def _change(
         purpose=purpose,
         counterpart=counterpart,
         operation=operation,
+        used_in=used_in,
+        source=source,
+        confirmed=confirmed,
     )
 
 
@@ -657,6 +693,9 @@ def _movement(
     purpose: str | None = None,
     counterpart: Entity | None = None,
     operation: Any = None,  # noqa: ANN401 - a UUID
+    used_in: Entity | None = None,
+    source: Entity | None = None,
+    confirmed: str = "",
 ) -> Movement:
     movement = Movement.objects.create(
         entity=entity,
@@ -668,6 +707,9 @@ def _movement(
         given_value=given.value,
         given_unit=given.unit,
         counterpart=counterpart,
+        used_in=used_in,
+        source=source,
+        confirmed=confirmed.strip(),
         operation=operation or uuid7(),
         user=user,
         via=current_via(),
@@ -690,6 +732,9 @@ def _movement(
             "counterpart": counterpart.hrid if counterpart is not None else None,
             "operation": str(movement.operation),
             "reason": movement.reason,
+            **({"used_in": used_in.hrid} if used_in is not None else {}),
+            **({"source": source.hrid} if source is not None else {}),
+            **({"confirmed": movement.confirmed} if movement.confirmed else {}),
         },
     )
     return movement

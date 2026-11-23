@@ -713,6 +713,10 @@ class RequestSpec:
     service_fields: tuple[str, ...] = ()
     #: Its references (or lists of them) whose records go to the service with it.
     sends: tuple[str, ...] = ()
+    #: The list of references it sends that the service receives with a receipt (ADR 0180),
+    #: and the service's lab roles that receive them (any Editor's, if none).
+    receives: str | None = None
+    receives_by: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -762,6 +766,44 @@ class Amount:
     #: a lot's molecule: a transfer into one of its records takes only the same entity's,
     #: and its aliquots are that entity's too (ADR 0162).
     material: str | None = None
+    #: References whose records' eligibility a draw from it also meets, such as a tube's
+    #: lot (ADR 0180): their holds and draw guards. The first that's set is the draw's source.
+    follows: tuple[str, ...] = ()
+
+
+#: The most a container's grid has (ADR 0180): a 1536-well plate's 32 rows and 48 columns.
+GRID_ROWS = 32
+GRID_COLUMNS = 48
+GRID_POSITIONS = 1536
+
+
+@dataclass(frozen=True)
+class Grid:
+    """A container's positions, in rows and columns (ADR 0180): each a number, or the name
+    of one of its own required, immutable int fields."""
+
+    rows: int | str
+    columns: int | str
+    #: ``letter_number`` (A1 to H12) or ``number`` (1 to 96).
+    labels: str = "letter_number"
+    #: ``by_row`` (A1, A2, …) or ``by_column`` (A1, B1, …): how they're numbered and filled.
+    order: str = "by_row"
+
+
+@dataclass(frozen=True)
+class Storage:
+    """Its records are kept somewhere, or keep others (ADR 0180): Iki keeps where each is,
+    who has it, and every move."""
+
+    #: The types (qualified) of what can be kept in its records, or their ancestors.
+    holds: tuple[str, ...] = ()
+    grid: Grid | None = None
+    #: A unique string field holding the code on it already: what's scanned and printed.
+    barcode: str | None = None
+    #: A label's line under its title, with ``{{ }}`` parts as a display title has.
+    label: str | None = None
+    #: What needs its code scanned first: ``draw``, ``move``.
+    confirm: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -804,6 +846,8 @@ class EntityType:
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
     draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: Where its records are kept, and what they keep (ADR 0180): its own or a parent's.
+    storage: Storage | None = None
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
     #: one of them read or made, are its files in a project's Files. Its subtypes' are too.
     sample: bool = False
@@ -1499,6 +1543,8 @@ def parse_duration(text: str) -> int:
 
 _DATACLASSES = (
     Amount,
+    Grid,
+    Storage,
     Field,
     RowRole,
     State,
@@ -1589,7 +1635,9 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "request": _request(v.get("request")),
                         "result": _result(v.get("result")),
                         # ...or amounts (ADR 0139).
-                        "amount": Amount(**v["amount"]) if v.get("amount") else None,
+                        "amount": _amount(v["amount"]) if v.get("amount") else None,
+                        # ...or storage (ADR 0180).
+                        "storage": _storage(v.get("storage")),
                         "draw_guards": _guards(v.get("draw_guards") or {}),
                         "draw_purposes": {
                             n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
@@ -1659,7 +1707,29 @@ def _notification(data: dict[str, Any]) -> TypeNotification:
 def _request(data: dict[str, Any] | None) -> RequestSpec | None:
     if data is None:
         return None
-    return RequestSpec(service_fields=tuple(data["service_fields"]), sends=tuple(data["sends"]))
+    return RequestSpec(
+        service_fields=tuple(data["service_fields"]),
+        sends=tuple(data["sends"]),
+        receives=data.get("receives"),
+        receives_by=tuple(data.get("receives_by") or ()),
+    )
+
+
+def _amount(data: dict[str, Any]) -> Amount:
+    return Amount(**{**data, "follows": tuple(data.get("follows") or ())})
+
+
+def _storage(data: dict[str, Any] | None) -> Storage | None:
+    if not data:
+        return None
+    grid = data.get("grid")
+    return Storage(
+        holds=tuple(data.get("holds") or ()),
+        grid=Grid(**grid) if grid else None,
+        barcode=data.get("barcode"),
+        label=data.get("label"),
+        confirm=tuple(data.get("confirm") or ()),
+    )
 
 
 def _result(data: dict[str, Any] | None) -> ResultSpec | None:

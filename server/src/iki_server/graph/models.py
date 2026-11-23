@@ -36,6 +36,8 @@ class EdgeKind(models.TextChoices):
     ALIQUOT = "aliquot", "Aliquot of"
     #: Some of its amount came from another record.
     TRANSFER = "transfer", "Transferred from"
+    #: Material was drawn from it into this (ADR 0180): an analysis, an experiment.
+    USED = "used", "Used material from"
 
 
 class Edge(models.Model):

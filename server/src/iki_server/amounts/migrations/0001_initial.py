@@ -192,5 +192,5 @@ class Migration(migrations.Migration):
             },
         ),
         iki_server.plugins.operations.AppendOnly(model_name="Movement"),
-        migrations.RunSQL(sql.MOVEMENTS, sql.DROP_MOVEMENTS),
+        migrations.RunSQL(sql.MOVEMENTS_0139, sql.DROP_MOVEMENTS),
     ]

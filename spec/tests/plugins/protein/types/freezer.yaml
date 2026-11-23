@@ -1,0 +1,14 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Freezer
+label: Freezer
+schema_version: 1
+description: A freezer, holding racks and boxes on its shelves (ADR 0180).
+hrid: { prefix: FRZ }
+storage: { holds: [Rack, Box], barcode: asset_tag }
+fields:
+  name: { type: string, required: true, max_length: 200 }
+  asset_tag: { type: string, unique: true, indexed: true, max_length: 64 }
+  temperature_c: { type: int, min: -196, max: 25 }
+display:
+  title: "{{ name }}"

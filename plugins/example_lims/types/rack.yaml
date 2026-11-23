@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Rack
+label: Rack
+schema_version: 1
+description: >-
+  An upright freezer rack of five boxes high and four deep (ADR 0180), its
+  slots numbered 1 to 20 from the top, front to back.
+hrid: { prefix: RCK }
+storage:
+  holds: [Box]
+  grid: { rows: 5, columns: 4, labels: number, order: by_row }
+  barcode: barcode
+fields:
+  name:
+    type: string
+    required: true
+    max_length: 100
+    description: Such as "Rack C".
+  barcode:
+    type: string
+    max_length: 64
+    unique: true
+    indexed: true
+    description: The code on its handle, if it has one; its HRID otherwise.
+display:
+  title: "{{ name }}"

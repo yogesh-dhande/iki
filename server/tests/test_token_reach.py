@@ -77,6 +77,7 @@ REACHABLE = {
     ("GET", "/webhook-events"),
     ("GET", "/webhook-policy"),
     ("GET", "/signing-keys"),
+    ("GET", "/storage/labels"),
     ("GET", "/registrations/locations"),
     ("GET", "/registries"),
     ("GET", "/registries/{registry_id}"),

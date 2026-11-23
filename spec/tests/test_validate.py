@@ -2994,3 +2994,123 @@ draw_purposes: {qa_sampling: {by: [qa]}}
 def test_invalid_draw_purpose_declarations_are_rejected(tmp_path: Path, policy: str) -> None:
     result = make(tmp_path, TYPE + f"amount: {{ unit: mg }}\ndraw_purposes: {policy}\n", ROLES)
     assert codes(result) == ["schema"]
+
+
+# --- Where material is kept (ADR 0180) ---------------------------------------------------------
+
+STORAGE = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Freezer
+schema_version: 1
+hrid: { prefix: FRZ }
+storage: { holds: [Box] }
+fields:
+  name: { type: string, required: true }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Box
+schema_version: 1
+hrid: { prefix: BOX }
+storage:
+  holds: [Tube]
+  grid: { rows: rows, columns: 9, labels: letter_number, order: by_column }
+  barcode: barcode
+fields:
+  rows: { type: int, required: true, immutable: true, min: 1, max: 10 }
+  barcode: { type: string, unique: true, indexed: true, max_length: 64 }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Tube
+schema_version: 1
+hrid: { prefix: TUB }
+amount: { unit: uL, follows: [lot] }
+storage: { barcode: code, label: "{{ code }} {{ hrid }}", confirm: [draw, move] }
+fields:
+  code: { type: string, unique: true, indexed: true, max_length: 64 }
+  lot: { type: ref, to: Box }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Shipment
+schema_version: 1
+hrid: { prefix: SHP }
+request:
+  service_fields: [notes]
+  sends: [tubes]
+  receives: { field: tubes, by: [qa] }
+fields:
+  tubes: { type: list, items: { type: ref, to: Tube } }
+  notes: { type: text }
+"""
+
+
+def test_a_type_says_what_it_holds_its_grid_its_barcode_and_what_needs_a_scan(
+    tmp_path: Path,
+) -> None:
+    result = make(tmp_path, STORAGE, ROLES)
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    types = result.plugin.types
+    box = types["acme/lab.Box"].storage
+    assert box is not None
+    assert box.holds == ("acme/lab.Tube",)
+    assert box.grid is not None
+    assert (box.grid.rows, box.grid.columns, box.grid.order) == ("rows", 9, "by_column")
+    tube = types["acme/lab.Tube"]
+    assert tube.storage is not None
+    assert tube.storage.confirm == ("draw", "move")
+    assert tube.amount is not None
+    assert tube.amount.follows == ("lot",)
+    request = types["acme/lab.Shipment"].request
+    assert request is not None
+    assert (request.receives, request.receives_by) == ("tubes", ("acme/lab.qa",))
+    # It round-trips through the built manifest.
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+    def problems(*changes: tuple[str, str]) -> list[str]:
+        text = STORAGE
+        for change in changes:
+            assert change[0] in text, change
+            text = text.replace(*change, 1)
+        return codes(make(tmp_path, text, ROLES))
+
+    # What it holds is kept somewhere too.
+    unstored = (
+        'storage: { barcode: code, label: "{{ code }} {{ hrid }}", confirm: [draw, move] }\n',
+        "",
+    )
+    assert problems(unstored) == ["storage-holds-unstored", "request-receives"]
+    assert problems(("holds: [Box] }", "holds: [Shipment] }")) == ["storage-holds-unstored"]
+    assert problems(("holds: [Box] }", "holds: [Crate] }")) == ["unknown-type"]
+    # A grid's sides are numbers within a 1536-well plate's, or fields that can't change.
+    assert "schema" in problems(("columns: 9,", "columns: 49,"))
+    assert problems(("max: 10 }", "max: 40 }")) == ["storage-grid"]
+    assert problems(("immutable: true, min: 1", "min: 1")) == ["storage-grid"]
+    assert problems(("rows: { type: int", "rows: { type: float")) == ["storage-grid"]
+    assert problems(("rows: rows,", "rows: shelves,")) == ["storage-grid"]
+    assert problems(("holds: [Tube]\n  grid", "grid")) == ["storage-grid-without-holds"]
+    # A barcode is unique, so a scan finds one record.
+    assert problems(("\n  code: { type: string, unique: true,", "\n  code: { type: string,")) == [
+        "storage-barcode"
+    ]
+    assert problems(('label: "{{ code }} {{ hrid }}"', 'label: "{{ nothing }}"')) == [
+        "storage-label"
+    ]
+    # A draw needs a scan only of something with an amount.
+    assert problems(("amount: { unit: uL, follows: [lot] }\n", "")) == [
+        "storage-confirm-without-amount"
+    ]
+    # A container's material follows a reference.
+    assert problems(("follows: [lot]", "follows: [code]")) == ["amount-follows"]
+    # What's received is sent, and kept somewhere.
+    assert problems(("sends: [tubes]", "sends: []")) == ["request-receives"]
+    assert problems(("receives: { field: tubes,", "receives: { field: notes,")) == [
+        "request-receives"
+    ]
+    assert problems(
+        ("items: { type: ref, to: Tube } }", "items: { type: ref, to: Shipment } }")
+    ) == ["request-receives"]
+    assert problems(("by: [qa]", "by: [porter]")) == ["unknown-role"]

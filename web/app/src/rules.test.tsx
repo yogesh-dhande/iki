@@ -423,6 +423,7 @@ describe("guards", () => {
           edit: true,
           correct: false,
           edit_amount: false,
+          draw: false,
           sign: [],
           states: {
             status: [

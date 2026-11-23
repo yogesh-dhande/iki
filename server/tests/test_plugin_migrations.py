@@ -260,6 +260,16 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_assayrequest",
         "acme__protein_assayrequest__history",
         "acme__protein_assayrequest__samples",
+        "acme__protein_assayrequest__tubes",
+        # Where material is kept, and the tubes it's kept in (ADR 0180).
+        "acme__protein_freezer",
+        "acme__protein_freezer__history",
+        "acme__protein_rack",
+        "acme__protein_rack__history",
+        "acme__protein_box",
+        "acme__protein_box__history",
+        "acme__protein_tube",
+        "acme__protein_tube__history",
         "acme__protein_assayresult",
         "acme__protein_assayresult__history",
         "acme__prediction__acme__protein_proteinstructure",
@@ -406,23 +416,28 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:14] == [
-        # The core plugin's alignments, apps, collections and views, which every deployment
-        # has, beside the fixtures'.
+    assert report.splitlines()[:19] == [
+        # The core plugin's alignments, apps, collections, organisms and views, which every
+        # deployment has, beside the fixtures'.
         "  HRID sequence iki_hrid_aln",
         "  HRID sequence iki_hrid_app",
         "  HRID sequence iki_hrid_arq",
         "  HRID sequence iki_hrid_ars",
         "  HRID sequence iki_hrid_bat",
+        "  HRID sequence iki_hrid_box",
         "  HRID sequence iki_hrid_bsp",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
+        "  HRID sequence iki_hrid_frz",
         "  HRID sequence iki_hrid_lot",
         "  HRID sequence iki_hrid_mlt",
         "  HRID sequence iki_hrid_pls",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",
+        "  HRID sequence iki_hrid_rck",
         "  HRID sequence iki_hrid_smp",
+        "  HRID sequence iki_hrid_tax",
+        "  HRID sequence iki_hrid_tub",
     ]
     assert sync(out, database) == report  # idempotent
     result = orm(

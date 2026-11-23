@@ -459,6 +459,15 @@ class RequestTypeOut(Schema):
         description="Its references whose records go to the service with it, such as its "
         "samples: what the service can read of the asking project."
     )
+    receives: str | None = Field(
+        None,
+        description="The reference whose records the service receives against what was "
+        "sent, such as its tubes (ADR 0180).",
+    )
+    receives_by: list[str] = Field(
+        default_factory=list,
+        description="The lab roles in the service that receive it: any of its Editors, if none.",
+    )
 
 
 class ResultTypeOut(Schema):
@@ -491,6 +500,34 @@ class TypeAmountOut(Schema):
         description="Its reference naming what its amount is of, such as a lot's molecule: "
         "a transfer into one of its records takes only that entity's, and its aliquots are "
         "of it too."
+    )
+    follows: list[str] = Field(
+        default_factory=list,
+        description="The references, such as a tube's lot and sample, whose holds and draw "
+        "guards apply to its draws (ADR 0180): the first set is each draw's source.",
+    )
+
+
+class TypeGridOut(Schema):
+    rows: int | str = Field(description="A number, or the field each record's rows are in.")
+    columns: int | str = Field(description="A number, or the field each record's are in.")
+    labels: Literal["letter_number", "number"] = Field(
+        description="`letter_number`: A1 to H12; `number`: 1 to 81, in its order."
+    )
+    order: Literal["by_row", "by_column"] = Field(
+        description="The order positions are numbered and filled in."
+    )
+
+
+class TypeStorageOut(Schema):
+    """Where its records are kept, and what they hold (ADR 0180)."""
+
+    holds: list[str] = Field(description="The types it holds: none, if it holds nothing.")
+    grid: TypeGridOut | None = Field(description="Its positions, if it has them.")
+    barcode: str | None = Field(description="The field a scanner reads: its HRID, if none.")
+    label: str | None = Field(description="The line its label shows, as a template.")
+    confirm: list[Literal["draw", "move"]] = Field(
+        description="What needs its barcode scanned first, so it's the right one."
     )
 
 
@@ -563,6 +600,11 @@ class EntityTypeOut(Schema):
         description="How much of each of its records there is (ADR 0139), if it keeps that: "
         "drawn, transferred, split into aliquots and adjusted through "
         "`/entities/{ref}/amount`, never below zero.",
+    )
+    storage: TypeStorageOut | None = Field(
+        None,
+        description="Its records are kept somewhere, or hold others (ADR 0180): freezers, "
+        "racks, boxes and tubes.",
     )
 
 
@@ -646,6 +688,11 @@ class EntityCan(Schema):
     )
     edit_amount: bool = Field(
         description="Change its amount, including while a state locks the record's values."
+    )
+    draw: bool = Field(
+        False,
+        description="Draw from its amount: Editor in its project, or in the project whose "
+        "storage keeps it (ADR 0180). Transfers, splits and adjustments need `edit_amount`.",
     )
     draw_purposes: list[DrawPurpose] = Field(
         default_factory=list,
@@ -888,7 +935,8 @@ class EntityOut(Schema):
     draw_refusals: dict[DrawPurpose, str] = Field(
         default_factory=dict,
         description="The first draw guard refusing each purpose, including on a record "
-        "without a balance. A state holding its amount also refuses all withdrawals.",
+        "without a balance, then those of what its material came from (its lot, ADR 0180). "
+        "A state holding its amount, or its source's, also refuses all withdrawals.",
     )
     can: EntityCan
 
@@ -1315,6 +1363,30 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "request": _request_type_out(name),
         "result": _result_type_out(name),
         "amount": _type_amount(name),
+        "storage": _type_storage(name),
+    }
+
+
+def _type_storage(type_name: str) -> dict[str, Any] | None:
+    from iki_server.storage import services as storage
+
+    found = storage.spec(type_name)
+    if found is None:
+        return None
+    grid = found.grid
+    return {
+        "holds": list(found.holds),
+        "grid": {
+            "rows": grid.rows,
+            "columns": grid.columns,
+            "labels": grid.labels,
+            "order": grid.order,
+        }
+        if grid is not None
+        else None,
+        "barcode": found.barcode,
+        "label": found.label,
+        "confirm": list(found.confirm),
     }
 
 
@@ -1347,7 +1419,12 @@ def _request_type_out(name: str) -> dict[str, Any] | None:
     spec = requests.spec_of(name)
     if spec is None:
         return None
-    return {"service_fields": list(spec.service_fields), "sends": list(spec.sends)}
+    return {
+        "service_fields": list(spec.service_fields),
+        "sends": list(spec.sends),
+        "receives": spec.receives,
+        "receives_by": list(spec.receives_by),
+    }
 
 
 def _result_type_out(name: str) -> dict[str, Any] | None:
@@ -1376,6 +1453,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
         "aliquots": wanted.aliquots or type_name,
         "aliquots_of": wanted.aliquots_of,
         "material": wanted.material,
+        "follows": list(wanted.follows),
     }
 
 
@@ -1573,6 +1651,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     held, breaches = _holds_of(user, entities)
     belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
+    from iki_server.storage import services as storage
 
     amounts_held = amounts.amounts_of(entities)
     restricted_projects = {
@@ -1592,6 +1671,14 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         ) and entity.type not in frozen
         edit_amount = (
             editable_record and entity.archived_at is None and amounts.spec(entity.type) is not None
+        )
+        # Who keeps it may draw from it too, as a core does what it received (ADR 0180).
+        draw_amount = edit_amount or (
+            entity.archived_at is None
+            and amounts.spec(entity.type) is not None
+            and entity.type not in frozen
+            and storage.spec(entity.type) is not None
+            and storage.holds_material(user, entity)
         )
         transitions = states.options(user, entity, values[entity.pk])
         mine = _ids_in(fields, values[entity.pk])
@@ -1635,12 +1722,14 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     "correct": editable_record
                     and _can_correct(entity, values[entity.pk], transitions),
                     "edit_amount": edit_amount,
+                    "draw": draw_amount,
                     "draw_purposes": [
                         purpose
                         for purpose in DrawPurpose
-                        if eligibility.purpose_refusal(user, entity.type, owner, purpose) is None
+                        if eligibility.purpose_refusals(user, entity, purpose, values[entity.pk])
+                        is None
                     ]
-                    if edit_amount
+                    if draw_amount
                     else [],
                     "states": _states_can(transitions),
                     "sign": _sign_can(user, entity, values[entity.pk], signing),
@@ -2528,13 +2617,16 @@ def _invalid(error: Invalid) -> Problem:
     """A 422 for invalid values: each field's problems, and each broken rule's (ADR 0127)
     on its own, naming the rule and whether a reason would save it anyway."""
     from iki_server.amounts.services import Wrong
+    from iki_server.storage.services import Wrong as Unplaced
 
-    if isinstance(error, Wrong):
-        # Where in the request (ADR 0139): its amount, or an aliquot's values.
+    if isinstance(error, Wrong | Unplaced):
+        # Where in the request (ADR 0139, ADR 0180): its amount, an aliquot's values, a move.
         return Problem(
             422,
             "The amount can't change so."
             if "amount" in error.errors
+            else "That can't be done as asked."
+            if isinstance(error, Unplaced)
             else "Some values are invalid.",
             errors=[
                 {"pointer": f"#/{name}" if name else "#", "detail": " ".join(messages)}

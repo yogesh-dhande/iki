@@ -1145,7 +1145,9 @@ export interface paths {
         put?: never;
         /**
          * Draw from its amount
-         * @description Takes some of it for the given purpose. A purpose you cannot use answers 403.
+         * @description Takes some of it for the given purpose, saying what it went into. Editors of its
+         *     project may draw, and so may those of the project keeping it (ADR 0180). A purpose you
+         *     cannot use answers 403.
          *     An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
          *     Two people drawing at once take turns.
          */
@@ -1377,6 +1379,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entities/{ref}/location": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where it is
+         * @description Its path, outermost first, its position, and who has it. 404 for a type that isn't
+         *     kept anywhere.
+         */
+        get: operations["iki_server_api_storage_get_location"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/location/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Its location history
+         * @description Newest first: each time it was put away, moved, taken out, checked out or in, handed
+         *     over or received, who did it, how, when and why.
+         */
+        get: operations["iki_server_api_storage_list_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entities/{ref}/making": {
         parameters: {
             query?: never;
@@ -1502,6 +1546,31 @@ export interface paths {
         get: operations["iki_server_api_entities_get_provenance"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entities/{ref}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A request's receipts
+         * @description Newest first, for whoever can read the request: what each received, and how.
+         */
+        get: operations["iki_server_api_storage_list_receipts"];
+        put?: never;
+        /**
+         * Start receiving a request
+         * @description Its open receipt, or a new one listing what it expects that no receipt received.
+         *     Needs Editor in the service it's sent to, and the lab roles its type names.
+         */
+        post: operations["iki_server_api_storage_start_receipt"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3149,6 +3218,199 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A receipt */
+        get: operations["iki_server_api_storage_get_receipt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Describe a receipt */
+        patch: operations["iki_server_api_storage_update_receipt"];
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a receipt
+         * @description An open receipt, abandoned: nothing is received with it. It's kept, cancelled.
+         */
+        post: operations["iki_server_api_storage_cancel_receipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a receipt
+         * @description Takes custody of what was received, puts each away where it's given, and tells the
+         *     requester of anything missing, extra, damaged or rejected: all of it, or none.
+         */
+        post: operations["iki_server_api_storage_complete_receipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Drop an extra line
+         * @description An extra line scanned by mistake, while the receipt is open.
+         */
+        delete: operations["iki_server_api_storage_drop_line"];
+        options?: never;
+        head?: never;
+        /** Check a receipt's line */
+        patch: operations["iki_server_api_storage_check_line"];
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan into a receipt
+         * @description Ticks the expected line the code names as matched, or adds an extra line for it.
+         */
+        post: operations["iki_server_api_storage_scan_receipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A reconciliation */
+        get: operations["iki_server_api_storage_get_reconciliation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a reconciliation */
+        post: operations["iki_server_api_storage_cancel_reconciliation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a reconciliation
+         * @description Applies every resolution as one change. Refused (422) if anything moved into or out of
+         *     the container since it started.
+         */
+        post: operations["iki_server_api_storage_complete_reconciliation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Resolve a reconciliation's line */
+        patch: operations["iki_server_api_storage_resolve_line"];
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Scan positions
+         * @description What's in each position, or that it's empty. A position scanned again replaces what
+         *     was scanned there.
+         */
+        post: operations["iki_server_api_storage_scan_positions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/registrations": {
         parameters: {
             query?: never;
@@ -3971,6 +4233,222 @@ export interface paths {
         post?: never;
         /** Delete a saved mapping */
         delete: operations["iki_server_api_spreadsheets_delete_mapping"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/check-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check records in
+         * @description Each goes back to the position it kept, or to ``to`` and ``position``, in the same
+         *     change.
+         */
+        post: operations["iki_server_api_storage_check_in"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/check-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check records out
+         * @description Each keeps its position, which nothing else can take, until it's checked in. ``to``
+         *     must be able to read them. Needs Editor in their containers' projects.
+         */
+        post: operations["iki_server_api_storage_check_out"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/checked-out": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What someone has checked out
+         * @description What ``custodian`` (you, by default) has, of what you can read, longest held first.
+         */
+        get: operations["iki_server_api_storage_list_checked_out"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/containers/{ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A container and what's in it
+         * @description Where it is, its grid, and what's in each position: a record you can't read shows as
+         *     a position taken, and nothing more.
+         */
+        get: operations["iki_server_api_storage_get_container"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/containers/{ref}/reconciliations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A container's reconciliations
+         * @description Newest first.
+         */
+        get: operations["iki_server_api_storage_list_reconciliations"];
+        put?: never;
+        /**
+         * Start reconciling a container
+         * @description Its open reconciliation, or a new one noting what's recorded in each position. Needs
+         *     Editor in its project.
+         */
+        post: operations["iki_server_api_storage_start_reconciliation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/hand-over": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Hand a record over
+         * @description Passes a record that's checked out to someone else: whoever has it, or an Editor of
+         *     its container's project, hands it over.
+         */
+        post: operations["iki_server_api_storage_hand_over"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Label sizes */
+        get: operations["iki_server_api_storage_label_sizes"];
+        put?: never;
+        /**
+         * Prepare labels
+         * @description Each record's label, recorded as prepared on it, as ZPL or for the browser to lay out
+         *     and print.
+         */
+        post: operations["iki_server_api_storage_prepare_labels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/moves": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move records, all or none
+         * @description Puts each record in its container, at its position or the next free one, or takes it
+         *     out of storage, as one change with one reason. Any move refused refuses them all (422),
+         *     saying which and why. ``preview`` answers the plan, with each problem, and changes
+         *     nothing. Needs Editor in the project of each container a record goes into or leaves.
+         */
+        post: operations["iki_server_api_storage_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/places": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The outermost places
+         * @description The containers you can read that aren't in another you can read: freezers, rooms,
+         *     shelves. ``project`` narrows them to one project's.
+         */
+        get: operations["iki_server_api_storage_list_places"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find what a code names
+         * @description By a link to it in Iki, its HRID, or a storable type's barcode, among the records you
+         *     can read.
+         */
+        get: operations["iki_server_api_storage_scan"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6008,6 +6486,88 @@ export interface components {
              */
             limit: number;
         };
+        /** CheckInIn */
+        CheckInIn: {
+            /** Confirmations */
+            confirmations?: {
+                [key: string]: string;
+            };
+            /** Items */
+            items: components["schemas"]["CheckInItemIn"][];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /** CheckInItemIn */
+        CheckInItemIn: {
+            /** Position */
+            position?: string | null;
+            /** Record */
+            record: string;
+            /**
+             * To
+             * @description Another container to put it in; null: where it was.
+             */
+            to?: string | null;
+        };
+        /** CheckOutIn */
+        CheckOutIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Records */
+            records: string[];
+            /**
+             * To
+             * @description Who has them: you, if null.
+             */
+            to?: string | null;
+        };
+        /** CheckedOutOut */
+        CheckedOutOut: {
+            /** Archived */
+            archived: boolean;
+            custodian: components["schemas"]["UserOut"];
+            /**
+             * Custody Since
+             * Format: date-time
+             */
+            custody_since: string;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            location: components["schemas"]["LocationOut"];
+            /**
+             * Position
+             * @description Where, in it, the next step in is (or the record): such as C7.
+             */
+            position: string | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
         /** CheckpointOut */
         CheckpointOut: {
             /**
@@ -6106,6 +6666,31 @@ export interface components {
              * @enum {string}
              */
             kind: "numbers" | "dates";
+        };
+        /** CompleteReceiptIn */
+        CompleteReceiptIn: {
+            /**
+             * Missing Rest
+             * @description Mark every expected line not yet checked missing.
+             * @default false
+             */
+            missing_rest: boolean;
+            /** Put Away */
+            put_away?: components["schemas"]["PutAwayIn"][];
+        };
+        /** CompleteReconciliationIn */
+        CompleteReconciliationIn: {
+            /**
+             * Missing Rest
+             * @description Take each recorded position nobody scanned to be missing, removed.
+             * @default false
+             */
+            missing_rest: boolean;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
         };
         /** ComponentEntitiesIn */
         ComponentEntitiesIn: {
@@ -6339,6 +6924,76 @@ export interface components {
              */
             step?: string | null;
         };
+        /** ContainerCan */
+        ContainerCan: {
+            /**
+             * Keep
+             * @description Put things in it, take them out, check them out and reconcile it: Editor in its project.
+             */
+            keep: boolean;
+            /**
+             * Label
+             * @description Print its label.
+             */
+            label: boolean;
+        };
+        /** ContainerOut */
+        ContainerOut: {
+            /** Archived */
+            archived: boolean;
+            can: components["schemas"]["ContainerCan"];
+            /** Code */
+            code: string;
+            /**
+             * Contents
+             * @description What's in it, in its grid's order.
+             */
+            contents: components["schemas"]["OccupantOut"][];
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /**
+             * Free
+             * @description How many of its positions are free.
+             */
+            free: number | null;
+            /**
+             * Holds
+             * @description The types it holds, qualified.
+             */
+            holds: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            location: components["schemas"]["LocationOut"];
+            /** Project */
+            project: string | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Reconciliation
+             * @description Its open reconciliation, if there is one.
+             */
+            reconciliation: string | null;
+            /** @description Its grid of positions, if it has one. */
+            shape: components["schemas"]["ShapeOut"] | null;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
         /** ContentUrlOut */
         ContentUrlOut: {
             /**
@@ -6450,7 +7105,7 @@ export interface components {
             created_by: components["schemas"]["UserOut"] | null;
             /**
              * Draw Refusals
-             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             * @description The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.
              */
             draw_refusals?: {
                 [key: string]: string;
@@ -6560,6 +7215,16 @@ export interface components {
             derived_from: string[];
             /** Type */
             type: string;
+        };
+        /** CustodyOut */
+        CustodyOut: {
+            /**
+             * Operation
+             * Format: uuid
+             */
+            operation: string;
+            /** Records */
+            records: components["schemas"]["StepOut"][];
         };
         /** DashboardIn */
         DashboardIn: {
@@ -6724,6 +7389,12 @@ export interface components {
             /** @description How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass. */
             amount: components["schemas"]["AmountIn"];
             /**
+             * Confirm
+             * @description The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.
+             * @default
+             */
+            confirm: string;
+            /**
              * @description Why material is being drawn.
              * @default routine
              */
@@ -6734,6 +7405,11 @@ export interface components {
              * @default
              */
             reason: string;
+            /**
+             * Used In
+             * @description What it went into, by ID or HRID: a record in a project you edit, such as an analysis or an experiment, which depends on it from then on (ADR 0180).
+             */
+            used_in?: string | null;
         };
         /**
          * DrawPurpose
@@ -6823,6 +7499,17 @@ export interface components {
              */
             run_as?: string | null;
         };
+        /** EndOut */
+        EndOut: {
+            /**
+             * Container
+             * @description Null for a place you can't read.
+             */
+            container: string | null;
+            /** Position */
+            position: string | null;
+            ref: components["schemas"]["RefOut"] | null;
+        };
         /** EntitiesOut */
         EntitiesOut: {
             /**
@@ -6858,6 +7545,12 @@ export interface components {
              * @default false
              */
             correct: boolean;
+            /**
+             * Draw
+             * @description Draw from its amount: Editor in its project, or in the project whose storage keeps it (ADR 0180). Transfers, splits and adjustments need `edit_amount`.
+             * @default false
+             */
+            draw: boolean;
             /**
              * Draw Purposes
              * @description The purposes you may draw for. State holds and draw guards still apply.
@@ -6996,7 +7689,7 @@ export interface components {
             created_by: components["schemas"]["UserOut"] | null;
             /**
              * Draw Refusals
-             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             * @description The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.
              */
             draw_refusals?: {
                 [key: string]: string;
@@ -7197,6 +7890,8 @@ export interface components {
              * @description Its records are samples (ADR 0177): a project's files are found by them.
              */
             sample: boolean;
+            /** @description Its records are kept somewhere, or hold others (ADR 0180): freezers, racks, boxes and tubes. */
+            storage?: components["schemas"]["TypeStorageOut"] | null;
             /**
              * Subtypes
              * @description The types that extend it, at any depth.
@@ -7426,12 +8121,68 @@ export interface components {
              */
             typical: number | null;
         };
+        /** EventOut */
+        EventOut: {
+            agent: components["schemas"]["AgentOut"] | null;
+            /** Client */
+            client: string;
+            /**
+             * Confirmed
+             * @description The code scanned to confirm it, if one was.
+             */
+            confirmed: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            custodian: components["schemas"]["UserOut"] | null;
+            from_custodian: components["schemas"]["UserOut"] | null;
+            /** @description Where it was: null if nowhere. */
+            from_place: components["schemas"]["EndOut"] | null;
+            /** Handed Over By */
+            handed_over_by: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @description `placed`: put away from nowhere; `moved`; `removed`: out of storage; `checked_out`, its position kept; `checked_in`; `handed_over`, from one person to another; `received`, with a request's receipt.
+             * @enum {string}
+             */
+            kind: "placed" | "moved" | "removed" | "checked_out" | "checked_in" | "handed_over" | "received";
+            /**
+             * Operation
+             * Format: uuid
+             * @description A bulk move's, receipt's or reconciliation's events share it.
+             */
+            operation: string;
+            /** Reason */
+            reason: string;
+            /** @description Where it went: null if out of storage. */
+            to_place: components["schemas"]["EndOut"] | null;
+            user: components["schemas"]["UserOut"] | null;
+            /** Via */
+            via: string;
+        };
         /** EventTypeOut */
         EventTypeOut: {
             /** Description */
             description: string;
             /** Type */
             type: string;
+        };
+        /** EventsOut */
+        EventsOut: {
+            /** Items */
+            items: components["schemas"]["EventOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** ExportCounts */
         ExportCounts: {
@@ -8378,6 +9129,21 @@ export interface components {
              * @description It applies only while this is true.
              */
             when?: string | null;
+        };
+        /** HandOverIn */
+        HandOverIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Record */
+            record: string;
+            /**
+             * To
+             * Format: uuid
+             */
+            to: string;
         };
         /**
          * HeldOut
@@ -9390,6 +10156,95 @@ export interface components {
              */
             roles: string[];
         };
+        /** LabelOut */
+        LabelOut: {
+            /**
+             * Code
+             * @description What its barcodes encode: its barcode, or its HRID.
+             */
+            code: string;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Line */
+            line: string;
+            /** Title */
+            title: string;
+        };
+        /** LabelSizeOut */
+        LabelSizeOut: {
+            /**
+             * Code128
+             * @description It has room for a Code 128 beside the 2D code.
+             */
+            code128: boolean;
+            /** Height Mm */
+            height_mm: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Width Mm */
+            width_mm: number;
+        };
+        /** LabelSizesOut */
+        LabelSizesOut: {
+            /** Dpis */
+            dpis: number[];
+            /** Sizes */
+            sizes: components["schemas"]["LabelSizeOut"][];
+        };
+        /** LabelsIn */
+        LabelsIn: {
+            /**
+             * Copies
+             * @default 1
+             */
+            copies: number;
+            /**
+             * Dpi
+             * @description For ZPL: the printer's resolution, 203 or 300 dpi.
+             * @default 203
+             */
+            dpi: number;
+            /**
+             * Format
+             * @description `print`: for the browser to print; `zpl`: ZPL II for a Zebra printer.
+             * @enum {string}
+             */
+            format: "print" | "zpl";
+            /**
+             * Preview
+             * @description Only to show them: not recorded as prepared, and with no ZPL.
+             * @default false
+             */
+            preview: boolean;
+            /** Records */
+            records: string[];
+            /**
+             * Size
+             * @description One of `GET /storage/labels`' sizes.
+             */
+            size: string;
+            /**
+             * Symbology
+             * @default datamatrix
+             * @enum {string}
+             */
+            symbology: "datamatrix" | "qr";
+        };
+        /** LabelsOut */
+        LabelsOut: {
+            /** Labels */
+            labels: components["schemas"]["LabelOut"][];
+            size: components["schemas"]["LabelSizeOut"];
+            /** Zpl */
+            zpl: string | null;
+        };
         /** LastDelivery */
         LastDelivery: {
             /**
@@ -9401,6 +10256,33 @@ export interface components {
             event: string;
             /** Status */
             status: string;
+        };
+        /** LocationOut */
+        LocationOut: {
+            /** @description Who has it: checked out (its position kept for it), or received and not put away yet. */
+            custodian: components["schemas"]["UserOut"] | null;
+            /** Custody Since */
+            custody_since: string | null;
+            /**
+             * Hidden
+             * @description It's in a place you can't open: the path stops there, with nothing of what's beyond it.
+             */
+            hidden: boolean;
+            /**
+             * Path
+             * @description The containers it's in, outermost first, as far as you can read.
+             */
+            path: components["schemas"]["StepOut"][];
+            /**
+             * Position
+             * @description Its position in the innermost container shown.
+             */
+            position: string | null;
+            /**
+             * Stored
+             * @description It's in a container, whether you can read it or not.
+             */
+            stored: boolean;
         };
         /** LocationsOut */
         LocationsOut: {
@@ -9653,6 +10535,24 @@ export interface components {
              */
             reason: string;
         };
+        /** MoveItemIn */
+        MoveItemIn: {
+            /**
+             * Position
+             * @description Its position there, such as A1 or 17; null for the container's next free one, in its order.
+             */
+            position?: string | null;
+            /**
+             * Record
+             * @description By ID or HRID.
+             */
+            record: string;
+            /**
+             * To
+             * @description The container it goes in, by ID or HRID; null: out of storage.
+             */
+            to: string | null;
+        };
         /** MovedOut */
         MovedOut: {
             /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
@@ -9675,7 +10575,7 @@ export interface components {
             created_by: components["schemas"]["UserOut"] | null;
             /**
              * Draw Refusals
-             * @description The first draw guard refusing each purpose, including on a record without a balance. A state holding its amount also refuses all withdrawals.
+             * @description The first draw guard refusing each purpose, including on a record without a balance, then those of what its material came from (its lot, ADR 0180). A state holding its amount, or its source's, also refuses all withdrawals.
              */
             draw_refusals?: {
                 [key: string]: string;
@@ -9785,6 +10685,12 @@ export interface components {
             /** Client */
             client: string;
             /**
+             * Confirmed
+             * @description The code scanned to confirm it, if one was.
+             * @default
+             */
+            confirmed: string;
+            /**
              * Counterpart
              * @description The other record, if there is one.
              */
@@ -9817,8 +10723,18 @@ export interface components {
             purpose: components["schemas"]["DrawPurpose"] | null;
             /** Reason */
             reason: string;
+            /**
+             * Source
+             * @description Where a container's material came from, as its type's `follows` says: its lot (ADR 0180).
+             */
+            source?: string | null;
             /** Unit */
             unit: string;
+            /**
+             * Used In
+             * @description What a draw went into, such as an analysis or an experiment.
+             */
+            used_in?: string | null;
             user: components["schemas"]["UserOut"] | null;
             /** Via */
             via: string;
@@ -9834,11 +10750,50 @@ export interface components {
             next_cursor: string | null;
             /**
              * Refs
-             * @description The counterparts you can read, by ID.
+             * @description The counterparts, sources and what draws went into that you can read, by ID.
              */
             refs?: {
                 [key: string]: components["schemas"]["RefOut"];
             };
+        };
+        /** MovesIn */
+        MovesIn: {
+            /**
+             * Confirmations
+             * @description The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.
+             */
+            confirmations?: {
+                [key: string]: string;
+            };
+            /** Items */
+            items: components["schemas"]["MoveItemIn"][];
+            /**
+             * Preview
+             * @description Say what each move would do, changing nothing.
+             * @default false
+             */
+            preview: boolean;
+            /**
+             * Reason
+             * @description Why: required to change anything.
+             * @default
+             */
+            reason: string;
+        };
+        /** MovesOut */
+        MovesOut: {
+            /**
+             * Done
+             * @description Every move was made. False for a preview.
+             */
+            done: boolean;
+            /** Items */
+            items: components["schemas"]["PlannedOut"][];
+            /**
+             * Operation
+             * @description The moves' operation, once they're made.
+             */
+            operation: string | null;
         };
         /**
          * MySigningOut
@@ -10007,6 +10962,40 @@ export interface components {
             id: string;
             /** Type */
             type: string;
+        };
+        /** OccupantOut */
+        OccupantOut: {
+            /**
+             * Code
+             * @description What's scanned to find it: its barcode or HRID.
+             */
+            code: string | null;
+            /** Column */
+            column: number | null;
+            /**
+             * Container
+             * @description It holds things of its own, such as a rack's boxes.
+             */
+            container: boolean;
+            /**
+             * Count
+             * @description How many things are in it, for a container.
+             * @default 0
+             */
+            count: number;
+            custodian: components["schemas"]["UserOut"] | null;
+            /** Custody Since */
+            custody_since: string | null;
+            /**
+             * Id
+             * @description Null for a record you can't read: its position is taken.
+             */
+            id: string | null;
+            /** Position */
+            position: string | null;
+            ref: components["schemas"]["RefOut"] | null;
+            /** Row */
+            row: number | null;
         };
         /** OrgParams */
         OrgParams: {
@@ -10848,6 +11837,42 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** PlaceOut */
+        PlaceOut: {
+            /** Archived */
+            archived: boolean;
+            /** Count */
+            count: number;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Free */
+            free: number | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Project */
+            project: string | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            shape: components["schemas"]["ShapeOut"] | null;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
         /**
          * PlaceSearchIn
          * @description A search, as ``POST /entities/search`` takes it, without its paging.
@@ -10876,6 +11901,20 @@ export interface components {
              */
             type: string;
             where?: components["schemas"]["Condition"] | null;
+        };
+        /** PlannedOut */
+        PlannedOut: {
+            /** @description Where it is now: null if nowhere. */
+            from_place: components["schemas"]["EndOut"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "placed" | "moved" | "removed";
+            /** Problems */
+            problems: string[];
+            record: components["schemas"]["StepOut"];
+            to: components["schemas"]["StepOut"] | null;
         };
         /** PluginCandidateIn */
         PluginCandidateIn: {
@@ -11509,6 +12548,24 @@ export interface components {
              */
             why_not_enable: string | null;
         };
+        /** PutAwayIn */
+        PutAwayIn: {
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            /**
+             * Position
+             * @description Null: its next free one.
+             */
+            position?: string | null;
+            /**
+             * To
+             * @description The container, by ID or HRID.
+             */
+            to: string;
+        };
         /**
          * QueryIn
          * @description A search, as ``POST /entities/search`` takes it, without its project or paging.
@@ -11674,6 +12731,210 @@ export interface components {
              * @description Why: deactivated, no longer in the project, or the role.
              */
             why: string;
+        };
+        /** ReceiptIn */
+        ReceiptIn: {
+            /**
+             * Handed Over By
+             * @description Who handed it over: a courier and waybill, a person.
+             */
+            handed_over_by?: string | null;
+            /**
+             * Note
+             * @description Such as its temperature on arrival.
+             */
+            note?: string | null;
+        };
+        /** ReceiptLineIn */
+        ReceiptLineIn: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Outcome
+             * @description Null clears an expected line's. Damaged, rejected and extra need a note.
+             */
+            outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
+        };
+        /** ReceiptLineOut */
+        ReceiptLineOut: {
+            /** Checked At */
+            checked_at: string | null;
+            checked_by: components["schemas"]["UserOut"] | null;
+            /** Code */
+            code: string;
+            /** Entity */
+            entity: string | null;
+            /** Expected */
+            expected: boolean;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note: string;
+            /** Outcome */
+            outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
+            /** @description Where it was put away, once completed. */
+            put_away: components["schemas"]["StepOut"] | null;
+            ref: components["schemas"]["RefOut"] | null;
+        };
+        /** ReceiptOut */
+        ReceiptOut: {
+            /**
+             * Can Receive
+             * @description You may change it, while it's open.
+             */
+            can_receive: boolean;
+            /** Completed At */
+            completed_at: string | null;
+            /** Handed Over By */
+            handed_over_by: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lines */
+            lines: components["schemas"]["ReceiptLineOut"][];
+            /** Note */
+            note: string;
+            /**
+             * Outcomes
+             * @description How many lines are each outcome, and `unchecked`.
+             */
+            outcomes: {
+                [key: string]: number;
+            };
+            /**
+             * Project
+             * Format: uuid
+             * @description The service receiving it.
+             */
+            project: string;
+            received_by: components["schemas"]["UserOut"] | null;
+            request: components["schemas"]["StepOut"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            started_by: components["schemas"]["UserOut"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "completed" | "cancelled";
+        };
+        /** ReceiptScanIn */
+        ReceiptScanIn: {
+            /** Code */
+            code: string;
+        };
+        /** ReceiptScanOut */
+        ReceiptScanOut: {
+            /**
+             * Found
+             * @description `matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.
+             * @enum {string}
+             */
+            found: "matched" | "again" | "extra";
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            receipt: components["schemas"]["ReceiptOut"];
+        };
+        /** ReceiptsOut */
+        ReceiptsOut: {
+            /**
+             * Can Receive
+             * @description You may receive what it sends.
+             */
+            can_receive: boolean;
+            /**
+             * Expected
+             * @description How many it expects that no receipt has received.
+             */
+            expected: number;
+            /** Receipts */
+            receipts: components["schemas"]["ReceiptOut"][];
+            /**
+             * Why Not
+             * @description Why you may not, when you may not.
+             */
+            why_not: string | null;
+        };
+        /** ReconciliationLineOut */
+        ReconciliationLineOut: {
+            /** Code */
+            code: string;
+            /** Entity */
+            entity: string | null;
+            /**
+             * Expected
+             * @description Its recorded position, when this started.
+             */
+            expected: string | null;
+            /**
+             * Finding
+             * @enum {string}
+             */
+            finding: "matched" | "missing" | "unexpected" | "wrong_slot" | "unchecked" | "empty" | "checked_out";
+            /**
+             * Found
+             * @description Where it was scanned.
+             */
+            found: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note: string;
+            ref: components["schemas"]["RefOut"] | null;
+            /** Resolution */
+            resolution: ("moved" | "removed" | "placed" | "kept") | null;
+            resolved_by: components["schemas"]["UserOut"] | null;
+        };
+        /** ReconciliationOut */
+        ReconciliationOut: {
+            /** Can Change */
+            can_change: boolean;
+            /** Completed At */
+            completed_at: string | null;
+            completed_by: components["schemas"]["UserOut"] | null;
+            container: components["schemas"]["StepOut"];
+            /** Findings */
+            findings: {
+                [key: string]: number;
+            };
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lines */
+            lines: components["schemas"]["ReconciliationLineOut"][];
+            /** Note */
+            note: string;
+            shape: components["schemas"]["ShapeOut"];
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            started_by: components["schemas"]["UserOut"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "completed" | "cancelled";
         };
         /** RefOut */
         RefOut: {
@@ -12093,6 +13354,16 @@ export interface components {
          */
         RequestTypeOut: {
             /**
+             * Receives
+             * @description The reference whose records the service receives against what was sent, such as its tubes (ADR 0180).
+             */
+            receives?: string | null;
+            /**
+             * Receives By
+             * @description The lab roles in the service that receive it: any of its Editors, if none.
+             */
+            receives_by?: string[];
+            /**
              * Sends
              * @description Its references whose records go to the service with it, such as its samples: what the service can read of the asking project.
              */
@@ -12126,6 +13397,19 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /** ResolveIn */
+        ResolveIn: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Resolution
+             * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
+             */
+            resolution: ("moved" | "removed" | "placed" | "kept") | null;
         };
         /**
          * ResultReleaseOut
@@ -13350,6 +14634,87 @@ export interface components {
             /** Shared */
             shared?: boolean | null;
         };
+        /** ScanIn */
+        ScanIn: {
+            /**
+             * Code
+             * @description Null: it's empty.
+             */
+            code?: string | null;
+            /** Position */
+            position: string;
+        };
+        /** ScanMatchOut */
+        ScanMatchOut: {
+            /** Archived */
+            archived: boolean;
+            /**
+             * Container
+             * @description Its type holds things.
+             */
+            container: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            location: components["schemas"]["LocationOut"] | null;
+            /**
+             * Position
+             * @description Where, in it, the next step in is (or the record): such as C7.
+             */
+            position: string | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Storable
+             * @description Its type is kept somewhere.
+             */
+            storable: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** ScanOut */
+        ScanOut: {
+            /** Code */
+            code: string;
+            /**
+             * Items
+             * @description Every record the code names that you can read: usually one.
+             */
+            items: components["schemas"]["ScanMatchOut"][];
+        };
+        /** ScanParams */
+        ScanParams: {
+            /**
+             * Code
+             * @description What was scanned.
+             */
+            code: string;
+        };
+        /** ScansIn */
+        ScansIn: {
+            /**
+             * Scans
+             * @description Each position scanned: one at a time, or a rack scanner's file.
+             */
+            scans: components["schemas"]["ScanIn"][];
+        };
         /** ScopeOut */
         ScopeOut: {
             /**
@@ -13979,6 +15344,28 @@ export interface components {
              * @enum {string}
              */
             state: "creating" | "ready" | "failed" | "deleted";
+        };
+        /** ShapeOut */
+        ShapeOut: {
+            /** Columns */
+            columns: number;
+            /**
+             * Labels
+             * @enum {string}
+             */
+            labels: "letter_number" | "number";
+            /**
+             * Order
+             * @enum {string}
+             */
+            order: "by_row" | "by_column";
+            /** Rows */
+            rows: number;
+            /**
+             * Size
+             * @description How many positions it has.
+             */
+            size: number;
         };
         /** SheetColumnIn */
         SheetColumnIn: {
@@ -15154,6 +16541,40 @@ export interface components {
             /** Message */
             message: string;
         };
+        /** StepOut */
+        StepOut: {
+            /** Archived */
+            archived: boolean;
+            /**
+             * Formerly
+             * @description The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.
+             */
+            formerly?: string[];
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Position
+             * @description Where, in it, the next step in is (or the record): such as C7.
+             */
+            position: string | null;
+            /**
+             * Purged
+             * @description Its plugin's data was purged (ADR 0092): only its HRID and type are left.
+             */
+            purged: boolean;
+            /**
+             * Title
+             * @description What it's called: its type's display title, or its HRID.
+             */
+            title: string;
+            /** Type */
+            type: string;
+        };
         /** StepRunOut */
         StepRunOut: {
             /** Hrid */
@@ -15549,6 +16970,11 @@ export interface components {
              */
             display_unit: string | null;
             /**
+             * Follows
+             * @description The references, such as a tube's lot and sample, whose holds and draw guards apply to its draws (ADR 0180): the first set is each draw's source.
+             */
+            follows?: string[];
+            /**
              * Label
              * @description What it's called, such as Volume.
              */
@@ -15581,6 +17007,31 @@ export interface components {
              * @description The type, qualified, such as `iki/dna.Plasmid`.
              */
             type: string;
+        };
+        /** TypeGridOut */
+        TypeGridOut: {
+            /**
+             * Columns
+             * @description A number, or the field each record's are in.
+             */
+            columns: number | string;
+            /**
+             * Labels
+             * @description `letter_number`: A1 to H12; `number`: 1 to 81, in its order.
+             * @enum {string}
+             */
+            labels: "letter_number" | "number";
+            /**
+             * Order
+             * @description The order positions are numbered and filled in.
+             * @enum {string}
+             */
+            order: "by_row" | "by_column";
+            /**
+             * Rows
+             * @description A number, or the field each record's rows are in.
+             */
+            rows: number | string;
         };
         /**
          * TypeNotificationOut
@@ -15628,6 +17079,34 @@ export interface components {
              * @description When it's sent, in words.
              */
             when: string;
+        };
+        /**
+         * TypeStorageOut
+         * @description Where its records are kept, and what they hold (ADR 0180).
+         */
+        TypeStorageOut: {
+            /**
+             * Barcode
+             * @description The field a scanner reads: its HRID, if none.
+             */
+            barcode: string | null;
+            /**
+             * Confirm
+             * @description What needs its barcode scanned first, so it's the right one.
+             */
+            confirm: ("draw" | "move")[];
+            /** @description Its positions, if it has them. */
+            grid: components["schemas"]["TypeGridOut"] | null;
+            /**
+             * Holds
+             * @description The types it holds: none, if it holds nothing.
+             */
+            holds: string[];
+            /**
+             * Label
+             * @description The line its label shows, as a template.
+             */
+            label: string | null;
         };
         /** UnitOption */
         UnitOption: {
@@ -18698,6 +20177,55 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_get_location: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_list_events: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsOut"];
+                };
+            };
+        };
+    };
     iki_server_api_entities_get_making: {
         parameters: {
             query?: never;
@@ -18863,6 +20391,50 @@ export interface operations {
                     "application/json": {
                         [key: string]: components["schemas"]["RevisionOut"];
                     };
+                };
+            };
+        };
+    };
+    iki_server_api_storage_list_receipts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_start_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
         };
@@ -21186,6 +22758,301 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_get_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_update_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_cancel_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_complete_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteReceiptIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_drop_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_check_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptLineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_scan_receipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptScanIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptScanOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_get_reconciliation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_cancel_reconciliation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_complete_reconciliation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteReconciliationIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_resolve_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reconciliation_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_scan_positions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScansIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
     iki_server_api_files_list_registrations: {
         parameters: {
             query?: {
@@ -22426,6 +24293,279 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_storage_check_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckInIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustodyOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_check_out: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CheckOutIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustodyOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_list_checked_out: {
+        parameters: {
+            query?: {
+                custodian?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckedOutOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_get_container: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContainerOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_list_reconciliations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_start_reconciliation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_hand_over: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HandOverIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustodyOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_label_sizes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelSizesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_prepare_labels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelsIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LabelsOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MovesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovesOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_list_places: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_scan: {
+        parameters: {
+            query: {
+                /** @description What was scanned. */
+                code: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanOut"];
+                };
             };
         };
     };
