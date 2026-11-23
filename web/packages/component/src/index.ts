@@ -48,6 +48,8 @@ export interface ShownEntity {
   project: { id: string; name: string; slug: string } | null;
   values: Record<string, unknown>;
   refs: Record<string, Ref>;
+  /** Display names of people named by the declared fields, keyed by person ID. */
+  people?: Record<string, { name: string }>;
 }
 
 /** A search's condition, as the API takes it. */

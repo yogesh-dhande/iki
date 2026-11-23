@@ -13,7 +13,7 @@ from test_oauth import bearer, signed_in_token
 
 from iki_server.components import installed, places
 from iki_server.entities import search
-from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_spec.model import ComponentSearch
 
 pytestmark = pytest.mark.django_db
@@ -87,7 +87,18 @@ def test_an_entitys_tab_gets_what_its_search_finds_and_only_the_fields_it_reads(
     items = shown(api_as(world, "viewer"), {"entity": atlas["dna"]["id"]})
     assert hrids(items) == [e["hrid"] for e in atlas["encoded"]]  # by name: ABL1, ABL2
     first = items[0]
-    assert set(first) == {"id", "hrid", "title", "type", "revision", "project", "values", "refs"}
+    assert set(first) == {
+        "id",
+        "hrid",
+        "title",
+        "type",
+        "revision",
+        "project",
+        "values",
+        "refs",
+        "people",
+    }
+    assert first["people"] == {}
     # Only what it reads: not the summary, nor the LIMS ID.
     assert first["values"] == {
         "name": "ABL1",
@@ -101,6 +112,39 @@ def test_an_entitys_tab_gets_what_its_search_finds_and_only_the_fields_it_reads(
     }
     assert list(first["refs"]) == [atlas["dna"]["entry"]["id"]]
     assert first["refs"][atlas["dna"]["entry"]["id"]]["hrid"] == atlas["dna"]["hrid"]
+
+
+def test_a_component_gets_only_display_names_from_its_declared_person_fields(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample_type = "acme/protein.Sample"
+    reviewer, helper, receiver = (world.users[n] for n in ("runner", "viewer", "admin"))
+    helper.name = ""
+    helper.save(update_fields=["name"])
+    LabRoleGrant.objects.create(
+        membership=world.project.memberships.get(user=reviewer), role="acme/protein.reviewer"
+    )
+    values = {
+        "label": "Sample for review",
+        "reviewer": str(reviewer.pk),
+        "helpers": [str(helper.pk)],
+        "received_by": str(receiver.pk),
+    }
+    editor = api_as(world, "editor")
+    full = create(editor, world.project, values, sample_type)
+    assert full["people"][str(helper.pk)]["name"] == helper.email
+    assert full["people"][str(receiver.pk)]["name"] == receiver.name
+
+    board = installed.components()[BOARD]
+    assert board.entities is not None
+    fields = dataclasses.replace(board.entities, type=sample_type, fields=("reviewer", "helpers"))
+    monkeypatch.setitem(installed.components(), BOARD, dataclasses.replace(board, entities=fields))
+    (item,) = shown(editor, {"search": {"type": sample_type, "project": str(world.project.pk)}})
+    assert item["values"] == {"reviewer": str(reviewer.pk), "helpers": [str(helper.pk)]}
+    assert item["people"] == {
+        str(reviewer.pk): {"name": reviewer.name},
+        str(helper.pk): {"name": "Someone without a name"},
+    }
 
 
 def test_a_searchs_results_are_the_grids(world: World, atlas: dict[str, Any]) -> None:

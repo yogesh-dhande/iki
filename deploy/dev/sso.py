@@ -1327,6 +1327,18 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     if made.status_code not in (200, 201):
         fail(f"registering a plasmid answered HTTP {made.status_code}: {made.text[:300]}")
     reference = made.json()
+    design = created(
+        alice,
+        project,
+        "iki/plasmid.Plasmid",
+        {"sequence": entry_of(reference), "name": "Synthetic read-verification control"},
+    )
+    prep = created(
+        alice,
+        project,
+        "iki/lots.PlasmidPrep",
+        {"plasmid": design["id"], "notes": "Synthetic prep for the read-verification control."},
+    )
     # Bases 201-700, read forward, with another base at 451, between poor ends.
     called = list(plasmid[200:700])
     other = "A" if called[250] != "A" else "C"
@@ -1350,13 +1362,13 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     expected = f"Differences from {reference['hrid']}: o.451{plasmid[450]}>{other} (clone_F1 Q40)."
     if expected not in said:
         fail(f"{run['hrid']} said {said}, not {expected!r}")
-    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
-    if [e["type"] for e in created] != ["iki/core.Alignment"]:
-        fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    alignments = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in alignments] != ["iki/core.Alignment"]:
+        fail(f"{run['hrid']} created {alignments}, not one iki/core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{alignments[0]['hrid']}").json()["values"]
     plasmid_entry = entry_of(reference)
     if values["reference"] != plasmid_entry or values["members"] != [plasmid_entry]:
-        fail(f"{created[0]['hrid']} is {values}")
+        fail(f"{alignments[0]['hrid']} is {values}")
     # It keeps Iki's alignment, its file, and the same with `-` for every gap, which tools
     # reading aligned FASTA take (alignment-standard.fasta).
     artifacts = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
@@ -1365,12 +1377,93 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{run['hrid']} kept {sorted(kept)}, not its alignment and the standard one")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if stored["sha256"] != kept["alignment.fasta"]["sha256"]:
-        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+        fail(f"{alignments[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     ok(
         f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
         f"{metrics['coverage_percent']}% covered, {expected[:-1].split(': ', 1)[1]}, "
-        f"making {created[0]['hrid']}"
+        f"making {alignments[0]['hrid']}"
     )
+    verify_prep(alice, project, prep, design, record(alice, alignments[0]["entity"]))
+
+
+def verify_prep(
+    alice: requests.Session,
+    project: dict[str, Any],
+    prep: dict[str, Any],
+    design: dict[str, Any],
+    alignment: dict[str, Any],
+) -> None:
+    """Archive the synthetic prep's alignment, sign its discrepancy and open it from the prep."""
+    run = launch(
+        alice,
+        project,
+        "iki/lots.record_plasmid_verification",
+        {"prep": prep["id"], "alignment": alignment["id"]},
+        {"outcome": "discrepancy", "notes": "Synthetic control: partial coverage, one mismatch."},
+    )
+    (effect,) = [e for e in run["effects"] if e["type"] == "iki/lots.PlasmidVerification"]
+    assessment = record(alice, effect["entity"])
+    values = assessment["values"]
+    expected = {
+        "prep": prep["id"],
+        "plasmid": entry_of(design),
+        "plasmid_record_id": design["id"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "review_flow": "research",
+        "review": "recorded",
+        "outcome": "discrepancy",
+    }
+    if any(values.get(k) != v for k, v in expected.items()):
+        fail(f"{run['hrid']} created {assessment['hrid']} with {values}, expected {expected}")
+    pinned = api_call(
+        alice,
+        "GET",
+        f"/entities/{values['plasmid_record_id']}/revisions/{values['plasmid_revision']}",
+    )
+    evidence = api_call(
+        alice, "GET", f"/entities/{values['alignment']}/revisions/{values['alignment_revision']}"
+    )
+    if (
+        pinned.status_code != 200
+        or evidence.status_code != 200
+        or pinned.json()["values"]["sequence"] != alignment["values"]["reference"]
+        or evidence.json()["values"]["aligned"] != alignment["values"]["aligned"]
+    ):
+        fail(f"{assessment['hrid']} could not reopen the recorded plasmid and alignment revisions")
+    give_lab_roles(alice, project, "iki/lots.verification_reviewer")
+    reviewer = api_call(alice, "GET", "/me").json()["id"]
+    path = f"/entities/{assessment['id']}"
+    assigned = api_call(
+        alice,
+        "PATCH",
+        path,
+        {"values": {"reviewer": reviewer}},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if assigned.status_code != 200:
+        fail(f"assigning the reviewer answered {assigned.status_code}: {assigned.text[:300]}")
+    signed = signing(alice, assessment, "signed_off", "alice", field="review")
+    if signed["status"] != "signed" or not signed["set"]:
+        fail(f"signing the research assessment {assessment['hrid']} gave {signed}")
+    tab = api_call(
+        alice, "POST", "/components/iki/lots.prep_verifications/entities", {"entity": prep["id"]}
+    )
+    if tab.status_code != 200 or [r["hrid"] for r in tab.json()["items"]] != [assessment["hrid"]]:
+        fail(f"{prep['hrid']}'s Verification tab did not return its assessment: {tab.text[:300]}")
+    row = tab.json()["items"][0]["values"]
+    reviewed = {
+        "plasmid_record_id": design["id"],
+        "plasmid_revision": values["plasmid_revision"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "reviewer": reviewer,
+        "outcome": "discrepancy",
+        "review": "signed_off",
+    }
+    if any(row.get(k) != v for k, v in reviewed.items()):
+        fail(f"{prep['hrid']}'s Verification tab returned {row}")
+    ok(f"{prep['hrid']} shows the signed discrepancy and the pinned alignment {alignment['hrid']}")
 
 
 def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1753,30 +1846,30 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
 
 
-def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
-    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
-    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
-    verifies; signing in at Keycloak as someone else gives no signature."""
-    bob = sign_in_as("bob")
-    if api_call(bob, "GET", "/signatures/certification").json()["certification"] is None:
+def certify_dev_signatures(admin: requests.Session) -> None:
+    if api_call(admin, "GET", "/signatures/certification").json()["certification"] is None:
         certified = api_call(
-            bob,
+            admin,
             "POST",
             "/signatures/certification",
             {"submitted_on": datetime.now(UTC).date().isoformat(), "reference": "DEV-CERT-1"},
         )
         if certified.status_code != 200:
             fail(f"recording the certification answered HTTP {certified.status_code}")
-    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
-    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    roles = {
-        "roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer", "iki/example_lims.qa"]
-    }
-    given = api_call(
-        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", roles
+
+
+def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
+    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
+    verifies; signing in at Keycloak as someone else gives no signature."""
+    bob = sign_in_as("bob")
+    give_lab_roles(
+        alice,
+        project,
+        "iki/example_lims.analyst",
+        "iki/example_lims.reviewer",
+        "iki/example_lims.qa",
     )
-    if given.status_code != 200:
-        fail(f"giving alice lab roles answered HTTP {given.status_code}: {given.text[:300]}")
     made = api_call(
         alice,
         "POST",
@@ -4993,6 +5086,7 @@ def main() -> None:
         provisioning(admin)
         rest_api(admin)
         webhooks(admin)
+        certify_dev_signatures(admin)
         actions()
         lims()
         containers()

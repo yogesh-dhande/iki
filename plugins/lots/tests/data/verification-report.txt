@@ -1,0 +1,3 @@
+Synthetic report fixture for testing evidence archival.
+Prep: demonstration prep. Reference: demonstration plasmid.
+Outcome: inconclusive. The archived report states that the region of interest was unobserved.
