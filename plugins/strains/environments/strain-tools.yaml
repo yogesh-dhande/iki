@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Environment
+name: strain-tools
+label: Strain registration
+description: Python's CSV reader for strain collection exports.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.25, memory: 128Mi }
+python: { version: "3.12", requirements: requirements.txt }

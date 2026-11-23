@@ -1823,7 +1823,7 @@ class GivenSignatureOut(TypedDict):
 class GraphEdgeOut(TypedDict):
     field: str
     file: WalkFileOut | None
-    kind: Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'record']
+    kind: Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used', 'record']
     #: What depends.
     node: str
     #: What it depends on.
@@ -1889,8 +1889,8 @@ class GraphOut(TypedDict):
 class GraphParams(TypedDict):
     #: How many steps downstream.
     down: NotRequired[int]
-    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
-    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer']]]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used']]]
     #: Whose record, when an entry's ID or HRID names several (ADR 0115).
     project: NotRequired[str | None]
     #: How many steps upstream.
@@ -3917,7 +3917,7 @@ class RelatedOut(TypedDict):
     #: `downstream`: what was derived from it; `upstream`: what it was derived from.
     direction: Literal['downstream', 'upstream']
     #: The kinds of edge it walks; empty for all.
-    edges: list[Literal['reference', 'run', 'file', 'aliquot', 'transfer']]
+    edges: list[Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used']]
 
 
 class ReproduceIn(TypedDict):
@@ -5870,8 +5870,8 @@ class WalkPageParams(TypedDict):
     cursor: NotRequired[str | None]
     #: How many edges away, at most.
     depth: NotRequired[int]
-    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
-    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer']]]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used']]]
     #: Results per page.
     limit: NotRequired[int]
     #: Whose record, when an entry's ID or HRID names several (ADR 0115).
@@ -5885,8 +5885,8 @@ class WalkParams(TypedDict):
     archived: NotRequired[bool | None]
     #: How many edges away, at most.
     depth: NotRequired[int]
-    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
-    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer']]]
+    #: Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+    edges: NotRequired[list[Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used']]]
     #: Whose record, when an entry's ID or HRID names several (ADR 0115).
     project: NotRequired[str | None]
     #: Only results of these types, with their subtypes. The walk still goes through every type.
@@ -5902,8 +5902,8 @@ class WalkStepOut(TypedDict):
     file: WalkFileOut | None
     #: A run made it, in a project you can't read: it isn't named.
     hidden_run: bool
-    #: `reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).
-    kind: Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'record']
+    #: How the entities are linked: `reference`, `run`, `file`, `aliquot`, `transfer`, or `used` for a material draw. A `record` step goes on to another project's record of the same registry entry (ADR 0115).
+    kind: Literal['reference', 'run', 'file', 'aliquot', 'transfer', 'used', 'record']
     #: For a run's input: its revision the run read. Empty for a reference, which names what's there now.
     revision: int | None
     #: The run, if you can read its project.
