@@ -44,8 +44,10 @@ binds a write to its review in either of two ways.
 A change that affects a reviewed choice invalidates its approval, even if the
 replacement has the same number of rows, the same totals, or the same label.
 The server refuses the stale commit before writing records or recording the
-approval. The client presents the current plan for fresh review and accepts
-a new decision and reason.
+approval. The client shows the current plan for fresh review and clears the
+previous note. The workflow's existing rules determine whether a reason is
+required. Any acknowledgement of a destructive action, such as removing an
+unscanned tube from storage, must be given again for the reviewed plan.
 
 ## Consequences
 
