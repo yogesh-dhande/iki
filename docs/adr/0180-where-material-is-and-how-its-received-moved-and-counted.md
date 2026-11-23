@@ -175,6 +175,43 @@ note; a damaged, rejected or extra line needs one. The receipt names who
 handed it over (a courier and a waybill, or a person) and a note, such as
 its temperature on arrival.
 
+**A receiver can record a fresh observation while a colleague checks another
+tube.** A scan takes just the code. A first manual check can send its outcome
+and condition note without a revision. If someone already checked the line,
+the unversioned check returns `found: "again"` and leaves their observation
+intact. A scan or check returns `{found, line, receipt}`, identifying the
+action's result, the line and the receipt as it now stands. Each line carries
+its own `line_revision`. Changes to other lines leave that revision valid.
+
+A condition `note` says what the receiver saw. A correction `reason` says why
+they changed an observation already recorded. For example, an editor who
+reviews a damaged line and finds the wrong tube was checked can send
+`PATCH /api/v1/receipts/{id}/lines/{line}` with the line revision just read.
+
+```json
+{
+  "line_revision": 2,
+  "outcome": null,
+  "reason": "The damaged package belonged to the next delivery."
+}
+```
+
+The line becomes unchecked. Its earlier observation, note, actor and time
+remain available at `GET /api/v1/receipts/{id}/history`. A first check can
+include its note. Once a line has an outcome, adding, replacing or clearing
+its note needs both the line revision and a reason. This includes adding a
+condition note after scanning an extra. Removing an extra uses its line
+revision and reason in the DELETE body. The line keeps its ID in `removed_lines`. Scanning that code
+again reports `found: "removed"`. To restore it, the receiver sends that
+line's revision and a reason to
+`POST /api/v1/receipts/{id}/lines/{line}/restore`.
+
+The handover, completion and cancellation concern the whole receipt.
+Each takes the `plan_revision` of the complete receipt the receiver saw.
+Cancellation also records a reason, the cancelling actor and the closing
+time. A stale line or receipt revision returns HTTP 409. The receiver can
+read the current evidence before deciding whether to change it.
+
 **Completing it is one change.** Every expected line must have an outcome:
 "mark the rest missing" is a choice someone makes. Matched and damaged lines
 are received: each record's custody passes to the receiver (`received`), and

@@ -359,16 +359,25 @@ def sent_with_tubes(lab: Lab, n: int) -> tuple[Any, list[Any]]:
 def receive(lab: Lab, ask: Any, put: dict[str, tuple[Any, str | None]]) -> Any:
     api = lab.api("tech")
     receipt = api.post(f"/entities/{ask['id']}/receipts").json()
+    path = f"/receipts/{receipt['id']}"
     for line in receipt["lines"]:
-        api.post(f"/receipts/{receipt['id']}/scan", {"code": line["code"]})
-    api.patch(f"/receipts/{receipt['id']}", {"handed_over_by": "Courier, waybill 1Z999"})
+        scanned = api.post(f"{path}/scan", {"code": line["code"]})
+        assert scanned.status_code == 200, scanned.content
+        receipt = scanned.json()["receipt"]
+    described = api.patch(
+        path,
+        {"plan_revision": receipt["plan_revision"], "handed_over_by": "Courier, waybill 1Z999"},
+    )
+    assert described.status_code == 200, described.content
+    receipt = described.json()
     by_entity = {x["entity"]: x["id"] for x in receipt["lines"]}
     done = api.post(
-        f"/receipts/{receipt['id']}/complete",
+        f"{path}/complete",
         {
+            "plan_revision": receipt["plan_revision"],
             "put_away": [
                 {"line": by_entity[k], "to": c["id"], "position": p} for k, (c, p) in put.items()
-            ]
+            ],
         },
     )
     assert done.status_code == 200, done.content
@@ -392,28 +401,52 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     path = f"/receipts/{receipt['id']}"
     scanned = tech.post(f"{path}/scan", {"code": "RC000"}).json()
     assert scanned["found"] == "matched"
-    assert tech.post(f"{path}/scan", {"code": "RC000"}).json()["found"] == "again"
+    duplicate = tech.post(f"{path}/scan", {"code": "RC000"}).json()
+    assert duplicate["found"] == "again"
     # A tube nobody expected is an extra line.
     extra = tech.post(f"{path}/scan", {"code": "UNLABELLED-7"}).json()
     assert extra["found"] == "extra"
-    lines = {x["code"]: x["id"] for x in extra["receipt"]["lines"]}
+    receipt = extra["receipt"]
+    lines = {x["code"]: x["id"] for x in receipt["lines"]}
     # Damaged and rejected need a note.
-    assert errors(tech.patch(f"{path}/lines/{lines['RC001']}", {"outcome": "damaged"})) == {
-        "#/note": "is required: say why it's damaged."
-    }
+    unchecked = tech.patch(
+        f"{path}/lines/{lines['RC001']}",
+        {"outcome": "damaged"},
+    )
+    assert errors(unchecked) == {"#/note": "is required: say why it's damaged."}
     for code, outcome, note in (
         ("RC001", "damaged", "Cap cracked; contents intact"),
         ("RC002", "rejected", "Thawed on arrival"),
         ("UNLABELLED-7", "extra", "No label, no paperwork"),
     ):
-        answer = tech.patch(f"{path}/lines/{lines[code]}", {"outcome": outcome, "note": note})
+        line = next(item for item in receipt["lines"] if item["code"] == code)
+        change = {"outcome": outcome, "note": note}
+        if line["outcome"] is not None:
+            change["line_revision"] = line["line_revision"]
+            change["reason"] = "Inspected the unlabelled tube after its barcode was scanned."
+        answer = tech.patch(f"{path}/lines/{lines[code]}", change)
         assert answer.status_code == 200, answer.content
+        checked = answer.json()
+        assert (checked["found"], checked["line"]) == ("recorded", line["id"])
+        receipt = checked["receipt"]
     # Who handed it over is required to complete it.
-    assert "#/handed_over_by" in errors(tech.post(f"{path}/complete", {"missing_rest": True}))
-    tech.patch(path, {"handed_over_by": "Courier, waybill 1Z999", "note": "Dry ice present"})
+    incomplete = tech.post(
+        f"{path}/complete", {"plan_revision": receipt["plan_revision"], "missing_rest": True}
+    )
+    assert "#/handed_over_by" in errors(incomplete)
+    described = tech.patch(
+        path,
+        {
+            "plan_revision": receipt["plan_revision"],
+            "handed_over_by": "Courier, waybill 1Z999",
+            "note": "Dry ice present",
+        },
+    )
+    assert described.status_code == 200, described.content
     done = tech.post(
         f"{path}/complete",
         {
+            "plan_revision": described.json()["plan_revision"],
             "missing_rest": True,
             "put_away": [
                 {"line": lines["RC000"], "to": incoming["id"]},
@@ -457,7 +490,16 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     )
     assert drawn.status_code == 200, drawn.content
     # A completed receipt is frozen; the next starts from what's still expected.
-    assert tech.patch(f"{path}/lines/{lines['RC000']}", {"outcome": "missing"}).status_code == 422
+    matched = next(line for line in receipt["lines"] if line["code"] == "RC000")
+    frozen = tech.patch(
+        f"{path}/lines/{matched['id']}",
+        {
+            "line_revision": matched["line_revision"],
+            "outcome": "missing",
+            "reason": "Tube missing on review",
+        },
+    )
+    assert "completed" in errors(frozen)["#"]
     again = tech.post(f"/entities/{ask['id']}/receipts").json()
     assert [x["code"] for x in again["lines"]] == ["RC003"]
 

@@ -21,11 +21,14 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
+from iki_server.core.ids import uuid7
 from iki_server.entities import access, requests
 from iki_server.entities.models import Entity
 from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
+from iki_server.org.services import Refused
+from iki_server.storage import observations
 from iki_server.storage import services as storage
 from iki_server.storage.models import Outcome, Place, Receipt, ReceiptLine, ReceiptStatus
 from iki_server.storage.services import Wrong
@@ -110,7 +113,11 @@ def start(user: User, entity: Entity) -> Receipt:
     assert request is not None  # noqa: S101
     with transaction.atomic():
         Entity.objects.select_for_update(no_key=True).filter(pk=entity.pk).first()
-        open_now = Receipt.objects.filter(request=entity, status=ReceiptStatus.OPEN).first()
+        open_now = (
+            Receipt.objects.select_for_update(of=("self",))
+            .filter(request=entity, status=ReceiptStatus.OPEN)
+            .first()
+        )
         if open_now is not None:
             return open_now
         expected = _expected(entity)
@@ -125,114 +132,267 @@ def start(user: User, entity: Entity) -> Receipt:
         return receipt
 
 
-def _open(user: User, receipt: Receipt) -> Receipt:
+def _open(user: User, receipt: Receipt, plan_revision: int | None = None) -> Receipt:
     locked = (
         Receipt.objects.select_for_update(of=("self",)).select_related("request").get(pk=receipt.pk)
     )
-    if locked.status != ReceiptStatus.OPEN:
-        raise Wrong({"": [f"This receipt is {locked.get_status_display().lower()}."]})
     refused = why_not_receiver(user, locked.request)
     if refused is not None:
         raise PermissionError(refused)
+    if locked.status != ReceiptStatus.OPEN:
+        raise Wrong({"": [f"This receipt is {locked.get_status_display().lower()}."]})
+    if plan_revision is not None and locked.plan_revision != plan_revision:
+        raise Refused("The receipt changed. Reload it and review its current observations.")
     return locked
 
 
+def _advance(receipt: Receipt) -> None:
+    receipt.plan_revision += 1
+    receipt.save(update_fields=["plan_revision"])
+
+
+def _reason(text: str, *, required: bool) -> str:
+    if len(text) > MAX_NOTE:
+        raise Wrong({"reason": [f"is longer than {MAX_NOTE} characters."]})
+    if required and not text.strip():
+        raise Wrong({"reason": ["is required: say why this saved observation is changing."]})
+    return text.strip()
+
+
+def _line_state(line: ReceiptLine) -> dict[str, Any]:
+    checker = line.checked_by
+    return {
+        **({"entity_id": str(line.entity_id)} if line.entity_id else {}),
+        "code": line.code,
+        "line_revision": line.line_revision,
+        "expected": line.expected,
+        "outcome": line.outcome,
+        "note": line.note,
+        "removed": line.removed,
+        "checked_by": checker.email if checker is not None else None,
+        "checked_at": line.checked_at.isoformat() if line.checked_at else None,
+    }
+
+
+def _record_line(
+    user: User,
+    receipt: Receipt,
+    line: ReceiptLine,
+    before: dict[str, Any] | None,
+    reason: str,
+    operation: UUID,
+) -> None:
+    observations.record(
+        receipt,
+        line_id=line.pk,
+        kind="outcome",
+        before=before,
+        after=_line_state(line),
+        user=user,
+        reason=reason,
+        revision=receipt.plan_revision,
+        operation=operation,
+    )
+
+
+def _checked(
+    user: User,
+    receipt: Receipt,
+    line: ReceiptLine,
+    outcome: str | None,
+    note: str,
+    reason: str,
+    operation: UUID,
+) -> None:
+    before = None if line._state.adding else _line_state(line)
+    # Editing the note alone does not change who observed this outcome. The history
+    # entry names its own author independently.
+    if before is None or line.outcome != outcome:
+        line.checked_by = user if outcome is not None else None
+        line.checked_at = timezone.now() if outcome is not None else None
+    line.outcome, line.note = outcome, note
+    if before is not None:
+        line.line_revision += 1
+    line.save()
+    _record_line(user, receipt, line, before, reason, operation)
+
+
 @dataclass(frozen=True)
-class Scanned:
+class CheckedLine:
+    """One receipt line and the parent revision returned to the operator."""
+
     line: ReceiptLine
-    #: ``matched``: an expected line ticked; ``again``: one already checked; ``extra``: a
-    #: line added for a code that isn't expected.
     found: str
+    receipt: Receipt
 
 
-def scan(user: User, receipt: Receipt, code: str) -> Scanned:
-    """Ticks the expected line ``code`` names as matched, or adds an extra line for it."""
+def scan(user: User, receipt: Receipt, code: str) -> CheckedLine:
+    """Tick an expected line or record an extra. A removed extra needs explicit restoration."""
     text = code.strip()
     if not text:
         raise Wrong({"code": ["is empty: scan a tube's code."]})
     with transaction.atomic():
         receipt = _open(user, receipt)
-        lines = list(receipt.lines.select_related("entity"))
-        for line in lines:
-            if line.entity is not None and storage.confirms(line.entity, text):
+        for line in receipt.lines.select_related("entity", "checked_by").order_by(
+            "-expected", "id"
+        ):
+            if (line.entity is not None and storage.confirms(line.entity, text)) or (
+                not line.expected and line.code == text
+            ):
+                if line.removed:
+                    return CheckedLine(line, "removed", receipt)
                 if line.outcome is not None:
-                    return Scanned(line, "again")
-                _checked(user, line, Outcome.MATCHED if line.expected else Outcome.EXTRA, "")
-                return Scanned(line, "matched")
-        for line in lines:
-            if not line.expected and line.code == text:
-                return Scanned(line, "again")
+                    return CheckedLine(line, "again", receipt)
+                _advance(receipt)
+                _checked(
+                    user,
+                    receipt,
+                    line,
+                    Outcome.MATCHED if line.expected else Outcome.EXTRA,
+                    line.note,
+                    "",
+                    uuid7(),
+                )
+                return CheckedLine(line, "matched" if line.expected else "extra", receipt)
         found = [e for e in storage.find(user, text) if storage.spec(e.type) is not None]
         known = found[0] if len(found) == 1 else None
-        line = ReceiptLine(
-            receipt=receipt, entity=known, code=text, expected=False, outcome=Outcome.EXTRA
-        )
-        line.checked_by, line.checked_at = user, timezone.now()
-        line.save()
-        return Scanned(line, "extra")
+        line = ReceiptLine(receipt=receipt, entity=known, code=text, expected=False)
+        _advance(receipt)
+        _checked(user, receipt, line, Outcome.EXTRA, "", "", uuid7())
+        return CheckedLine(line, "extra", receipt)
 
 
-def _checked(user: User, line: ReceiptLine, outcome: str | None, note: str) -> None:
-    line.outcome = outcome
-    line.note = note.strip()
-    line.checked_by = user if outcome is not None else None
-    line.checked_at = timezone.now() if outcome is not None else None
-    line.save(update_fields=["outcome", "note", "checked_by", "checked_at"])
+def _line(receipt: Receipt, line_id: UUID | str) -> ReceiptLine:
+    line = receipt.lines.select_related("checked_by").filter(pk=line_id).first()
+    if line is None:
+        raise Wrong({"line": ["isn't one of this receipt's."]})
+    return line
+
+
+def _reviewed_line(line: ReceiptLine, line_revision: int | None) -> None:
+    if line_revision is None:
+        raise Wrong({"line_revision": ["is required: review this line before correcting it."]})
+    if line_revision != line.line_revision:
+        raise Refused("This receipt line changed. Reload it and review its current observation.")
 
 
 def check(
-    user: User, receipt: Receipt, line_id: UUID | str, outcome: str | None, note: str = ""
-) -> ReceiptLine:
-    """Sets an expected line's outcome, or a line's note; None clears an expected line."""
-    if len(note) > MAX_NOTE:
+    user: User,
+    receipt: Receipt,
+    line_id: UUID | str,
+    outcome: str | None,
+    note: str | None = None,
+    *,
+    line_revision: int | None = None,
+    reason: str = "",
+) -> CheckedLine:
+    """Record the first outcome or change the reviewed version of this line."""
+    if note is not None and len(note) > MAX_NOTE:
         raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
     with transaction.atomic():
         receipt = _open(user, receipt)
-        line = receipt.lines.filter(pk=line_id).first()
-        if line is None:
-            raise Wrong({"line": ["isn't one of this receipt's."]})
+        line = _line(receipt, line_id)
+        note = line.note if note is None else note.strip()
+        if line_revision is not None or outcome is None:
+            _reviewed_line(line, line_revision)
+        elif not line.removed:
+            # An unreviewed first check may carry a reason. If another operator
+            # has already checked the line, a blind check cannot replace theirs.
+            if line.outcome is not None and (
+                not reason.strip() or (line.outcome, line.note) == (outcome, note)
+            ):
+                return CheckedLine(line, "again", receipt)
+            if line.outcome is not None or (line.note and line.note != note):
+                _reviewed_line(line, None)
+        if line.removed:
+            raise Wrong({"line": ["was removed. Restore the extra before changing it."]})
         if not line.expected:
             if outcome not in (None, Outcome.EXTRA):
                 raise Wrong({"outcome": ["is extra, for what wasn't expected."]})
-            _checked(user, line, Outcome.EXTRA, note)
-            return line
-        if outcome is not None and outcome not in (
+            outcome = Outcome.EXTRA
+        elif outcome is not None and outcome not in (
             Outcome.MATCHED,
             Outcome.MISSING,
             Outcome.DAMAGED,
             Outcome.REJECTED,
         ):
             raise Wrong({"outcome": ["is matched, missing, damaged or rejected."]})
-        if outcome in NOTED and not note.strip():
+        if (line.outcome, line.note) == (outcome, note):
+            return CheckedLine(line, "again", receipt)
+        if line.expected and outcome in NOTED and not note:
             raise Wrong({"note": [f"is required: say why it's {outcome}."]})
-        _checked(user, line, outcome, note)
-        return line
+        correction = line.outcome is not None or (bool(line.note) and line.note != note)
+        reason = _reason(reason, required=correction)
+        _advance(receipt)
+        _checked(user, receipt, line, outcome, note, reason, uuid7())
+        return CheckedLine(line, "recorded", receipt)
 
 
-def drop(user: User, receipt: Receipt, line_id: UUID | str) -> None:
-    """Takes away an extra line scanned by mistake."""
+def set_removed(
+    user: User,
+    receipt: Receipt,
+    line_id: UUID | str,
+    *,
+    removed: bool,
+    line_revision: int,
+    reason: str,
+) -> Receipt:
+    """Retire or restore one extra while keeping its observation and stable line identity."""
     with transaction.atomic():
         receipt = _open(user, receipt)
-        line = receipt.lines.filter(pk=line_id).first()
-        if line is None:
-            raise Wrong({"line": ["isn't one of this receipt's."]})
+        line = _line(receipt, line_id)
+        _reviewed_line(line, line_revision)
         if line.expected:
-            raise Wrong({"line": ["is expected: mark it missing instead."]})
-        line.delete()
+            raise Wrong({"line": ["is expected and cannot be removed or restored."]})
+        reason = _reason(reason, required=True)
+        if line.removed == removed:
+            return receipt
+        before = _line_state(line)
+        line.removed = removed
+        line.line_revision += 1
+        line.save(update_fields=["removed", "line_revision"])
+        _advance(receipt)
+        _record_line(user, receipt, line, before, reason, uuid7())
+        return receipt
 
 
 def describe(
-    user: User, receipt: Receipt, *, handed_over_by: str | None = None, note: str | None = None
+    user: User,
+    receipt: Receipt,
+    *,
+    handed_over_by: str | None = None,
+    note: str | None = None,
+    plan_revision: int,
+    reason: str = "",
 ) -> Receipt:
     with transaction.atomic():
-        receipt = _open(user, receipt)
+        receipt = _open(user, receipt, plan_revision)
+        before = {"handed_over_by": receipt.handed_over_by, "note": receipt.note}
         if handed_over_by is not None:
             receipt.handed_over_by = handed_over_by.strip()[:200]
         if note is not None:
             if len(note) > MAX_NOTE:
                 raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
             receipt.note = note.strip()
+        after = {"handed_over_by": receipt.handed_over_by, "note": receipt.note}
+        if before == after:
+            return receipt
+        reason = _reason(
+            reason, required=any(old and old != after[key] for key, old in before.items())
+        )
         receipt.save(update_fields=["handed_over_by", "note"])
+        _advance(receipt)
+        observations.record(
+            receipt,
+            line_id=None,
+            kind="handoff",
+            before=before,
+            after=after,
+            user=user,
+            reason=reason,
+            revision=receipt.plan_revision,
+            operation=uuid7(),
+        )
         return receipt
 
 
@@ -244,13 +404,23 @@ class PutAway:
 
 
 def complete(
-    user: User, receipt: Receipt, put_away: Sequence[PutAway] = (), *, missing_rest: bool = False
+    user: User,
+    receipt: Receipt,
+    put_away: Sequence[PutAway] = (),
+    *,
+    plan_revision: int,
+    missing_rest: bool = False,
 ) -> Receipt:
     """Completes a receipt: custody of what was received, each put away where it's given,
     as one change; the requester told of what didn't arrive as expected."""
     with transaction.atomic():
-        receipt = _open(user, receipt)
-        lines = list(receipt.lines.select_related("entity").order_by("-expected", "id"))
+        receipt = _open(user, receipt, plan_revision)
+        lines = list(
+            receipt.lines.filter(removed=False)
+            .select_related("entity", "checked_by")
+            .order_by("-expected", "id")
+        )
+        _advance(receipt)
         wrong: dict[str, list[str]] = {}
         if not receipt.handed_over_by:
             wrong["handed_over_by"] = [
@@ -258,7 +428,7 @@ def complete(
             ]
         for line in lines:
             if line.outcome is None and missing_rest:
-                _checked(user, line, Outcome.MISSING, line.note)
+                _checked(user, receipt, line, Outcome.MISSING, line.note, "", receipt.operation)
             if line.outcome is None:
                 wrong[f"lines/{line.pk}"] = ["hasn't been checked: scan it, or mark it missing."]
             elif line.outcome in NOTED and not line.note:
@@ -315,18 +485,44 @@ def complete(
         receipt.received_by = user
         receipt.completed_at = timezone.now()
         receipt.save(update_fields=["status", "received_by", "completed_at"])
+        observations.record(
+            receipt,
+            line_id=None,
+            kind="status",
+            before={"status": "open", "note": receipt.note},
+            after={"status": "completed", "note": receipt.note},
+            user=user,
+            reason="",
+            revision=receipt.plan_revision,
+            operation=receipt.operation,
+        )
         _recorded(user, receipt, lines)
         _tell(user, receipt, [line for line in lines if line.outcome in DISCREPANCIES])
         return receipt
 
 
-def cancel(user: User, receipt: Receipt) -> Receipt:
-    """Abandons an open receipt: nothing was received with it."""
+def cancel(user: User, receipt: Receipt, *, plan_revision: int, reason: str) -> Receipt:
+    """Archive the open receipt in full with its cancelling operator and reason."""
     with transaction.atomic():
-        receipt = _open(user, receipt)
+        receipt = _open(user, receipt, plan_revision)
+        reason = _reason(reason, required=True)
         receipt.status = ReceiptStatus.CANCELLED
         receipt.completed_at = timezone.now()
-        receipt.save(update_fields=["status", "completed_at"])
+        receipt.cancelled_by = user
+        receipt.cancel_reason = reason
+        receipt.save(update_fields=["status", "completed_at", "cancelled_by", "cancel_reason"])
+        _advance(receipt)
+        observations.record(
+            receipt,
+            line_id=None,
+            kind="status",
+            before={"status": "open", "note": receipt.note},
+            after={"status": "cancelled", "note": receipt.note},
+            user=user,
+            reason=reason,
+            revision=receipt.plan_revision,
+            operation=uuid7(),
+        )
         return receipt
 
 

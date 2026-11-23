@@ -2431,6 +2431,28 @@
         "title": "CancelIn",
         "type": "object"
       },
+      "CancelReceiptIn": {
+        "properties": {
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_revision",
+          "reason"
+        ],
+        "title": "CancelReceiptIn",
+        "type": "object"
+      },
       "CarriedSignatureOut": {
         "properties": {
           "id": {
@@ -2827,6 +2849,34 @@
         "title": "CheckedOutOut",
         "type": "object"
       },
+      "CheckedReceiptOut": {
+        "properties": {
+          "found": {
+            "description": "Whether this observation changed.",
+            "enum": [
+              "recorded",
+              "again"
+            ],
+            "title": "Found",
+            "type": "string"
+          },
+          "line": {
+            "format": "uuid",
+            "title": "Line",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptOut"
+          }
+        },
+        "required": [
+          "found",
+          "line",
+          "receipt"
+        ],
+        "title": "CheckedReceiptOut",
+        "type": "object"
+      },
       "CheckpointOut": {
         "properties": {
           "attempt": {
@@ -3047,6 +3097,12 @@
             "title": "Missing Rest",
             "type": "boolean"
           },
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "put_away": {
             "items": {
               "$ref": "#/components/schemas/PutAwayIn"
@@ -3056,6 +3112,9 @@
             "type": "array"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReceiptIn",
         "type": "object"
       },
@@ -16793,13 +16852,42 @@
             ],
             "description": "Such as its temperature on arrival.",
             "title": "Note"
+          },
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why existing handoff information is corrected.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "ReceiptIn",
         "type": "object"
       },
       "ReceiptLineIn": {
         "properties": {
+          "line_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the line being corrected.",
+            "title": "Line Revision"
+          },
           "note": {
             "default": "",
             "maxLength": 2000,
@@ -16822,8 +16910,15 @@
                 "type": "null"
               }
             ],
-            "description": "Null clears an expected line's. Damaged, rejected and extra need a note.",
+            "description": "Null clears an expected line. First observations can omit line_revision.",
             "title": "Outcome"
+          },
+          "reason": {
+            "default": "",
+            "description": "Why an existing observation is being changed.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
           }
         },
         "required": [
@@ -16881,6 +16976,12 @@
             "title": "Id",
             "type": "string"
           },
+          "line_revision": {
+            "description": "The version of this line’s saved observation.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -16927,6 +17028,7 @@
         },
         "required": [
           "id",
+          "line_revision",
           "entity",
           "ref",
           "code",
@@ -16946,6 +17048,20 @@
             "description": "You may change it, while it's open.",
             "title": "Can Receive",
             "type": "boolean"
+          },
+          "cancel_reason": {
+            "title": "Cancel Reason",
+            "type": "string"
+          },
+          "cancelled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completed_at": {
             "anyOf": [
@@ -16987,6 +17103,12 @@
             "title": "Outcomes",
             "type": "object"
           },
+          "plan_revision": {
+            "description": "The receipt revision shown for review.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "project": {
             "description": "The service receiving it.",
             "format": "uuid",
@@ -17002,6 +17124,14 @@
                 "type": "null"
               }
             ]
+          },
+          "removed_lines": {
+            "description": "Removed extras kept for review and restoration.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLineOut"
+            },
+            "title": "Removed Lines",
+            "type": "array"
           },
           "request": {
             "$ref": "#/components/schemas/StepOut"
@@ -17026,6 +17156,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "request",
           "project",
           "status",
@@ -17034,8 +17165,11 @@
           "started_by",
           "started_at",
           "received_by",
+          "cancelled_by",
+          "cancel_reason",
           "completed_at",
           "lines",
+          "removed_lines",
           "outcomes",
           "can_receive"
         ],
@@ -17060,11 +17194,12 @@
       "ReceiptScanOut": {
         "properties": {
           "found": {
-            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.",
+            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `removed`: a removed extra that can be restored.",
             "enum": [
               "matched",
               "again",
-              "extra"
+              "extra",
+              "removed"
             ],
             "title": "Found",
             "type": "string"
@@ -18421,6 +18556,28 @@
           "released_states"
         ],
         "title": "ResultTypeOut",
+        "type": "object"
+      },
+      "ReviewedExtraIn": {
+        "properties": {
+          "line_revision": {
+            "description": "The reviewed version of the extra line.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_revision",
+          "reason"
+        ],
+        "title": "ReviewedExtraIn",
         "type": "object"
       },
       "RevisionDetailOut": {
@@ -40324,6 +40481,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReceiptIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40495,7 +40662,6 @@
     },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
       "delete": {
-        "description": "An extra line scanned by mistake, while the receipt is open.",
         "operationId": "iki_server_api_storage_drop_line",
         "parameters": [
           {
@@ -40519,6 +40685,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewedExtraIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40539,7 +40715,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Drop an extra line",
+        "summary": "Remove an observed extra",
         "tags": [
           "storage"
         ]
@@ -40583,7 +40759,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReceiptOut"
+                  "$ref": "#/components/schemas/CheckedReceiptOut"
                 }
               }
             },
@@ -40599,6 +40775,67 @@
           }
         ],
         "summary": "Check a receipt's line",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}/restore": {
+      "post": {
+        "operationId": "iki_server_api_storage_restore_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewedExtraIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Restore a removed extra on an open receipt",
         "tags": [
           "storage"
         ]

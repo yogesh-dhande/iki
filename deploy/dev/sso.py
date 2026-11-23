@@ -2292,27 +2292,37 @@ def receive_at_core(
     at = f"/receipts/{receipt['id']}"
     lines = {x["code"]: x["id"] for x in receipt["lines"]}
     first, second = (t["values"]["barcode"] for t in tubes)
-    scanned = api_call(alice, "POST", f"{at}/scan", {"code": first}).json()
+    scanned = api_call(alice, "POST", f"{at}/scan", {"code": first})
+    if scanned.status_code != 200 or scanned.json()["found"] != "matched":
+        fail(f"scanning {first} answered {scanned.status_code}: {scanned.text[:300]}")
     damaged = api_call(
         alice,
         "PATCH",
         f"{at}/lines/{lines[second]}",
         {"outcome": "damaged", "note": "Cap cracked; contents frozen"},
     )
+    if damaged.status_code != 200 or damaged.json().get("found") != "recorded":
+        fail(f"recording damage to {second} answered {damaged.status_code}: {damaged.text[:300]}")
     described = api_call(
-        alice, "PATCH", at, {"handed_over_by": "Courier, waybill 1Z-DEV", "note": "Dry ice present"}
+        alice,
+        "PATCH",
+        at,
+        {
+            "handed_over_by": "Courier, waybill 1Z-DEV",
+            "note": "Dry ice present",
+            "plan_revision": damaged.json()["receipt"]["plan_revision"],
+        },
     )
-    if (
-        scanned.get("found") != "matched"
-        or damaged.status_code != 200
-        or described.status_code != 200
-    ):
-        fail(f"checking {request['hrid']}'s tubes gave {scanned} and {damaged.text[:200]}")
+    if described.status_code != 200:
+        fail(f"recording the handover answered {described.status_code}: {described.text[:300]}")
     done = api_call(
         alice,
         "POST",
         f"{at}/complete",
-        {"put_away": [{"line": lines[c], "to": incoming["id"]} for c in (first, second)]},
+        {
+            "put_away": [{"line": lines[c], "to": incoming["id"]} for c in (first, second)],
+            "plan_revision": described.json()["plan_revision"],
+        },
     )
     if done.status_code != 200:
         fail(
@@ -3254,16 +3264,27 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
         started = api_call(alice, "POST", path)
         if started.status_code != 201:
             fail(f"starting the example receipt answered {started.status_code}: {started.text}")
-        at = f"/receipts/{started.json()['id']}"
+        receipt = started.json()
+        at = f"/receipts/{receipt['id']}"
         tube = record(alice, tube_id)
         code = tube["values"].get("barcode") or tube["hrid"]
         scanned = api_call(alice, "POST", f"{at}/scan", {"code": code})
         if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
             fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
-        custody = api_call(alice, "PATCH", at, {"handed_over_by": "Example courier, training run"})
+        custody = api_call(
+            alice,
+            "PATCH",
+            at,
+            {
+                "handed_over_by": "Example courier, training run",
+                "plan_revision": scanned.json()["receipt"]["plan_revision"],
+            },
+        )
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
-        done = api_call(alice, "POST", f"{at}/complete", {})
+        done = api_call(
+            alice, "POST", f"{at}/complete", {"plan_revision": custody.json()["plan_revision"]}
+        )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]

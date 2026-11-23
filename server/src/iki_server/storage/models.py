@@ -204,6 +204,11 @@ class Receipt(models.Model):
     status = models.CharField(
         max_length=16, choices=ReceiptStatus.choices, default=ReceiptStatus.OPEN
     )
+    plan_revision = models.PositiveIntegerField(default=1, db_default=1)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    cancel_reason = models.TextField(blank=True, default="", db_default="")
     handed_over_by = models.CharField(max_length=200, blank=True, default="")
     note = models.TextField(blank=True, default="")
     started_by = models.ForeignKey(
@@ -222,6 +227,9 @@ class Receipt(models.Model):
         db_table = "iki_storage_receipt"
         db_table_comment = "A request's material checked in by its service (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(plan_revision__gt=0), name="iki_storage_receipt_positive_revision"
+            ),
             # One open receipt per request at a time: two receivers would tick one box twice.
             models.UniqueConstraint(
                 fields=["request"],
@@ -244,6 +252,9 @@ class ReceiptLine(models.Model):
     #: What was scanned, or the code it was expected with.
     code = models.CharField(max_length=200, blank=True, default="")
     expected = models.BooleanField()
+    line_revision = models.PositiveIntegerField(default=1, db_default=1)
+    #: Removed extras keep their identity and can be restored on the open receipt.
+    removed = models.BooleanField(default=False, db_default=False)
     outcome = models.CharField(max_length=16, choices=Outcome.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
     checked_by = models.ForeignKey(
@@ -261,6 +272,13 @@ class ReceiptLine(models.Model):
         db_table = "iki_storage_receipt_line"
         db_table_comment = "What a receipt expected or found, and its outcome (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(line_revision__gt=0), name="iki_receipt_line_positive_revision"
+            ),
+            models.CheckConstraint(
+                condition=Q(removed=False) | Q(expected=False),
+                name="iki_receipt_only_extra_removed",
+            ),
             models.UniqueConstraint(
                 fields=["receipt", "entity"], name="iki_storage_receipt_line_once"
             ),

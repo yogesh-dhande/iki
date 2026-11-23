@@ -47,6 +47,7 @@ from iki_server.storage.models import (
     ObservationEvent,
     Place,
     Receipt,
+    ReceiptLine,
     ReceiptStatus,
     Reconciliation,
 )
@@ -772,6 +773,7 @@ def _observation_history(
 
 class ReceiptLineOut(Schema):
     id: UUID
+    line_revision: int = Field(ge=1, description="The version of this line’s saved observation.")
     entity: UUID | None
     ref: RefOut | None
     code: str
@@ -785,6 +787,7 @@ class ReceiptLineOut(Schema):
 
 class ReceiptOut(Schema):
     id: UUID
+    plan_revision: int = Field(ge=1, description="The receipt revision shown for review.")
     request: StepOut
     project: UUID = Field(description="The service receiving it.")
     status: Literal["open", "completed", "cancelled"]
@@ -793,8 +796,13 @@ class ReceiptOut(Schema):
     started_by: UserOut
     started_at: datetime
     received_by: UserOut | None
+    cancelled_by: UserOut | None
+    cancel_reason: str
     completed_at: datetime | None
     lines: list[ReceiptLineOut]
+    removed_lines: list[ReceiptLineOut] = Field(
+        description="Removed extras kept for review and restoration."
+    )
     outcomes: dict[str, int] = Field(
         description="How many lines are each outcome, and `unchecked`."
     )
@@ -808,16 +816,63 @@ class ReceiptsOut(Schema):
     expected: int = Field(description="How many it expects that no receipt has received.")
 
 
-def _receipt_out(me: User, receipt: Receipt, refused: str | None = None) -> dict[str, Any]:
-    lines = list(receipt.lines.select_related("checked_by").order_by("-expected", "id"))
+def _receipt_out(
+    me: User,
+    receipt: Receipt,
+    refused: str | None = None,
+    *,
+    locked: bool = False,
+) -> dict[str, Any]:
+    def lines_of(r: Receipt) -> list[ReceiptLine]:
+        return list(r.lines.select_related("checked_by").order_by("-expected", "id"))
+
+    # All writers lock the receipt. Capture parent fields and lines under that same
+    # lock so a returned revision always describes the handoff and checklist shown.
+    if receipt.status == ReceiptStatus.OPEN and not locked:
+        with transaction.atomic():
+            receipt = (
+                Receipt.objects.select_for_update(of=("self",))
+                .select_related("request", "project", "started_by", "received_by", "cancelled_by")
+                .get(pk=receipt.pk)
+            )
+            lines = lines_of(receipt)
+    else:
+        lines = lines_of(receipt)
     request = receipt.request
     ids = {request.pk, *(x.entity_id for x in lines), *(x.put_in_id for x in lines)}
     refs = _refs(me, ids)
     kept = storage.shapes({x.put_in_id for x in lines if x.put_in_id})
     if refused is None:
         refused = receipts.why_not_receiver(me, request)
+    active: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for line in lines:
+        ref = refs.get(line.entity_id)
+        if line.removed and ref and ref["purged"]:
+            ref = None
+        item = {
+            "id": line.pk,
+            "line_revision": line.line_revision,
+            "entity": line.entity_id if ref else None,
+            "ref": ref,
+            "code": "" if line.removed and line.entity_id and ref is None else line.code,
+            "expected": line.expected,
+            "outcome": line.outcome,
+            "note": line.note,
+            "checked_by": line.checked_by,
+            "checked_at": line.checked_at,
+            "put_away": {
+                **refs[line.put_in_id],
+                "id": line.put_in_id,
+                "position": storage.label(kept.get(line.put_in_id), line.put_row, line.put_column),
+            }
+            if line.put_in_id in refs
+            else None,
+        }
+        (removed if line.removed else active).append(item)
     return {
         "id": receipt.pk,
+        "plan_revision": receipt.plan_revision,
         "request": {**refs[request.pk], "id": request.pk, "position": None},
         "project": receipt.project_id,
         "status": receipt.status,
@@ -826,36 +881,21 @@ def _receipt_out(me: User, receipt: Receipt, refused: str | None = None) -> dict
         "started_by": receipt.started_by,
         "started_at": receipt.started_at,
         "received_by": receipt.received_by,
+        "cancelled_by": receipt.cancelled_by,
+        "cancel_reason": receipt.cancel_reason,
         "completed_at": receipt.completed_at,
-        "lines": [
-            {
-                "id": x.pk,
-                "entity": x.entity_id if x.entity_id in refs else None,
-                "ref": refs.get(x.entity_id),
-                "code": x.code,
-                "expected": x.expected,
-                "outcome": x.outcome,
-                "note": x.note,
-                "checked_by": x.checked_by,
-                "checked_at": x.checked_at,
-                "put_away": {
-                    **refs[x.put_in_id],
-                    "id": x.put_in_id,
-                    "position": storage.label(kept.get(x.put_in_id), x.put_row, x.put_column),
-                }
-                if x.put_in_id in refs
-                else None,
-            }
-            for x in lines
-        ],
-        "outcomes": receipts.tally(lines),
+        "lines": active,
+        "removed_lines": removed,
+        "outcomes": receipts.tally([line for line in lines if not line.removed]),
         "can_receive": receipt.status == ReceiptStatus.OPEN and refused is None,
     }
 
 
 def _receipt(me: User, pk: UUID) -> Receipt:
     found = (
-        Receipt.objects.select_related("request", "project", "started_by", "received_by")
+        Receipt.objects.select_related(
+            "request", "project", "started_by", "received_by", "cancelled_by"
+        )
         .filter(pk=pk)
         .first()
     )
@@ -883,7 +923,7 @@ def list_receipts(request: HttpRequest, ref: str) -> dict[str, Any]:
     refused = receipts.why_not_receiver(me, entity)
     found = (
         Receipt.objects.filter(request=entity)
-        .select_related("request", "started_by", "received_by")
+        .select_related("request", "started_by", "received_by", "cancelled_by")
         .order_by("-started_at")
     )
     return {
@@ -904,8 +944,9 @@ def start_receipt(request: HttpRequest, ref: str) -> Status[dict[str, Any]]:
     entity = _find(me, ref)
     if receipts.receives(entity) is None:
         raise Problem(404, f"{entity.hrid} is a {entity.type}, whose material isn't received.")
-    receipt = _receiving(lambda: receipts.start(me, entity))
-    return Status(201, _receipt_out(me, _receipt(me, receipt.pk)))
+    with transaction.atomic():
+        receipt = _receiving(lambda: receipts.start(me, entity))
+        return Status(201, _receipt_out(me, receipt, locked=True))
 
 
 @router.get("/receipts/{receipt_id}", response=ReceiptOut, summary="A receipt")
@@ -927,7 +968,14 @@ def receipt_history(
     return _observation_history(me, _receipt(me, receipt_id), line_id, params)
 
 
-class ReceiptIn(Schema):
+class ReviewedReceiptIn(Schema):
+    plan_revision: int = Field(ge=1, strict=True, description="The receipt revision you reviewed.")
+
+
+class ReceiptIn(ReviewedReceiptIn):
+    reason: str = Field(
+        "", max_length=2000, description="Why existing handoff information is corrected."
+    )
     handed_over_by: str | None = Field(
         None, max_length=200, description="Who handed it over: a courier and waybill, a person."
     )
@@ -940,12 +988,18 @@ class ReceiptIn(Schema):
 def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(
-        lambda: receipts.describe(
-            me, receipt, handed_over_by=payload.handed_over_by, note=payload.note
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.describe(
+                me,
+                receipt,
+                handed_over_by=payload.handed_over_by,
+                note=payload.note,
+                plan_revision=payload.plan_revision,
+                reason=payload.reason,
+            )
         )
-    )
-    return _receipt_out(me, _receipt(me, receipt_id))
+        return _receipt_out(me, changed, locked=True)
 
 
 class ReceiptScanIn(Schema):
@@ -953,9 +1007,9 @@ class ReceiptScanIn(Schema):
 
 
 class ReceiptScanOut(Schema):
-    found: Literal["matched", "again", "extra"] = Field(
+    found: Literal["matched", "again", "extra", "removed"] = Field(
         description="`matched`: an expected line ticked; `again`: one already checked; "
-        "`extra`: a line added for what isn't expected."
+        "`extra`: what wasn't expected; `removed`: a removed extra that can be restored."
     )
     line: UUID
     receipt: ReceiptOut
@@ -966,42 +1020,122 @@ def scan_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptScanIn)
     """Ticks the expected line the code names as matched, or adds an extra line for it."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    scanned = _receiving(lambda: receipts.scan(me, receipt, payload.code))
-    return {
-        "found": scanned.found,
-        "line": scanned.line.pk,
-        "receipt": _receipt_out(me, _receipt(me, receipt_id)),
-    }
+    with transaction.atomic():
+        scanned = _receiving(lambda: receipts.scan(me, receipt, payload.code))
+        return {
+            "found": scanned.found,
+            "line": scanned.line.pk,
+            "receipt": _receipt_out(me, scanned.receipt, locked=True),
+        }
 
 
 class ReceiptLineIn(Schema):
     outcome: Outcome | None = Field(
-        description="Null clears an expected line's. Damaged, rejected and extra need a note."
+        description="Null clears an expected line. First observations can omit line_revision."
     )
     note: str = Field("", max_length=2000)
+    line_revision: int | None = Field(
+        None, ge=1, strict=True, description="Version of the line being corrected."
+    )
+    reason: str = Field(
+        "", max_length=2000, description="Why an existing observation is being changed."
+    )
+
+
+class CheckedReceiptOut(Schema):
+    found: Literal["recorded", "again"] = Field(description="Whether this observation changed.")
+    line: UUID
+    receipt: ReceiptOut
 
 
 @router.patch(
-    "/receipts/{receipt_id}/lines/{line_id}", response=ReceiptOut, summary="Check a receipt's line"
+    "/receipts/{receipt_id}/lines/{line_id}",
+    response=CheckedReceiptOut,
+    summary="Check a receipt's line",
 )
 def check_line(
     request: HttpRequest, receipt_id: UUID, line_id: UUID, payload: ReceiptLineIn
 ) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.check(me, receipt, line_id, payload.outcome, payload.note))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        result = _receiving(
+            lambda: receipts.check(
+                me,
+                receipt,
+                line_id,
+                payload.outcome,
+                payload.note if "note" in payload.model_fields_set else None,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
+        )
+        return {
+            "found": result.found,
+            "line": result.line.pk,
+            "receipt": _receipt_out(me, result.receipt, locked=True),
+        }
+
+
+class ReviewedExtraIn(Schema):
+    line_revision: int = Field(
+        ge=1, strict=True, description="The reviewed version of the extra line."
+    )
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 @router.delete(
-    "/receipts/{receipt_id}/lines/{line_id}", response=ReceiptOut, summary="Drop an extra line"
+    "/receipts/{receipt_id}/lines/{line_id}",
+    response=ReceiptOut,
+    summary="Remove an observed extra",
 )
-def drop_line(request: HttpRequest, receipt_id: UUID, line_id: UUID) -> dict[str, Any]:
-    """An extra line scanned by mistake, while the receipt is open."""
+def drop_line(
+    request: HttpRequest,
+    receipt_id: UUID,
+    line_id: UUID,
+    payload: ReviewedExtraIn,
+) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.drop(me, receipt, line_id))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.set_removed(
+                me,
+                receipt,
+                line_id,
+                removed=True,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
+
+
+@router.post(
+    "/receipts/{receipt_id}/lines/{line_id}/restore",
+    response=ReceiptOut,
+    summary="Restore a removed extra on an open receipt",
+)
+def restore_line(
+    request: HttpRequest,
+    receipt_id: UUID,
+    line_id: UUID,
+    payload: ReviewedExtraIn,
+) -> dict[str, Any]:
+    me = caller(request)
+    receipt = _receipt(me, receipt_id)
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.set_removed(
+                me,
+                receipt,
+                line_id,
+                removed=False,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
 
 
 class PutAwayIn(Schema):
@@ -1010,7 +1144,7 @@ class PutAwayIn(Schema):
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
-class CompleteReceiptIn(Schema):
+class CompleteReceiptIn(ReviewedReceiptIn):
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
     missing_rest: bool = Field(
         False, description="Mark every expected line not yet checked missing."
@@ -1026,17 +1160,37 @@ def complete_receipt(
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     put = [receipts.PutAway(p.line, _find(me, p.to), p.position) for p in payload.put_away]
-    _receiving(lambda: receipts.complete(me, receipt, put, missing_rest=payload.missing_rest))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.complete(
+                me,
+                receipt,
+                put,
+                plan_revision=payload.plan_revision,
+                missing_rest=payload.missing_rest,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
+
+
+class CancelReceiptIn(ReviewedReceiptIn):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 @router.post("/receipts/{receipt_id}/cancel", response=ReceiptOut, summary="Cancel a receipt")
-def cancel_receipt(request: HttpRequest, receipt_id: UUID) -> dict[str, Any]:
+def cancel_receipt(
+    request: HttpRequest, receipt_id: UUID, payload: CancelReceiptIn
+) -> dict[str, Any]:
     """An open receipt, abandoned: nothing is received with it. It's kept, cancelled."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.cancel(me, receipt))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.cancel(
+                me, receipt, plan_revision=payload.plan_revision, reason=payload.reason
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
 
 
 # --- Reconciliations ----------------------------------------------------------------------------

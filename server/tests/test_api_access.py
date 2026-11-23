@@ -772,6 +772,12 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         found, started = _received(w)
         line = started.lines.get()
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
+        if body is not None and "reason" in body and "/lines/" in path:
+            return path, {**body, "line_revision": line.line_revision}
+        if body is not None and (
+            suffix == "/receipts/{receipt}" or suffix.endswith(("/complete", "/cancel"))
+        ):
+            return path, {**body, "plan_revision": started.plan_revision}
         return path, body
 
     return build
@@ -1316,7 +1322,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "DELETE",
         "/receipts/{receipt_id}/lines/{line_id}",
-        receipt("/receipts/{receipt}/lines/{line}"),
+        receipt("/receipts/{receipt}/lines/{line}", {"reason": "Duplicate observation"}),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/lines/{line_id}/restore",
+        receipt("/receipts/{receipt}/lines/{line}/restore", {"reason": "Confirmed extra"}),
         readers(403),
     ),
     (
@@ -1325,7 +1337,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
     ),
-    ("POST", "/receipts/{receipt_id}/cancel", receipt("/receipts/{receipt}/cancel"), readers(403)),
+    (
+        "POST",
+        "/receipts/{receipt_id}/cancel",
+        receipt("/receipts/{receipt}/cancel", {"reason": "Wrong shipment"}),
+        readers(403),
+    ),
     # A container's reconciliations: read by its readers, made by its project's Editors.
     (
         "GET",

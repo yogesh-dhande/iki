@@ -3327,15 +3327,29 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /**
-         * Drop an extra line
-         * @description An extra line scanned by mistake, while the receipt is open.
-         */
+        /** Remove an observed extra */
         delete: operations["iki_server_api_storage_drop_line"];
         options?: never;
         head?: never;
         /** Check a receipt's line */
         patch: operations["iki_server_api_storage_check_line"];
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a removed extra on an open receipt */
+        post: operations["iki_server_api_storage_restore_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/receipts/{receipt_id}/scan": {
@@ -6523,6 +6537,16 @@ export interface components {
              */
             reason: string;
         };
+        /** CancelReceiptIn */
+        CancelReceiptIn: {
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /** Reason */
+            reason: string;
+        };
         /** CarriedSignatureOut */
         CarriedSignatureOut: {
             /**
@@ -6714,6 +6738,21 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** CheckedReceiptOut */
+        CheckedReceiptOut: {
+            /**
+             * Found
+             * @description Whether this observation changed.
+             * @enum {string}
+             */
+            found: "recorded" | "again";
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            receipt: components["schemas"]["ReceiptOut"];
+        };
         /** CheckpointOut */
         CheckpointOut: {
             /**
@@ -6821,6 +6860,11 @@ export interface components {
              * @default false
              */
             missing_rest: boolean;
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
             /** Put Away */
             put_away?: components["schemas"]["PutAwayIn"][];
         };
@@ -13034,9 +13078,25 @@ export interface components {
              * @description Such as its temperature on arrival.
              */
             note?: string | null;
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /**
+             * Reason
+             * @description Why existing handoff information is corrected.
+             * @default
+             */
+            reason: string;
         };
         /** ReceiptLineIn */
         ReceiptLineIn: {
+            /**
+             * Line Revision
+             * @description Version of the line being corrected.
+             */
+            line_revision?: number | null;
             /**
              * Note
              * @default
@@ -13044,9 +13104,15 @@ export interface components {
             note: string;
             /**
              * Outcome
-             * @description Null clears an expected line's. Damaged, rejected and extra need a note.
+             * @description Null clears an expected line. First observations can omit line_revision.
              */
             outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
+            /**
+             * Reason
+             * @description Why an existing observation is being changed.
+             * @default
+             */
+            reason: string;
         };
         /** ReceiptLineOut */
         ReceiptLineOut: {
@@ -13064,6 +13130,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Line Revision
+             * @description The version of this line’s saved observation.
+             */
+            line_revision: number;
             /** Note */
             note: string;
             /** Outcome */
@@ -13079,6 +13150,9 @@ export interface components {
              * @description You may change it, while it's open.
              */
             can_receive: boolean;
+            /** Cancel Reason */
+            cancel_reason: string;
+            cancelled_by: components["schemas"]["UserOut"] | null;
             /** Completed At */
             completed_at: string | null;
             /** Handed Over By */
@@ -13100,12 +13174,22 @@ export interface components {
                 [key: string]: number;
             };
             /**
+             * Plan Revision
+             * @description The receipt revision shown for review.
+             */
+            plan_revision: number;
+            /**
              * Project
              * Format: uuid
              * @description The service receiving it.
              */
             project: string;
             received_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Removed Lines
+             * @description Removed extras kept for review and restoration.
+             */
+            removed_lines: components["schemas"]["ReceiptLineOut"][];
             request: components["schemas"]["StepOut"];
             /**
              * Started At
@@ -13128,10 +13212,10 @@ export interface components {
         ReceiptScanOut: {
             /**
              * Found
-             * @description `matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.
+             * @description `matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `removed`: a removed extra that can be restored.
              * @enum {string}
              */
-            found: "matched" | "again" | "extra";
+            found: "matched" | "again" | "extra" | "removed";
             /**
              * Line
              * Format: uuid
@@ -13762,6 +13846,16 @@ export interface components {
              * @description The states that send it back to the asking project, where it stays.
              */
             released_states: string[];
+        };
+        /** ReviewedExtraIn */
+        ReviewedExtraIn: {
+            /**
+             * Line Revision
+             * @description The reviewed version of the extra line.
+             */
+            line_revision: number;
+            /** Reason */
+            reason: string;
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
@@ -23303,7 +23397,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelReceiptIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -23380,7 +23478,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewedExtraIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -23406,6 +23508,33 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReceiptLineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckedReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_restore_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewedExtraIn"];
             };
         };
         responses: {
