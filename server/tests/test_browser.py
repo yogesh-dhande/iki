@@ -929,6 +929,10 @@ def test_the_admin_area_has_a_frame_of_its_own(
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
+            # The empty Workers list wraps to a second line at this width.
+            page.get_by_role("region", name="Workers", exact=True).get_by_text(
+                "No workers have registered yet."
+            ).wait_for()
         admin = page.get_by_role("navigation", name="Admin")
         admin.wait_for(state="hidden")
         menu = page.get_by_role("button", name="Menu", exact=True)
