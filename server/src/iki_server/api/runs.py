@@ -1636,7 +1636,9 @@ def _decide(me: User, approval: RunApproval) -> None:
 
 
 class DeclineIn(Schema):
-    note: str = Field("", max_length=2000, description="Why, for the record and for the agent.")
+    note: str = Field(
+        "", max_length=2000, description="Required. Why, for the record and for the agent."
+    )
 
 
 @router.get(
@@ -1675,6 +1677,8 @@ def decline_runs(request: HttpRequest, approval_id: UUID, payload: DeclineIn) ->
     _decide(me, found)
     try:
         approvals.decline(me, found, note=payload.note)
+    except Invalid as error:
+        raise invalid_problem(error) from None
     except PermissionDenied:
         raise Problem(403) from None
     return _approvals_out(me, {found.pk})[found.pk]

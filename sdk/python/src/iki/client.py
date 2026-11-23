@@ -509,10 +509,10 @@ class Entities(_Part):
             body["amount"] = _quantity(amount)
         return cast("CreatedOut", self._client.request("POST", "/entities", json=body))
 
-    def move(self, ref: str, *, reason: str = "") -> EntityOut:
+    def move(self, ref: str, *, reason: str) -> EntityOut:
         """Moves a record of a superseded registry entry to the entry that replaced it,
         with its data, history and runs; the project's records that refer to the old
-        entry then refer to the new one."""
+        entry then refer to the new one, each with the reason."""
         return cast(
             "EntityOut",
             self._client.request(

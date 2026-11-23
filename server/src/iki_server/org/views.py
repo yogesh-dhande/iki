@@ -397,7 +397,7 @@ def legal_holds(request: HttpRequest) -> HttpResponse:
             raise PermissionDenied
         if request.POST.get("action") == "release":
             hold = get_object_or_404(LegalHold, pk=request.POST.get("hold"))
-            holds.release(me, hold)
+            holds.release(me, hold, reason=request.POST.get("reason", ""))
             messages.success(
                 request, f"Released the hold on {hold.project.name} for {hold.matter}."
             )
