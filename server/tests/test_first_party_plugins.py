@@ -33,6 +33,14 @@ FIRST_PARTY = {
         PLUGINS / "oligo",
         PLUGINS / "plasmid",
     ),
+    PLUGINS / "strains": (
+        PLUGINS / "dna",
+        PLUGINS / "plasmid",
+        PLUGINS / "protein",
+        PLUGINS / "oligo",
+        PLUGINS / "lots",
+        PLUGINS / "example_lims",
+    ),
     TEMPLATE: (PLUGINS / "dna",),
 }
 
