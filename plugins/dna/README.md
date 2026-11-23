@@ -78,6 +78,26 @@ them.
     tables. Until the run has been, the tab names the action that makes the
     changes and offers it where the person viewing it may run it
     ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
+- **`iki/dna.GuideDesign`** (`GDE-000001`): where a CRISPR nuclease can cut a
+  sequence, and how particular each place is
+  ([ADR 0205](../../docs/adr/0205-a-guide-design-says-where-a-nuclease-can-cut-and-how-particular-each-place-is.md)).
+  It names the target, the stretch of it the cut must fall in, the nuclease,
+  and the sequences to search for other places the guides could cut. It has no
+  identity: the same gene is targeted differently for different nucleases and
+  against different genomes. `design_guides` reads both strands for the
+  nuclease's own motif and records every site with what is known about it. The
+  guides themselves are a field, not entities: a guide is a stretch of a
+  sequence Iki already has, and the oligo a lab goes on to order is registered
+  where oligos are.
+  - Its **Guides** tab places each guide along the target, the forward-strand
+    ones above the line and the reverse-strand ones below, then every guide
+    with its protospacer and PAM, where it cuts, GC content and specificity;
+    what is known to make a guide work less well, each under the work that
+    says so; and everywhere else each could cut, with where the mismatches
+    lie and what that place scores. Nothing is told by colour alone. Until the
+    run has been, the tab names the action that finds the guides and offers it
+    where the person viewing it may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
 
 `DNASequence` and `Primer` extend `iki/core.Sequence`, so a search for
 sequences finds them alongside proteins and other plugins' sequences.
@@ -140,6 +160,24 @@ and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as mad
   the coding region is, the run says what the changes do to the protein --
   silent, missense, nonsense, a frameshift, an in-frame insertion or deletion --
   with the HGVS protein name.
+- **`design_guides`**: finds a `GuideDesign`'s guides. Both strands of the
+  target are read for the nuclease's own protospacer adjacent motif -- NGG
+  after a 20-base protospacer for SpCas9, NNGRRT after a 21- to 23-base one
+  for SaCas9, TTTV _before_ a 23-base one for AsCas12a and LbCas12a, TTN for
+  FnCas12a -- and the sites whose cut falls in the region the design names are
+  kept. Each is reported with where it cuts (one place for Cas9's blunt cut,
+  two for Cas12a's staggered one), its GC content, and what is known to make a
+  guide work less well: GC outside CHOPCHOP's band, a run of T that RNA
+  polymerase III reads as a terminator, no G at the 5' end for the U6
+  promoter, and self-complementarity. None of those is a score: the published
+  efficiency models' weights were never published, which ADR 0205 says more
+  about. Every place in the sequences the design names that matches a guide
+  within so many mismatches, beside a motif the nuclease cleaves, is listed
+  with where the mismatches lie; for SpCas9 each is scored and each guide
+  given a specificity, by the formulas the CRISPR Design tool published at
+  crispr.mit.edu. Where nothing was searched, or the nuclease isn't the one
+  those weights were measured on, no specificity is reported and the record
+  says why.
 - **`primer_properties`**: a primer's length, GC content and melting
   temperature, for many at once.
 - **`import_sequences`**: registers each record of a FASTA or GenBank file
@@ -402,6 +440,10 @@ where it binds the template, and whether it binds anywhere else, is read with
 the plasmid plugin's `primer_binding_sites`: the design places each primer by
 the protocol's rules and doesn't search the molecule for second sites, which
 is that action's work.
+
+A guide a design finds is a stretch of a registered sequence, so where it lies
+on a map is the plasmid plugin's; `design_guides` places the guides and does
+not annotate the molecule.
 
 ## Exports
 
