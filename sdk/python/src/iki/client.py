@@ -785,7 +785,7 @@ class Entities(_Part):
         ref: str,
         *,
         depth: int = 10,
-        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer", "used"]] = (),
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
@@ -806,7 +806,7 @@ class Entities(_Part):
         ref: str,
         *,
         depth: int = 10,
-        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer", "used"]] = (),
         type: str | Sequence[str] | None = None,
         archived: bool | None = None,
         project: str | Mapping[str, Any] | None = None,
@@ -835,7 +835,7 @@ class Entities(_Part):
         *,
         up: int = 3,
         down: int = 3,
-        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer"]] = (),
+        edges: Sequence[Literal["reference", "run", "file", "aliquot", "transfer", "used"]] = (),
     ) -> GraphOut:
         """A few steps each way, with the edges between: to draw."""
         return cast(

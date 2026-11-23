@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: annotate_dna_sequence
+label: Annotate from feature library
+description: >-
+  Finds exact matches to a library of routine cloning-vector features in a DNA
+  sequence. It reads both strands of double-stranded DNA and across the origin of a
+  circular sequence. Each hit records the source accession and location. Each search
+  is limited to 16 MiB of bases and 5,000 hits.
+inputs:
+  sequence: { type: iki/dna.DNASequence, schema: ">=4" }
+effects:
+  updates: [{ input: sequence, fields: [library_features, library_annotated_with] }]
+software:
+  - { name: Wasmtime, version: "50.0.1", url: https://wasmtime.dev }
+runs_on: { tier: backend, environment: plasmid-tools }
+command: [python, ./scripts/annotate_dna.py]
+deterministic: true
+timeout: 5m

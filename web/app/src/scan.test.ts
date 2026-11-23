@@ -36,8 +36,8 @@ describe("the keyboard wedge", () => {
     expect(out.every((f) => f.kind !== "char" || !f.swallow)).toBe(true);
   });
 
-  it("ignores a burst too short to be a code", () => {
-    expect(feedAll(new Wedge(), "A1", 5).at(-1)).toEqual({ kind: "none" });
+  it("rejects a short scanner-like burst and consumes its terminator", () => {
+    expect(feedAll(new Wedge(), "A1", 5).at(-1)).toEqual({ kind: "rejected" });
   });
 
   it("starts again after a pause, so typed keys before a scan aren't part of it", () => {

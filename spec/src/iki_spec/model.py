@@ -1318,7 +1318,7 @@ ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", 
 #: it was derived from.
 RELATED_DIRECTIONS = ("downstream", "upstream")
 #: The kinds of edge a trigger's walk may be narrowed to.
-RELATED_EDGES = ("reference", "run", "file", "aliquot", "transfer")
+RELATED_EDGES = ("reference", "run", "file", "aliquot", "transfer", "used")
 
 
 @dataclass(frozen=True)

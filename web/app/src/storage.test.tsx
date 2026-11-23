@@ -93,14 +93,17 @@ function onBox() {
 }
 
 /** Types `code` as a keyboard-mode scanner does, at whatever has focus. */
-function wedge(code: string) {
-  let t = performance.now();
+function wedge(code: string, gaps: number[] = []) {
+  let t = 1000;
   const target = document.activeElement ?? document.body;
-  for (const key of [...Array.from(code), "Enter"]) {
+  const press = (key: string, gap = 4) => {
     const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
-    Object.defineProperty(event, "timeStamp", { value: (t += 4) });
-    target.dispatchEvent(event);
-  }
+    Object.defineProperty(event, "timeStamp", { value: (t += gap) });
+    return !target.dispatchEvent(event);
+  };
+  const keys = Array.from(code);
+  keys.forEach((key, i) => press(key, gaps[i - 1]));
+  return press("Enter", gaps[keys.length - 1]);
 }
 
 describe("a container's page", () => {
@@ -122,6 +125,48 @@ describe("a container's page", () => {
       expect(document.activeElement).toBe(b3);
     });
     expect(screen.getByText("TUBE-000023 is at B3.")).toHaveAttribute("role", "status");
+  });
+
+  it.each([
+    { when: "one 250 ms stall between characters", gaps: [4, 4, 250], accepted: true },
+    { when: "one 250 ms stall before Enter", gaps: [4, 4, 4, 4, 4, 4, 250], accepted: true },
+    { when: "all remaining gaps are 50 ms", gaps: [250, 50, 50, 50, 50, 50, 50], accepted: true },
+    { when: "a 251 ms stall leaves a fast suffix", gaps: [4, 251], accepted: false },
+    { when: "Enter arrives after a long pause", gaps: [4, 4, 4, 4, 4, 4, 1000], accepted: false },
+    { when: "two gaps exceed 50 ms", gaps: [4, 51, 51], accepted: false },
+  ])("protects the focused button with $when", async ({ gaps, accepted }) => {
+    onBox();
+    await renderApp("/storage/BOX-000014/");
+    const button = screen.getByRole("button", { name: "Show free positions" });
+    button.focus();
+    let enterReachedButton = false;
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") enterReachedButton = true;
+    });
+    act(() => {
+      expect(wedge("LB-0023", gaps)).toBe(true);
+    });
+    expect(enterReachedButton).toBe(false);
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    if (accepted) {
+      expect(await screen.findByText("TUBE-000023 is at B3.")).toBeInTheDocument();
+    } else {
+      expect(button).toHaveFocus();
+      expect(screen.getByRole("alert")).toHaveTextContent("Scan again or type the code.");
+      expect(screen.queryByText("TUBE-000023 is at B3.")).toBeNull();
+    }
+  });
+
+  it("lets a person type at a steady 90 ms per key and use Enter", async () => {
+    onBox();
+    await renderApp("/storage/BOX-000014/");
+    const button = screen.getByRole("button", { name: "Show free positions" });
+    button.focus();
+    act(() => {
+      expect(wedge("LB-0023", Array<number>(7).fill(90))).toBe(false);
+    });
+    expect(button).toHaveFocus();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("moves several selected, after saying where each goes, with one reason", async () => {

@@ -23,7 +23,9 @@ Iki sets three properties on the element, each again whenever it changes:
 - `entities`: for a component that declares `entities` in its manifest,
   what fills its place, a page at a time: `items` (each with `id`, `hrid`,
   `title`, `type`, `revision`, `project`, the fields it reads in `values`
-  and the entities they name in `refs`), whether there are `more`, whether
+  and the entities they name in `refs`). For a person named by those
+  fields, `item.people?.[id]?.name` gives their display name. The page also
+  says whether there are `more`, whether
   it's `limited` (it holds as many as its `limit`), whether a page is
   `loading`, an `error` if its search was refused, and the `refinement` in
   force.
