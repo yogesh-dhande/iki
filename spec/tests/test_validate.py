@@ -302,6 +302,14 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
     assert any("Constraints compare whole schema versions" in p.message for p in result.problems)
 
 
+def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "1.0.0"}\n')
+    assert result.plugin is not None and not result.problems
+    assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
+    bad = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "latest"}\n')
+    assert codes(bad) == ["schema"]
+
+
 # --- Rules across the plugin ---------------------------------------------------------------------
 
 
@@ -2845,6 +2853,112 @@ amount: { unit: uL }
 fields:
   parent: { type: ref, to: Assay }
 """
+
+
+def test_a_draw_destination_declares_one_computed_receipt_field(tmp_path: Path) -> None:
+    parent = (
+        TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
+        + """
+draws_received: material_draws
+fields:
+  material_draws: { type: json, computed: true }
+"""
+    )
+    child = """
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Experiment
+schema_version: 1
+extends: Assay
+hrid: { prefix: EXPT }
+"""
+    result = make(tmp_path, parent + child)
+    assert result.problems == []
+    assert result.plugin is not None
+    restored = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
+    assert restored.types["acme/lab.Assay"].draws_received == "material_draws"
+    assert restored.types["acme/lab.Experiment"].extends == "acme/lab.Assay"
+    assert codes(make(tmp_path, parent + child + "draws_received: other\n")) == [
+        "draws-received-field"
+    ]
+    for declaration in (
+        "type: text, computed: true",
+        "type: json",
+        "type: json, computed: true, immutable: true",
+    ):
+        assert "draws-received-field" in codes(
+            make(tmp_path, parent.replace("type: json, computed: true", declaration))
+        )
+    assert "draws-received-field" in codes(
+        make(tmp_path, parent.replace("draws_received: material_draws", "draws_received: missing"))
+    )
+
+
+def test_stock_catalogue_checks_and_roundtrips_its_project_fields(tmp_path: Path) -> None:
+    catalogue = (
+        TYPE
+        + """
+stock_catalogue:
+  name: name
+  unit: unit
+  threshold: threshold
+  notify: [qa]
+  lots: { type: Lot, item: item, number: serial, expiry: expires_on }
+  orders: { type: Order, item: item, reference: reference, ordered: ordered, received: received }
+fields:
+  name: { type: string, required: true }
+  unit: { type: enum, values: [mg], required: true, immutable: true }
+  threshold: { type: float, required: true, min: 0 }
+"""
+    )
+    item = "  item: { type: ref, to: Assay, immutable: true, required: true }"
+    lot = (
+        TYPE.replace("Assay", "Lot").replace("ASY", "LOT")
+        + """
+amount: { unit: mg, material: item }
+fields:
+  serial: { type: string }
+  expires_on: { type: date }
+"""
+        + item
+    )
+    order = (
+        TYPE.replace("Assay", "Order").replace("ASY", "ORD")
+        + """
+fields:
+  reference: { type: string }
+  ordered: { type: int, required: true, immutable: true, min: 1 }
+  received: { type: int, computed: true, min: 0 }
+"""
+        + item
+    )
+    files = {"types/item.yaml": catalogue, "types/lot.yaml": lot, "types/order.yaml": order}
+    result = make(tmp_path, files, ROLES)
+    assert codes(result) == [], result.problems
+    assert result.plugin is not None
+    loaded = plugin_from_dict(plugin_to_dict(result.plugin))
+    assert loaded == result.plugin
+    cfg = loaded.types["acme/lab.Assay"].stock_catalogue
+    assert cfg is not None and cfg.lots.type == "acme/lab.Lot" and cfg.notify == ("acme/lab.qa",)
+    for before, after, expected in [
+        ("threshold: threshold", "threshold: serial", "stock-catalogue-field"),
+        ("required: true, immutable: true", "required: true", "stock-catalogue-unit"),
+        ("min: 0", "min: -1", "stock-catalogue-threshold"),
+        ("values: [mg]", "values: [mL]", "stock-catalogue-lot"),
+    ]:
+        assert expected in codes(
+            make(tmp_path, {**files, "types/item.yaml": catalogue.replace(before, after)}, ROLES)
+        )
+
+
+def test_a_type_can_keep_its_amount_in_whole_units(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE + 'amount: { unit: "1", whole_units: true }\n')
+    assert not result.problems
+    assert result.plugin is not None
+    built = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
+    amount = built.types["acme/lab.Assay"].amount
+    assert amount is not None and amount.whole_units
 
 
 def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:

@@ -1286,8 +1286,88 @@
         "title": "AppPluginComponentOut",
         "type": "object"
       },
+      "AppliedMappingOut": {
+        "properties": {
+          "columns": {
+            "description": "Mapped columns, including the column index, header and how each was read.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "header_row": {
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/SheetLocaleOut"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedMappingMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "template",
+          "header_row",
+          "locale",
+          "columns"
+        ],
+        "title": "AppliedMappingOut",
+        "type": "object"
+      },
+      "AppliedStarterOut": {
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "requester_project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Original requester for an assay project Admin who may edit that project.",
+            "title": "Requester Project"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "flow",
+          "requester_project"
+        ],
+        "title": "AppliedStarterOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "properties": {
+          "planned_at": {
+            "description": "The planned_at of the plan being confirmed.",
+            "format": "date-time",
+            "title": "Planned At",
+            "type": "string"
+          },
           "reason": {
             "description": "Why: the import and the audit log keep it.",
             "maxLength": 2000,
@@ -1297,6 +1377,7 @@
           }
         },
         "required": [
+          "planned_at",
           "reason"
         ],
         "title": "ApplyIn",
@@ -3029,8 +3110,17 @@
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
+          },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -4149,6 +4239,18 @@
             },
             "title": "Derived From",
             "type": "array"
+          },
+          "receive_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The required input container for a fresh stock receipt.",
+            "title": "Receive Into"
           },
           "type": {
             "title": "Type",
@@ -7906,6 +8008,72 @@
         "title": "FiringOut",
         "type": "object"
       },
+      "FlowFieldOut": {
+        "properties": {
+          "initial": {
+            "title": "Initial",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/StateOut"
+            },
+            "title": "States",
+            "type": "array"
+          },
+          "transitions": {
+            "description": "Possible explicit moves. A state's on_edit separately identifies where a reasoned value correction returns the record.",
+            "items": {
+              "$ref": "#/components/schemas/FlowTransitionOut"
+            },
+            "title": "Transitions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "initial",
+          "states",
+          "transitions"
+        ],
+        "title": "FlowFieldOut",
+        "type": "object"
+      },
+      "FlowTransitionOut": {
+        "properties": {
+          "conditional": {
+            "description": "Whether a guard remains undecided from the field, origin and destination alone. A record's can.states supplies its current permissions, holds and guard decisions.",
+            "title": "Conditional",
+            "type": "boolean"
+          },
+          "from": {
+            "description": "The possible preceding state.",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "The state being set. Its roles, guards and signatures apply.",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "conditional"
+        ],
+        "title": "FlowTransitionOut",
+        "type": "object"
+      },
       "FormatOut": {
         "properties": {
           "count": {
@@ -9386,6 +9554,19 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
           }
         },
         "title": "ImportEntityParams",
@@ -9450,6 +9631,45 @@
           "sha256"
         ],
         "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportMemberParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
+          }
+        },
+        "title": "ImportMemberParams",
         "type": "object"
       },
       "ImportOut": {
@@ -9518,6 +9738,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -9898,6 +10119,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -12421,6 +12643,68 @@
         "title": "OccupantOut",
         "type": "object"
       },
+      "OpenOrder": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_hrid": {
+            "title": "Item Hrid",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "order_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Reference"
+          },
+          "ordered_packs": {
+            "title": "Ordered Packs",
+            "type": "integer"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "received_packs": {
+            "title": "Received Packs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "order_reference",
+          "item_id",
+          "item_hrid",
+          "item_name",
+          "ordered_packs",
+          "received_packs",
+          "outstanding_packs"
+        ],
+        "title": "OpenOrder",
+        "type": "object"
+      },
       "OrgParams": {
         "properties": {
           "by": {
@@ -13268,6 +13552,35 @@
         "title": "Page[NotificationOut]",
         "type": "object"
       },
+      "Page_OpenOrder_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpenOrder"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OpenOrder]",
+        "type": "object"
+      },
       "Page_PreviewRowOut_": {
         "properties": {
           "items": {
@@ -13614,6 +13927,64 @@
           "next_cursor"
         ],
         "title": "Page[SpreadsheetImportOut]",
+        "type": "object"
+      },
+      "Page_StockLot_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockLot"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockLot]",
+        "type": "object"
+      },
+      "Page_StockSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockSummary]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -17057,7 +17428,8 @@
               "wrong_slot",
               "unchecked",
               "empty",
-              "checked_out"
+              "checked_out",
+              "no_longer_found"
             ],
             "title": "Finding",
             "type": "string"
@@ -17110,6 +17482,11 @@
             ],
             "title": "Resolution"
           },
+          "resolution_stale": {
+            "description": "The open count's saved decision needs review.",
+            "title": "Resolution Stale",
+            "type": "boolean"
+          },
           "resolved_by": {
             "anyOf": [
               {
@@ -17130,6 +17507,7 @@
           "found",
           "finding",
           "resolution",
+          "resolution_stale",
           "note",
           "resolved_by"
         ],
@@ -17190,6 +17568,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The version of the count's observations and decisions.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "shape": {
             "$ref": "#/components/schemas/ShapeOut"
           },
@@ -17213,6 +17597,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "container",
           "shape",
           "status",
@@ -18192,6 +18577,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "resolution": {
             "anyOf": [
               {
@@ -18212,6 +18603,7 @@
           }
         },
         "required": [
+          "plan_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -24391,6 +24783,17 @@
       },
       "SpreadsheetImportOut": {
         "properties": {
+          "applied_mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedMappingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact mapping confirmed at commit, kept on the import."
+          },
           "can": {
             "additionalProperties": {
               "type": "boolean"
@@ -24470,7 +24873,7 @@
                 "type": "null"
               }
             ],
-            "description": "The saved mapping it was mapped by."
+            "description": "The saved mapping it was mapped by, pinned on committed imports."
           },
           "mappings": {
             "description": "The project's saved mappings for the type, best matched first.",
@@ -24767,6 +25170,283 @@
           "parts"
         ],
         "title": "StartedOut",
+        "type": "object"
+      },
+      "StarterFlowOut": {
+        "properties": {
+          "id": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "required_roles": {
+            "description": "Qualified lab roles needed to run this flow.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Roles",
+            "type": "array"
+          },
+          "result_type": {
+            "description": "Qualified type for a requested result in this flow.",
+            "title": "Result Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "result_type",
+          "required_roles"
+        ],
+        "title": "StarterFlowOut",
+        "type": "object"
+      },
+      "StarterOut": {
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedStarterOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current choice in the requested project, if applied there."
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "$ref": "#/components/schemas/StarterFlowOut"
+            },
+            "title": "Flows",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/StarterRoleOut"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "types": {
+            "description": "Qualified types the starter uses.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "label",
+          "description",
+          "flows",
+          "roles",
+          "types",
+          "applied"
+        ],
+        "title": "StarterOut",
+        "type": "object"
+      },
+      "StarterRoleOut": {
+        "properties": {
+          "id": {
+            "description": "Qualified lab role.",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minimum_project_role": {
+            "description": "The least project role a member needs to carry out this lab role.",
+            "enum": [
+              "viewer",
+              "editor"
+            ],
+            "title": "Minimum Project Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "minimum_project_role"
+        ],
+        "title": "StarterRoleOut",
+        "type": "object"
+      },
+      "StarterSetupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "project": {
+            "description": "The assay service project. Requires its Admin role.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "description": "A different project in which the caller can create the example request.",
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "version": {
+            "description": "Installed starter version shown at setup.",
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "role_assignments"
+        ],
+        "title": "StarterSetupIn",
+        "type": "object"
+      },
+      "StarterSetupOut": {
+        "properties": {
+          "changed": {
+            "description": "Whether applying this choice would change anything (preview), or did (apply).",
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "examples": {
+            "additionalProperties": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "description": "IDs of example records already present at preview or available after setup.",
+            "title": "Examples",
+            "type": "object"
+          },
+          "examples_to_create": {
+            "description": "Names of examples missing when the setup was checked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples To Create",
+            "type": "array"
+          },
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "grants_to_add": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Lab role grants missing when the setup was checked, by membership ID.",
+            "title": "Grants To Add",
+            "type": "object"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "result_type": {
+            "title": "Result Type",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "starter": {
+            "title": "Starter",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starter",
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "result_type",
+          "changed",
+          "role_assignments",
+          "grants_to_add",
+          "examples_to_create",
+          "examples"
+        ],
+        "title": "StarterSetupOut",
         "type": "object"
       },
       "StateCan": {
@@ -25129,6 +25809,231 @@
           "status"
         ],
         "title": "StepRunOut",
+        "type": "object"
+      },
+      "StockFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "low_only": {
+            "default": false,
+            "title": "Low Only",
+            "type": "boolean"
+          }
+        },
+        "title": "StockFilters",
+        "type": "object"
+      },
+      "StockLot": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "checked_out": {
+            "title": "Checked Out",
+            "type": "boolean"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "container_hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Hrid"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires On"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lot_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Number"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "boolean"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "lot_number",
+          "expires_on",
+          "expired",
+          "held",
+          "unit",
+          "amount",
+          "available",
+          "container_id",
+          "container_hrid",
+          "row",
+          "column",
+          "checked_out",
+          "placed"
+        ],
+        "title": "StockLot",
+        "type": "object"
+      },
+      "StockSummary": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "physical": {
+            "title": "Physical",
+            "type": "string"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "name",
+          "unit",
+          "threshold",
+          "physical",
+          "stored",
+          "available",
+          "low",
+          "outstanding_packs"
+        ],
+        "title": "StockSummary",
         "type": "object"
       },
       "StructureViewerOut": {
@@ -25917,6 +26822,12 @@
             "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
             "title": "Unit",
             "type": "string"
+          },
+          "whole_units": {
+            "default": false,
+            "description": "Whether quantities must be whole numbers in this ledger unit.",
+            "title": "Whole Units",
+            "type": "boolean"
           }
         },
         "required": [
@@ -25963,6 +26874,34 @@
           "count"
         ],
         "title": "TypeCountOut",
+        "type": "object"
+      },
+      "TypeFlowOut": {
+        "properties": {
+          "fields": {
+            "description": "The live state fields, including inherited ones.",
+            "items": {
+              "$ref": "#/components/schemas/FlowFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "Qualified entity type name.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "fields"
+        ],
+        "title": "TypeFlowOut",
         "type": "object"
       },
       "TypeGridOut": {
@@ -35009,6 +35948,47 @@
         ]
       }
     },
+    "/api/v1/entity-types/{name}/flow": {
+      "get": {
+        "description": "The declared flow, independent of any record or current assignment (ADR 0198).",
+        "operationId": "iki_server_api_entities_get_type_flow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeFlowOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's state fields and possible transitions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entries/{ref}": {
       "get": {
         "description": "For whoever reads a record of it, and its registry's registrars.",
@@ -36509,6 +37489,25 @@
             }
           },
           {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
+            }
+          },
+          {
             "in": "query",
             "name": "action",
             "required": false,
@@ -36658,6 +37657,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
             }
           }
         ],
@@ -39407,6 +40425,246 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/stock": {
+      "get": {
+        "description": "All active catalogue items owned by the project, including items with no lots.\nPhysical is the amount on hand. Stored excludes unplaced and checked-out material.\nAvailable counts stored material eligible for routine use. Amounts are exact decimal\nstrings in the item's unit. A low-only page can be empty and have a next cursor.",
+        "operationId": "iki_server_api_stock_project_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "low_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Low Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockSummary_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Current stock and reorder thresholds",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/orders": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_orders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OpenOrder_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outstanding stock reorders",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_lots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockLot_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A catalogue item's lots and storage positions",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/trigger-firings": {
       "get": {
         "description": "Newest first. `trigger` narrows it to one trigger's.",
@@ -40216,7 +41474,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -40268,6 +41526,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
+        "description": "Saves or clears a line decision for the reviewed revision. Returns 409 if the\nobservations or another decision changed in the meantime.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
@@ -43108,6 +44367,161 @@
         "summary": "Delete a saved mapping",
         "tags": [
           "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/starters": {
+      "get": {
+        "description": "Include the current flow and version when the caller supplies a readable project.",
+        "operationId": "iki_server_api_starters_list_starters",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StarterOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List installed starters",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{starter}/apply": {
+      "post": {
+        "description": "Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.\nChanging the flow selects the result type for future fits. Existing results keep their flow.",
+        "operationId": "iki_server_api_starters_apply_starter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "starter",
+            "required": true,
+            "schema": {
+              "title": "Starter",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterSetupOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Apply a starter to a project",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{starter}/preview": {
+      "post": {
+        "description": "Check the installed version, projects, roles and flow without changing either project.",
+        "operationId": "iki_server_api_starters_preview_starter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "starter",
+            "required": true,
+            "schema": {
+              "title": "Starter",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterSetupOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Preview a starter choice",
+        "tags": [
+          "starters"
         ]
       }
     },

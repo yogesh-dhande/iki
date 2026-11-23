@@ -4,6 +4,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { iki } from "./api";
 import {
   entity,
   field,
@@ -118,8 +119,23 @@ describe("exporting a record", () => {
     expect(within(dialog).getByRole("radio", { name: /^FASTA/ })).toBeChecked();
     await user.tab();
     expect(within(dialog).getByRole("button", { name: "Download" })).toHaveFocus();
-    await user.keyboard("{Enter}");
-    expect(await screen.findByText("Downloaded pTest.fasta.")).toBeInTheDocument();
+    // The person leaves after asking for the file but before the signed GET is dispatched.
+    const leaving: Parameters<typeof iki.use>[0] = {
+      onRequest({ request }) {
+        if (new URL(request.url).pathname === `/api/v1/entities/${ID}/export`) {
+          window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+        }
+        return request;
+      },
+    };
+    iki.use(leaving);
+    try {
+      await user.keyboard("{Enter}");
+      expect(await screen.findByText("Downloaded pTest.fasta.")).toBeInTheDocument();
+    } finally {
+      iki.eject(leaving);
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    }
     const [sent] = calls("GET", `/api/v1/entities/${ID}/export`);
     expect(sent?.query.get("format")).toBe("fasta");
     expect(sent?.query.has("revision")).toBe(false);

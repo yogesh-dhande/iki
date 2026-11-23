@@ -88,6 +88,7 @@ from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
+from iki_spec import rules as spec_rules
 from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
@@ -225,6 +226,34 @@ class StateOut(Schema):
         default_factory=list,
         description="Conditions on setting the field to it, besides `set_by` (ADR 0128): each "
         "must be true. `can.states` says, for a record, whether one refuses you.",
+    )
+
+
+class FlowTransitionOut(Schema):
+    from_: str = Field(alias="from", description="The possible preceding state.")
+    to: str = Field(description="The state being set. Its roles, guards and signatures apply.")
+    conditional: bool = Field(
+        description="Whether a guard remains undecided from the field, origin and destination "
+        "alone. A record's can.states supplies its current permissions, holds and guard decisions."
+    )
+
+
+class FlowFieldOut(Schema):
+    name: str
+    label: str
+    initial: str
+    states: list[StateOut]
+    transitions: list[FlowTransitionOut] = Field(
+        description="Possible explicit moves. A state's on_edit separately identifies "
+        "where a reasoned value correction returns the record."
+    )
+
+
+class TypeFlowOut(Schema):
+    type: str = Field(description="Qualified entity type name.")
+    label: str
+    fields: list[FlowFieldOut] = Field(
+        description="The live state fields, including inherited ones."
     )
 
 
@@ -496,6 +525,9 @@ class ResultTypeOut(Schema):
 
 class TypeAmountOut(Schema):
     unit: str = Field(description="The UCUM unit it's kept in, such as uL, mg or {vial}.")
+    whole_units: bool = Field(
+        False, description="Whether quantities must be whole numbers in this ledger unit."
+    )
     label: str = Field(description="What it's called, such as Volume.")
     description: str | None
     display_unit: str | None = Field(description="The unit it's shown in, if not `unit`.")
@@ -1494,6 +1526,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
     if wanted is None:
         return None
     return {
+        "whole_units": wanted.whole_units,
         "unit": wanted.unit,
         "label": wanted.label,
         "description": wanted.description,
@@ -1593,6 +1626,48 @@ def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
     if found is None:
         raise Problem(404, f"There’s no entity type {name}.")
     return _type_out(found)
+
+
+def _flow_field(f: Any) -> dict[str, Any]:  # noqa: ANN401 - a spec state field
+    """A state field's flow: its live states, and each move from one to another its guards
+    allow, knowing only the two states. A move that also depends on the record, the person
+    or the history is conditional."""
+    live = [state for state in f.states.values() if not state.removed]
+    transitions = []
+    for target in live:
+        if not target.set_by:
+            continue  # An initial-only state has no incoming transition.
+        origins = [state.name for state in live if state.name != target.name]
+        for origin, possible in zip(
+            origins, spec_rules.state_origins(f, target.name, origins), strict=True
+        ):
+            if possible is not False:
+                transitions.append(
+                    {"from": origin, "to": target.name, "conditional": possible is None}
+                )
+    return {
+        "name": f.name,
+        "label": f.label,
+        "initial": f.initial,
+        "states": [_state_out(state) for state in live],
+        "transitions": transitions,
+    }
+
+
+@router.get(
+    "/entity-types/{qualified:name}/flow",
+    response=TypeFlowOut,
+    summary="A type's state fields and possible transitions",
+    by_alias=True,
+)
+def get_type_flow(request: HttpRequest, name: str) -> dict[str, Any]:
+    """The declared flow, independent of any record or current assignment (ADR 0198)."""
+    caller(request)
+    found = registry.types().get(name)
+    if found is None:
+        raise Problem(404, f"There’s no entity type {name}.")
+    fields = [_flow_field(f) for f in states.state_fields(name).values()]
+    return {"type": name, "label": found.label or found.name, "fields": fields}
 
 
 # --- Reading -------------------------------------------------------------------------------------

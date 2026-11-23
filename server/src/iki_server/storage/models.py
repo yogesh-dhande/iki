@@ -305,6 +305,7 @@ class Reconciliation(models.Model):
     status = models.CharField(
         max_length=16, choices=ReceiptStatus.choices, default=ReceiptStatus.OPEN
     )
+    plan_revision = models.PositiveIntegerField(default=1, db_default=1)
     note = models.TextField(blank=True, default="")
     started_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
@@ -320,6 +321,10 @@ class Reconciliation(models.Model):
         db_table = "iki_storage_reconciliation"
         db_table_comment = "A container's contents scanned against its records (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(plan_revision__gt=0),
+                name="iki_storage_reconciliation_positive_revision",
+            ),
             models.UniqueConstraint(
                 fields=["container"],
                 condition=Q(status="open"),
@@ -355,6 +360,9 @@ class ReconciliationLine(models.Model):
     scanned_at = models.DateTimeField(null=True, blank=True)
     resolution = models.CharField(max_length=16, choices=Resolution.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
+    # The observed slot the receiver approved, or the expected slot for a missing record.
+    # An older open decision without a recorded position needs review before completion.
+    resolved_position = models.CharField(max_length=16, null=True, blank=True)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )

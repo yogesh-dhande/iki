@@ -182,6 +182,13 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
             return 1
         bundles = workspace / "bundles"
         try:
+            for item in fetched:
+                item.directory = workers.prepared_source(
+                    item.entry.name,
+                    item.directory,
+                    workspace / "worker-code" / naming.app_label(item.entry.name),
+                    pinned=item.entry.sha is not None,
+                )
             made = _bundles(fetched, bundles)
         except ValueError as error:
             err.write(f"error: {error}.\n")

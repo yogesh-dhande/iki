@@ -1,0 +1,87 @@
+:root {
+  color-scheme: light dark;
+  /* For each pair below, initial selects the var() fallback and an empty value
+     omits it. This keeps the selected token a concrete value for canvas consumers. */
+  --iki-light: initial;
+  --iki-dark: ;
+  /* The page, white; what sits on it; and quieter fills, for headers and hover. */
+  --bg: var(--iki-light, #ffffff) var(--iki-dark, #141517);
+  --surface: var(--iki-light, #ffffff) var(--iki-dark, #1a1b1e);
+  --surface-2: var(--iki-light, #f6f6f4) var(--iki-dark, #212226);
+  --surface-3: var(--iki-light, #efefeb) var(--iki-dark, #2a2b30);
+  --text: var(--iki-light, #1d1f21) var(--iki-dark, #e8e9eb);
+  --muted: var(--iki-light, #5d6064) var(--iki-dark, #a3a6ab);
+  /* Lines that only divide; a button's edge; an input's, which is all that marks it. */
+  --border: var(--iki-light, #e4e4df) var(--iki-dark, #2d2f33);
+  --border-strong: var(--iki-light, #d6d6d0) var(--iki-dark, #3a3c41);
+  --input-border: var(--iki-light, #8d9095) var(--iki-dark, #6c6f75);
+  --accent: var(--iki-light, #0b6e5f) var(--iki-dark, #3fb8ad);
+  --accent-hover: var(--iki-light, #095a4e) var(--iki-dark, #5cc8be);
+  --accent-text: var(--iki-light, #ffffff) var(--iki-dark, #06201e);
+  --accent-soft: var(--iki-light, #e3f2ed) var(--iki-dark, #173a35);
+  --focus: var(--iki-light, #0b6e5f) var(--iki-dark, #5cc8be);
+  --focus-ring: var(--iki-light, #d5e9e4) var(--iki-dark, #1d3d38);
+  --error: var(--iki-light, #b42318) var(--iki-dark, #ff8f85);
+  --error-bg: var(--iki-light, #fdf0ef) var(--iki-dark, #2b1715);
+  --warning: var(--iki-light, #8a5300) var(--iki-dark, #f2b75a);
+  --warning-bg: var(--iki-light, #fdf5e6) var(--iki-dark, #2a2111);
+  --success: var(--iki-light, #116d3a) var(--iki-dark, #6fd49a);
+  --success-bg: var(--iki-light, #ecf8f0) var(--iki-dark, #11251a);
+  /* The sidebar: warm grey, the current page's item tinted with the accent. */
+  --sidebar-bg: var(--iki-light, #f6f6f4) var(--iki-dark, #1a1b1e);
+  --sidebar-text: var(--iki-light, #33363a) var(--iki-dark, #d4d6d9);
+  --sidebar-hover: var(--iki-light, #ebebe7) var(--iki-dark, #26272b);
+  --sidebar-current: var(--iki-light, #e1ece9) var(--iki-dark, #1d3833);
+  --sidebar-current-text: var(--iki-light, #0b5d50) var(--iki-dark, #7fd6cb);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: var(--iki-light, 0 1px 2px rgb(16 24 40 / 5%), 0 2px 8px rgb(16 24 40 / 5%))
+    var(--iki-dark, none);
+  --shadow-menu: var(--iki-light, 0 4px 12px rgb(16 24 40 / 12%), 0 1px 3px rgb(16 24 40 / 8%))
+    var(--iki-dark, 0 4px 16px rgb(0 0 0 / 45%));
+  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  /* The type scale, in px at the default text size. */
+  --text-xs: calc(11rem / 13);
+  --text-sm: calc(12rem / 13);
+  --text-base: 1rem;
+  --text-md: calc(14rem / 13);
+  --text-lg: calc(15rem / 13);
+  --text-xl: calc(18rem / 13);
+  /* Heights: a control (a button, an input), and a table's rows and its header's. */
+  --control-height: calc(28rem / 13);
+  --row-height: calc(34rem / 13);
+  --row-height-head: calc(32rem / 13);
+  --sidebar-width: calc(236rem / 13);
+}
+
+/* Projects' and people's colors (project-color.ts), one of eight from their ID: each at least
+   3:1 against the page and its surfaces, with --swatch-text on it at 4.5:1, in both themes. */
+:root {
+  --swatch-1: var(--iki-light, #2a62c9) var(--iki-dark, #7fb0ff);
+  --swatch-2: var(--iki-light, #0b7a6b) var(--iki-dark, #4fc7b4);
+  --swatch-3: var(--iki-light, #b35c00) var(--iki-dark, #f2a65a);
+  --swatch-4: var(--iki-light, #7048c8) var(--iki-dark, #b9a0f5);
+  --swatch-5: var(--iki-light, #b8336e) var(--iki-dark, #f28dbb);
+  --swatch-6: var(--iki-light, #4f6b12) var(--iki-dark, #a8cf5f);
+  --swatch-7: var(--iki-light, #a83c32) var(--iki-dark, #ff9b85);
+  --swatch-8: var(--iki-light, #4d5b6a) var(--iki-dark, #a3b0bd);
+  --swatch-text: var(--iki-light, #ffffff) var(--iki-dark, #0f141a);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --iki-light: ;
+    --iki-dark: initial;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --iki-light: ;
+  --iki-dark: initial;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}

@@ -97,6 +97,7 @@ const ProjectRequestsPage = lazyRouteComponent(
   () => import("./pages/project-requests"),
   "ProjectRequestsPage",
 );
+const ProjectStock = lazyRouteComponent(() => import("./pages/project-stock"), "ProjectStock");
 const entityFormPages = () => import("./pages/entity-form");
 const runPages = () => import("./pages/runs");
 const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
@@ -307,6 +308,12 @@ const projectRequestsRoute = createRoute({
   component: ProjectRequestsPage,
 });
 
+const projectStockRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "stock",
+  component: ProjectStock,
+});
+
 const projectEntityNewRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "entities/new",
@@ -427,6 +434,13 @@ const projectSettingsRoute = createRoute({
   getParentRoute: () => projectRoute,
   path: "settings",
   component: ProjectSettings,
+});
+
+// The starters a project's Admins set it up from (ADR 0198): Settings' tab stays current.
+const projectStartersRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "settings/starters",
+  component: lazyRouteComponent(() => import("./pages/project-starters"), "ProjectStarters"),
 });
 
 const projectImportRoute = createRoute({
@@ -761,6 +775,7 @@ const routeTree = rootRoute.addChildren([
       projectMembersRoute,
       projectEntitiesRoute,
       projectRequestsRoute,
+      projectStockRoute,
       projectEntityNewRoute,
       projectSheetImportRoute,
       projectSheetImportPageRoute,
@@ -775,6 +790,7 @@ const routeTree = rootRoute.addChildren([
         projectWebhooksRoute.addChildren([projectWebhookListRoute, projectWebhookRoute]),
       ]),
       projectSettingsRoute,
+      projectStartersRoute,
       projectImportRoute,
       projectAppDraftRoute,
     ]),

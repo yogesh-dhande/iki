@@ -26,3 +26,9 @@ fields:
           recorded_fit:
             check: state.from == "recorded" && record.review_flow == "research" && record.fit_status != null && record.fit_version != null
             message: Sign the recorded fit produced under the research review flow.
+rules:
+  fit_flow:
+    label: The fit follows its review type
+    check: record.review_flow == null || record.review_flow == "research"
+    fields: [review_flow]
+    message: A research assay result records the Research flow.

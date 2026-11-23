@@ -5,11 +5,12 @@ request's tubes with one of each outcome; labels' print preview and ZPL; and rec
 box by scan. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
 import re
+from itertools import pairwise
 from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -24,13 +25,14 @@ from test_requests import ANALYST, ASK
 from test_storage import BOX, FREEZER, TUBE
 
 from iki_server.accounts.models import User
+from iki_server.audit.models import AuditEvent
 from iki_server.entities import requests
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.storage import services as storage
-from iki_server.storage.models import Place, Receipt, ReceiptStatus, Reconciliation
+from iki_server.storage.models import Event, Place, Receipt, ReceiptStatus, Reconciliation
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -192,9 +194,9 @@ def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) ->
     page.context.close()
 
 
-def sent_to_a_core(world: World, n: int) -> dict[str, Any]:
+def sent_to_a_core(world: World, n: int | tuple[str, ...]) -> dict[str, Any]:
     """A core facility serving the world's project, with an analyst to receive; an assay
-    request sent to it with `n` tubes; and an empty box of the core's to put them in."""
+    request sent to it with the given tubes; and an empty box of the core's to put them in."""
     core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
     tech = User.objects.create_user("tech@example.com", "Tech")
     world.users["tech"] = tech
@@ -205,17 +207,18 @@ def sent_to_a_core(world: World, n: int) -> dict[str, Any]:
         core, types=[ASK], from_registry=True, sources=[], by=world.users["org_admin"]
     )
     editor = world.users["editor"]
+    barcodes = (f"RC{i:03}" for i in range(n)) if isinstance(n, int) else n
     tubes = [
         ref(
             entities.create(
                 editor,
                 TUBE,
                 world.project,
-                {"barcode": f"RC{i:03}"},
+                {"barcode": code},
                 amount={"value": 50, "unit": "uL"},
             )
         )
-        for i in range(n)
+        for code in barcodes
     ]
     ask = ref(
         entities.create(
@@ -235,6 +238,95 @@ def outcome(page: Page, code: str, name: str) -> None:
     line.get_by_role("group", name=re.compile("outcome$")).get_by_role(
         "button", name=name, exact=True
     ).click()
+
+
+@pytest.mark.parametrize("prefix_gap", [250, 251, 350, 5000])
+def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(
+    open_as: Any, world: World, prefix_gap: int
+) -> None:
+    sent = sent_to_a_core(world, ("XRC000", "RC000"))
+    ask = sent["ask"]
+    page = open_as("tech", f"/storage/receive/{ask['hrid']}/")
+    page.get_by_role("button", name="Start receiving").click()
+    checklist = page.get_by_role("list", name="Checklist")
+    full, suffix = [
+        checklist.get_by_role("listitem", name=tube["hrid"], exact=True).get_by_role(
+            "button", name=re.compile(r"\bMatched$")
+        )
+        for tube in sent["tubes"]
+    ]
+    suffix.focus()
+    expect(suffix).to_be_focused()
+    receipt = Receipt.objects.get(request_id=ask["id"])
+    receipt_path = f"/api/v1/receipts/{receipt.pk}"
+    scan_path = f"{receipt_path}/scan"
+    submitted: list[object] = []
+
+    def record_scan(request: Request) -> None:
+        if request.method == "POST" and request.url.endswith(scan_path):
+            submitted.append(request.post_data_json)
+
+    def read_outcomes() -> dict[str, str | None]:
+        response = page.request.get(receipt_path)
+        assert response.ok, response.status
+        body = response.json()
+        assert body["status"] == "open" and body["completed_at"] is None
+        outcomes = {line["code"]: line["outcome"] for line in body["lines"]}
+        assert outcomes == dict(receipt.lines.values_list("code", "outcome"))
+        return outcomes
+
+    def scan_with_prefix_gap(code: str, gap_ms: int) -> None:
+        # Keep the browser's genuine key events and native button activation. Only the
+        # intervals seen by the detector are fixed, so runner load cannot add a second stall.
+        keys = [*code, "Enter"]
+        seen = page.evaluate_handle(
+            """({keys, gap}) => {
+                const seen = [];
+                let at = Math.ceil(performance.now());
+                function stamp(event) {
+                    if (event.key !== keys[seen.length]) return;
+                    at += seen.length === 1 ? gap : 5;
+                    Object.defineProperty(event, "timeStamp", {value: at});
+                    seen.push([event.isTrusted ? event.key : null, event.timeStamp]);
+                    if (event.key === "Enter") window.removeEventListener("keydown", stamp, true);
+                }
+                window.addEventListener("keydown", stamp, true);
+                return seen;
+            }""",
+            {"keys": keys, "gap": gap_ms},
+        )
+        page.keyboard.type(code[0])
+        page.wait_for_timeout(gap_ms)
+        scan_label(page, code[1:])
+        events = seen.json_value()
+        assert [key for key, _ in events] == keys
+        intervals = [b[1] - a[1] for a, b in pairwise(events)]
+        assert intervals == [gap_ms] + [5] * (len(keys) - 2)
+        seen.dispose()
+
+    page.on("request", record_scan)
+    scan_with_prefix_gap("XRC000", prefix_gap)
+    retry = page.get_by_role("alert").filter(has_text="Scan again or type the code.")
+    matched = checklist.get_by_role("button", name=re.compile(r"\bMatched$"), pressed=True)
+    retry.or_(matched).first.wait_for()
+    first_requests = submitted.copy()
+    after_gap = read_outcomes()
+    message = retry.inner_text() if retry.is_visible() else None
+    if prefix_gap > 250:
+        scan_with_prefix_gap("XRC000", 5)
+    expect(full).to_have_attribute("aria-pressed", "true")
+    expect(retry).to_be_hidden()
+    final = read_outcomes()
+    expected = {"XRC000": "matched", "RC000": None}
+    if prefix_gap == 250:
+        assert first_requests == [{"code": "XRC000"}] and after_gap == expected
+        assert message is None
+    else:
+        assert first_requests == [] and after_gap == {"XRC000": None, "RC000": None}
+        assert message == "A key arrived before the rest of the scan. Scan again or type the code."
+    assert submitted == [{"code": "XRC000"}] and final == expected
+    expect(suffix).to_have_attribute("aria-pressed", "false")
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -375,13 +467,14 @@ def test_reconciling_a_box_by_scan(open_as: Any, world: World, color_scheme: str
         label="Move it to where it was found"
     )
     wrong.get_by_role("button", name="Resolve").click()
+    expect(wrong.get_by_text(re.compile("^Move it to where it was found:"))).to_be_visible()
     missing = to_resolve.get_by_role("listitem").filter(has_text=kept["tubes"][1]["hrid"])
     missing.get_by_role("combobox", name=re.compile("^What to do about")).select_option(
         label="Take it out of storage"
     )
     missing.get_by_role("textbox", name=re.compile("^Note")).fill("Used up; not logged")
     missing.get_by_role("button", name="Resolve").click()
-    expect(missing).to_contain_text("Take it out of storage")
+    expect(missing.get_by_text(re.compile("^Take it out of storage:"))).to_be_visible()
     fits(page)
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("button", name="Complete the reconciliation").click()
@@ -393,3 +486,164 @@ def test_reconciling_a_box_by_scan(open_as: Any, world: World, color_scheme: str
     assert Place.objects.get(pk=kept["tubes"][1]["id"]).container is None
     assert Entity.objects.filter(pk=kept["tubes"][1]["id"]).exists()
     page.context.close()
+
+
+def test_rescanning_a_resolved_destination_requires_a_new_decision(
+    open_as: Any, world: World
+) -> None:
+    box = make(world, BOX, {"name": "Recount box", "rows": 1, "columns": 3})
+    tube = make(world, TUBE, {"barcode": "RECOUNT42"})
+    put(world, (tube, box, "A2"))
+    page = open_as("admin", f"/storage/{box['hrid']}/")
+    page.get_by_role("button", name="Reconcile by scanning").click()
+    expect(page.get_by_role("heading", level=1, name="Reconcile Recount box")).to_be_visible()
+    for position in ("A1", "A2"):
+        page.get_by_role("button", name=f"{position} is empty").click()
+    scan = page.get_by_role("textbox", name="What’s in A3")
+    scan.fill("RECOUNT42")
+    scan.press("Enter")
+    finding = (
+        page.get_by_role("region", name="To resolve")
+        .get_by_role("listitem")
+        .filter(has_text=tube["hrid"])
+    )
+    expect(finding).to_contain_text("Wrong position")
+    choice = finding.get_by_role("combobox")
+    choice.select_option(label="Move it to where it was found")
+    finding.get_by_role("button", name="Resolve").click()
+    complete = page.get_by_role("button", name="Complete the reconciliation")
+    expect(complete).to_be_enabled()
+    destinations = page.get_by_role("region", name="Complete", exact=True).get_by_role(
+        "list", name="Planned destinations"
+    )
+    planned = destinations.get_by_role("listitem")
+    expect(planned).to_have_text(f"{tube['hrid']} → {box['hrid']}, A3")
+    assert where(tube) == (box["hrid"], 1, 2)
+
+    # The previously approved move no longer describes what was found.
+    page.get_by_role("button", name="A3 is empty").click()
+    expect(finding).to_contain_text("Missing")
+    expect(complete).to_be_disabled()
+    expect(planned).to_have_count(0)
+    expect(finding).to_contain_text("The scan changed. Review this finding and choose again.")
+    expect(choice).to_have_value("")
+    expect(finding.get_by_text(re.compile("^Move it to where it was found:"))).to_have_count(0)
+    page.reload()
+    expect(finding).to_contain_text("Missing")
+    expect(complete).to_be_disabled()
+    expect(choice).to_have_value("")
+
+    reason = "Keep A2 until independently checked"
+    choice.select_option(label="Leave the record as it is")
+    finding.get_by_role("textbox", name=re.compile("^Note")).fill(reason)
+    finding.get_by_role("button", name="Resolve").click()
+    complete.click()
+    expect(page.get_by_role("heading", level=2, name="Completed")).to_be_visible()
+    reconciliation = Reconciliation.objects.get(container_id=box["id"])
+    assert reconciliation.status == ReceiptStatus.COMPLETED
+    decision = reconciliation.lines.get(entity_id=tube["id"])
+    assert (decision.resolution, decision.note) == ("kept", reason)
+    assert where(tube) == (box["hrid"], 1, 2)
+    assert not Event.objects.filter(operation=reconciliation.operation).exists()
+    page.context.close()
+
+
+def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
+    open_as: Any, world: World
+) -> None:
+    box = make(world, BOX, {"name": "Review box", "rows": 1, "columns": 4})
+    tube = make(world, TUBE, {"barcode": "REVIEW42"})
+    unchecked = make(world, TUBE, {"barcode": "UNSCANNED42"})
+    put(world, (tube, box, "A2"), (unchecked, box, "A1"))
+    first = open_as("admin", f"/storage/{box['hrid']}/")
+    first.get_by_role("button", name="Reconcile by scanning").click()
+    expect(first.get_by_role("heading", level=1, name="Reconcile Review box")).to_be_visible()
+
+    def review_move(tab: Page, slot: str) -> dict[str, Any]:
+        tab.get_by_role("gridcell", name=re.compile(f"^{slot}, ")).click()
+        scan = tab.get_by_role("textbox", name=f"What’s in {slot}")
+        scan.fill("REVIEW42")
+        scan.press("Enter")
+        line = (
+            tab.get_by_role("region", name="To resolve")
+            .get_by_role("listitem")
+            .filter(has_text=tube["hrid"])
+        )
+        expect(line).to_contain_text(f"Recorded at A2, found at {slot}.")
+        line.get_by_role("combobox").select_option(label="Move it to where it was found")
+        with tab.expect_response(
+            lambda response: response.request.method == "PATCH" and "/lines/" in response.url
+        ) as saved:
+            line.get_by_role("button", name="Resolve").click()
+        expect(line.get_by_text(re.compile("^Move it to where it was found:"))).to_be_visible()
+        snapshot = saved.value.json()
+        assert isinstance(snapshot, dict)
+        return snapshot
+
+    original = review_move(first, "A3")
+    approval = first.get_by_role("region", name="Complete", exact=True)
+    note = approval.get_by_role("textbox", name=re.compile("^Note"))
+    acknowledge = approval.get_by_role("checkbox", name=re.compile("^Count the 1 not scanned"))
+    complete = approval.get_by_role("button", name="Complete the reconciliation")
+    original_note = "Completed count after reviewing A3"
+    acknowledge.check()
+    note.fill(original_note)
+    expect(complete).to_be_enabled()
+
+    second = open_as("editor", first.url)
+    latest = review_move(second, "A4")
+
+    with first.expect_response("**/reconciliations/*/complete") as refused:
+        complete.click()
+    assert refused.value.status == 409, (refused.value.status, refused.value.json())
+    assert refused.value.request.post_data_json == {
+        "plan_revision": original["plan_revision"],
+        "missing_rest": True,
+        "note": original_note,
+    }
+    reconciliation = Reconciliation.objects.get(container_id=box["id"])
+    assert reconciliation.status == ReceiptStatus.OPEN
+    assert reconciliation.note == ""
+    assert where(tube) == (box["hrid"], 1, 2)
+    assert where(unchecked) == (box["hrid"], 1, 1)
+    audit = AuditEvent.objects.filter(action="storage.reconciled", target_id=box["id"])
+    events = Event.objects.filter(operation=reconciliation.operation)
+    assert not audit.exists() and not events.exists()
+    assert reconciliation.lines.get(entity_id=tube["id"]).resolved_by_id == world.users["editor"].pk
+
+    expect(complete).to_be_hidden()
+    expect(approval.get_by_role("alert")).to_contain_text("Review the latest count")
+    destinations = approval.get_by_role("list", name="Planned destinations")
+    expect(destinations).to_be_hidden()
+    review = approval.get_by_role("button", name="Review latest count")
+    expect(review).to_be_visible()
+    review.click()
+    expect(destinations.get_by_role("listitem")).to_have_text(f"{tube['hrid']} → {box['hrid']}, A4")
+    expect(note).to_have_value("")
+    expect(acknowledge).not_to_be_checked()
+    expect(complete).to_be_disabled()
+    updated_note = "Completed count after reviewing A4"
+    note.fill(updated_note)
+    acknowledge.check()
+    with first.expect_response("**/reconciliations/*/complete") as accepted:
+        complete.click()
+    assert accepted.value.status == 200
+    assert accepted.value.request.post_data_json == {
+        "plan_revision": latest["plan_revision"],
+        "missing_rest": True,
+        "note": updated_note,
+    }
+    assert latest["plan_revision"] > original["plan_revision"]
+    expect(first.get_by_role("heading", level=2, name="Completed")).to_be_visible()
+    reconciliation.refresh_from_db()
+    assert reconciliation.note == updated_note
+    assert reconciliation.completed_by_id == world.users["admin"].pk
+    assert where(tube) == (box["hrid"], 1, 4)
+    assert Place.objects.get(pk=unchecked["id"]).container is None
+    assert set(events.values_list("entity_id", "kind")) == {
+        (tube["id"], "moved"),
+        (unchecked["id"], "removed"),
+    }
+    assert audit.get().data["plan_revision"] == latest["plan_revision"]
+    second.context.close()
+    first.context.close()

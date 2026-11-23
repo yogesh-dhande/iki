@@ -1,0 +1,100 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: reorder_catalogue_packs
+action: place_order
+description: Synthetic order for three racks of Corning 430790 15 mL tubes.
+inputs:
+  item:
+    - values:
+        {
+          name: Corning 15 mL centrifuge tubes,
+          supplier: Corning,
+          catalogue_number: "430790",
+          pack_size: 50,
+          stock_unit: "1",
+          low_stock_at: 50,
+        }
+params: { order_reference: SYNTH-REQ-10, ordered_packs: 3 }
+expect:
+  output:
+    creates:
+      - type: iki/reagents.ReorderLine
+        values: { order_reference: SYNTH-REQ-10, ordered_packs: 3 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: receive_one_rack_without_closing_the_three_rack_order
+action: receive_delivery
+description: A synthetic supplier delivery of one rack; a rack of 430790 contains 50 tubes. The 15 mL is the capacity of each tube.
+# Corning product 430790, Qty/Pk = 50 and Qty/Cs = 500.
+# https://ecatalog.corning.com/life-sciences/b2b/us/en/Liquid-Handling/Tubes%2C-Liquid-Handling/Centrifuge-Tubes/Corning%C2%AE-15mL-Centrifuge-Tubes/p/430790
+inputs:
+  order:
+    - values: { order_reference: SYNTH-REQ-10, ordered_packs: 3 }
+      included:
+        item:
+          - values:
+              {
+                name: Corning 15 mL centrifuge tubes,
+                supplier: Corning,
+                catalogue_number: "430790",
+                pack_size: 50,
+                stock_unit: "1",
+                low_stock_at: 50,
+              }
+  storage: [{ values: { name: Synthetic shelf } }]
+params:
+  {
+    delivery_note: SYNTH-DEL-01,
+    delivery_line: "1",
+    received_on: "2026-11-01",
+    lot_number: SYNTH-LOT-01,
+    packs: 1,
+    position: A2,
+  }
+expect:
+  output:
+    updates:
+      order: [{ values: { received_packs: 1 }, require_unchanged: true }]
+    creates:
+      - type: iki/reagents.CountStockLot
+        values:
+          {
+            packs: 1,
+            source: bought,
+            supplier: Corning,
+            catalogue_number: "430790",
+            lot_number: SYNTH-LOT-01,
+            delivery_line: "1",
+            received_on: "2026-11-01",
+          }
+        receipt: { amount: { value: "50", unit: "1" }, position: A2 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_two_packs_when_one_remains
+action: receive_delivery
+inputs:
+  order:
+    - values: { order_reference: SYNTH-REQ-10, ordered_packs: 3, received_packs: 2 }
+      included:
+        item:
+          - values:
+              {
+                name: Corning 15 mL centrifuge tubes,
+                supplier: Corning,
+                catalogue_number: "430790",
+                stock_unit: "1",
+                pack_size: 50,
+                low_stock_at: 50,
+              }
+  storage: [{ values: { name: Synthetic shelf } }]
+params:
+  {
+    delivery_note: SYNTH-DEL-02,
+    delivery_line: "1",
+    received_on: "2026-11-02",
+    lot_number: SYNTH-LOT-02,
+    packs: 2,
+  }
+expect: { error: up to the 1 outstanding }

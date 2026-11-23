@@ -139,6 +139,8 @@ export function ExportDialog({
   const format = chosen ?? formats[0]?.format;
   const download = useApiMutation(async (wanted: FormatName): Promise<Saved> => {
     const result = await iki.GET("/api/v1/entities/{ref}/export", {
+      // The person started a download, which can finish after leaving this page.
+      fetch: globalThis.fetch,
       params: {
         path: { ref: entity.id },
         query: { format: wanted, ...(revision === undefined ? {} : { revision }) },

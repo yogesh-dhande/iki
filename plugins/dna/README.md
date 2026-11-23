@@ -22,6 +22,11 @@ them.
     as its origin.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
+  - The plasmid plugin's **Annotate from feature library** action adds
+    exact matches to the DNA sequence's **Sequence** tab. Each hit shows its
+    location, strand, and source accession. The sequence record keeps the
+    library version alongside the hits and retains the imported features.
+    [ADR 0206](../../docs/adr/0206-dna-sequence-annotation-records-library-matches-and-provenance.md)
   - Its length and GC content are computed by the plugin's
     `compute_composition` action, which a trigger runs once, when it's
     registered.
@@ -31,8 +36,71 @@ them.
   temperature are computed by `primer_properties`, which a trigger runs
   when it's registered, and are its entry's.
 
-Both extend `iki/core.Sequence`, so a search for sequences finds them alongside
-proteins and other plugins' sequences.
+- **`iki/dna.CodonOptimization`** (`OPT-000001`): a design that rewrites a
+  coding region in a host's own codons, keeping the protein exactly
+  ([ADR 0203](../../docs/adr/0203-a-codon-optimization-is-a-design-and-its-product-is-a-registered-sequence.md)).
+  It names the template and the region of it that codes, which strand, the
+  host whose codon usage is used, how codons are chosen, and the restriction
+  sites and motifs to keep out. It has no identity: the same protein is
+  optimized differently for different hosts and constraints, and which design
+  a lab ordered is the lab's record. `optimize_codons` works it out, registers
+  the product as a `DNASequence` derived from the design, and records how far
+  it moved: the codon adaptation index and GC content before and after, every
+  codon that changed, and any constraint it could not meet.
+  - Its **Codons** tab draws the design codon by codon: a strip with one mark per
+    codon, as tall as the host's relative adaptiveness for the codon now written
+    there and marked apart where the design rewrote it, with the index and GC
+    content before and after and the reference set the index is against; then
+    every codon rewritten, with the host's relative adaptiveness for the codon
+    that went and the one that came, and anything no synonymous codon could
+    avoid, placed. Nothing is told by colour alone: the strip is said in words
+    and everything is in the tables. Until the run has been, the tab names the
+    action that works the design out and offers it where the person viewing it
+    may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
+- **`iki/dna.Mutagenesis`** (`MUT-000001`): changes stated against a sequence
+  and made to it, with the primers that make them
+  ([ADR 0204](../../docs/adr/0204-a-mutagenesis-states-its-changes-in-hgvs-and-registers-the-mutant-and-its-primers.md)).
+  It names the template, the changes as HGVS names them, which published
+  protocol's primers to design, and, where the lab says so, where the coding
+  region is. It has no identity, as an assembly and a PCR have none: one mutant
+  can be made from several templates by several protocols, and how a lab made
+  its own is the lab's record. `apply_mutagenesis` checks every base a change
+  states against the template's own, makes the changes, registers the mutant as
+  a `DNASequence` and each primer as a `Primer`, both derived from the design,
+  and records what each change does to the protein.
+  - Its **Changes** tab places each change along the template -- a strip with a
+    mark where each one lies, as wide as the change is -- then every change as it
+    was stated and as HGVS names it where it lies, what the changes do to the
+    protein, and the oligos to order with their bases, how much of each matches
+    the template, and what the protocol's own acceptance rule measures. Nothing
+    is told by colour alone: the strip is said in words and everything is in the
+    tables. Until the run has been, the tab names the action that makes the
+    changes and offers it where the person viewing it may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
+- **`iki/dna.GuideDesign`** (`GDE-000001`): where a CRISPR nuclease can cut a
+  sequence, and how particular each place is
+  ([ADR 0205](../../docs/adr/0205-a-guide-design-says-where-a-nuclease-can-cut-and-how-particular-each-place-is.md)).
+  It names the target, the stretch of it the cut must fall in, the nuclease,
+  and the sequences to search for other places the guides could cut. It has no
+  identity: the same gene is targeted differently for different nucleases and
+  against different genomes. `design_guides` reads both strands for the
+  nuclease's own motif and records every site with what is known about it. The
+  guides themselves are a field, not entities: a guide is a stretch of a
+  sequence Iki already has, and the oligo a lab goes on to order is registered
+  where oligos are.
+  - Its **Guides** tab places each guide along the target, the forward-strand
+    ones above the line and the reverse-strand ones below, then every guide
+    with its protospacer and PAM, where it cuts, GC content and specificity;
+    what is known to make a guide work less well, each under the work that
+    says so; and everywhere else each could cut, with where the mismatches
+    lie and what that place scores. Nothing is told by colour alone. Until the
+    run has been, the tab names the action that finds the guides and offers it
+    where the person viewing it may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
+
+`DNASequence` and `Primer` extend `iki/core.Sequence`, so a search for
+sequences finds them alongside proteins and other plugins' sequences.
 
 ## Settings
 
@@ -61,6 +129,55 @@ and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as mad
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
   many at once.
+- **`optimize_codons`**: rewrites a `CodonOptimization`'s coding region in its
+  host's codons and registers the result. The codons are chosen from the host's
+  codon usage (`highest_usage`, `usage_matched` or `harmonized`) and then
+  repaired until nothing breaks a constraint: no codon the host hardly uses, GC
+  content within a band overall and in a window, no long run of one base, no
+  repeat, no hairpin, none of the named restriction sites or motifs, and none of
+  the host's own motifs that would be read inside a gene. The run translates the
+  template and the product and registers nothing if the two proteins differ;
+  where a stretch has no synonymous choice that meets every constraint, the
+  design is registered with each one placed and named. The nine hosts' codon
+  usage tables are in `data/`, counted from RefSeq assemblies
+  ([`data/README.md`](data/README.md) says from which).
+- **`apply_mutagenesis`**: makes a `Mutagenesis`'s changes and designs the
+  primers that make them. Each change is HGVS's name for it on a genomic
+  reference -- `g.1234C>T`, `g.1240_1242del`, `g.1250_1251insGGATCC`,
+  `g.1250dup`, `g.3_6inv`, `g.1260_1261delinsTA`, with `o.` for a circular
+  template -- which are the names `align_reads` writes, so a change is asked for
+  the way it will be read back. Every base a change states is checked against
+  the template's own, and a change whose stated base isn't there is refused
+  rather than made; so are two changes that touch the same bases. The mutant is
+  registered as a DNA sequence derived from the design, and each primer as a
+  primer, with the template as its target. Three designs, each a published
+  protocol with its own rules: `overlapping` is the QuikChange design, by the
+  kit manual's numbers and its acceptance formula; `partially_overlapping` is
+  Zheng's and Liu and Naismith's, where the pair share the change at their 5'
+  ends and each keeps bases of its own at its 3' end; `back_to_back` amplifies
+  a circle outwards to be ligated blunt, and is refused on a linear template.
+  `none` applies the changes and designs nothing. Where the design says where
+  the coding region is, the run says what the changes do to the protein --
+  silent, missense, nonsense, a frameshift, an in-frame insertion or deletion --
+  with the HGVS protein name.
+- **`design_guides`**: finds a `GuideDesign`'s guides. Both strands of the
+  target are read for the nuclease's own protospacer adjacent motif -- NGG
+  after a 20-base protospacer for SpCas9, NNGRRT after a 21- to 23-base one
+  for SaCas9, TTTV _before_ a 23-base one for AsCas12a and LbCas12a, TTN for
+  FnCas12a -- and the sites whose cut falls in the region the design names are
+  kept. Each is reported with where it cuts (one place for Cas9's blunt cut,
+  two for Cas12a's staggered one), its GC content, and what is known to make a
+  guide work less well: GC outside CHOPCHOP's band, a run of T that RNA
+  polymerase III reads as a terminator, no G at the 5' end for the U6
+  promoter, and self-complementarity. None of those is a score: the published
+  efficiency models' weights were never published, which ADR 0205 says more
+  about. Every place in the sequences the design names that matches a guide
+  within so many mismatches, beside a motif the nuclease cleaves, is listed
+  with where the mismatches lie; for SpCas9 each is scored and each guide
+  given a specificity, by the formulas the CRISPR Design tool published at
+  crispr.mit.edu. Where nothing was searched, or the nuclease isn't the one
+  those weights were measured on, no specificity is reported and the record
+  says why.
 - **`primer_properties`**: a primer's length, GC content and melting
   temperature, for many at once.
 - **`import_sequences`**: registers each record of a FASTA or GenBank file
@@ -158,6 +275,21 @@ that pairs with itself, at CT. (Biopython's `Tm_NN` takes each strand's:
 dNTPs as well), under which the same primer's Tm is some 5 to 6 °C higher, so
 compare it with Tms computed for sodium alone. It's computed only for primers
 of A, C, G and T alone.
+
+The plugin pins the SHA-256 of its Linux x86-64 build in
+`data/oligo-measurement.sha256`. When building a deployment, Iki takes the compiled
+measurement from the installed `iki-spec` distribution and includes
+`data/oligo-measurement.wasm` in both the worker image and downloadable plugin archive.
+Release builds on Linux x86-64 compare its bytes with the pin. Other developer hosts
+require the built module and report why they skip that comparison. The dev cluster
+gets the verified Linux x86-64 bytes from Docker.
+The Rust standard library notice accompanies it in `data/rust-standard-library.html`.
+The worker runs it offline with the Wasmtime wheel in `sequence-tools`. The browser and
+server compile the same Rust source. In the Iki source checkout, `scripts/build-wasm.sh`
+builds the modules and places an ignored copy in the plugin for direct action invocations.
+After changing the Rust measurement, run `pnpm generate:temperature` to update its digest
+and the browser implementation. Deploy with an Iki release that supplies the pinned
+measurement. Retain previously shipped measurements when adding a new digest to a release.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
@@ -316,7 +448,17 @@ Where a primer binds a molecule, and what a pair of primers amplifies, are the
 plasmid plugin's: it holds the annotation and the maps those are read on
 ([ADR 0172](../../docs/adr/0172-what-the-bases-say-orfs-primer-sites-and-the-product-of-a-pcr.md)).
 A PCR product it works out is registered here, as the linear `DNASequence` it
-is. Reverse complements, restriction digests and primer design come later.
+is. Reverse complements and restriction digests come later.
+
+A primer `apply_mutagenesis` designs is a registered primer like any other, so
+where it binds the template, and whether it binds anywhere else, is read with
+the plasmid plugin's `primer_binding_sites`: the design places each primer by
+the protocol's rules and doesn't search the molecule for second sites, which
+is that action's work.
+
+A guide a design finds is a stretch of a registered sequence, so where it lies
+on a map is the plasmid plugin's; `design_guides` places the guides and does
+not annotate the molecule.
 
 ## Exports
 
@@ -361,7 +503,8 @@ Its environment's packages are pinned, with their hashes, in
 `requirements.txt`, compiled from `requirements.in` as it says. Pin the same
 releases in the repository's dev dependencies, where
 `server/tests/test_dna_reads.py` runs `align_reads`,
-`server/tests/test_dna_alignment.py` `align_pair` and `align_multiple`, and
+`server/tests/test_dna_alignment.py` `align_pair` and `align_multiple`,
+`server/tests/test_dna_codon_optimization.py` `optimize_codons`, and
 `server/tests/test_consensus.py` `consensus` (whose script the protein plugin
 ships too, the same file, as that test checks): `make check-deps` checks they
 match, and that each is at least 3 days old.

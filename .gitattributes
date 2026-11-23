@@ -19,3 +19,6 @@ plugins/oligo/tests/data/excel.csv -text
 # Inter (ADR 0176), as @fontsource-variable/inter publishes it; web/app's fonts.test.ts checks.
 *.woff2 binary
 server/src/iki_server/web/static/iki/fonts/inter-LICENSE.txt -text
+
+# Engine notices are vendored verbatim, including upstream whitespace.
+web/packages/science/licenses/*.txt -text -whitespace

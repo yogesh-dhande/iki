@@ -113,6 +113,10 @@
     "rules": {
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
     },
+    "draws_received": {
+      "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
     "draw_guards": {
       "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
@@ -327,6 +331,72 @@
         }
       }
     },
+    "stock_catalogue": {
+      "type": "object",
+      "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
+      "properties": {
+        "name": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "unit": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "threshold": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "notify": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+          }
+        },
+        "lots": {
+          "type": "object",
+          "required": ["type", "item", "number", "expiry"],
+          "properties": {
+            "type": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+            },
+            "item": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "number": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "expiry": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            }
+          },
+          "additionalProperties": false
+        },
+        "orders": {
+          "type": "object",
+          "required": ["type", "item", "reference", "ordered", "received"],
+          "properties": {
+            "type": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
+            },
+            "item": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "reference": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "ordered": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "received": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false,
+      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190)."
+    },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
       "type": "object",
@@ -348,6 +418,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 50
+        },
+        "whole_units": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require whole quantities in the ledger unit for indivisible stock such as individual consumables. Applies after unit conversion."
         },
         "display_unit": {
           "description": "The unit people see it in, if not `unit`.",

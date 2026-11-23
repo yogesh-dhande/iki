@@ -12,6 +12,7 @@ import { createPortal } from "react-dom";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "./api";
+import { fetchPageRead } from "./page-reads";
 import { labelSizesQuery, type LabelSize, type PreparedLabel } from "./storage";
 import { Button, Loading, ProblemAlert, RadioField, SelectField, useMessages } from "./ui";
 
@@ -293,9 +294,10 @@ function usePreviewLabels(ids: string[]): PreparedLabel[] {
   const first = ids.slice(0, PREVIEWED);
   const found = useQuery({
     queryKey: ["storage", "label-preview", first.join(",")],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.POST("/api/v1/storage/labels", {
+          fetch: fetchPageRead,
           body: {
             records: first,
             size: "standard",
@@ -305,6 +307,7 @@ function usePreviewLabels(ids: string[]): PreparedLabel[] {
             copies: 1,
             preview: true,
           },
+          signal,
         }),
       ).labels,
   });

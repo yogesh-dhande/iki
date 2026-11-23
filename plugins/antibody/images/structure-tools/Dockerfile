@@ -20,14 +20,15 @@ FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65
 # hmmscan, and Debian's security updates. Debian rebuilt HMMER for arm64 alone
 # (+b2), so each architecture pins its own build of the same source.
 ARG TARGETARCH
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
 RUN case "${TARGETARCH}" in \
       amd64) hmmer=3.4+dfsg-2 ;; \
       arm64) hmmer=3.4+dfsg-2+b2 ;; \
       *) echo "no HMMER pinned for ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
- && apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends "hmmer=${hmmer}" \
+ && apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY upgrade -y --no-install-recommends \
+ && apt-get $APT_RETRY install -y --no-install-recommends "hmmer=${hmmer}" \
  && rm -rf /var/lib/apt/lists/*
 
 # Pinned and hashed, the same versions on both architectures: uv.lock beside

@@ -32,22 +32,26 @@ export const STORAGE = ["storage"] as const;
 
 export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/places")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
 });
 
 export function containerQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "container", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function locationQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "location", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -55,13 +59,14 @@ export function locationEventsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...STORAGE, "events", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/location/events", {
           params: {
             path: { ref },
             query: { limit: 20, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -74,10 +79,11 @@ export type CheckedOut = Schemas["CheckedOutOut"];
 export function checkedOutQuery(custodian?: string) {
   return queryOptions({
     queryKey: [...STORAGE, "checked-out", custodian ?? "all"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/checked-out", {
           params: { query: custodian ? { custodian } : {} },
+          signal,
         }),
       ),
   });
@@ -86,10 +92,11 @@ export function checkedOutQuery(custodian?: string) {
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
           params: { path: { ref } },
+          signal,
         }),
       ),
   });
@@ -97,25 +104,28 @@ export function reconciliationsQuery(ref: string) {
 
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/labels")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/labels", { signal })),
   staleTime: Infinity,
 });
 
 export function receiptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function reconciliationQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliation", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/reconciliations/{reconciliation_id}", {
           params: { path: { reconciliation_id: id } },
+          signal,
         }),
       ),
   });
@@ -124,9 +134,12 @@ export function reconciliationQuery(id: string) {
 export function receiptQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipt", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
+        await iki.GET("/api/v1/receipts/{receipt_id}", {
+          params: { path: { receipt_id: id } },
+          signal,
+        }),
       ),
   });
 }
@@ -138,67 +151,14 @@ export async function scanFor(code: string): Promise<ScanMatch[]> {
 
 // --- Positions ----------------------------------------------------------------------------------
 
-/** A row's letters, as a spreadsheet's columns are: 1 is A, 27 is AA. */
-export function letters(n: number): string {
-  let out = "";
-  let rest = n;
-  while (rest > 0) {
-    const m = (rest - 1) % 26;
-    out = String.fromCharCode(65 + m) + out;
-    rest = Math.floor((rest - 1) / 26);
-  }
-  return out;
-}
-
-/** Its place in the grid's order, from 0. */
-export function indexOf(shape: Shape, row: number, column: number): number {
-  return shape.order === "by_column"
-    ? (column - 1) * shape.rows + (row - 1)
-    : (row - 1) * shape.columns + (column - 1);
-}
-
-/** A position's name: A1 to H12, or 1 to 81 in the grid's order. */
-export function positionLabel(shape: Shape, row: number, column: number): string {
-  return shape.labels === "number"
-    ? String(indexOf(shape, row, column) + 1)
-    : `${letters(row)}${String(column)}`;
-}
-
-/** A row's header: its letter, or the number its first position has. */
-export function rowLabel(shape: Shape, row: number): string {
-  return shape.labels === "number" ? "" : letters(row);
-}
-
-export interface Slot {
-  row: number;
-  column: number;
-  label: string;
-  occupant: Occupant | undefined;
-}
-
-/** Every position, row by row as it's drawn, each with what's in it. */
-export function slotsOf(shape: Shape, contents: readonly Occupant[]): Slot[][] {
-  const at = new Map<string, Occupant>();
-  for (const o of contents) {
-    if (o.row != null && o.column != null) at.set(`${String(o.row)}:${String(o.column)}`, o);
-  }
-  return Array.from({ length: shape.rows }, (_, r) =>
-    Array.from({ length: shape.columns }, (_, c) => ({
-      row: r + 1,
-      column: c + 1,
-      label: positionLabel(shape, r + 1, c + 1),
-      occupant: at.get(`${String(r + 1)}:${String(c + 1)}`),
-    })),
-  );
-}
-
-/** The free positions, in the grid's order: where the next things put away go. */
-export function freeSlots(shape: Shape, contents: readonly Occupant[]): Slot[] {
-  return slotsOf(shape, contents)
-    .flat()
-    .filter((s) => !s.occupant)
-    .sort((a, b) => indexOf(shape, a.row, a.column) - indexOf(shape, b.row, b.column));
-}
+export {
+  indexOf,
+  slotsOf,
+  freeSlots,
+  letters,
+  positionLabel,
+  rowLabel,
+} from "@ikisci/science/box-map";
 
 /** Where its type says its records are kept, or hold others: none, for any other. */
 export function storageOf(type: EntityType | undefined): TypeStorage | null {
@@ -243,6 +203,7 @@ export const FINDINGS: Record<Finding, string> = {
   unchecked: "Not scanned yet",
   empty: "Empty",
   checked_out: "Checked out",
+  no_longer_found: "No longer found",
 };
 
 export const RESOLUTIONS: Record<Resolution, string> = {

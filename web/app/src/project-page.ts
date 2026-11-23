@@ -7,7 +7,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { ENTITIES, personName, type Entity, type EntityType } from "./entities";
+import { searchEntities, ENTITIES, personName, type Entity, type EntityType } from "./entities";
 import { sentBy, sentTo } from "./requests";
 
 export type ProjectChange = Schemas["ProjectChangeOut"];
@@ -16,10 +16,11 @@ export type ProjectChange = Schemas["ProjectChangeOut"];
 export function projectChangesQuery(projectId: string, limit = 8) {
   return queryOptions({
     queryKey: [...ENTITIES, "project-changes", projectId, limit],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/changes", {
           params: { path: { project_id: projectId }, query: { limit } },
+          signal,
         }),
       ),
   });
@@ -32,11 +33,11 @@ export function latestRequestsQuery(
 ) {
   return queryOptions({
     queryKey: [...ENTITIES, "latest-requests", projectId, sides],
-    queryFn: async (): Promise<Entity[]> => {
+    queryFn: async ({ signal }): Promise<Entity[]> => {
       const latest = async (where: Schemas["Condition"]) =>
         unwrap(
-          await iki.POST("/api/v1/entities/search", {
-            body: {
+          await searchEntities(
+            {
               project: projectId,
               exact_type: false,
               archived: false,
@@ -44,7 +45,8 @@ export function latestRequestsQuery(
               where,
               sort: { field: "updated_at", descending: true },
             },
-          }),
+            signal,
+          ),
         ).items;
       const found = await Promise.all([
         sides.received ? latest(sentTo(projectId) as Schemas["Condition"]) : [],

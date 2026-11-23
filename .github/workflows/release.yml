@@ -5,7 +5,8 @@ name: Release
 #     each with a cosign keyless signature bundle, SLSA build provenance and a
 #     CycloneDX SBOM attestation, plus a SHA256SUMS file;
 #   - the Helm chart, pushed to ghcr.io as an OCI artifact, signed and attested;
-#   - a GitHub release with all of the above.
+#   - @ikisci/science and @ikisci/ui on npm, at the release version;
+#   - a GitHub release with the worker and chart artifacts.
 # Container images are published by publish.yml on the same tag.
 #
 # Run it manually (workflow_dispatch) for a dry run: everything is built,
@@ -329,9 +330,61 @@ jobs:
             --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
           echo "chart signature verified"
 
+  npm:
+    name: Package and publish ${{ matrix.package }} to npm
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [science, ui]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance, bound to release.yml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - name: Test, build and pack at the Iki release version
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          cd "web/packages/$PACKAGE"
+          npm pkg set "version=$VERSION"
+          pnpm build
+          pnpm test
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          if [ "$PACKAGE" = science ]; then
+            for notice in rust-wasm.txt rust-standard-library.html binaryen.txt; do
+              tar -xOf "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz" "package/dist/licenses/$notice" \
+                | cmp - "dist/licenses/$notice"
+            done
+          fi
+          npm publish --dry-run --ignore-scripts "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz"
+      # Configure each package's trusted publisher for this repository and release.yml.
+      # A manual run exercises packaging only, including when dispatched on a tag.
+      - name: Publish the checked tarball
+        if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
+        env:
+          PACKAGE: ${{ matrix.package }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          tag=latest
+          case "$VERSION" in *-*) tag=next ;; esac
+          npm publish --ignore-scripts --access public --provenance --tag "$tag" \
+            "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz"
+
   github-release:
     name: GitHub release
-    needs: [version, sign-worker, chart, publish-chart]
+    needs: [version, sign-worker, chart, publish-chart, npm]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10

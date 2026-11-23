@@ -52,6 +52,7 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
+from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
     assignments,
@@ -72,6 +73,7 @@ from iki_server.entities.values import (
     Invalid,
     Part,
     Refs,
+    RowProblems,
     Shape,
     history_value,
     problems_of,
@@ -86,6 +88,7 @@ from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
+from iki_server.setup import starter_flows
 from iki_spec.model import EntityType, Field, names_people
 
 __all__ = [
@@ -265,6 +268,8 @@ def create(
         hold_reason=hold_reason,
     )
     with transaction.atomic(), _unique_values():
+        if refused := starter_flows.refused_create(project, [type_name]):
+            raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
             entry_number = (
@@ -672,6 +677,56 @@ def _unique_values() -> Iterator[None]:
         ) from None
 
 
+def _observation_ids(
+    form: Shape,
+    f: Field,
+    rows: Any,  # noqa: ANN401 - stored field value
+    current: Sequence[dict[str, Any]] | None = None,
+) -> Any:  # noqa: ANN401 - stored values
+    """Assign IDs to new Experiment observations and keep the IDs of retained rows."""
+    if (
+        rows is None
+        or f.name != "observations"
+        or form.part_of(f.name).name != "iki/experiments.Experiment"
+        or f.items is None
+        or "observation_id" not in f.items.fields
+    ):
+        return rows
+
+    name = "observation_id"
+    existing = {row[name]: row for row in current or ()}
+    used: set[str] = set()
+    for index, row in enumerate(rows):
+        row_id = row[name]
+        if row_id is None:
+            continue
+        if row_id in used:
+            raise RowProblems({f"{index}/{name}": ["names the same observation twice."]})
+        if current is not None and row_id not in existing:
+            raise RowProblems({f"{index}/{name}": ["isn't a current observation on this record."]})
+        used.add(row_id)
+
+    def content(row: dict[str, Any]) -> tuple[Any, Any]:
+        return row["observed_at"], row["note"]
+
+    # Older clients can keep an unchanged list as it is. For a changed list, incomplete
+    # requests can preserve a unique content match, but cannot identify identical rows.
+    if not used and current is not None and list(map(content, rows)) == list(map(content, current)):
+        return list(current)
+    matches: dict[tuple[Any, Any], list[str]] = defaultdict(list)
+    if not used:
+        for row_id, row in existing.items():
+            matches[content(row)].append(row_id)
+    for index, row in enumerate(rows):
+        if row[name] is not None:
+            continue
+        candidates = matches[content(row)]
+        if len(candidates) > 1:
+            raise RowProblems({f"{index}/{name}": ["is required to identify this duplicate."]})
+        row[name] = candidates.pop() if candidates else str(uuid7())
+    return rows
+
+
 def prepare(
     user: User,
     type_name: str,
@@ -705,12 +760,15 @@ def prepare(
     kept = _kept(form)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
+    ledger_field = registry.draws_received(type_name)
     for name, value in values.items():
         f = fields.get(name)
         if f is None:
             errors[name] = [f"{type_name} has no field `{name}`."]
         elif name in kept:
             errors[name] = [kept[name]]
+        elif name == ledger_field:
+            errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -721,7 +779,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = to_db(f, value, refs)
+                given[name] = _observation_ids(form, f, to_db(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -733,6 +791,10 @@ def prepare(
             given[name] = to_db(f, f.default, refs)
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    if not errors:
+        from iki_server.amounts import stock
+
+        errors = stock.check_item(type_name, project, given)
     if not errors:
         errors = requests.check_result(project, type_name, given)
     if not errors:
@@ -786,6 +848,7 @@ def update(
     acting_in: Project | None = None,
     taking: bool = False,
     allow_correction: bool = False,
+    _recording_draw: bool = False,
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -868,6 +931,7 @@ def update(
         )
         new: dict[str, Any] = {}
         for_entry: dict[str, Any] = {}
+        ledger_field = registry.draws_received(locked.type)
         for name, value in values.items():
             f = fields.get(name)
             if f is None:
@@ -878,7 +942,10 @@ def update(
             if name in kept:
                 errors[name] = [kept[name]]
                 continue
-            if f.computed and not by_run:
+            if name == ledger_field and not _recording_draw:
+                errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+                continue
+            if f.computed and not by_run and name != ledger_field:
                 errors[name] = ["is computed: only actions set it."]
                 continue
             if f.type == "state":
@@ -908,7 +975,7 @@ def update(
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
                 with using.namer.keeping(_named_in(f, current)):
-                    converted = to_db(f, value, using)
+                    converted = _observation_ids(form, f, to_db(f, value, using), current)
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
@@ -1331,6 +1398,14 @@ def values_at(
     """Every field's value as it was at revision ``number``, from the history tables: a
     record's own as of its revision, and its entry's as :func:`entry_at` says. With
     ``removed``, fields since removed too, as history kept them: null in revisions after."""
+    values, _ = values_and_entry_at(entity, number, entry_revision, removed=removed)
+    return values
+
+
+def values_and_entry_at(
+    entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
+) -> tuple[dict[str, Any], tuple[uuid.UUID, int] | None]:
+    """Read both the record values and the historical entry they were composed from."""
     form = shape(entity.type)
     is_entry = entity.registry_id is not None
     entry = entry_at(entity, number, entry_revision) if form.has_entries else None
@@ -1352,7 +1427,7 @@ def values_at(
         for name, f in part.fields.items():
             if removed or not f.removed:
                 out[name] = history_value(row, f) if row is not None else None
-    return out
+    return out, entry
 
 
 def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:

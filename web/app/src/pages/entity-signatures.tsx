@@ -35,10 +35,11 @@ export const SIGNATURES = [...ENTITIES, "signatures"] as const;
 export function signaturesQuery(ref: string, verify: boolean) {
   return queryOptions({
     queryKey: [...SIGNATURES, ref.toUpperCase(), verify],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/signatures", {
           params: { path: { ref }, query: { verify } },
+          signal,
         }),
       ),
     // Checking them again keeps showing them meanwhile.
@@ -48,15 +49,18 @@ export function signaturesQuery(ref: string, verify: boolean) {
 
 export const mySigningQuery = queryOptions({
   queryKey: ["me", "signing"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/me/signing")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/me/signing", { signal })),
 });
 
 function signingQuery(id: string) {
   return queryOptions({
     queryKey: ["signings", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/signings/{signing_id}", { params: { path: { signing_id: id } } }),
+        await iki.GET("/api/v1/signings/{signing_id}", {
+          params: { path: { signing_id: id } },
+          signal,
+        }),
       ),
     staleTime: Infinity,
   });

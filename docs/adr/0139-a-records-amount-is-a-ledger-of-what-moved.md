@@ -42,7 +42,9 @@ optional `aliquots: { type, of }`. Iki keeps the amount in its own table
 (`iki_amount`): one row per record, an exact decimal (40 digits, 12 after
 the point) in the type's unit, with a database check that it's never below
 zero. What a plugin declares is what it is and how it converts. How it moves
-is the same for every plugin, so it's core.
+is the same for every plugin, so it's core. For indivisible stock a type may
+set `whole_units: true`. The ledger checks quantities in its own unit after
+conversion, including each side of a transfer and each aliquot in a split.
 
 **It changes only through operations, each a movement.** Recorded when a
 record is made (`POST /entities` with `amount`), then drawn, transferred,
@@ -101,6 +103,14 @@ The aliquot type's unit must measure the same thing as the source's.
 record that received some, once per pair (ADR 0123). Upstream and downstream
 walks follow them like references, so a recall, or a donor's withdrawn
 consent, reaches everything split or pooled from a sample.
+
+A destination type can declare `draws_received` to include draw evidence in
+its own revision (ADR 0189). The draw appends the ledger movement ID, the
+material record and revision, the normalized amount and unit, and who drew
+it and when. When the draw came from a container, the receipt can also name
+its upstream lot and revision under the receiving project's sharing rules.
+Iki locks the participating records before writing the debit and receipt in
+one transaction. A locked destination refuses the draw.
 
 **A state can hold it.** A state with `holds_amount: true` (a quarantine, a
 rejection, a sample not yet received) refuses draws, transfers out and

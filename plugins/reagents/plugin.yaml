@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/reagents
+version: 0.1.0
+title: Reagents and consumables
+description: Track catalogue packs, stock across storage, reorder lines and partial deliveries.
+iki: ">=0.1"
+license: Apache-2.0
+dependencies:
+  iki/lots: { types: { Lot: ">=2" } }
+roles:
+  stock_manager:
+    {
+      label: Stock manager,
+      description: Receives alerts when catalogue stock is low and coordinates replenishment.,
+    }

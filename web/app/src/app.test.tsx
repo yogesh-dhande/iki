@@ -125,7 +125,7 @@ function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["Import
       applicable: false,
     },
     created_at: "2026-11-15T10:00:00Z",
-    planned_at: "2026-11-15T10:00:05Z",
+    planned_at: "2026-11-15T10:00:05.123456+00:00",
     applied_by: null,
     reason: "",
     applied_at: null,
@@ -488,7 +488,7 @@ describe("a project", () => {
     onProjectPage({ description: "Kinases\nand their inhibitors" });
     await renderApp("/projects/kinase-atlas/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Kinase Atlas");
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Overview" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -594,7 +594,7 @@ describe("a project", () => {
     const { user } = await renderApp("/projects/kinase-atlas/");
     expect(screen.getByText("You’re not a member of this project")).toBeVisible();
     expect(await screen.findByText("This project has no Admins.")).toBeVisible();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).queryByRole("link", { name: "Settings" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add me as Admin" }));
     await waitFor(() => {
@@ -1084,7 +1084,7 @@ describe("an import", () => {
   }
 
   it("shows where the bundle is from, the plan, and what keeps it from being applied", async () => {
-    onImport();
+    const made = onImport();
     await renderApp(PATH);
     expect(
       await screen.findByRole("heading", { name: /Import of kinase-atlas-20261115/ }),
@@ -1102,6 +1102,11 @@ describe("an import", () => {
     const people = card("People");
     expect(await within(people).findByText("A placeholder")).toBeVisible();
     expect(within(people).getByText(ME.name)).toBeVisible();
+    for (const kind of ["entities", "people"]) {
+      expect(
+        calls("GET", `/api/v1/imports/${made.id}/${kind}`).at(-1)?.query.get("planned_at"),
+      ).toBe(made.planned_at);
+    }
   });
 
   it("shows only the entities of one kind when asked", async () => {
@@ -1118,6 +1123,43 @@ describe("an import", () => {
     expect(
       calls("GET", `/api/v1/imports/${planned().id}/entities`).at(-1)?.query.get("action"),
     ).toBe("conflict");
+  });
+
+  it("reloads the summary and member rows when a page belongs to a newer plan", async () => {
+    const made = onImport();
+    if (!made.plan) throw new Error("planned() has a plan");
+    const replacement = planned({
+      planned_at: "2026-11-15T10:01:00Z",
+      plan: { ...made.plan, problems: ["This sample has been revised here."] },
+    });
+    const path = `/api/v1/imports/${made.id}`;
+    let current = made;
+    answer(`GET ${path}`, () => current);
+    answer(`GET ${path}/entities`, ({ query }: { query: URLSearchParams }) => {
+      if (query.get("planned_at") === made.planned_at) {
+        current = replacement;
+        return problem(409, "stale_plan", "The plan changed. Review the current plan.");
+      }
+      return page([
+        {
+          id: "00000000-0000-7000-8000-0000000000a1",
+          type: "iki/protein.Protein",
+          hrid: "PRT-000012",
+          hrid_here: "PRT-000012",
+          title: "Revised kinase",
+          action: "conflict",
+          revisions: 1,
+          adds: 0,
+          why: "",
+        },
+      ]);
+    });
+    await renderApp(PATH);
+    expect(await screen.findByText("This sample has been revised here.")).toBeVisible();
+    expect(await within(card("Entities")).findByText("Revised kinase")).toBeVisible();
+    expect(calls("GET", `${path}/entities`).at(-1)?.query.get("planned_at")).toBe(
+      replacement.planned_at,
+    );
   });
 
   it("asks before discarding it", async () => {
@@ -1158,7 +1200,57 @@ describe("an import", () => {
     expect(await screen.findByText(`Importing ${made.name} into Kinase Atlas.`)).toBeVisible();
     expect(calls("POST", `/api/v1/imports/${made.id}/apply`).at(-1)?.body).toEqual({
       reason: "Moving the kinase work",
+      planned_at: made.planned_at,
     });
+  });
+
+  it("closes an open confirmation when another plan replaces the one on screen", async () => {
+    const plan = planned().plan;
+    if (!plan) throw new Error("planned() has a plan");
+    const made = onImport(planned({ plan: { ...plan, problems: [], applicable: true } }));
+    const { user } = await renderApp(PATH);
+    await user.type(await screen.findByRole("textbox", { name: "Why" }), "Moving kinase records");
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    expect(screen.getByRole("alertdialog")).toBeVisible();
+
+    const replacement = { ...made, planned_at: "2026-11-15T10:01:00.456789+00:00" };
+    answer(`GET /api/v1/imports/${made.id}`, replacement);
+    await act(() => queryClient.invalidateQueries({ queryKey: ["imports", made.id], exact: true }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+    expect(calls("POST")).toHaveLength(0);
+    for (const kind of ["entities", "people"]) {
+      await waitFor(() => {
+        expect(
+          calls("GET", `/api/v1/imports/${made.id}/${kind}`).at(-1)?.query.get("planned_at"),
+        ).toBe(replacement.planned_at);
+      });
+    }
+  });
+
+  it("refreshes the plan after a stale confirmation and waits for another review", async () => {
+    const plan = planned().plan;
+    if (!plan) throw new Error("planned() has a plan");
+    const made = onImport(planned({ plan: { ...plan, problems: [], applicable: true } }));
+    const { user } = await renderApp(PATH);
+    await user.type(await screen.findByRole("textbox", { name: "Why" }), "Bring the records here");
+    await user.click(screen.getByRole("button", { name: "Import" }));
+    const dialog = screen.getByRole("alertdialog");
+    answer(`GET /api/v1/imports/${made.id}`, planned({ planned_at: "2026-11-15T10:02:00Z" }));
+    const path = `/api/v1/imports/${made.id}/apply`;
+    answer(
+      `POST ${path}`,
+      problem(409, "stale_plan", "The plan changed. Review the current plan."),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Import" }));
+    expect(
+      await screen.findByText("1 entity is in conflict: see each one’s reason."),
+    ).toBeVisible();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(calls("POST", path).map((call) => call.body)).toEqual([
+      { reason: "Bring the records here", planned_at: made.planned_at },
+    ]);
   });
 
   it("offers no import while something keeps it from being applied", async () => {
@@ -1501,7 +1593,7 @@ describe("webhooks", () => {
     onWebhooks();
     await renderApp("/projects/kinase-atlas/automation/webhooks/");
     // One of Automation's three (ADR 0176): the tab is current, and its row says which.
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
       "aria-current",
       "page",

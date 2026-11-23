@@ -62,6 +62,7 @@ from iki_spec.model import (
     ResultSpec,
     RowRole,
     State,
+    StockCatalogue,
     Storage,
     Track,
     Trigger,
@@ -552,6 +553,7 @@ def _read(root: FilePath) -> _Loaded:
         triggers=fires,
         components=shown,
         roles=roles,
+        starters=dict(data.get("starters", {})),
         apis=apis.read_apis(name, data),
     )
     # Each action's uses of an outside API, with the API as the plugin declares it.
@@ -777,6 +779,10 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         if isinstance(body.get("result"), dict)
         else None,
         amount=_amount(body.get("amount"), plugin),
+        draws_received=body.get("draws_received"),
+        stock_catalogue=StockCatalogue.read(body["stock_catalogue"], plugin)
+        if body.get("stock_catalogue")
+        else None,
         storage=_storage(body.get("storage"), plugin),
         refines={
             name: {
@@ -804,6 +810,7 @@ def _amount(data: Any, plugin: str) -> Amount | None:  # noqa: ANN401 - YAML
         aliquots_of=aliquots.get("of"),
         material=data.get("material"),
         follows=tuple(data.get("follows") or ()),
+        whole_units=data.get("whole_units", False),
     )
 
 
@@ -962,6 +969,9 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
         self.types.update(self.plugin.types)
+        self.stock_lots = {
+            t.stock_catalogue.lots.type: t for t in self.types.values() if t.stock_catalogue
+        }
         #: Lab roles it can require: its own, and its dependencies' (ADR 0116).
         self.roles: dict[str, LabRole] = {}
         for other in others.values():
@@ -1356,8 +1366,154 @@ class _Semantics:
         if entity_type.result is not None:
             self.result(entity_type, source, every)
         self.amount(entity_type, source, every)
+        self.draws_received(entity_type, source, every)
+        self.stock_catalogue(entity_type, source)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
+
+    def stock_catalogue(self, entity_type: EntityType, source: Document) -> None:
+        # Validate a lot in its own plugin too. A later plugin can introduce new
+        # stock lot subtypes after the catalogue that declared their ledger contract.
+        chain = [entity_type, *self.ancestors(entity_type)]
+        if not entity_type.abstract:
+            for ancestor in chain:
+                catalogue = self.stock_lots.get(ancestor.qualified_name)
+                if catalogue is None or catalogue.stock_catalogue is None:
+                    continue
+                spec = catalogue.stock_catalogue
+                unit_field = self.all_fields(catalogue).get(spec.unit)
+                amount = next((t.amount for t in chain if t.amount), None)
+                if (
+                    amount is None
+                    or amount.material != spec.lots.item
+                    or (unit_field and amount.unit not in unit_field[0].values)
+                ):
+                    self.add(
+                        "stock-catalogue-lot",
+                        f"{entity_type.name} needs a ledger in a catalogue unit "
+                        "with its item as material.",
+                        source,
+                        ("amount",) if entity_type.amount else ("name",),
+                    )
+        config = entity_type.stock_catalogue
+        if config is None:
+            return
+        at: Path = ("stock_catalogue",)
+        for index, role in enumerate(config.notify):
+            self.lab_role(role, source, (*at, "notify", index))
+
+        def field_of(owner: EntityType, name: str, kinds: set[str], path: Path) -> Field | None:
+            found = self.all_fields(owner).get(name)
+            if (
+                found
+                and not found[0].removed
+                and found[0].type in kinds
+                and found[0].registry is None
+            ):
+                return found[0]
+            self.add(
+                "stock-catalogue-field",
+                f"`{name}` on {owner.name} must be a record field of type "
+                f"{' or '.join(sorted(kinds))}.",
+                source,
+                (*at, *path),
+            )
+            return None
+
+        field_of(entity_type, config.name, {"string", "text"}, ("name",))
+        unit = field_of(entity_type, config.unit, {"enum"}, ("unit",))
+        if unit and not (unit.required and unit.immutable):
+            self.add(
+                "stock-catalogue-unit",
+                "The stock unit must be required and immutable.",
+                source,
+                (*at, "unit"),
+            )
+        threshold = field_of(entity_type, config.threshold, {"int", "float"}, ("threshold",))
+        if threshold and (not threshold.required or threshold.min is None or threshold.min < 0):
+            self.add(
+                "stock-catalogue-threshold",
+                "The low-stock threshold must be required and have a nonnegative minimum.",
+                source,
+                (*at, "threshold"),
+            )
+        for key, mapping in (("lots", config.lots), ("orders", config.orders)):
+            owner = self.reference(mapping.type, source, (*at, key, "type"))
+            if owner is None:
+                continue
+            item = field_of(owner, mapping.item, {"ref"}, (key, "item"))
+            if item and (
+                item.to != (entity_type.qualified_name,) or not item.required or not item.immutable
+            ):
+                self.add(
+                    "stock-catalogue-item",
+                    "The item reference must be required, immutable and point to this catalogue.",
+                    source,
+                    (*at, key, "item"),
+                )
+            if key == "orders":
+                ordered = field_of(owner, config.orders.ordered, {"int"}, (key, "ordered"))
+                received = field_of(owner, config.orders.received, {"int"}, (key, "received"))
+                if ordered and (
+                    not ordered.required
+                    or not ordered.immutable
+                    or not ordered.min
+                    or ordered.min < 1
+                ):
+                    self.add(
+                        "stock-catalogue-order",
+                        "Ordered packs must be required, immutable and positive.",
+                        source,
+                        (*at, key, "ordered"),
+                    )
+                if received and (not received.computed or received.min is None or received.min < 0):
+                    self.add(
+                        "stock-catalogue-order",
+                        "Received packs must be computed and nonnegative.",
+                        source,
+                        (*at, key, "received"),
+                    )
+                field_of(owner, config.orders.reference, {"string", "text"}, (key, "reference"))
+            else:
+                field_of(owner, config.lots.number, {"string", "text"}, (key, "number"))
+                field_of(owner, config.lots.expiry, {"date"}, (key, "expiry"))
+
+    def draws_received(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """One ledger field is inherited through the type's lineage. Every receipt must
+        be a new value on a project's record that starts empty."""
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        declarations = [t.draws_received for t in lineage if t.draws_received is not None]
+        if not declarations:
+            return
+        name = declarations[0]
+        field = every[name][0] if name in every else None
+        if len(set(declarations)) != 1:
+            self.add(
+                "draws-received-field",
+                "A subtype keeps its parent's material draw field.",
+                source,
+                ("draws_received",),
+            )
+        elif (
+            field is None
+            or field.type != "json"
+            or not field.computed
+            or field.removed
+            or field.immutable
+            or field.required
+            or field.has_default
+            or field.registry is not None
+            or any(name in t.identity for t in lineage)
+        ):
+            self.add(
+                "draws-received-field",
+                f"`{name}` must be an optional computed JSON field on the project's record "
+                "that starts empty and can receive later draws.",
+                source,
+                ("draws_received",) if entity_type.draws_received else ("name",),
+            )
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 

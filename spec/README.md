@@ -64,8 +64,9 @@ with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`, `iki/plate_assays`,
-  `iki/qc_release` and `iki/example_lims`. No other plugin may use
+  `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`,
+  `iki/plate_assays`, `iki/experiments`, `iki/reagents`, `iki/qc_release` and
+  `iki/example_lims`. No other plugin may use
   it, or a namespace starting with `iki_` (`reserved-namespace`), and a
   lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
@@ -713,6 +714,9 @@ fields:
   it, and kept exactly, as a decimal; each movement keeps what was asked
   for as it was given, to 40 places either side of its point. `display_unit`
   measures the same thing (`amount-unit`).
+- `whole_units: true` requires an integer quantity in the ledger unit after
+  conversion. A lot of individual consumables uses this for its initial stock,
+  draws, transfers, splits and adjustments.
 - `concentration` names a quantity field of the type whose unit, times a
   volume, is a mass or an amount of substance (mg/mL, mmol/L), or the
   other way about (`amount-concentration`). Then an amount in a volume
@@ -738,6 +742,16 @@ fields:
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
+- A destination type can declare `draws_received: material_draws` with
+  `material_draws: { type: json, computed: true }` among its fields.
+  Each draw with this destination as `used_in` appends the movement ID,
+  the drawn record ID and revision, the positive quantity in the ledger's
+  unit, the person and the time. A tube's upstream lot ID and revision are
+  included when the person can reference that lot in the receiving project.
+  The debit and the receiving record revision commit together. The person
+  must be able to edit the destination and draw from the material. A state
+  lock on the destination prevents the draw. Signatures cover the receipts
+  on the revision being signed. Subtypes inherit the ledger field.
 - A record has one amount: a subtype has its parent's (`amount-twice`).
   A type with an identity has none (`amount-on-identity`): each project
   has one record of each entry, which isn't a thing in the lab.
@@ -752,6 +766,43 @@ fields:
   draws, transfers and adjusts it and lists its ledger, and
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
   and the webhook event `entity.amount_moved` says so.
+
+A catalogue type opts into the project's stock view and reorder list with
+`stock_catalogue` (ADR 0190). A lab declares its item, lot, order and
+recipient fields on its own types.
+
+```yaml
+stock_catalogue:
+  name: name
+  unit: stock_unit
+  threshold: low_stock_at
+  notify: [stock_manager]
+  lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
+  orders:
+    type: ReorderLine
+    item: item
+    reference: order_reference
+    ordered: ordered_packs
+    received: received_packs
+```
+
+The item's required, immutable enum gives its ledger unit. Its required
+numeric threshold has a nonnegative minimum. Each lot and order refers to
+an active catalogue item owned by the same project with a required,
+immutable reference. Every concrete lot type's amount uses that reference
+as its `material` and matches the item's unit. An open order contributes
+its ordered packs less the packs already received. A missing received
+count means zero.
+
+A project reader can page through `GET /api/v1/projects/{project_id}/stock`,
+the item's `/stock/{item_id}/lots` and the project's `/stock/orders`.
+Physical stock is the current ledger balance of its lots. Stored stock
+is in a container and checked in. Available stock must also pass routine
+draw guards and hold, archive and expiry checks. A reader sees a container's
+ID and position only when they can read it. The low-stock list
+(`low_only=true`) includes items with available stock at or below the
+threshold, including items without lots. The periodic stock check notifies
+the declared project lab roles once per low-stock episode.
 
 ### Extensions
 
@@ -1544,7 +1595,11 @@ gets the results as its `entities` property: `items`, each with `id`,
 Its `place` property says which slot it's in. It may send `iki-more` for
 the next page, `iki-refine` to narrow what it shows, with conditions on
 only the fields it reads, and `iki-open` with an HRID it was given, which
-Iki opens. It can't widen what its place shows, and it writes nothing:
+Iki opens. An `iki-open` event with `{entity: recordUuid, revision: number}`
+opens that historical revision as JSON. The host requires an exact `record_id`
+and positive `record_revision` pair in a row of the given entity, with a readable reference
+to the record or its `entry_id`. A registry pin can also open the corresponding `entry_id` and `entry_revision`. The server checks access to each snapshot.
+It can't widen what its place shows, and it writes nothing:
 picking entities offers Iki's run page, as on a tab.
 
 The validator checks that the module is a text file in the plugin, not a
@@ -1937,8 +1992,11 @@ When a worker leases a job, it gets the run input and writes it to
 
 For a single run, `run.requested_by` identifies its authenticated requester. A job
 that packs several runs omits this field, since each run has its own requester.
-An input record of a registered entity includes its `entry_id`, the ID held
-by references to that entity.
+An input record identifies its project record by `id` and `revision`. For
+registered records, `entry_id` identifies the registry entry held at that
+record revision and `entry_revision` gives the registry revision pinned at
+launch. Included records use the same fields. An action that seals evidence
+should keep both pairs, since registry facts can change independently.
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
@@ -2155,6 +2213,28 @@ old name still imports
   "fills": ["scientific_name"]
 }
 ```
+
+### Receiving a delivery
+
+A create can receive a delivery by declaring `receive_into`, a single required
+input holding a storage container that accepts the new record's type. The
+created type declares `amount` and `storage`. The command includes the
+starting amount and the reason for receipt alongside the create's values.
+
+```json
+{
+  "type": "lab/inventory.StockLot",
+  "values": { "lot_number": "L-12" },
+  "receipt": { "amount": { "value": "10", "unit": "mg" }, "reason": "Delivery D-42 line 1" }
+}
+```
+
+The input supplies the destination. A receipt may give a `position` such as
+`A1` within a grid and a `confirmation` for a required barcode scan. The
+storage service checks the launcher's permission, the lot's identity and
+the destination at commit. The starting amount, placement and any updates
+to the order commit in one transaction. Each received lot must be fresh and
+created inline. A unique delivery-line field can prevent duplicate receipts.
 
 ### Creates in a file
 

@@ -769,6 +769,8 @@ class Amount:
     #: References whose records' eligibility a draw from it also meets, such as a tube's
     #: lot (ADR 0180): their holds and draw guards. The first that's set is the draw's source.
     follows: tuple[str, ...] = ()
+    #: Discrete stock, such as individual tubes. Applies in the ledger unit after conversion.
+    whole_units: bool = False
 
 
 #: The most a container's grid has (ADR 0180): a 1536-well plate's 32 rows and 48 columns.
@@ -807,6 +809,48 @@ class Storage:
 
 
 @dataclass(frozen=True)
+class StockLots:
+    type: str
+    item: str
+    number: str
+    expiry: str
+
+
+@dataclass(frozen=True)
+class StockOrders:
+    type: str
+    item: str
+    reference: str
+    ordered: str
+    received: str
+
+
+@dataclass(frozen=True)
+class StockCatalogue:
+    """Fields identifying a project's stock, routine-use threshold and open orders."""
+
+    name: str
+    unit: str
+    threshold: str
+    notify: tuple[str, ...]
+    lots: StockLots
+    orders: StockOrders
+
+    @classmethod
+    def read(cls, data: dict[str, Any], plugin: str) -> StockCatalogue:
+        return cls(
+            name=data["name"],
+            unit=data["unit"],
+            threshold=data["threshold"],
+            notify=tuple(lab_role_name(r, plugin) for r in data["notify"]),
+            lots=StockLots(**{**data["lots"], "type": qualify(data["lots"]["type"], plugin)}),
+            orders=StockOrders(
+                **{**data["orders"], "type": qualify(data["orders"]["type"], plugin)}
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -842,6 +886,9 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
+    draws_received: str | None = None
+    stock_catalogue: StockCatalogue | None = None
     #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
@@ -999,6 +1046,8 @@ class Creates:
     derived_from: tuple[str, ...] = ()
     #: A unique field: a create with a value an entity in the project has updates it.
     match_on: str | None = None
+    #: For a fresh physical lot, the singular input naming its storage container.
+    receive_into: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1470,6 +1519,8 @@ class Plugin:
     components: dict[str, Component] = field(default_factory=dict)
     #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
     roles: dict[str, LabRole] = field(default_factory=dict)
+    #: Installed project starter recipes and their versions (ADR 0198).
+    starters: dict[str, str] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
 
@@ -1553,6 +1604,9 @@ def parse_duration(text: str) -> int:
 
 _DATACLASSES = (
     Amount,
+    StockCatalogue,
+    StockOrders,
+    StockLots,
     Grid,
     Storage,
     Field,
@@ -1651,6 +1705,9 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # ...or requests.
                         "request": _request(v.get("request")),
                         "result": _result(v.get("result")),
+                        "stock_catalogue": StockCatalogue.read(v["stock_catalogue"], data["name"])
+                        if v.get("stock_catalogue")
+                        else None,
                         # ...or amounts (ADR 0139).
                         "amount": _amount(v["amount"]) if v.get("amount") else None,
                         # ...or storage (ADR 0180).

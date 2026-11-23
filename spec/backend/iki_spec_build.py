@@ -33,7 +33,26 @@ def ensure_wasm(project: Path) -> Path:
             "repository, where scripts/build-wasm.sh builds it first, or from a source "
             "distribution that carries it."
         )
+    measurement = wasm.with_name("oligo-measurement.wasm")
+    if not measurement.is_file() or measurement.stat().st_size == 0:
+        raise RuntimeError("iki-spec needs oligo-measurement.wasm alongside iki_wasm.wasm.")
+    notice = wasm.with_name("rust-standard-library.html")
+    if not notice.is_file() or notice.stat().st_size == 0:
+        raise RuntimeError("iki-spec needs rust-standard-library.html alongside its Rust modules.")
     return wasm
+
+
+def ensure_dna_annotation(project: Path) -> Path:
+    """Build the matcher in a checkout, or require the module and notice in an sdist."""
+    package = project / WASM.parent
+    script = project.parent / "scripts" / "build-dna-annotation-wasm.sh"
+    if script.is_file() and (project.parent / "worker").is_dir():
+        subprocess.run([str(script), str(package)], check=True)  # noqa: S603 - checked-in build
+    module = package / "dna-annotation.wasm"
+    for artifact in (module, package / "rust-standard-library.html"):
+        if not artifact.is_file() or artifact.stat().st_size == 0:
+            raise RuntimeError(f"iki-spec needs {artifact.name} alongside iki_wasm.wasm.")
+    return module
 
 
 def _uv() -> Any:  # noqa: ANN401 - uv_build's module, which has no types
@@ -47,11 +66,13 @@ def build_wheel(
     metadata_directory: str | None = None,
 ) -> str:
     ensure_wasm(Path.cwd())
+    ensure_dna_annotation(Path.cwd())
     return str(_uv().build_wheel(wheel_directory, config_settings, metadata_directory))
 
 
 def build_sdist(sdist_directory: str, config_settings: dict[str, Any] | None = None) -> str:
     ensure_wasm(Path.cwd())
+    ensure_dna_annotation(Path.cwd())
     return str(_uv().build_sdist(sdist_directory, config_settings))
 
 

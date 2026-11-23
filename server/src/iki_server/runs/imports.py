@@ -83,6 +83,7 @@ from iki_server.runs.models import (
     RunStatus,
 )
 from iki_server.runs.services import is_a
+from iki_server.setup import starter_flows
 from iki_spec import schemas
 from iki_spec.model import Action as SpecAction
 from iki_spec.model import Field, Software
@@ -1153,6 +1154,10 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         cursor.execute("SET LOCAL gin_pending_list_limit = '64MB'")
         cursor.execute(f"SELECT DISTINCT type FROM {table} s")  # noqa: S608 - our own values
         types = sorted(t for (t,) in cursor.fetchall())
+        if refused := starter_flows.refused_create(project, types):
+            raise results.InvalidOutput(
+                [{"pointer": results.pointer("creates_file"), "detail": refused}]
+            )
         identified = [t for t in types if shape(t).has_entries]
         owners = sorted(
             {
