@@ -169,7 +169,72 @@ describe("a container's page", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  it("moves several selected, after saying where each goes, with one reason", async () => {
+  it("discards a late move preview after the destination or starting position changes", async () => {
+    onBox();
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const item = {
+      record: { ...FREEZER, id: occupant(11, 1, 1).id, hrid: "TUBE-000011" },
+      from_place: null,
+      to: { ...FREEZER, id: BOX_ID, hrid: "BOX-000014", position: "B1" },
+      kind: "moved",
+      problems: [],
+    };
+    answer("POST /api/v1/storage/moves", async () => {
+      await held;
+      return { done: false, operation: null, items: [item] };
+    });
+    const { user } = await renderApp("/storage/BOX-000014/");
+    await user.click(screen.getByRole("button", { name: "Select several" }));
+    const grid = screen.getByRole("grid");
+    await user.click(within(grid).getByRole("gridcell", { name: /^A1,/ }));
+    const move = within(screen.getByRole("region", { name: "Selected" })).getByRole("button", {
+      name: "Move…",
+    });
+    await user.click(move);
+    const dialog = within(await screen.findByRole("dialog", { name: "Move TUBE-000011" }));
+    const check = () => dialog.getByRole("button", { name: "Check where they go" });
+    await user.click(check());
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/storage/moves")).toHaveLength(1);
+    });
+    await user.type(dialog.getByRole("textbox", { name: /^Starting at/ }), "C1");
+    await act(async () => {
+      release();
+      await held;
+    });
+    expect(dialog.queryByRole("table")).not.toBeInTheDocument();
+    expect(check()).toBeEnabled();
+    answer("POST /api/v1/storage/moves", {
+      done: false,
+      operation: null,
+      items: [{ ...item, to: { ...item.to, position: "C1" } }],
+    });
+    await user.click(check());
+    expect(await dialog.findByRole("table")).toHaveTextContent("BOX-000014, C1");
+    await user.clear(dialog.getByRole("textbox", { name: "Container" }));
+    expect(dialog.queryByRole("button", { name: "Move it" })).not.toBeInTheDocument();
+    expect(check()).toBeEnabled();
+    await user.type(dialog.getByRole("textbox", { name: "Container" }), "BOX-000014");
+    await user.click(check());
+    const save = await dialog.findByRole("button", { name: "Move it" });
+    save.focus();
+    act(() => {
+      expect(wedge("LB-0012")).toBe(true);
+    });
+    await user.click(dialog.getByRole("button", { name: "Cancel" }));
+    const a2 = within(grid).getByRole("gridcell", { name: /^A2,/ });
+    expect(a2).toHaveAttribute("aria-selected", "false");
+    await user.click(a2);
+    await user.click(move);
+    const newSelection = within(await screen.findByRole("dialog", { name: "Move 2 records" }));
+    expect(newSelection.queryByRole("table")).not.toBeInTheDocument();
+    expect(newSelection.getByRole("button", { name: "Check where they go" })).toBeEnabled();
+  });
+
+  it.each(["", "C1"])("saves reviewed slots from ‘%s’", async (start) => {
     onBox();
     const { user } = await renderApp("/storage/BOX-000014/");
     await user.click(screen.getByRole("button", { name: "Select several" }));
@@ -178,8 +243,13 @@ describe("a container's page", () => {
     await user.click(within(grid).getByRole("gridcell", { name: /^A2,/ }));
     const bar = screen.getByRole("region", { name: "Selected" });
     expect(within(bar).getByText("2")).toBeInTheDocument();
-    answer("POST /api/v1/storage/moves", (call: { body: unknown }) => {
+    let finish = (): void => undefined;
+    const saving = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    answer("POST /api/v1/storage/moves", async (call: { body: unknown }) => {
       const body = call.body as { preview: boolean };
+      if (!body.preview) await saving;
       return {
         done: !body.preview,
         operation: body.preview ? null : "00000000-0000-7000-8000-000000000099",
@@ -201,7 +271,7 @@ describe("a container's page", () => {
             type: "acme/lims.Box",
             archived: false,
             purged: false,
-            position: `C${String(i + 1)}`,
+            position: i === 0 ? "C1" : "C3",
           },
           kind: "moved",
           problems: [],
@@ -226,22 +296,48 @@ describe("a container's page", () => {
     const to = within(dialog).getByRole("textbox", { name: "Container" });
     await user.clear(to);
     await user.type(to, "BOX-000015");
-    await user.type(within(dialog).getByRole("textbox", { name: /^Starting at/ }), "C1");
+    if (start)
+      await user.type(within(dialog).getByRole("textbox", { name: /^Starting at/ }), start);
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Consolidating");
     await user.click(within(dialog).getByRole("button", { name: "Check where they go" }));
     const plan = await within(dialog).findByRole("table", { name: "What moving them does" });
-    expect(within(plan).getByText("BOX-000015, C2")).toBeInTheDocument();
+    expect(within(plan).getByRole("row", { name: /TUBE-000011/ })).toHaveTextContent(
+      "BOX-000015, C1",
+    );
+    expect(within(plan).getByRole("row", { name: /TUBE-000012/ })).toHaveTextContent(
+      "BOX-000015, C3",
+    );
     await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
+    expect(to).toBeDisabled();
+    expect(within(dialog).getByRole("textbox", { name: "Reason" })).toBeDisabled();
+    await act(async () => {
+      finish();
+      await saving;
+    });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });
     const sent = calls("POST", "/api/v1/storage/moves").map((c) => c.body);
     expect(sent).toHaveLength(2);
-    expect(sent[0]).toMatchObject({ preview: true });
+    expect(sent[0]).toMatchObject({
+      preview: true,
+      items: [
+        { to: "BOX-000015", position: start ? "C1" : null },
+        { to: "BOX-000015", position: start ? "C3" : null },
+      ],
+    });
     expect(sent[1]).toEqual({
       items: [
-        { record: occupant(11, 1, 1).id, to: "BOX-000015", position: "C1" },
-        { record: occupant(12, 1, 2).id, to: "BOX-000015", position: "C3" },
+        {
+          record: occupant(11, 1, 1).id,
+          to: "00000000-0000-7000-8000-0000000b0002",
+          position: "C1",
+        },
+        {
+          record: occupant(12, 1, 2).id,
+          to: "00000000-0000-7000-8000-0000000b0002",
+          position: "C3",
+        },
       ],
       reason: "Consolidating",
       confirmations: {},

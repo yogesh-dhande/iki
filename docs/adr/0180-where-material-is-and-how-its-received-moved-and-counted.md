@@ -123,8 +123,11 @@ order. Iki locks the records' places and the containers in ID order, checks
 every move, and applies all of them or none, with one reason and one
 operation ID. A preview gives the same plan without changing anything, so
 the person sees each record's new position, and anything refused, before
-they confirm. Moving a box moves what's in it: its tubes stay in its
-positions, and no tube's place changes.
+they confirm. The bulk action on a box map sends those exact positions. If
+another person takes one before confirmation, Iki names the occupied
+position and leaves every record where it was. The person moving them can
+then check the new plan. Moving a box moves what's in it: its tubes stay
+in its positions, and no tube's place changes.
 
 **Checking out keeps its position.** A record checked out is still in its
 container's position, which nothing else can take, and is with its

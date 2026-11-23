@@ -3,7 +3,7 @@
  * the dialogs that move records, check them out and in, and hand them over.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
@@ -350,8 +350,6 @@ function Confirmations({
   );
 }
 
-type Planned = Awaited<ReturnType<typeof previewMoves>>;
-
 /**
  * Positions in a container from `start` on, one each for `records`, in its grid's order:
  * free ones, or those the records themselves leave. The first is `start` as given, so a
@@ -365,7 +363,9 @@ async function fromPosition(
   records: readonly Chosen[],
 ): Promise<(string | null)[]> {
   if (records.length < 2) return [start];
-  const found = await client.query(containerQuery(container)).catch(() => null);
+  const found = await client
+    .query({ ...containerQuery(container), staleTime: 0 })
+    .catch(() => null);
   const shape = found?.shape;
   if (!found || !shape) return [start];
   const leaving = new Set(records.map((r) => r.id));
@@ -381,12 +381,7 @@ async function fromPosition(
   return records.map((_, i) => open[first + i]?.label ?? null);
 }
 
-async function previewMoves(body: {
-  items: { record: string; to: string | null; position: string | null }[];
-  reason: string;
-  confirmations: Record<string, string>;
-  preview: boolean;
-}) {
+async function sendMoves(body: Schemas["MovesIn"]) {
   return unwrap(await iki.POST("/api/v1/storage/moves", { body }));
 }
 
@@ -397,12 +392,15 @@ async function previewMoves(body: {
 export function MoveDialog({
   records,
   from,
+  commitReviewedPositions = false,
   onClose,
   onMoved,
 }: {
   records: readonly Chosen[];
   /** The container they're moved from, which suggests itself as where to. */
   from?: string | undefined;
+  /** The container's bulk action commits exactly the destinations in the plan on screen. */
+  commitReviewedPositions?: boolean;
   onClose: () => void;
   onMoved?: () => void;
 }) {
@@ -412,53 +410,53 @@ export function MoveDialog({
   const [start, setStart] = useState("");
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, string>>({});
-  const [planned, setPlanned] = useState<Planned | null>(null);
   const needed = useConfirms(records, "move");
   const { say } = useMessages();
   const client = useQueryClient();
-  // Where each goes, as the preview worked it out: the move sends the same.
-  const [positions, setPositions] = useState<(string | null)[]>([]);
-  const items = (at: readonly (string | null)[]) =>
-    records.map((r, i) => ({
-      record: r.id,
-      to: where === "out" ? null : to.trim(),
-      position: where === "out" ? null : (at[i] ?? null),
-    }));
   const preview = useApiMutation(async () => {
-    const at =
+    const positions =
       where === "out" || !start.trim()
         ? []
         : await fromPosition(client, to.trim(), start.trim(), records);
-    setPositions(at);
-    return previewMoves({
-      items: items(at),
+    const requested = records.map((r, i) => ({
+      record: r.id,
+      to: where === "out" ? null : to.trim(),
+      position: positions[i] ?? null,
+    }));
+    const plan = await sendMoves({
+      items: requested,
       reason: reason.trim(),
       confirmations: {},
       preview: true,
     });
+    return {
+      plan,
+      itemsToMove: commitReviewedPositions
+        ? plan.items.map(({ record, to }) => ({
+            record: record.id,
+            to: to?.id ?? null,
+            position: to?.position ?? null,
+          }))
+        : requested,
+    };
   }, []);
-  const move = useApiMutation(
-    () =>
-      previewMoves({
-        items: items(positions),
-        reason: reason.trim(),
-        confirmations: confirmed,
-        preview: false,
-      }),
-    [STORAGE, ENTITIES],
-  );
+  const reviewed = preview.data;
+  const move = useApiMutation(sendMoves, [STORAGE, ENTITIES]);
   const problem = move.error
     ? problemOf(move.error)
     : preview.error
       ? problemOf(preview.error)
       : undefined;
   const errors = fieldErrors(problem);
-  const blocked = planned?.items.some((x) => x.problems.length) ?? false;
+  const blocked = reviewed?.plan.items.some((x) => x.problems.length);
+  const rejectedItems =
+    commitReviewedPositions &&
+    move.error?.status === 422 &&
+    Object.keys(errors).some((field) => field === "items" || field.startsWith("items/"));
   const unconfirmed = needed.some((r) => !confirmed[r.id]);
   const n = records.length;
   const named = n === 1 ? (records[0]?.hrid ?? "") : `${String(n)} records`;
   const changed = () => {
-    setPlanned(null);
     preview.reset();
     move.reset();
   };
@@ -476,68 +474,75 @@ export function MoveDialog({
           <Heading slot="title" className="section-title" id={`${id}-title`}>
             Move {named}
           </Heading>
-          <MoveProblems problem={problem} records={records} />
-          <RadioField
-            label="Where to"
-            value={where}
-            onChange={(v) => {
-              setWhere(v);
-              changed();
-            }}
-            options={[
-              { value: "container", label: "Into a container" },
-              {
-                value: "out",
-                label: "Out of storage",
-                description: "Discarded, used up or sent away.",
-              },
-            ]}
+          <MoveProblems
+            problem={problem}
+            records={
+              move.error && reviewed ? reviewed.plan.items.map((item) => item.record) : records
+            }
           />
-          {where === "container" ? (
-            <div className="move-to">
-              <TextField
-                label="Container"
-                value={to}
-                onChange={(v) => {
-                  setTo(v);
-                  changed();
-                }}
-                maxLength={64}
-                error={errors["items/0/to"]}
-                help="Its ID or barcode, such as BOX-000014: scan its label."
-              />
-              <TextField
-                label="Starting at"
-                value={start}
-                onChange={(v) => {
-                  setStart(v);
-                  changed();
-                }}
-                optional
-                maxLength={8}
-                error={errors["items/0/position"]}
-                help={
-                  n > 1
-                    ? "A position, such as A1: the rest go in the next free ones after it. Leave it empty for the first free one."
-                    : "A position, such as A1. Leave it empty for the first free one."
-                }
-              />
-            </div>
-          ) : null}
-          <TextField
-            label="Reason"
-            value={reason}
-            onChange={(v) => {
-              setReason(v);
-              move.reset();
-            }}
-            maxLength={2000}
-            multiline
-            error={errors["reason"]}
-            help="Why they’re moved. It’s kept in each one’s location history."
-          />
-          <Confirmations needed={needed} confirmed={confirmed} onConfirm={setConfirmed} />
-          {planned ? (
+          <fieldset disabled={commitReviewedPositions && move.isPending} aria-label="Move settings">
+            <RadioField
+              label="Where to"
+              value={where}
+              onChange={(v) => {
+                setWhere(v);
+                changed();
+              }}
+              options={[
+                { value: "container", label: "Into a container" },
+                {
+                  value: "out",
+                  label: "Out of storage",
+                  description: "Discarded, used up or sent away.",
+                },
+              ]}
+            />
+            {where === "container" ? (
+              <div className="move-to">
+                <TextField
+                  label="Container"
+                  value={to}
+                  onChange={(v) => {
+                    setTo(v);
+                    changed();
+                  }}
+                  maxLength={64}
+                  error={errors["items/0/to"]}
+                  help="Its ID or barcode, such as BOX-000014: scan its label."
+                />
+                <TextField
+                  label="Starting at"
+                  value={start}
+                  onChange={(v) => {
+                    setStart(v);
+                    changed();
+                  }}
+                  optional
+                  maxLength={8}
+                  error={errors["items/0/position"]}
+                  help={
+                    n > 1
+                      ? "A position, such as A1: the rest go in the next free ones after it. Leave it empty for the first free one."
+                      : "A position, such as A1. Leave it empty for the first free one."
+                  }
+                />
+              </div>
+            ) : null}
+            <TextField
+              label="Reason"
+              value={reason}
+              onChange={(v) => {
+                setReason(v);
+                if (!rejectedItems) move.reset();
+              }}
+              maxLength={2000}
+              multiline
+              error={errors["reason"]}
+              help="Why they’re moved. It’s kept in each one’s location history."
+            />
+            <Confirmations needed={needed} confirmed={confirmed} onConfirm={setConfirmed} />
+          </fieldset>
+          {reviewed ? (
             <div className="table-scroll">
               <table className="table move-plan">
                 <caption>What moving them does</caption>
@@ -550,7 +555,7 @@ export function MoveDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {planned.items.map((x) => (
+                  {reviewed.plan.items.map((x) => (
                     <tr key={x.record.id} className={x.problems.length ? "row-problem" : undefined}>
                       <th scope="row">{x.record.hrid}</th>
                       <td>
@@ -573,20 +578,28 @@ export function MoveDialog({
             </div>
           ) : null}
           <div className="actions">
-            {planned && !blocked ? (
+            {reviewed && !blocked && !rejectedItems ? (
               <Button
                 variant="primary"
                 busy={move.isPending}
                 busyText="Moving…"
                 disabled={unconfirmed}
                 onClick={() => {
-                  move.mutate(undefined, {
-                    onSuccess: () => {
-                      say(`Moved ${named}.`);
-                      onMoved?.();
-                      onClose();
+                  move.mutate(
+                    {
+                      items: reviewed.itemsToMove,
+                      reason: reason.trim(),
+                      confirmations: confirmed,
+                      preview: false,
                     },
-                  });
+                    {
+                      onSuccess: () => {
+                        say(`Moved ${named}.`);
+                        onMoved?.();
+                        onClose();
+                      },
+                    },
+                  );
                 }}
               >
                 Move {n === 1 ? "it" : `all ${String(n)}`}
@@ -597,11 +610,8 @@ export function MoveDialog({
                 busy={preview.isPending}
                 busyText="Checking…"
                 onClick={() => {
-                  preview.mutate(undefined, {
-                    onSuccess: (done) => {
-                      setPlanned(done);
-                    },
-                  });
+                  move.reset();
+                  preview.mutate(undefined);
                 }}
               >
                 Check where they go
@@ -623,7 +633,7 @@ function MoveProblems({
   records,
 }: {
   problem: ReturnType<typeof problemOf> | undefined;
-  records: readonly Chosen[];
+  records: readonly Pick<Chosen, "hrid">[];
 }) {
   if (!problem) return null;
   const items = (problem.errors ?? []).flatMap((e) => {

@@ -30,7 +30,7 @@ from iki_server.entities.models import Entity
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.storage import services as storage
-from iki_server.storage.models import Place, Receipt, ReceiptStatus, Reconciliation
+from iki_server.storage.models import Event, Place, Receipt, ReceiptStatus, Reconciliation
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -152,6 +152,78 @@ def test_from_a_freezer_to_a_box_by_keyboard_and_a_bulk_move(
         )
     ).to_be_visible()
     fits(page)
+    page.context.close()
+
+
+def test_bulk_move_requires_a_new_plan_when_a_reviewed_position_is_taken(
+    open_as: Any, world: World
+) -> None:
+    kept = a_freezer(world)
+    source, dest = kept["retains"], kept["spare"]
+    first, second, other = kept["tubes"]
+    page = open_as("admin", f"/storage/{source['hrid']}/")
+    page.get_by_role("button", name="Select several").click()
+    grid = page.get_by_role("grid", name="Kinase retains’s positions")
+    for slot in ("A1", "A2"):
+        grid.get_by_role("gridcell", name=re.compile(f"^{slot}, ")).click()
+    page.get_by_role("region", name="Selected").get_by_role("button", name="Move…").click()
+    dialog = page.get_by_role("dialog", name="Move 2 records")
+    dialog.get_by_role("textbox", name="Container").fill(dest["hrid"])
+    reason = "Consolidating both tubes"
+    dialog.get_by_role("textbox", name="Reason").fill(reason)
+    check = dialog.get_by_role("button", name="Check where they go")
+    save = dialog.get_by_role("button", name="Move all 2")
+    plan = dialog.get_by_role("table", name="What moving them does")
+
+    def review(slots: tuple[str, str]) -> list[dict[str, str]]:
+        check.click()
+        items = []
+        for tube, slot in zip((first, second), slots, strict=True):
+            row = plan.get_by_role("row", name=re.compile(tube["hrid"]))
+            expect(row.get_by_role("cell", name=f"{dest['hrid']}, {slot}")).to_be_visible()
+            items.append({"record": str(tube["id"]), "to": str(dest["id"]), "position": slot})
+        return items
+
+    initial = review(("A1", "A2"))
+
+    # A second editor puts a third tube in the first reviewed slot.
+    editor = open_as("editor", f"/storage/{dest['hrid']}/")
+    token = next(c["value"] for c in editor.context.cookies() if c["name"] == "iki_csrf")
+    competing = editor.request.post(
+        "/api/v1/storage/moves",
+        headers={"X-CSRFToken": token},
+        data={
+            "items": [{"record": str(other["id"]), "to": str(dest["id"]), "position": "A1"}],
+            "reason": "Put a third tube away",
+        },
+    )
+    assert competing.ok, competing.text()
+    editor.context.close()
+
+    with page.expect_response("**/api/v1/storage/moves") as refused:
+        save.click()
+    assert refused.value.status == 422
+    assert refused.value.request.post_data_json["items"] == initial
+    expect(dialog.get_by_role("alert")).to_contain_text(
+        f"{first['hrid']}: {dest['hrid']} has something at A1 already."
+    )
+    expect(save).to_have_count(0)
+    assert where(first) == (source["hrid"], 1, 1)
+    assert where(second) == (source["hrid"], 1, 2)
+    assert where(other) == (dest["hrid"], 1, 1)
+    events = Event.objects.filter(reason=reason)
+    assert not events.exists()
+
+    revised = review(("A2", "A3"))
+    with page.expect_response("**/api/v1/storage/moves") as saved:
+        save.click()
+    assert saved.value.ok
+    assert saved.value.request.post_data_json["items"] == revised
+    expect(dialog).to_have_count(0)
+    assert where(first) == (dest["hrid"], 1, 2)
+    assert where(second) == (dest["hrid"], 1, 3)
+    assert events.count() == 2
+    assert events.values("operation").distinct().count() == 1
     page.context.close()
 
 

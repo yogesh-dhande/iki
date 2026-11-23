@@ -324,6 +324,8 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
     setSelected(next);
   };
   const onScan = async (code: string) => {
+    // The open Move dialog owns its selection. Scans cannot edit the map behind it.
+    if (dialog?.kind === "move") return;
     const lower = code.toLowerCase();
     const here = c.contents.find(
       (o) => o.code?.toLowerCase() === lower || o.ref?.hrid.toLowerCase() === lower,
@@ -571,6 +573,7 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
       <Contents c={c} />
       {dialog?.kind === "move" ? (
         <MoveDialog
+          commitReviewedPositions
           records={dialog.records}
           from={c.hrid}
           onClose={() => {
