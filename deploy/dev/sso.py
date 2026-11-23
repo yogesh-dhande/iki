@@ -1192,6 +1192,7 @@ def actions() -> None:
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
     reads_aligned(alice, project)
     sequences_aligned(alice, project)
+    sequence_library_annotation(alice, project)
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
@@ -3047,6 +3048,38 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
     if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
         fail(f"{entity['hrid']} has no verifiable research sign-off")
     ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
+
+
+def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Find routine vector features on a DNA sequence and retain its GenBank features."""
+    # INSDC OL989372.1, the published circular vector pET-28a-ZaTdT12. Import the
+    # pinned GenBank record so the original feature table is present before the run.
+    accession = "OL989372.1"
+    fixture = Path(__file__).resolve().parents[2] / "server/tests/data/plasmids" / f"{accession}.gb"
+    source = upload(alice, project, fixture.name, fixture.read_bytes(), "chemical/seq-na-genbank")
+    imported = launch(alice, project, "iki/dna.import_sequences", {}, {"file": source})
+    sequences = [e for e in imported["effects"] if e["type"] == "iki/dna.DNASequence"]
+    if len(sequences) != 1:
+        fail(f"{imported['hrid']} did not import one DNA sequence from {accession}")
+    entity = sequences[0]["entity"]
+    before = record(alice, entity)["values"]
+    if not before.get("features") or before.get("topology") != "circular":
+        fail(f"{accession} did not retain its original features and circular topology on import")
+
+    action = "iki/plasmid.annotate_dna_sequence"
+    run = launch(alice, project, action, {"sequence": entity})
+    dna = record(alice, entity)
+    values = dna["values"]
+    if values.get("features") != before["features"] or values.get("bases") != before["bases"]:
+        fail(f"{run['hrid']} changed {dna['hrid']}'s imported features or bases")
+    # The GenBank FEATURES table independently gives these locations on opposite strands.
+    expected = {("T7 promoter", 4984, 5002, "forward"), ("lacI promoter", 4598, 4675, "reverse")}
+    found = {
+        (f["name"], f["start"], f["end"], f["strand"]) for f in values.get("library_features") or []
+    }
+    if not expected.issubset(found) or not values.get("library_annotated_with"):
+        fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
+    ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
 
 
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:

@@ -22,6 +22,11 @@ them.
     as its origin.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
+  - The plasmid plugin's **Annotate from feature library** action adds
+    exact matches to the DNA sequence's **Sequence** tab. Each hit shows its
+    location, strand, and source accession. The sequence record keeps the
+    library version alongside the hits and retains the imported features.
+    [ADR 0206](../../docs/adr/0206-dna-sequence-annotation-records-library-matches-and-provenance.md)
   - Its length and GC content are computed by the plugin's
     `compute_composition` action, which a trigger runs once, when it's
     registered.
