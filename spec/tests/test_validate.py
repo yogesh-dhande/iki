@@ -302,6 +302,14 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
     assert any("Constraints compare whole schema versions" in p.message for p in result.problems)
 
 
+def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "1.0.0"}\n')
+    assert result.plugin is not None and not result.problems
+    assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
+    bad = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "latest"}\n')
+    assert codes(bad) == ["schema"]
+
+
 # --- Rules across the plugin ---------------------------------------------------------------------
 
 
@@ -2845,6 +2853,46 @@ amount: { unit: uL }
 fields:
   parent: { type: ref, to: Assay }
 """
+
+
+def test_a_draw_destination_declares_one_computed_receipt_field(tmp_path: Path) -> None:
+    parent = (
+        TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
+        + """
+draws_received: material_draws
+fields:
+  material_draws: { type: json, computed: true }
+"""
+    )
+    child = """
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Experiment
+schema_version: 1
+extends: Assay
+hrid: { prefix: EXPT }
+"""
+    result = make(tmp_path, parent + child)
+    assert result.problems == []
+    assert result.plugin is not None
+    restored = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
+    assert restored.types["acme/lab.Assay"].draws_received == "material_draws"
+    assert restored.types["acme/lab.Experiment"].extends == "acme/lab.Assay"
+    assert codes(make(tmp_path, parent + child + "draws_received: other\n")) == [
+        "draws-received-field"
+    ]
+    for declaration in (
+        "type: text, computed: true",
+        "type: json",
+        "type: json, computed: true, immutable: true",
+    ):
+        assert "draws-received-field" in codes(
+            make(tmp_path, parent.replace("type: json, computed: true", declaration))
+        )
+    assert "draws-received-field" in codes(
+        make(tmp_path, parent.replace("draws_received: material_draws", "draws_received: missing"))
+    )
 
 
 def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:

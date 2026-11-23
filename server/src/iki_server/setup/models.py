@@ -5,11 +5,38 @@ import secrets
 from datetime import datetime, timedelta
 from typing import ClassVar
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.core.ids import uuid7
+
+
+class StarterApplication(models.Model):
+    """The current recipe choice and original example IDs. Changes go to the audit log."""
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    starter = models.CharField(max_length=63)
+    version = models.CharField(max_length=100)
+    flow = models.CharField(max_length=63)
+    project = models.ForeignKey("iki_org.Project", on_delete=models.CASCADE, related_name="+")
+    requester_project = models.ForeignKey(
+        "iki_org.Project", on_delete=models.PROTECT, related_name="+"
+    )
+    examples = models.JSONField(default=dict)
+    applied_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    applied_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "iki_starter_application"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["project", "starter"], name="iki_starter_per_project")
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.starter} {self.version} ({self.flow})"
+
 
 #: How long a setup link can be opened after it is created.
 LINK_LIFETIME = timedelta(minutes=60)

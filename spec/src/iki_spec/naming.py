@@ -97,6 +97,7 @@ FIRST_PARTY = frozenset(
         "iki/protein",
         "iki/antibody",
         "iki/small_molecule",
+        "iki/mouse_strains",
         "iki/oligo",
         "iki/plasmid",
         "iki/cell_lines",
@@ -106,6 +107,7 @@ FIRST_PARTY = frozenset(
         "iki/lots",
         "iki/strains",
         "iki/plate_assays",
+        "iki/experiments",
         "iki/example_lims",
         "iki/example_models",
     }
