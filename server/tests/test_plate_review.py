@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
-from test_first_party_plugins import FIRST_PARTY, PLUGINS
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -29,7 +29,7 @@ REQUEST = "iki/example_lims.AnalysisRequest"
 def test_both_plate_review_flows_deliver_the_signed_result(tmp_path: Path, database: str) -> None:
     """Install the shipping plugin in an isolated database, as in the first-party tests."""
     build = tmp_path / "build"
-    built = iki("plugin", "build", *FIRST_PARTY[PLUGIN], PLUGIN, "--output", build, cwd=PLUGINS)
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)

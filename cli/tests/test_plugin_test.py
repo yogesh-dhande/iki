@@ -101,6 +101,82 @@ def run(plugin: Path, *args: str) -> int:
     return main(["plugin", "test", str(plugin), "--with", str(PLUGINS / "dna"), *args])
 
 
+@pytest.fixture
+def first_party(tmp_path: Path) -> Path:
+    for marker in ("scripts/first_party_trees.py", "spec/src/iki_spec/first_party_trees.json"):
+        path = tmp_path / marker
+        path.parent.mkdir(parents=True)
+        path.touch()
+    return tmp_path / "plugins"
+
+
+def manifest(path: Path, name: str, *dependencies: str) -> Path:
+    path.mkdir(parents=True)
+    (path / "plugin.yaml").write_text(
+        json.dumps(
+            {
+                "apiVersion": "iki/v1",
+                "kind": "Plugin",
+                "name": name,
+                "version": "1.0.0",
+                "dependencies": {dependency: {} for dependency in dependencies},
+            }
+        )
+    )
+    return path
+
+
+def test_first_party_test_from_plugin_directory_finds_transitive_dependencies(
+    first_party: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest(first_party / "dna", "iki/dna")
+    manifest(first_party / "protein", "iki/protein", "iki/dna")
+    plugin = manifest(first_party / "lots", "iki/lots", "iki/protein")
+    monkeypatch.chdir(plugin)
+    assert main(["plugin", "test"]) == 0
+    assert "iki/lots has no action tests" in capsys.readouterr().out
+
+
+def test_first_party_test_keeps_explicit_overrides_and_fixture_only_dependencies(
+    first_party: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest(first_party / "dna", "iki/dna")
+    manifest(first_party / "protein", "iki/protein", "legacy/missing")
+    plugin = manifest(first_party / "lots", "iki/lots", "iki/protein")
+    pinned = manifest(tmp_path / "pinned", "iki/protein", "iki/dna")
+    fixture_plugin = manifest(tmp_path / "fixture", "lab/fixture", "lab/standards")
+    standards = manifest(tmp_path / "standards", "lab/standards")
+
+    run_test = ["plugin", "test", str(plugin), "--with", str(pinned), "--with", str(fixture_plugin)]
+    assert main(run_test) == 1
+    assert "lab/fixture needs the lab/standards plugin" in capsys.readouterr().err
+    assert main([*run_test, "--with", str(standards)]) == 0
+    assert "iki/lots has no action tests" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("in_checkout", [True, False])
+def test_third_party_and_off_tree_plugins_keep_explicit_dependencies(
+    first_party: Path, tmp_path: Path, in_checkout: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugins = first_party if in_checkout else tmp_path / "other" / "plugins"
+    base = manifest(plugins / "dna", "iki/dna")
+    name = "lab/assays" if in_checkout else "iki/lots"
+    plugin = manifest(plugins / "lots", name, "iki/dna")
+    args = ["plugin", "test", str(plugin)]
+    assert main(args) == 1
+    assert "give it with --with" in capsys.readouterr().err
+    assert main([*args, "--with", str(base)]) == 0
+
+
+def test_first_party_dependency_cycle_is_a_cli_error(
+    first_party: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugin = manifest(first_party / "protein", "iki/protein", "iki/dna")
+    manifest(first_party / "dna", "iki/dna", "iki/protein")
+    assert main(["plugin", "test", str(plugin)]) == 1
+    assert "cycle" in capsys.readouterr().err.lower()
+
+
 def test_each_test_passes_or_says_why(plugin: Path, capsys: pytest.CaptureFixture[str]) -> None:
     fixture(plugin, PROPERTIES)
     updated = {"updates": {"protein": [{"entity": "x", "values": {"molecular_weight": 374.49}}]}}

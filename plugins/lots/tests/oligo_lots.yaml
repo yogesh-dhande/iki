@@ -1,5 +1,4 @@
-# Run with `iki plugin test plugins/lots --with plugins/dna --with plugins/protein
-# --with plugins/antibody --with plugins/oligo` (ADR 0093).
+# Run all lots fixtures with `iki plugin test plugins/lots --with plugins/complex`.
 apiVersion: iki/v1
 kind: ActionTest
 name: inotersens_mass_is_its_own

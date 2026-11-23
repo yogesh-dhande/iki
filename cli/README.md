@@ -122,7 +122,7 @@ and checks what it writes: against `run-output/v1`, against what the action
 declares it changes, and against the test's `expect`.
 
 ```console
-$ iki plugin test plugins/protein --with plugins/dna
+$ iki plugin test plugins/protein
 Running 2 test(s) of iki/protein 0.8.0:
   ok      haemoglobin_alpha  (0.3s)
   FAILED  cystines  (0.2s)
@@ -130,6 +130,11 @@ Running 2 test(s) of iki/protein 0.8.0:
           updates.protein[0].values.extinction_coefficient_oxidized: expected 7115, got 6990
 1 passed, 1 failed in 0.5s.
 ```
+
+In the Iki source checkout, the command finds a first-party plugin’s declared
+dependencies under `plugins/`. Use `--with` for additional types used by a
+fixture, or to select an explicit copy of a dependency. When testing a plugin
+outside that tree, supply its dependencies with `--with`.
 
 The commands run on this machine, so install what their environments need
 first. It exits 1 if any test fails, or if a fixture doesn't match the
@@ -163,7 +168,7 @@ index doesn't count. If the migrations changed and the plugin's `version`
 didn't, it says so, and passes.
 
 ```console
-$ iki plugin test plugins/protein --with plugins/dna --upgrade-from origin/main \
+$ iki plugin test plugins/protein --upgrade-from origin/main \
     --database postgres://postgres@localhost:5432/postgres
 …
 Upgrading protein from 3f2a1c9b7e0d (0.7.0) to 0.8.0 on the scratch database
