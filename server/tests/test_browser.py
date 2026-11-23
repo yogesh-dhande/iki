@@ -736,6 +736,45 @@ def test_a_server_pages_header_is_the_apps(
     page.context.close()
 
 
+def test_make_token_stays_under_the_pointer_as_workers_arrive(open_as: Any, world: World) -> None:
+    from test_workers import LOCAL, ROOMY
+
+    from iki_server.runs import workers
+    from iki_server.runs.models import RegistrationToken
+
+    pool, _ = workers.create_registration(
+        label="Existing pool", tier="backend", by=world.users["compute_admin"]
+    )
+    for number in range(4):
+        workers.register(
+            pool, name=f"pool-{number}", version="0.1.0", capacity=ROOMY, plugins=LOCAL
+        )
+
+    page: Page = open_as("compute_admin", "/admin/compute/quotas/")
+    page.set_viewport_size({"width": 1280, "height": 1400})
+    listing = re.compile(r"/api/v1/compute/workers(?:\?|$)")
+    held: list[Route] = []
+    page.route(listing, lambda route: held.append(route))
+    with page.expect_request(listing):
+        page.goto("/admin/compute/workers/")
+    page.get_by_text("Loading workers…").wait_for()
+    page.get_by_role("textbox", name="What it’s for").fill("New pool")
+    button = page.get_by_role("button", name="Make token")
+    box = button.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    (route,) = held
+    route.continue_()
+    page.unroute(listing)
+    page.get_by_role("rowheader", name="pool-3").wait_for()
+    page.mouse.up()
+
+    expect(page.get_by_text("Copy the token now.")).to_be_visible()
+    assert RegistrationToken.objects.filter(label="New pool").count() == 1
+    page.context.close()
+
+
 def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     open_as: Any, world: World
 ) -> None:

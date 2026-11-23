@@ -252,7 +252,7 @@ describe("Compute → Workers", () => {
     onWorkers([], []);
     await renderApp("/admin/compute/workers/");
     expect(await screen.findByText(/No workers have registered yet/)).toBeVisible();
-    expect(section("Registration tokens").getByText("None yet.")).toBeVisible();
+    expect(section("Issued registration tokens").getByText("None yet.")).toBeVisible();
   });
 
   it("makes a registration token and shows it once", async () => {
@@ -362,7 +362,8 @@ describe("Compute → Workers", () => {
       teams: [],
       labels: [],
     });
-    const row = (await card.findByRole("rowheader", { name: /HPC login node/ })).closest("tr");
+    const inventory = section("Issued registration tokens");
+    const row = (await inventory.findByRole("rowheader", { name: /HPC login node/ })).closest("tr");
     if (!row) throw new Error("no row");
     expect(within(row).getAllByRole("cell")[0]).toHaveTextContent(
       "ContainerOn the Slurm cluster hpc",
@@ -411,7 +412,7 @@ describe("Compute → Workers", () => {
     );
     const { user } = await renderApp("/admin/compute/workers/");
     await user.click(
-      await section("Registration tokens").findByRole("button", {
+      await section("Issued registration tokens").findByRole("button", {
         name: "Revoke GPU pool (us-east-1)",
       }),
     );

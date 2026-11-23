@@ -52,6 +52,7 @@ export function ComputeWorkersPage() {
     <>
       <ComputeHeader />
       <div className="stack">
+        <RegisterWorkers />
         <Workers />
         <Registrations />
       </div>
@@ -152,7 +153,7 @@ function Workers() {
       ) : (
         <p className="muted">
           {tier === "all"
-            ? "No workers have registered yet. Make a registration token below, and give it to them."
+            ? "No workers have registered yet. Make a registration token and give it to them."
             : `No ${TIER_NAME[tier] ?? tier} workers${revoked ? "" : " that aren’t revoked"}.`}
         </p>
       )}
@@ -562,10 +563,8 @@ const EXPIRY = [
   { value: "90", label: "In 90 days" },
 ] as const;
 
-function Registrations() {
-  const tokens = useQuery(registrationsQuery);
+function RegisterWorkers() {
   const [made, setMade] = useState<RegistrationCreated | undefined>();
-  const [revoking, setRevoking] = useState<Registration | undefined>();
   return (
     <section className="card card-wide" aria-labelledby="registration-tokens">
       <h2 className="section-title" id="registration-tokens">
@@ -588,6 +587,18 @@ function Registrations() {
       ) : (
         <NewToken onMade={setMade} />
       )}
+    </section>
+  );
+}
+
+function Registrations() {
+  const tokens = useQuery(registrationsQuery);
+  const [revoking, setRevoking] = useState<Registration | undefined>();
+  return (
+    <section className="card card-wide" aria-labelledby="issued-tokens">
+      <h2 className="section-title" id="issued-tokens">
+        Issued registration tokens
+      </h2>
       {tokens.isPending ? (
         <Loading label="Loading registration tokens…" />
       ) : tokens.isError ? (
