@@ -57,7 +57,6 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
         "endpoint_value": None,
         "ci_low": None,
         "ci_high": None,
-        "fit_reason": "",
     }
     if len(points) <= 4:
         result["fit_reason"] = "A four-parameter fit needs more than four readings for uncertainty."
