@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A codon optimization's own tab (ADR 0203): the design read codon by codon, which the
+# record's fields can't show. `codon_changes` is a row per codon the design rewrote, and a
+# gene is hundreds of codons long; a reader needs to see where the design moved and where
+# it left the gene alone, which is a picture, and then the codons themselves, which is a
+# table. Iki sets `entity` to the optimization, as the person viewing it may read it.
+apiVersion: iki/v1
+kind: Component
+name: codon_view
+label: Codons
+description: >-
+  The design read codon by codon: a strip with one mark per codon, showing which codons
+  were rewritten and how well adapted each is to the host, the codon adaptation index and
+  GC content before and after, every codon that changed with the host's relative
+  adaptiveness for the codon that went and the one that came, and any constraint no
+  synonymous codon could meet, placed. Nothing is told by colour alone: the strip is said
+  in words and every codon is in the table beneath it.
+module: ./components/codon-view.js
+element: codon-view
+slots:
+  - slot: entity.tab
+    type: CodonOptimization
+    label: Codons
+# Until the design has been worked out, the tab offers the action that works it out, where
+# the person viewing it may run it (ADR 0170).
+events: { run: { actions: [optimize_codons] } }

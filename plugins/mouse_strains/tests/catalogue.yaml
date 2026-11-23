@@ -1,0 +1,59 @@
+# The two source rows are from MGI's official strain nomenclature report:
+# https://www.informatics.jax.org/downloads/reports/MGI_Strain.rpt
+apiVersion: iki/v1
+kind: ActionTest
+name: register_c57bl6j_from_catalogue
+description: >-
+  Look up the second of two strains by MGI accession and preserve the leading zeros in
+  the corresponding JAX stock number (https://www.jax.org/strain/000664).
+action: register_mgi_strain
+params:
+  file: { $file: report }
+  mgi_id: "MGI:3028467"
+  jax_stock: "000664"
+files: { report: tests/data/MGI_Strain.rpt }
+expect:
+  output:
+    creates:
+      - type: iki/mouse_strains.MouseStrain
+        values: { mgi_id: "MGI:3028467", nomenclature: C57BL/6J, jax_stock: "000664" }
+        origin:
+          source: MGI strain nomenclature report
+          id: "MGI:3028467"
+          file: "00000000-0000-7000-8004-000000000001"
+          sha256: "494fb4a7e2d0647c4b62f3da6c6b17fb06c06fd5fed4a2b08cf5c6b939a88d1e"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: missing_from_report
+action: register_mgi_strain
+params:
+  file: { $file: report }
+  mgi_id: "MGI:2163869"
+files: { report: tests/data/MGI_Strain.rpt }
+expect:
+  error: "The report has no strain with accession MGI:2163869."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: malformed_matching_row
+description: The synthetic invalid report omits its strain type column.
+action: register_mgi_strain
+params:
+  file: { $file: report }
+  mgi_id: "MGI:3028467"
+files: { report: tests/data/malformed.rpt }
+expect:
+  error: "Row 1 needs an MGI ID, a strain name and a strain type."
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: duplicate_accession
+description: The synthetic invalid report repeats a strain accession.
+action: register_mgi_strain
+params:
+  file: { $file: report }
+  mgi_id: "MGI:3028467"
+files: { report: tests/data/duplicate.rpt }
+expect:
+  error: "MGI:3028467 occurs more than once in the report."

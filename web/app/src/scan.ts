@@ -1,15 +1,13 @@
 /**
- * Scanning at the bench (ADR 0180). A USB or Bluetooth scanner in keyboard mode types its
- * code faster than anyone can, then Enter or Tab: a burst of at least four characters, each
- * within 50 ms of the last, is a scan wherever focus is on the storage pages, unless it's in
- * a text field, which takes what's typed as typing. A camera reads codes with the browser's
- * BarcodeDetector, where it has one.
+ * Scanning at the bench (ADR 0180). A keyboard-mode scanner sends a burst of
+ * characters followed by Enter or Tab. A text field always takes ordinary input.
  */
 
 import { useEffect, useRef } from "react";
 
-/** The longest a scanner's keystrokes are apart; people type slower. */
+/** A normal interval between scanner keys. One interval may include a stall. */
 export const MAX_GAP_MS = 50;
+const MAX_STALL_MS = 250;
 /** The shortest code taken as a scan: an HRID or a barcode is longer. */
 export const MIN_LENGTH = 4;
 
@@ -17,17 +15,15 @@ export type Fed =
   | { kind: "none" }
   /** Part of what may be a scan: `swallow` once it's fast enough not to be typing. */
   | { kind: "char"; swallow: boolean }
-  | { kind: "scan"; code: string };
+  | { kind: "scan"; code: string }
+  | { kind: "rejected" };
 
 /** Tells a scanner's keystrokes from a person's, a key at a time. */
 export class Wedge {
   private chars: string[] = [];
   private last = Number.NEGATIVE_INFINITY;
-
-  constructor(
-    private readonly maxGap = MAX_GAP_MS,
-    private readonly minLength = MIN_LENGTH,
-  ) {}
+  private stalls = 0;
+  private plausible = false;
 
   /** A key pressed at `at` (ms): whether it's part of a scan, or ends one. */
   feed(key: string, at: number, modified = false): Fed {
@@ -35,25 +31,44 @@ export class Wedge {
       this.reset();
       return { kind: "none" };
     }
-    if (key === "Enter" || key === "Tab") {
-      const code = this.chars.join("");
-      const fast = at - this.last <= this.maxGap * 2;
-      this.reset();
-      return code.length >= this.minLength && fast ? { kind: "scan", code } : { kind: "none" };
-    }
-    if (key.length !== 1) {
-      // Shift, which a scanner presses for capitals, and the like.
+    const end = key === "Enter" || key === "Tab";
+    if (!end && key.length !== 1) {
+      // Scanners use Shift for capitals.
       return { kind: "none" };
     }
-    if (at - this.last > this.maxGap) this.chars = [];
-    this.chars.push(key);
+
+    const gap = at - this.last;
+    if (!this.plausible && gap > MAX_STALL_MS) this.reset();
+    if (this.last !== Number.NEGATIVE_INFINITY) {
+      if (gap > MAX_STALL_MS) this.stalls = 2;
+      else if (gap > MAX_GAP_MS) this.stalls++;
+      else if (!end) this.plausible = true;
+    }
+
+    if (end) {
+      let result: Fed = { kind: "none" };
+      if (this.plausible) {
+        result =
+          this.stalls <= 1 && this.chars.length >= MIN_LENGTH
+            ? { kind: "scan", code: this.chars.join("") }
+            : { kind: "rejected" };
+      }
+      this.reset();
+      return result;
+    }
+
+    // Once two characters arrive quickly, keep the terminator even if later timing
+    // rules out the scan. Never start a second code from the rejected burst's tail.
+    if (this.stalls <= 1) this.chars.push(key);
     this.last = at;
-    return { kind: "char", swallow: this.chars.length >= 2 };
+    return { kind: "char", swallow: this.plausible };
   }
 
   reset(): void {
     this.chars = [];
     this.last = Number.NEGATIVE_INFINITY;
+    this.stalls = 0;
+    this.plausible = false;
   }
 }
 
@@ -72,7 +87,7 @@ export function isEditable(target: EventTarget | null): boolean {
 }
 
 /** Who's listening, the latest last: a dialog's scan box, over its page's, takes the scans. */
-const listeners: { current: (code: string) => void }[] = [];
+const listeners: { current: (code: string | null) => void }[] = [];
 let wedge: Wedge | null = null;
 
 function onKeyDown(event: KeyboardEvent) {
@@ -86,20 +101,19 @@ function onKeyDown(event: KeyboardEvent) {
     event.timeStamp || performance.now(),
     event.ctrlKey || event.metaKey || event.altKey,
   );
-  if (fed.kind === "scan" || (fed.kind === "char" && fed.swallow)) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  if (fed.kind === "scan") listeners.at(-1)?.current(fed.code);
+  if (fed.kind === "none" || (fed.kind === "char" && !fed.swallow)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (fed.kind !== "char") listeners.at(-1)?.current(fed.kind === "scan" ? fed.code : null);
 }
 
 /**
  * Calls `onScan` with each code a keyboard-mode scanner types while focus isn't in a text
  * field: on a box's map, a button, or the page itself. Its keys go no further, so a scan's
- * Enter doesn't press the button that has focus. Of several on screen, the one that started
- * listening last hears it: a dialog's, not the page's under it.
+ * Enter doesn't press the button that has focus. A rejected burst reports null.
+ * The most recent listener receives it, so a dialog takes precedence over its page.
  */
-export function useScanner(onScan: (code: string) => void, enabled = true): void {
+export function useScanner(onScan: (code: string | null) => void, enabled = true): void {
   const latest = useRef(onScan);
   useEffect(() => {
     latest.current = onScan;
@@ -107,7 +121,7 @@ export function useScanner(onScan: (code: string) => void, enabled = true): void
   useEffect(() => {
     if (!enabled) return;
     const me = {
-      current: (code: string) => {
+      current: (code: string | null) => {
         latest.current(code);
       },
     };

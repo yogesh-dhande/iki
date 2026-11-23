@@ -22,7 +22,9 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 import tomllib
+import urllib.error
 import urllib.request
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -38,6 +40,34 @@ PYPI = "https://pypi.org/simple"
 #: the check says its exception can go; once it isn't locked, the check fails until it
 #: goes, so a stale exception can't hold a package back.
 EXCEPTIONS: dict[tuple[str, str], str] = {}
+
+
+#: A registry answering 503 or dropping a connection says nothing about how old a release is,
+#: so a lookup that fails that way is worth asking again rather than failing the check. Only
+#: transient answers are retried: a 404 is an answer, and the caller still raises on it.
+_TRANSIENT = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+def _fetch(url: str, *, attempts: int = 4) -> bytes:
+    """The bytes at url, asking again after a transient failure, backing off between tries."""
+    request = urllib.request.Request(  # noqa: S310 - callers pass a fixed https URL
+        url, headers={"User-Agent": "iki-release-age-check"}
+    )
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+                return response.read()
+        except urllib.error.HTTPError as error:
+            if error.code not in _TRANSIENT or attempt == attempts:
+                raise
+            why = f"HTTP {error.code}"
+        except (urllib.error.URLError, TimeoutError) as error:
+            if attempt == attempts:
+                raise
+            why = str(getattr(error, "reason", error))
+        sys.stderr.write(f"  {url} gave {why}; asking again ({attempt} of {attempts - 1})\n")
+        time.sleep(2**attempt)
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def _when(text: str) -> datetime:
@@ -68,12 +98,7 @@ def pypi_released(name: str, version: str) -> datetime:
     """When a release's first file was uploaded to PyPI: for a local build of it, such as
     torch 2.15.0+cpu, the release it was built from."""
     public = version.split("+", 1)[0]
-    request = urllib.request.Request(
-        f"https://pypi.org/pypi/{name}/{public}/json",
-        headers={"User-Agent": "iki-release-age-check"},
-    )
-    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-        files = json.load(response)["urls"]
+    files = json.loads(_fetch(f"https://pypi.org/pypi/{name}/{public}/json"))["urls"]
     if not files:
         raise SystemExit(f"PyPI has no files for {name} {public}, to tell how old it is.")
     return min(_when(f["upload_time_iso_8601"]) for f in files)
@@ -96,11 +121,7 @@ def crate_releases(lock: Path) -> list[tuple[str, str, datetime]]:
         if package.get("source") != CRATES_REGISTRY:
             continue
         name, version = package["name"], package["version"]
-        request = urllib.request.Request(  # noqa: S310 - a fixed https URL
-            f"{INDEX}/{_index_path(name)}", headers={"User-Agent": "iki-release-age-check"}
-        )
-        with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-            lines = response.read().decode().splitlines()
+        lines = _fetch(f"{INDEX}/{_index_path(name)}").decode().splitlines()
         entry = next((e for e in map(json.loads, lines) if e["vers"] == version), None)
         if entry is None or "pubtime" not in entry:
             raise SystemExit(f"The crates.io index has no publish time for {name} {version}.")

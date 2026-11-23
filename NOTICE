@@ -4,6 +4,13 @@ Copyright 2026 The Iki Authors
 This product includes software developed by The Iki Authors
 (https://ikisci.org).
 
+The vector feature libraries in plugins/plasmid/data/features.json and
+worker/crates/iki-wasm/data/dna_features.json contain sequence intervals from
+public INSDC (GenBank) records. Each interval lists its original accession and
+feature location. The database providers impose no restrictions on use or
+redistribution. See plugins/plasmid/data/README.md and
+https://www.insdc.org/policy/ for the data sources and terms.
+
 This product includes the Unified Code for Units of Measure (UCUM) table,
 spec/src/iki_spec/units/ucum-essence.xml (UCUM version 2.2), unmodified.
 Copyright 1999-2024 Regenstrief Institute, Inc. All rights reserved.

@@ -71,6 +71,7 @@ from iki_server.runs.models import (
     RunStatus,
     WorkflowRun,
 )
+from iki_server.setup import starter_flows
 from iki_spec.model import Action, Updates, Workflow, action_from_dict
 from iki_spec.validate import value_problems
 
@@ -218,6 +219,7 @@ def launch(
             entities,
             values,
             setups.pin_for(action),
+            settings=plugin_settings(action, project),
             reuse_results=reuse_results,
             pins=pins,
         )
@@ -304,6 +306,7 @@ def launch_each(
     with transaction.atomic():
         link_into_project(user, project, outside)
         volumes = setups.pin_for(action)
+        settings = plugin_settings(action, project)
         made = [
             _made(
                 user,
@@ -312,6 +315,7 @@ def launch_each(
                 {**entities, each: [e]},
                 values,
                 volumes,
+                settings=settings,
                 reuse_results=reuse_results,
                 pins=included.of_each(pins, each, position),
             )
@@ -436,16 +440,18 @@ def launch_labels(action: Action, given: Sequence[str]) -> list[str]:
     return workers.clean_labels(tuple(given))
 
 
-def plugin_settings(action: Action) -> dict[str, Any]:
-    """The deployment's values for the settings of `action`'s plugin, which its runs get.
-    Raises :class:`Refused` if the plugins were built without them."""
+def plugin_settings(action: Action, project: Project) -> dict[str, Any]:
+    """Settings pinned for this run, including the project's selected starter flow."""
     if not registry.plugins()[action.plugin].settings:
         return {}
     try:
         values = registry.settings(action.plugin)
     except ImproperlyConfigured as error:
         raise Refused(f"{error} Until then, its actions can't run.") from None
-    return {name: value for name, value in values.items() if value is not None}
+    return {
+        **{name: value for name, value in values.items() if value is not None},
+        **starter_flows.run_settings(project, action.plugin),
+    }
 
 
 def _queue(
@@ -584,11 +590,11 @@ def _made(
     values: Mapping[str, Any],
     volumes: dict[str, Any] | None,
     *,
+    settings: dict[str, Any],
     reuse_results: bool,
     pins: list[included.Pin],
 ) -> _Made:
     sha = plugin_sha(action.plugin)
-    settings = plugin_settings(action)
     key = reuse.key(action, sha, entities, values, settings, pins, volumes=volumes)
     original = reuse.find(user, key, project) if reuse_results and volumes is not None else None
     return _Made(sha, settings, key, original, pins, volumes)
