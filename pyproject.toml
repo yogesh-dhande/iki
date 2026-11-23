@@ -234,6 +234,7 @@ pythonpath = ["server/tests", "sdk/python/tests", "deploy/live", "deploy/gcp/tes
 addopts = ["-p", "pytest_gate_skips", "-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 testpaths = [
   "plugins/plate_assays/tests",
+  "plugins/experiments/tests",
   "server/tests",
   "cli/tests",
   "spec/tests",

@@ -714,7 +714,9 @@ class _Rules:
         if target is None:
             return  # reported on the input
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
-        chain = {put.type, *(t.qualified_name for t in self.s.ancestors(target))}
+        lineage = [target, *self.s.ancestors(target)]
+        chain = {t.qualified_name for t in lineage}
+        ledger_fields = {t.draws_received for t in lineage if t.draws_received}
         for extension in self.plugin.extensions:
             if extension.extends_type in chain:
                 fields.update(extension.fields)
@@ -731,6 +733,13 @@ class _Rules:
                     hint=schemas._did_you_mean(
                         name, [n for n, x in fields.items() if not x.removed]
                     ),
+                )
+            elif name in ledger_fields:
+                self.add(
+                    "updates-draws-received",
+                    f"Only the amounts ledger may append to `{name}` when material is drawn.",
+                    source,
+                    where,
                 )
             elif f.type == "state":
                 self.add(
