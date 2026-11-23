@@ -1,0 +1,166 @@
+{
+  "name": "Routine cloning-vector features",
+  "version": "1.0",
+  "licence": "The sequences are from INSDC records (GenBank), which NCBI places no restrictions on the use or distribution of. Each part names the record and the feature it is.",
+  "records": {
+    "OL989372.1": "Cloning vector pET-28a-ZaTdT12",
+    "FJ457000.1": "Yeast shuttle vector pRS416-10xGly"
+  },
+  "parts": [
+    {
+      "name": "ori",
+      "label": "ori (ColE1/pMB1/pBR322/pUC origin of replication)",
+      "type": "rep_origin",
+      "role": "origin",
+      "bases": "TTGAGATCCTTTTTTTCTGCGCGTAATCTGCTGCTTGCAAACAAAAAAACCACCGCTACCAGCGGTGGTTTGTTTGCCGGATCAAGAGCTACCAACTCTTTTTCCGAAGGTAACTGGCTTCAGCAGAGCGCAGATACCAAATACTGTCCTTCTAGTGTAGCCGTAGTTAGGCCACCACTTCAAGAACTCTGTAGCACCGCCTACATACCTCGCTCTGCTAATCCTGTTACCAGTGGCTGCTGCCAGTGGCGATAAGTCGTGTCTTACCGGGTTGGACTCAAGACGATAGTTACCGGATAAGGCGCAGCGGTCGGGCTGAACGGGGGGTTCGTGCACACAGCCCAGCTTGGAGCGAACGACCTACACCGAACTGAGATACCTACAGCGTGAGCTATGAGAAAGCGCCACGCTTCCCGAAGGGAGAAAGGCGGACAGGTATCCGGTAAGCGGCAGGGTCGGAACAGGAGAGCGCACGAGGGAGCTTCCAGGGGGAAACGCCTGGTATCTTTATAGTCCTGTCGGGTTTCGCCACCTCTGACTTGAGCGTCGATTTTTGTGATGCTCGTCAGGGGGGCGGAGCCTATGGAAA",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "1497..2085"
+      },
+      "implies": {
+        "replication_origins": "pMB1/pUC"
+      }
+    },
+    {
+      "name": "rop",
+      "label": "rop (Rop, which keeps the pMB1 origin at a low copy number)",
+      "type": "CDS",
+      "role": "regulatory",
+      "bases": "GTGACCAAACAGGAAAAAACCGCCCTTAACATGGCCCGCTTTATCAGAAGCCAGACATTAACGCTTCTGGAGAAACTCAACGAGCTGGACGCGGATGAACAGGCAGACATCTGTGAATCGCTTCACGACCACGCTGATGAGCTTTACCGCAGCTGCCTCGCGCGTTTCGGTGATGACGGTGAAAACCTCTGA",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "complement(2515..2706)"
+      }
+    },
+    {
+      "name": "lacI",
+      "label": "lacI (the lac repressor)",
+      "type": "CDS",
+      "role": "regulatory",
+      "bases": "GTGAAACCAGTAACGTTATACGATGTCGCAGAGTATGCCGGTGTCTCTTATCAGACCGTTTCCCGCGTGGTGAACCAGGCCAGCCACGTTTCTGCGAAAACGCGGGAAAAAGTGGAAGCGGCGATGGCGGAGCTGAATTACATTCCCAACCGCGTGGCACAACAACTGGCGGGCAAACAGTCGTTGCTGATTGGCGTTGCCACCTCCAGTCTGGCCCTGCACGCGCCGTCGCAAATTGTCGCGGCGATTAAATCTCGCGCCGATCAACTGGGTGCCAGCGTGGTGGTGTCGATGGTAGAACGAAGCGGCGTCGAAGCCTGTAAAGCGGCGGTGCACAATCTTCTCGCGCAACGCGTCAGTGGGCTGATCATTAACTATCCGCTGGATGACCAGGATGCCATTGCTGTGGAAGCTGCCTGCACTAATGTTCCGGCGTTATTTCTTGATGTCTCTGACCAGACACCCATCAACAGTATTATTTTCTCCCATGAAGACGGTACGCGACTGGGCGTGGAGCATCTGGTCGCATTGGGTCACCAGCAAATCGCGCTGTTAGCGGGCCCATTAAGTTCTGTCTCGGCGCGTCTGCGTCTGGCTGGCTGGCATAAATATCTCACTCGCAATCAAATTCAGCCGATAGCGGAACGGGAAGGCGACTGGAGTGCCATGTCCGGTTTTCAACAAACCATGCAAATGCTGAATGAGGGCATCGTTCCCACTGCGATGCTGGTTGCCAACGATCAGATGGCGCTGGGCGCAATGCGCGCCATTACCGAGTCCGGGCTGCGCGTTGGTGCGGATATCTCGGTAGTGGGATACGACGATACCGAAGACAGCTCATGTTATATCCCGCCGTTAACCACCATCAAACAGGATTTTCGCCTGCTGGGGCAAACCAGCGTGGACCGCTTGCTGCAACTCTCTCAGGGCCAGGCGGTGAAGGGCAATCAGCTGTTGCCCGTCTCACTGGTGAAAAGAAAAACCACCCTGGCGCCCAATACGCAAACCGCCTCTCCCCGCGCGTTGGCCGATTCATTAATGCAGCTGGCACGACAGGTTTCCCGACTGGAAAGCGGGCAGTGA",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "complement(3515..4597)"
+      }
+    },
+    {
+      "name": "lacI promoter",
+      "label": "lacI promoter",
+      "type": "promoter",
+      "role": "promoter",
+      "bases": "GACACCATCGAATGGCGCAAAACCTTTCGCGGTATGGCATGATAGCGCCCGGAAGAGAGTCAATTCAGGGTGGTGAAT",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "complement(4598..4675)"
+      },
+      "implies": {
+        "promoters": "lacI"
+      }
+    },
+    {
+      "name": "T7 promoter",
+      "label": "T7 promoter",
+      "type": "promoter",
+      "role": "promoter",
+      "bases": "TAATACGACTCACTATAGG",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "4984..5002"
+      },
+      "implies": {
+        "promoters": "T7"
+      }
+    },
+    {
+      "name": "lac operator",
+      "label": "lac operator",
+      "type": "protein_bind",
+      "role": "regulatory",
+      "bases": "GGAATTGTGAGCGGATAACAATTCC",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "5003..5027"
+      }
+    },
+    {
+      "name": "6xHis",
+      "label": "6xHis",
+      "type": "CDS",
+      "role": "tag",
+      "bases": "CATCATCATCATCATCAC",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "5083..5100"
+      }
+    },
+    {
+      "name": "thrombin site",
+      "label": "thrombin site",
+      "type": "CDS",
+      "role": "tag",
+      "bases": "CTGGTGCCGCGCGGCAGC",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "5110..5127"
+      }
+    },
+    {
+      "name": "T7 terminator",
+      "label": "T7 terminator",
+      "type": "terminator",
+      "role": "terminator",
+      "bases": "CTAGCATAACCCCTTGGGGCCTCTAAACGGGTCTTGAGGGGTTTTTTG",
+      "source": {
+        "database": "INSDC",
+        "accession": "OL989372.1",
+        "record": "Cloning vector pET-28a-ZaTdT12",
+        "location": "6763..6810"
+      }
+    },
+    {
+      "name": "CEN6",
+      "label": "CEN6 (Saccharomyces cerevisiae centromere 6)",
+      "type": "centromere",
+      "role": "segregation",
+      "bases": "CATCACGTGCTATAAAAATAATTATAATTTAAATTTTTTAATATAAATATATAAATTAAAAATAGAAAGTAAAAAAAGAAATTAAAGAAAAAATAGTTTTTGTTTTCCGAAGATGTAAA",
+      "source": {
+        "database": "INSDC",
+        "accession": "FJ457000.1",
+        "record": "Yeast shuttle vector pRS416-10xGly",
+        "location": "4357..4475"
+      }
+    },
+    {
+      "name": "ARSH4",
+      "label": "ARSH4 (Saccharomyces cerevisiae autonomously replicating sequence)",
+      "type": "rep_origin",
+      "role": "origin",
+      "bases": "GATCGCCAACAAATACTACCTTTTATCTTGCTCTTCCTGCTCTCAGGTATTAATGCCGAATTGTTTCATCTTGTCTGTGTAGAAGACCACACACGAAAATCCTGTGATTTTACATTTTACTTATCGTTAATCGAATGTATATCTATTTAATCTGCTTTTCTTGTCTAATAAATATATATGTAAAGTACGCTTTTTGTTGAAATTTTTTAAACCTTTGTTTATTTTTTTTTCTTCATTCCGTAACTCTTCTACCTTCTTTATTTACTTTCTAAAATCCAAATACAAAACATAAAAATAAATAAACACAGAGTAAATTCCCAAATTATTCCATCATTAAAAGATACGAGGCGCGTGTAAGTTACAGGCAAGCGATC",
+      "source": {
+        "database": "INSDC",
+        "accession": "FJ457000.1",
+        "record": "Yeast shuttle vector pRS416-10xGly",
+        "location": "4488..4861"
+      },
+      "implies": {
+        "replication_origins": "ARSH4"
+      }
+    }
+  ]
+}

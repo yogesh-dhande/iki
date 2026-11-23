@@ -188,6 +188,13 @@ name = "iki-wasm"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
+# The unpublished annotation worker module inherits the workspace license.
+[[PackageOverrides]]
+name = "iki-dna-annotation-wasm"
+version = "0.1.0-dev.0"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
 # --- License exceptions --------------------------------------------------------
 # psycopg (LGPL-3.0) is the PostgreSQL driver Django supports; there is no
 # non-LGPL alternative. Iki uses it unmodified as a dynamically imported
