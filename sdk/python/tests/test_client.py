@@ -335,6 +335,23 @@ def test_draws_tell_the_server_their_purpose(fake: FakeIki, client: Client) -> N
     }
 
 
+def test_draw_records_what_received_the_material_and_the_scanned_source(
+    fake: FakeIki, client: Client
+) -> None:
+    path = "/api/v1/entities/LOT-000001/amount/draw"
+    fake.on("POST", path, {})
+    client.entities.draw(
+        "LOT-000001", (5, "mL"), used_in="EXP-000002", confirm="LABEL-17", reason="Buffer"
+    )
+    assert fake.body("POST", path) == {
+        "amount": {"value": "5", "unit": "mL"},
+        "purpose": "routine",
+        "reason": "Buffer",
+        "used_in": "EXP-000002",
+        "confirm": "LABEL-17",
+    }
+
+
 def test_read_the_revision_a_result_release_identifies(fake: FakeIki, client: Client) -> None:
     ref = entity("ANR-000012")["id"]
     release = {"entity": ref, "reviewed_revision": 4, "signed_revision": 5, "released_revision": 6}

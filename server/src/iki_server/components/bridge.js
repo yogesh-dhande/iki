@@ -37,7 +37,9 @@ function refined(event) {
 
 function opened(event) {
   const entity = hridOf(event.detail?.entity);
-  if (typeof entity === "string") send({ type: "open", entity });
+  if (typeof entity !== "string") return;
+  const revision = event.detail?.revision;
+  send(revision === undefined ? { type: "open", entity } : { type: "open", entity, revision });
 }
 
 function ran(event) {
