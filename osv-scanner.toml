@@ -22,6 +22,17 @@ the overflow isn't reachable. The fix, url 2.5.9, was released on 2026-11-20 and
 the three-day minimum age until 2026-11-23. Remove this and take 2.5.9 then."""
 
 [[IgnoredVulns]]
+id = "RUSTSEC-2026-0594"
+ignoreUntil = 2026-11-28T00:00:00Z
+reason = """cookie 0.18.2: private cookies sealed with AES-256-GCM can repeat a nonce across \
+a fork, because the nonce came from rand's thread_rng. iki-worker doesn't build the crate at \
+all: it sits in worker/Cargo.lock without being in the dependency graph for any target \
+(`cargo tree -i cookie --target all` prints nothing), and the flaw needs fork() without exec \
+plus PrivateJar::add on the forking thread, neither of which the worker does. The fix, cookie \
+0.18.3, was released on 2026-11-23, the day of the advisory, and is under the three-day \
+minimum age until 2026-11-26. Remove this and take 0.18.3 then."""
+
+[[IgnoredVulns]]
 id = "RUSTSEC-2026-0543"
 ignoreUntil = 2027-02-18T00:00:00Z
 reason = """chrono: an unmaintained-crate advisory, not a vulnerability, with no fixed \
@@ -174,6 +185,13 @@ license.override = ["Apache-2.0"]
 
 [[PackageOverrides]]
 name = "iki-wasm"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
+# The unpublished annotation worker module inherits the workspace license.
+[[PackageOverrides]]
+name = "iki-dna-annotation-wasm"
+version = "0.1.0-dev.0"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
