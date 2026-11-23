@@ -1,0 +1,138 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: apply_mutagenesis
+label: Make the changes and design the primers
+description: >-
+  Checks each change against the template's own bases, makes them, registers the mutant as
+  a DNA sequence derived from the design, and designs the primers that make them by the
+  protocol the design names. Where the design says where the coding region is, it says
+  what the changes do to the protein.
+inputs:
+  mutagenesis: { type: Mutagenesis, schema: ">=1", include: [template] }
+params:
+  shortest_primer:
+    type: int
+    default: 25
+    min: 10
+    max: 100
+    label: Shortest primer
+    description: >-
+      The fewest bases a designed primer may have. The QuikChange manual asks for 25 to
+      45; a back-to-back design can use shorter ones.
+  longest_primer:
+    type: int
+    default: 45
+    min: 15
+    max: 200
+    label: Longest primer
+    description: The most bases a designed primer may have, 45 in the QuikChange manual.
+  least_flank:
+    type: int
+    default: 10
+    min: 4
+    max: 30
+    label: Template either side of the change
+    description: >-
+      For overlapping primers, the correct template the change must have on each side of
+      it: the QuikChange manual asks for the change to be near the centre and at least 10
+      bases from either end.
+  min_primer_gc:
+    type: float
+    default: 40.0
+    min: 0.0
+    max: 100.0
+    label: Least GC in a primer
+    description: The least GC share an overlapping primer may have, 40% in the manual.
+  quikchange_tm:
+    type: float
+    default: 78.0
+    min: 50.0
+    max: 95.0
+    label: QuikChange acceptance Tm
+    description: >-
+      The temperature an overlapping primer must reach by the kit manual's own formula,
+      Tm = 81.5 + 0.41(%GC) - 675/N - %mismatch, which the protocol is written around. It
+      is not the primer's nearest-neighbour melting temperature, which Iki computes
+      separately for every primer it registers.
+  least_own_end:
+    type: int
+    default: 8
+    min: 4
+    max: 40
+    label: Each primer's own 3' end
+    description: >-
+      For partially overlapping primers, the fewest bases at a primer's 3' end that the
+      other primer doesn't share: at least eight, as Zheng, Baumann and Reymond ask
+      (Nucleic Acids Res 32:e115, 2004), so a primer's 3' end can only extend on the
+      template.
+  least_edge:
+    type: int
+    default: 4
+    min: 1
+    max: 30
+    label: Bases between the change and each 5' end
+    description: >-
+      For partially overlapping primers, how much of the shared stretch lies between the
+      change and each primer's 5' terminus: Zheng's protocol allows as few as four.
+  least_tm_gap:
+    type: float
+    default: 5.0
+    min: 0.0
+    max: 30.0
+    label: Least Tm gap
+    description: >-
+      For partially overlapping primers, the least the non-overlapping part may anneal
+      above the part the two primers share, by Wetmur's formula at 50 mM K+: Liu and
+      Naismith ask for 5 to 10 °C (BMC Biotechnol 8:91, 2008).
+  most_tm_gap:
+    type: float
+    default: 10.0
+    min: 0.0
+    max: 40.0
+    label: Most Tm gap
+    description: The most it may anneal above the shared part, 10 °C in the same protocol.
+  anneal_tm:
+    type: float
+    default: 60.0
+    min: 40.0
+    max: 80.0
+    label: Annealing Tm
+    description: >-
+      For back-to-back primers, what the part matching the template must anneal at, by
+      SantaLucia's nearest-neighbour model at 50 mM Na+ and 50 nM of strands in all
+      (PNAS 95:1460, 1998), which is the model every Iki primer's Tm uses.
+  gc_clamp:
+    type: bool
+    default: true
+    label: End each primer in G or C
+    description: >-
+      Whether a designed primer must end in a G or a C, which holds its 3' end on the
+      template while the polymerase starts. The QuikChange manual and Zheng's protocol
+      both ask for it.
+effects:
+  creates:
+    - type: DNASequence
+      cardinality: many
+      derived_from: [mutagenesis]
+    - type: Primer
+      cardinality: many
+      derived_from: [mutagenesis]
+  updates:
+    - input: mutagenesis
+      fields:
+        [product_length, changes_made, primers, protein_changes, primers_designed, designed_with]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/mutate.py]
+deterministic: true
+batchable: 10
+metrics:
+  changes:
+    label: Changes
+    description: How many changes were made to the template.
+  primers:
+    label: Primers designed
+    description: How many primers were designed and registered.
+timeout: 15m
