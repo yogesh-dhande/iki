@@ -4,8 +4,7 @@ production Content Security Policy and Trusted Types enforced.
 
 Every page is checked with axe against WCAG 2.2 AA, in light and dark mode,
 and must log no errors and break no CSP rule. Needs the built app (``make web``)
-and browsers (``uv run playwright install``); without them these tests skip
-locally and fail in CI.
+and browsers (``make test-browsers``).
 """
 
 import contextlib
@@ -34,6 +33,7 @@ from playwright.sync_api import (
     Playwright,
     sync_playwright,
 )
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, quiet, run_tasks, serve, server_env
 
@@ -115,14 +115,6 @@ async (tags) => {
 """
 
 
-def _require(what: bool, message: str) -> None:
-    if what:
-        return
-    if os.environ.get("CI"):
-        pytest.fail(message)
-    pytest.skip(message)
-
-
 @pytest.fixture(scope="module", autouse=True)
 def _orm_beside_playwright() -> Iterator[None]:
     # Sync Playwright keeps an event loop in this thread, so Django assumes the
@@ -140,8 +132,8 @@ def server(
     _s3_endpoint: str,
     _s3_bucket: str,
 ) -> Iterator[Server]:
-    _require(frontend._manifest_path() is not None, "Build the web app first: make web")
-    _require(AXE.is_file(), "Install the web dependencies first: pnpm install")
+    assert frontend._manifest_path() is not None, "Build the web app first: make web"
+    assert AXE.is_file(), "Install the web dependencies first: pnpm install"
     with django_db_blocker.unblock(), app_role() as role:
         # The test process signs people in, so the server shares its secret key. It
         # serves the fixture plugins the test database has tables for.
@@ -201,9 +193,8 @@ def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[
     )
     try:
         launched = getattr(playwright, request.param).launch(**options)
-    except Exception as error:
-        _require(False, f"{request.param}: {error}. Run: uv run playwright install")
-        raise
+    except PlaywrightError as error:
+        pytest.fail(f"{request.param} failed to launch: {error}\nRun make test-browsers.")
     yield launched
     launched.close()
 

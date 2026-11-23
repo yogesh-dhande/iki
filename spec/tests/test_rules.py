@@ -12,7 +12,7 @@ from iki_spec import wasm
 from iki_spec.model import plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
-pytestmark = pytest.mark.skipif(not wasm.WASM.exists(), reason="needs iki-wasm built")
+pytestmark = pytest.mark.wasm
 
 ROLES = """\
 apiVersion: iki/v1
@@ -262,6 +262,7 @@ def test_without_iki_wasm_rules_cant_be_checked(
 def test_the_module_keeps_only_utc() -> None:
     """Rules' times are UTC (ADR 0127): worker/.cargo/config.toml keeps chrono-tz to that
     zone, a megabyte less of the module browsers load. A build that missed it has them all."""
+    assert wasm.WASM.is_file(), "Build iki-wasm first: scripts/build-wasm.sh"
     module = wasm.WASM.read_bytes()
     assert b"Europe/London" not in module
     assert b"America/New_York" not in module

@@ -10,11 +10,14 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: setup
-setup: ## Install all toolchains' dependencies from the lockfiles
+setup: test-browsers ## Install all toolchains' dependencies from the lockfiles
 	uv sync --locked
 	$(PNPM) install --frozen-lockfile
 	cd worker && cargo fetch --locked
-	uv run playwright install chromium firefox webkit
+
+.PHONY: test-browsers
+test-browsers: ## Install the browser revisions required by the locked Playwright
+	uv run --locked playwright install chromium firefox webkit
 
 .PHONY: hooks
 hooks: ## Install the pre-commit hook for this clone and its worktrees
@@ -89,12 +92,14 @@ check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS
 PYTEST_PARALLEL ?= -n auto --dist worksteal
 
 .PHONY: check-python
-check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+check-python: test-browsers ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+	@test -s server/src/iki_server/web/static/app/manifest.json || { echo "Missing web app manifest. Run make web." >&2; exit 1; }
+	@test -s spec/src/iki_spec/iki_wasm.wasm || { echo "Missing iki-wasm. Run scripts/build-wasm.sh." >&2; exit 1; }
 	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
-	uv run pytest $(PYTEST_PARALLEL)
+	env -u IKI_SKIP_BROWSER_TESTS uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations

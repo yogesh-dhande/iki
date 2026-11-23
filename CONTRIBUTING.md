@@ -85,6 +85,14 @@ coverage. To run a shard locally:
 `test-durations` artifact of a recent run, and add shards to the matrix in
 `.github/workflows/ci.yml` when the suite outgrows them.
 
+`make check` and `make check-python` always install the project's locked
+Playwright revisions of Chromium, Firefox, and WebKit and run the browser
+tests. Before running pytest directly, use `pnpm install --frozen-lockfile`
+and `make web test-browsers` to build the app and iki-wasm and install the
+browsers. On Linux, `uv run --locked playwright install-deps chromium firefox
+webkit` installs the system libraries. For a partial local pytest run without
+browsers, use `IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. CI requires browsers.
+
 ## Dependencies
 
 - Lockfiles (`uv.lock`, `pnpm-lock.yaml`, `worker/Cargo.lock`) are committed and

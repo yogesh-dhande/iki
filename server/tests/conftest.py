@@ -107,6 +107,11 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1" and not os.environ.get("CI"):
+        skip_browser = pytest.mark.skip(reason="IKI_SKIP_BROWSER_TESTS=1")
+        for item in items:
+            if isinstance(item, pytest.Function) and "browser" in item.fixturenames:
+                item.add_marker(skip_browser)
     opted = {
         "scale": (
             config.getoption("--scale"),

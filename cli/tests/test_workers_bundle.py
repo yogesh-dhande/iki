@@ -5,8 +5,6 @@ import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from iki_cli import workers
 from iki_spec.validate import load_plugin
 
@@ -52,8 +50,8 @@ def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
     assert "'/opt/my envs/it'\"'\"'s/acme__protein/protein-tools'" in script
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
 def test_the_script_builds_the_environment(tmp_path: Path) -> None:
+    assert shutil.which("uv"), "Install uv to build the worker environment"
     item = _protein(tmp_path, "# nothing\n")
     envs = tmp_path / "envs"
     manifest = workers.write([item], tmp_path / "bundle", str(envs))
