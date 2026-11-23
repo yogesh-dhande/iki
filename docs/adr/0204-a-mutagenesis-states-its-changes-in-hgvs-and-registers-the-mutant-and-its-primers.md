@@ -146,6 +146,18 @@ same gene is read in the mutant; a change that leaves it short of a whole
 number of codons is a frameshift, and is named as one, with the new reading
 frame's stop counted from the first residue that changed.
 
+### It runs on the server, not in `iki-wasm`
+
+The primer checks shown beside a map are in `iki-wasm` because the viewer
+recomputes them while a person moves a selection: that work has to happen
+between frames. Designing a mutagenesis is the other shape. A template and a
+set of changes are stated, a design is asked for, and the person reads the
+oligos that come back; nothing in the viewer needs them per frame. So it runs
+server-side, where its melting temperatures come from the same SantaLucia
+implementation the rest of the plugin uses -- one implementation, not two
+kept in step through a digest. The day a viewer wants primers redesigned live
+as someone drags a change along a sequence, that is the moment to move it.
+
 ## Consequences
 
 - A lab designs the change, gets the oligos to order and the mutant to
