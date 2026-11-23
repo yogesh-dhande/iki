@@ -254,6 +254,15 @@ the operator found.
 An observation recorded before identity evidence existed has `identity_basis: null`
 and cannot establish a unique identity.
 
+An unregistered label is evidence about the slot where it was seen. A
+single rack read showing that text at A1 and A2 records two observations
+with separate line IDs. On a later read at A3, the text alone cannot tell
+the operator which tube moved or whether a third arrived. The count
+returns the previously observed slots and writes nothing until the
+operator chooses. Adding another tube creates a line at A3. Moving one
+requires the chosen line's reviewed revision and a correction reason.
+The history preserves its earlier position and who corrected it.
+
 When a label identifies several readable candidates, a choice shows their
 owning projects and their recorded positions where those are readable. A
 concealed occupant is never listed. A scan at its slot gets the same

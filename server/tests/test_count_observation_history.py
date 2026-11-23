@@ -439,7 +439,14 @@ def test_rack_swap_keeps_the_original_positive_observation_ids(world: World) -> 
         {"scans": [{"position": "A2", "code": "RED"}, {"position": "A3", "code": "BLUE"}]},
     ).json()
     prior = {x["code"]: x for x in made["lines"] if x["found"]}
-    scans = [{"position": "A2", "code": "BLUE"}, {"position": "A3", "code": "RED"}]
+    scans = [
+        {
+            "position": slot,
+            "code": code,
+            "unregistered": {"action": "move", "line_id": prior[code]["id"]},
+        }
+        for slot, code in (("A2", "BLUE"), ("A3", "RED"))
+    ]
     saved = b.post(
         f"{path}/scans",
         {
