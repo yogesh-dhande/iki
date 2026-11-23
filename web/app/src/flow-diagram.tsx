@@ -216,11 +216,6 @@ export function FlowDiagram({
                       else buttons.current.delete(node.name);
                     }}
                     className={classes}
-                    aria-label={nodeName(
-                      node,
-                      node.name === current,
-                      Boolean(current) && allowed.has(node.name),
-                    )}
                     aria-pressed={node.name === selected}
                     aria-current={node.name === current ? "step" : undefined}
                     aria-describedby={wordsId(node.name)}
@@ -277,46 +272,43 @@ function related(model: FlowModel, a: string, b: string): boolean {
   return joined || any;
 }
 
-/** A state's button's name: its label first, as it shows (WCAG 2.5.3), then what its
- * marks say. */
-function nodeName(node: FlowNode, current: boolean, next: boolean): string {
-  const marks = [
-    node.initial ? "where records start" : "",
-    node.locks ? "locks it" : "",
-    current ? "now" : "",
-    next ? "you can set it" : "",
-  ].filter(Boolean);
-  const signed = node.signatures.length
-    ? `, signed: ${node.signatures.map(signatureName).join(" and ")}`
-    : "";
-  const who = node.setters.length ? `Set by ${whoSets(node)}` : "No one sets it";
-  const where = node.fromAny ? " from any state" : "";
-  return `${[node.label, ...marks].join(", ")}. ${who}${where}${signed}`;
-}
-
+/** A state's face, which is its button's name: the label first, as it shows (WCAG 2.5.3),
+ * then its marks, with the words a screen reader needs between them. */
 function NodeFace({ node, current, next }: { node: FlowNode; current: boolean; next: boolean }) {
   return (
     <>
       <span className="flow-node-head">
         {node.initial ? <span className="flow-start" title="New records start here" /> : null}
         <span className="flow-node-label">{node.label}</span>
+        {node.initial ? <span className="visually-hidden">, where records start</span> : null}
         {node.locks ? (
           <span className="flow-lock" title="Locks the record">
             <LockIcon />
+            <span className="visually-hidden">, locks it</span>
           </span>
         ) : null}
-        {current ? <span className="flow-tag">Now</span> : null}
-        {next ? <span className="flow-tag flow-tag-next">You can</span> : null}
+        {current ? (
+          <span className="flow-tag">
+            <span className="visually-hidden">, </span>Now
+          </span>
+        ) : null}
+        {next ? (
+          <span className="flow-tag flow-tag-next">
+            <span className="visually-hidden">, </span>You can
+          </span>
+        ) : null}
       </span>
       <span className="flow-node-meta">
         <span className="flow-node-who">
+          <span className="visually-hidden">{node.setters.length ? ". Set by" : "."}</span>{" "}
           {whoSets(node)}
           {node.fromAny ? " · from any state" : ""}
         </span>
         {node.signatures.length ? (
           <span className="flow-node-sign">
             <PenIcon />
-            {node.signatures.map(signatureName).join(" + ")}
+            <span className="visually-hidden">, signed:</span>{" "}
+            {node.signatures.map(signatureName).join(" and ")}
           </span>
         ) : null}
       </span>

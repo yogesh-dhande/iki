@@ -65,7 +65,7 @@ describe("a type's page", () => {
     const section = await screen.findByRole("region", { name: "How records move" });
     const states = within(section).getByRole("list", { name: "Review’s states" });
     const buttons = within(states).getAllByRole("button");
-    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+    expect(buttons.map((b) => b.textContent)).toEqual([
       "Draft, where records start. Set by Analyst, Reviewer or Sample and result QA",
       "In review, locks it. Set by Analyst, signed: Authorship",
       "Reviewed, locks it. Set by Reviewer, signed: Review",
@@ -141,7 +141,7 @@ describe("a type's page", () => {
       "Coordinator · from any state",
     );
     expect(within(status).getByRole("button", { name: /^Accepted/ })).toHaveAccessibleName(
-      "Accepted. Set by Coordinator from any state",
+      "Accepted. Set by Coordinator · from any state",
     );
   });
 
