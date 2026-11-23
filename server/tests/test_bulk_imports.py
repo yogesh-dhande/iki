@@ -2,6 +2,7 @@
 then written all at once, or not at all."""
 
 import contextlib
+import dataclasses
 import hashlib
 import json
 from typing import Any
@@ -903,6 +904,46 @@ def test_an_import_checks_again_when_a_plugin_changes_before_its_written(
     body = finished(world, run)
     assert body["status"] == "succeeded", body
     assert len(body["effects"]) == 1
+
+
+def test_a_staged_import_checks_the_projects_flow_at_commit(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.setup import starters
+    from iki_server.setup.models import StarterApplication
+
+    # Use the fixture deployment's importer and its real worker/COPY path.
+    assay = dataclasses.replace(
+        starters.DOSE_RESPONSE,
+        result_base="acme/dna.Sequence",
+        flows={"research": "acme/protein.Protein", "regulated_qc": "acme/dna.DNASequence"},
+    )
+    monkeypatch.setattr(starters, "CATALOG", (assay,))
+    application = StarterApplication.objects.create(
+        project=world.project,
+        requester_project=Project.objects.create(team=world.team, name="Requests"),
+        starter=assay.id,
+        version=assay.version,
+        flow="research",
+        applied_by=world.users["admin"],
+    )
+    run, _ = started(world, lambda file: lines(protein(KINASES[0], "K1", file)))
+    imported = RunImport.objects.get(run_id=run["id"])
+    finish = imports._finish
+
+    def switched(staged: RunImport) -> bool:
+        assert staged.staged == 1
+        application.flow = "regulated_qc"
+        application.save()
+        return finish(staged)
+
+    monkeypatch.setattr(imports, "_finish", switched)
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert "uses regulated_qc" in body["error"]["errors"][0]["detail"]
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+    imported.refresh_from_db()
+    assert imported.created == 0
 
 
 def test_webhooks_hear_of_an_import_once(world: World) -> None:

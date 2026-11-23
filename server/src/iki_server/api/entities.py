@@ -86,6 +86,7 @@ from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
+from iki_spec import rules as spec_rules
 from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
@@ -222,6 +223,34 @@ class StateOut(Schema):
         default_factory=list,
         description="Conditions on setting the field to it, besides `set_by` (ADR 0128): each "
         "must be true. `can.states` says, for a record, whether one refuses you.",
+    )
+
+
+class FlowTransitionOut(Schema):
+    from_: str = Field(alias="from", description="The possible preceding state.")
+    to: str = Field(description="The state being set. Its roles, guards and signatures apply.")
+    conditional: bool = Field(
+        description="Whether a guard remains undecided from the field, origin and destination "
+        "alone. A record's can.states supplies its current permissions, holds and guard decisions."
+    )
+
+
+class FlowFieldOut(Schema):
+    name: str
+    label: str
+    initial: str
+    states: list[StateOut]
+    transitions: list[FlowTransitionOut] = Field(
+        description="Possible explicit moves. A state's on_edit separately identifies "
+        "where a reasoned value correction returns the record."
+    )
+
+
+class TypeFlowOut(Schema):
+    type: str = Field(description="Qualified entity type name.")
+    label: str
+    fields: list[FlowFieldOut] = Field(
+        description="The live state fields, including inherited ones."
     )
 
 
@@ -1544,6 +1573,45 @@ def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
     if found is None:
         raise Problem(404, f"There’s no entity type {name}.")
     return _type_out(found)
+
+
+@router.get(
+    "/entity-types/{qualified:name}/flow",
+    response=TypeFlowOut,
+    summary="A type's state fields and possible transitions",
+    by_alias=True,
+)
+def get_type_flow(request: HttpRequest, name: str) -> dict[str, Any]:
+    """The declared flow, independent of any record or current assignment (ADR 0198)."""
+    caller(request)
+    found = registry.types().get(name)
+    if found is None:
+        raise Problem(404, f"There’s no entity type {name}.")
+    fields = []
+    for f in states.state_fields(name).values():
+        live = [state for state in f.states.values() if not state.removed]
+        transitions = []
+        for target in live:
+            if not target.set_by:
+                continue  # An initial-only state has no incoming transition.
+            origins = [state.name for state in live if state.name != target.name]
+            for origin, possible in zip(
+                origins, spec_rules.state_origins(f, target.name, origins), strict=True
+            ):
+                if possible is not False:
+                    transitions.append(
+                        {"from": origin, "to": target.name, "conditional": possible is None}
+                    )
+        fields.append(
+            {
+                "name": f.name,
+                "label": f.label,
+                "initial": f.initial,
+                "states": [_state_out(state) for state in live],
+                "transitions": transitions,
+            }
+        )
+    return {"type": name, "label": found.label or found.name, "fields": fields}
 
 
 # --- Reading -------------------------------------------------------------------------------------

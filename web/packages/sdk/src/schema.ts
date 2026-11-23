@@ -1875,6 +1875,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/entity-types/{name}/flow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A type's state fields and possible transitions
+         * @description The declared flow, independent of any record or current assignment (ADR 0198).
+         */
+        get: operations["iki_server_api_entities_get_type_flow"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/entries/{ref}": {
         parameters: {
             query?: never;
@@ -4242,6 +4262,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/starters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List installed starters
+         * @description Include the current flow and version when the caller supplies a readable project.
+         */
+        get: operations["iki_server_api_starters_list_starters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/starters/{starter}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply a starter to a project
+         * @description Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.
+         *     Changing the flow selects the result type for future fits. Existing results keep their flow.
+         */
+        post: operations["iki_server_api_starters_apply_starter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/starters/{starter}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a starter choice
+         * @description Check the installed version, projects, roles and flow without changing either project.
+         */
+        post: operations["iki_server_api_starters_preview_starter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/storage/check-in": {
         parameters: {
             query?: never;
@@ -5791,6 +5872,21 @@ export interface components {
              * @description The types it's a tab of: an `entity` prop is one of these, or extends one.
              */
             tabs: string[];
+        };
+        /** AppliedStarterOut */
+        AppliedStarterOut: {
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Requester Project
+             * @description Original requester for an assay project Admin who may edit that project.
+             */
+            requester_project: string | null;
+            /** Version */
+            version: string;
         };
         /** ApplyIn */
         ApplyIn: {
@@ -8899,6 +8995,40 @@ export interface components {
              * @description The trigger's qualified name.
              */
             trigger: string;
+        };
+        /** FlowFieldOut */
+        FlowFieldOut: {
+            /** Initial */
+            initial: string;
+            /** Label */
+            label: string;
+            /** Name */
+            name: string;
+            /** States */
+            states: components["schemas"]["StateOut"][];
+            /**
+             * Transitions
+             * @description Possible explicit moves. A state's on_edit separately identifies where a reasoned value correction returns the record.
+             */
+            transitions: components["schemas"]["FlowTransitionOut"][];
+        };
+        /** FlowTransitionOut */
+        FlowTransitionOut: {
+            /**
+             * Conditional
+             * @description Whether a guard remains undecided from the field, origin and destination alone. A record's can.states supplies its current permissions, holds and guard decisions.
+             */
+            conditional: boolean;
+            /**
+             * From
+             * @description The possible preceding state.
+             */
+            from: string;
+            /**
+             * To
+             * @description The state being set. Its roles, guards and signatures apply.
+             */
+            to: string;
         };
         /** FormatOut */
         FormatOut: {
@@ -16438,6 +16568,148 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StarterFlowOut */
+        StarterFlowOut: {
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "research" | "regulated_qc";
+            /** Label */
+            label: string;
+            /**
+             * Required Roles
+             * @description Qualified lab roles needed to run this flow.
+             */
+            required_roles: string[];
+            /**
+             * Result Type
+             * @description Qualified type for a requested result in this flow.
+             */
+            result_type: string;
+        };
+        /** StarterOut */
+        StarterOut: {
+            /** @description Current choice in the requested project, if applied there. */
+            applied: components["schemas"]["AppliedStarterOut"] | null;
+            /** Description */
+            description: string;
+            /** Flows */
+            flows: components["schemas"]["StarterFlowOut"][];
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** Roles */
+            roles: components["schemas"]["StarterRoleOut"][];
+            /**
+             * Types
+             * @description Qualified types the starter uses.
+             */
+            types: string[];
+            /** Version */
+            version: string;
+        };
+        /** StarterRoleOut */
+        StarterRoleOut: {
+            /**
+             * Id
+             * @description Qualified lab role.
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Minimum Project Role
+             * @description The least project role a member needs to carry out this lab role.
+             * @enum {string}
+             */
+            minimum_project_role: "viewer" | "editor";
+        };
+        /** StarterSetupIn */
+        StarterSetupIn: {
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Project
+             * Format: uuid
+             * @description The assay service project. Requires its Admin role.
+             */
+            project: string;
+            /**
+             * Requester Project
+             * Format: uuid
+             * @description A different project in which the caller can create the example request.
+             */
+            requester_project: string;
+            /**
+             * Role Assignments
+             * @description Each qualified lab role and the service project membership IDs receiving it.
+             */
+            role_assignments: {
+                [key: string]: string[];
+            };
+            /**
+             * Version
+             * @description Installed starter version shown at setup.
+             */
+            version: string;
+        };
+        /** StarterSetupOut */
+        StarterSetupOut: {
+            /**
+             * Changed
+             * @description Whether applying this choice would change anything (preview), or did (apply).
+             */
+            changed: boolean;
+            /**
+             * Examples
+             * @description IDs of example records already present at preview or available after setup.
+             */
+            examples: {
+                [key: string]: string;
+            };
+            /**
+             * Examples To Create
+             * @description Names of examples missing when the setup was checked.
+             */
+            examples_to_create: string[];
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Grants To Add
+             * @description Lab role grants missing when the setup was checked, by membership ID.
+             */
+            grants_to_add: {
+                [key: string]: string[];
+            };
+            /**
+             * Project
+             * Format: uuid
+             */
+            project: string;
+            /**
+             * Requester Project
+             * Format: uuid
+             */
+            requester_project: string;
+            /** Result Type */
+            result_type: string;
+            /** Role Assignments */
+            role_assignments: {
+                [key: string]: string[];
+            };
+            /** Starter */
+            starter: string;
+            /** Version */
+            version: string;
+        };
         /**
          * StateCan
          * @description A state a record's state field could be set to (ADR 0125), and whether you may.
@@ -17044,6 +17316,21 @@ export interface components {
             /**
              * Type
              * @description The type, qualified, such as `iki/dna.Plasmid`.
+             */
+            type: string;
+        };
+        /** TypeFlowOut */
+        TypeFlowOut: {
+            /**
+             * Fields
+             * @description The live state fields, including inherited ones.
+             */
+            fields: components["schemas"]["FlowFieldOut"][];
+            /** Label */
+            label: string;
+            /**
+             * Type
+             * @description Qualified entity type name.
              */
             type: string;
         };
@@ -20892,6 +21179,28 @@ export interface operations {
             };
         };
     };
+    iki_server_api_entities_get_type_flow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TypeFlowOut"];
+                };
+            };
+        };
+    };
     iki_server_api_registries_get_entry: {
         parameters: {
             query?: never;
@@ -24332,6 +24641,80 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    iki_server_api_starters_list_starters: {
+        parameters: {
+            query?: {
+                project?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarterOut"][];
+                };
+            };
+        };
+    };
+    iki_server_api_starters_apply_starter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                starter: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarterSetupIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarterSetupOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_starters_preview_starter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                starter: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarterSetupIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarterSetupOut"];
+                };
             };
         };
     };

@@ -145,6 +145,40 @@ def test_a_type_says_its_state_fields_and_their_states(world: World) -> None:
     assert (fields["label"]["states"], fields["label"]["initial"]) == ([], None)
 
 
+def test_type_flow_explains_edges_roles_signatures_guards_and_corrections(world: World) -> None:
+    api = api_as(world, "viewer")
+    reply = api.get("/entity-types/acme/protein.Batch/flow")
+    assert reply.status_code == 200
+    flow = reply.json()
+    assert (flow["type"], flow["label"]) == ("acme/protein.Batch", "Batch")
+    status, custody = flow["fields"]
+    assert [f["name"] for f in (status, custody)] == ["status", "custody"]
+    assert status["initial"] == "in_testing"
+    assert [e for e in status["transitions"] if e["to"] == "approved"] == [
+        {"from": "in_review", "to": "approved", "conditional": True}
+    ]
+    assert all(e["from"] != e["to"] for e in status["transitions"])
+    assert custody["transitions"] == [
+        {"from": "quarantined", "to": "in_lab", "conditional": False},
+        {"from": "in_lab", "to": "quarantined", "conditional": False},
+    ]
+    nodes = {s["name"]: s for s in status["states"]}
+    assert nodes["approved"]["on_edit"] == "in_testing"
+    assert nodes["approved"]["set_by"] == [REVIEWER]
+    assert nodes["approved"]["guards"][0]["message"] == "A batch is approved from In review."
+    assert [(s["meaning"], s["roles"]) for s in nodes["certified"]["signatures"]] == [
+        ("review", [REVIEWER]),
+        ("approval", [QA]),
+    ]
+    assert api.get("/entity-types/acme%2Fdna.Sequence/flow").json()["fields"] == []
+    assert api.get("/entity-types/iki/core.Entity/flow").json() == {
+        "type": "iki/core.Entity",
+        "label": "Entity",
+        "fields": [],
+    }
+    problem(api.get("/entity-types/acme/dna.Unknown/flow"), 404, "not_found")
+
+
 def test_a_record_starts_in_its_initial_states(world: World) -> None:
     made = sample(world)
     assert (made["values"]["status"], made["values"]["custody"]) == ("received", "in_lab")
