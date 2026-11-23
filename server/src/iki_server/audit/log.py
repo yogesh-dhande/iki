@@ -74,6 +74,7 @@ ACTIONS: dict[str, str] = {
     "project.lab_role_granted": "Gave someone a lab role",
     "project.lab_role_revoked": "Took away someone's lab role",
     "project.intake_changed": "Changed what a project takes as a service",
+    "starter.applied": "Applied a project starter",
     "plugin.installed": "Installed a plugin",
     "plugin.updated": "Updated a plugin",
     "plugin.rules_checked": "Checked records against a plugin's changed rules",

@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: MouseCryobox
+label: Mouse cryobox
+label_plural: Mouse cryoboxes
+schema_version: 1
+extends: iki/example_lims.Box
+hrid: { prefix: MCB }
+description: A storage box for mouse cryostocks, with the standard box grid, barcode and freezer rack positions.
+storage:
+  holds: [MouseCryostock]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+  barcode: barcode
+  label: "{{ contents }}"

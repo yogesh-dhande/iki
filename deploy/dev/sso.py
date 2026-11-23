@@ -1200,6 +1200,7 @@ def actions() -> None:
     polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
+    mouse_stocks(alice, project)
 
 
 def strain_stocks(
@@ -1617,6 +1618,7 @@ def lims() -> None:
     bookings(alice, project)
     signatures(alice, project, first)
     plate_assay(alice, project)
+    dose_response_starters(alice, project)
 
 
 def signing(
@@ -1932,6 +1934,21 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     cell_bank_history(alice, project)
 
 
+def core_project(admin: requests.Session, asking: dict[str, Any], name: str) -> dict[str, Any]:
+    team = asking["team"]["id"]
+    projects: list[dict[str, Any]] = api_call(
+        admin, "GET", f"/projects?team={team}&member=true&limit=100"
+    ).json()["items"]
+    for project in projects:
+        if project["name"] == name:
+            return project
+    made = api_call(admin, "POST", "/projects", {"team": team, "name": name})
+    if made.status_code != 201:
+        fail(f"creating {name} answered HTTP {made.status_code}: {made.text[:300]}")
+    core: dict[str, Any] = made.json()
+    return core
+
+
 def analytical_core(
     analyst: requests.Session,
     reviewer: requests.Session,
@@ -1939,21 +1956,7 @@ def analytical_core(
     asking: dict[str, Any],
 ) -> dict[str, Any]:
     """Set up the team's analytical core and the people who sign its results."""
-    team = asking["team"]["id"]
-    projects: list[dict[str, Any]] = api_call(
-        analyst, "GET", f"/projects?team={team}&member=true&limit=100"
-    ).json()["items"]
-    name = "Analytical Core"
-    for core in projects:
-        if core["name"] == name:
-            break
-    else:
-        made = api_call(analyst, "POST", "/projects", {"team": team, "name": name})
-        if made.status_code != 201:
-            fail(
-                f"creating the analytical core answered HTTP {made.status_code}: {made.text[:300]}"
-            )
-        core = made.json()
+    core = core_project(analyst, asking, "Analytical Core")
     path = f"/projects/{core['id']}"
     for session, role, lab_role in (
         (analyst, "admin", "analyst"),
@@ -2990,6 +2993,26 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
             prefix + "AssayPlate",
             {"name": name, "size": "plate_96", "assignments": assignments, "reader_file": source},
         )
+    entity = fit_assay_plate(alice, project, plate, sample)
+    if entity["values"]["review"] == "recorded":
+        signature = signing(alice, entity, "signed", "alice", field="review")
+        if signature["status"] != "signed" or not signature["set"]:
+            fail(f"signing the plate result {entity['hrid']} gave {signature}")
+    proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
+    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        fail(f"{entity['hrid']} has no verifiable research sign-off")
+    ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
+    linked_experiment(alice, project, sample["id"], plate["values"]["reader_file"], entity["id"])
+
+
+def fit_assay_plate(
+    alice: requests.Session,
+    project: dict[str, Any],
+    plate: dict[str, Any],
+    sample: dict[str, Any],
+) -> dict[str, Any]:
+    """Join the real reader file to the plate and fit the eight-dose synthetic series."""
+    prefix = "iki/plate_assays."
     plate_input = {"plate": plate["id"]}
     if not plate["values"].get("committed"):
         launch(alice, project, prefix + "preview_reader", plate_input)
@@ -3040,20 +3063,164 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
         or values["concentration_unit"] != "nM"
         or values["endpoint_kind"] != "IC50"
         or values["qualifier"] != "within_range"
-        # This synthetic CSV was generated with a 12 nM midpoint and small residuals.
-        or not 11 < values["endpoint_value"] < 13
-        or not 0 < values["ci_low"] < 12 < values["ci_high"]
+        # Rounded values for the synthetic MARS fixture after excluding A4 (all in nM).
+        or not math.isclose(values["endpoint_value"], 12.34, abs_tol=0.005)
+        or not math.isclose(values["ci_low"], 10.65, abs_tol=0.005)
+        or not math.isclose(values["ci_high"], 14.30, abs_tol=0.005)
     ):
         fail(f"{entity['hrid']} has unexpected fit evidence: {values}")
-    if values["review"] == "recorded":
-        signature = signing(alice, entity, "signed", "alice", field="review")
-        if signature["status"] != "signed" or not signature["set"]:
-            fail(f"signing the plate result {entity['hrid']} gave {signature}")
-    proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
-    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
-        fail(f"{entity['hrid']} has no verifiable research sign-off")
-    ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
-    linked_experiment(alice, project, sample["id"], plate["values"]["reader_file"], entity["id"])
+    return entity
+
+
+def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> None:
+    """Two cores choose different flows for the same assay and return the signed result."""
+    bob, carol = sign_in_as("bob"), sign_in_as("carol")
+    people = {
+        name: api_call(s, "GET", "/me").json()["id"]
+        for name, s in (("alice", alice), ("bob", bob), ("carol", carol))
+    }
+    requester = cli_read_token(alice, project=asking["id"])
+    for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
+        core = core_project(alice, asking, name)
+        example = apply_plate_starter(alice, core, asking, flow, people)
+        receive_starter_tube(alice, example["request"], example["tube"])
+        plate = record(alice, example["plate"])
+        result = fit_assay_plate(alice, core, plate, record(alice, example["sample"]))
+        if (
+            result["values"]["review_flow"] != flow
+            or result["values"]["request"] != example["request"]
+            or plate["values"]["reader_file"] != example["reader_file"]
+        ):
+            fail(f"{result['hrid']} failed to retain the starter flow, source or request")
+        sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
+        ok(f"{name} returned the signed IC50 {result['hrid']} to {asking['name']}")
+
+
+def apply_plate_starter(
+    alice: requests.Session,
+    core: dict[str, Any],
+    asking: dict[str, Any],
+    flow: str,
+    people: dict[str, str],
+) -> dict[str, str]:
+    name = core["name"]
+    members = {}
+    for user, user_id in people.items():
+        grant = api_call(
+            alice,
+            "PUT",
+            f"/projects/{core['id']}/members/users/{user_id}",
+            {"role": "admin" if user == "alice" else "editor"},
+        )
+        if grant.status_code != 200:
+            fail(f"adding {user} to {name} answered HTTP {grant.status_code}: {grant.text}")
+        members[user] = grant.json()["id"]
+    catalogue = api_call(alice, "GET", f"/starters?project={core['id']}").json()
+    starter = next(st for st in catalogue if st["id"] == "dose-response")
+    assignments = {
+        "iki/example_lims.coordinator": [members["alice"]],
+        "iki/plate_assays.analyst": [members["alice"]],
+        "iki/plate_assays.reviewer": [members["bob"]],
+    }
+    if flow == "regulated_qc":
+        assignments["iki/plate_assays.qa"] = [members["carol"]]
+    setup = {
+        "version": starter["version"],
+        "project": core["id"],
+        "requester_project": asking["id"],
+        "flow": flow,
+        "role_assignments": assignments,
+    }
+    path = f"/starters/{starter['id']}"
+    for operation in ("preview", "apply"):
+        response = api_call(alice, "POST", f"{path}/{operation}", setup)
+        if response.status_code != 200:
+            fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
+    installed = response.json()
+    again = api_call(alice, "POST", f"{path}/apply", setup)
+    if (
+        again.status_code != 200
+        or again.json()["changed"]
+        or (again.json()["examples"] != installed["examples"])
+    ):
+        fail(f"applying the starter twice in {name} gave {again.status_code}: {again.text}")
+
+    examples: dict[str, str] = installed["examples"]
+    return examples
+
+
+def sign_starter_result(
+    result: dict[str, Any],
+    request: str,
+    requester: str,
+    alice: requests.Session,
+    bob: requests.Session,
+    carol: requests.Session,
+    people: dict[str, str],
+) -> None:
+    flow = result["values"]["review_flow"]
+    steps = (
+        [("signed", bob, "bob")]
+        if flow == "research"
+        else [
+            ("submitted", alice, "alice"),
+            ("reviewed", bob, "bob"),
+            ("released", carol, "carol"),
+        ]
+    )
+    result_path = f"/entities/{result['id']}"
+    states = ["recorded", *(target for target, _, _ in steps)]
+    # The seed may have been interrupted after a signature, or completed on a previous run.
+    for target, session, signer in steps[states.index(result["values"]["review"]) :]:
+        if bearer_call(requester, "GET", result_path).status_code != 404:
+            fail(f"the requester could see {result['hrid']} before its final signature")
+        signed = signing(session, result, target, signer, field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"signing {result['hrid']} as {target} gave {signed}")
+    delivered = bearer_call(requester, "GET", result_path).json()
+    proofs = bearer_call(requester, "GET", f"{result_path}/signatures?verify=true").json()["items"]
+    receipts = bearer_call(requester, "GET", f"/entities/{request}/request").json()[
+        "result_releases"
+    ]
+    expected = {target: people[user] for target, _, user in steps}
+    if (
+        delivered["values"]["review"] != steps[-1][0]
+        or delivered["values"]["points"] != result["values"]["points"]
+        or not all(p["verification"]["valid"] for p in proofs)
+        or len(proofs) != len(steps)
+        or {p["change"]["to"]: p["signer"]["id"] for p in proofs} != expected
+        or [(r["entity"], r["released_revision"]) for r in receipts]
+        != [(result["id"], delivered["revision"])]
+    ):
+        fail(f"{result['hrid']} did not return the signed fit and its release revision")
+
+
+def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str) -> None:
+    """Scan the labelled tube once, even if the dev check is being run again."""
+    path = f"/entities/{request_id}/receipts"
+    prior = api_call(alice, "GET", path).json()["receipts"]
+    completed = [r for r in prior if r["status"] == "completed"]
+    if not completed:
+        started = api_call(alice, "POST", path)
+        if started.status_code != 201:
+            fail(f"starting the example receipt answered {started.status_code}: {started.text}")
+        at = f"/receipts/{started.json()['id']}"
+        tube = record(alice, tube_id)
+        code = tube["values"].get("barcode") or tube["hrid"]
+        scanned = api_call(alice, "POST", f"{at}/scan", {"code": code})
+        if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
+            fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
+        custody = api_call(alice, "PATCH", at, {"handed_over_by": "Example courier, training run"})
+        if custody.status_code != 200:
+            fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
+        done = api_call(alice, "POST", f"{at}/complete", {})
+        if done.status_code != 200:
+            fail(f"completing the example receipt answered {done.status_code}: {done.text}")
+        completed = [done.json()]
+    if len(completed) != 1 or [
+        (line["entity"], line["outcome"]) for line in completed[0]["lines"]
+    ] != [(tube_id, "matched")]:
+        fail(f"the receipt did not account for the starter tube: {completed}")
 
 
 def linked_experiment(
@@ -3596,6 +3763,105 @@ LYSOZYME = (
     "KVFGRCELAAAMKRHGLDNYRGYSLGNWVCAAKFESNFNTQATNRNTDGSTDYGILQINSRWWCNDGRTPGSRNLCNIPCSA"
     "LLSSDITASVNCAKKIVSDGNGMNAWVAWRNRCKGTDVQAWIRGCRL"
 )
+
+
+def mouse_stocks(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import MGI nomenclature and trace genotyping data to a specific cryopreserved carrier."""
+    plugin = "iki/mouse_strains."
+    catalogue = (
+        Path(__file__).resolve().parents[2] / "plugins/mouse_strains/tests/data/MGI_Strain.rpt"
+    )
+    report = upload(alice, project, "MGI_Strain.rpt", catalogue.read_bytes(), "text/plain")
+    imported = launch(
+        alice,
+        project,
+        plugin + "register_mgi_strain",
+        {},
+        {"file": report, "mgi_id": "MGI:3028467", "jax_stock": "000664"},
+    )
+    [effect] = imported["effects"]
+    reference = record(alice, effect["entity"])["values"]
+    if (reference["nomenclature"], reference["jax_stock"]) != ("C57BL/6J", "000664"):
+        fail(f"{imported['hrid']} registered an unexpected catalogue strain {reference}")
+    # https://www.jax.org/strain/000058 and https://www.informatics.jax.org/allele/MGI:1855985
+    allele = created(
+        alice, project, plugin + "MouseAllele", {"mgi_id": "MGI:1855985", "symbol": "Tyr<c-2J>"}
+    )
+    strain = created(
+        alice,
+        project,
+        plugin + "MouseStrain",
+        {
+            "mgi_id": "MGI:2163869",
+            "nomenclature": "B6(Cg)-Tyr<c-2J>/J",
+            "jax_stock": "000058",
+            "alleles": [entry_of(allele)],
+        },
+    )
+    # All local specimens, dates, amounts and test results are synthetic.
+    tag = secrets.token_hex(4)
+    genotype = {
+        "strain": entry_of(strain),
+        "alleles": [entry_of(allele)],
+        "notation": "Tyr<c-2J>/Tyr<c-2J>",
+    }
+    donor = created(
+        alice, project, plugin + "MouseGenotype", {**genotype, "subject": f"Synthetic donor {tag}"}
+    )
+    banked = {"strain": entry_of(strain), "banked_on": "2026-01-08"}
+    sperm = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "sperm", "genotype": donor["id"], "barcode": f"SYNTHETIC-S-{tag}"},
+    )
+    embryo_code = f"SYNTHETIC-E-{tag}"
+    embryos = created(
+        alice,
+        project,
+        plugin + "MouseCryostock",
+        {**banked, "kind": "embryos", "embryos_at_banking": 4, "barcode": embryo_code},
+        {"value": 100, "unit": "uL"},
+    )
+    box = created(alice, project, plugin + "MouseCryobox", {"name": "Synthetic mouse cryobox"})
+    moved(alice, [(sperm, box, "A1"), (embryos, box, "A2")], "Synthetic bank deposit")
+    for stock, position in ((sperm, "A1"), (embryos, "A2")):
+        location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
+        if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], position)]:
+            fail(f"{stock['hrid']}'s cryobank location is {location}")
+    assay_file = upload(
+        alice,
+        project,
+        "synthetic-genotype.txt",
+        b"Synthetic embryo genotype report\n",
+        "text/plain",
+    )
+    tested = created(
+        alice,
+        project,
+        plugin + "MouseGenotype",
+        {**genotype, "subject": f"Synthetic embryo sample {tag}", "report": assay_file},
+    )
+    draw = api_call(
+        alice,
+        "POST",
+        f"/entities/{embryos['id']}/amount/draw",
+        {
+            "amount": {"value": 10, "unit": "uL"},
+            "confirm": embryo_code,
+            "reason": "Synthetic genotyping",
+            "used_in": tested["id"],
+        },
+    )
+    if draw.status_code != 200 or Decimal(draw.json()["amount"]["value"]) != 90:
+        fail(f"Draw for {tested['hrid']} answered HTTP {draw.status_code}: {draw.text[:300]}")
+    ancestry = api_call(alice, "GET", f"/entities/{tested['id']}/graph?up=3&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {tested['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
+    if not {embryos["id"], strain["id"], allele["id"]} <= {e["id"] for e in graph["entities"]}:
+        fail(f"{tested['hrid']}'s report lost the banked carrier, strain or MGI allele")
+    ok(f"{tested['hrid']}'s genotyping report traces to {embryos['hrid']} from JAX stock 000058")
 
 
 def lots(alice: requests.Session, project: dict[str, Any]) -> None:
