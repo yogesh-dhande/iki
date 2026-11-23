@@ -359,9 +359,15 @@ jobs:
         run: |
           cd "web/packages/$PACKAGE"
           npm pkg set "version=$VERSION"
-          pnpm test
           pnpm build
+          pnpm test
           pnpm pack --pack-destination "$RUNNER_TEMP"
+          if [ "$PACKAGE" = science ]; then
+            for notice in rust-wasm.txt rust-standard-library.html binaryen.txt; do
+              tar -xOf "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz" "package/dist/licenses/$notice" \
+                | cmp - "dist/licenses/$notice"
+            done
+          fi
           npm publish --dry-run --ignore-scripts "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz"
       # Configure each package's trusted publisher for this repository and release.yml.
       # A manual run exercises packaging only, including when dispatched on a tag.

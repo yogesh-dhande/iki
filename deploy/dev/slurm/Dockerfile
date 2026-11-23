@@ -20,8 +20,9 @@ ARG APPTAINER_VERSION=1.5.5
 ARG APPTAINER_SHA256=82a6e5ead21d3e19de522a9e0bbeb59958323e316dc9d019a128b0cc8e99d863
 ARG APPTAINER_SUID_SHA256=5b7bac9b2ff93f74e7423b9ba8afd2f99d044968e1f030e4776cdcf7af61a16b
 
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY install -y --no-install-recommends \
       ca-certificates curl munge mariadb-server \
       slurm-wlm slurmdbd slurm-client \
  && base="https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}" \
@@ -29,7 +30,7 @@ RUN apt-get update \
  && curl -fsSL -o /tmp/apptainer-suid.deb "$base/apptainer-suid_${APPTAINER_VERSION}-trixie+_amd64.deb" \
  && echo "${APPTAINER_SHA256}  /tmp/apptainer.deb" | sha256sum -c - \
  && echo "${APPTAINER_SUID_SHA256}  /tmp/apptainer-suid.deb" | sha256sum -c - \
- && apt-get install -y --no-install-recommends /tmp/apptainer.deb /tmp/apptainer-suid.deb \
+ && apt-get $APT_RETRY install -y --no-install-recommends /tmp/apptainer.deb /tmp/apptainer-suid.deb \
  && rm -rf /tmp/*.deb /var/lib/apt/lists/* \
  && groupadd --gid 10001 iki \
  && useradd --uid 10001 --gid iki --create-home --shell /bin/bash iki \

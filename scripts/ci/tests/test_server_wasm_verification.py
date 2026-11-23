@@ -1,4 +1,4 @@
-"""The server build checks both exported modules against source-controlled pins."""
+"""The server build checks the exported modules against source-controlled pins."""
 
 import hashlib
 import shutil
@@ -11,6 +11,7 @@ VERIFY = Path(__file__).resolve().parents[2] / "verify-server-wasm.sh"
 PINS = {
     "iki_wasm.wasm": "server/iki_wasm.wasm.sha256",
     "dna-annotation.wasm": "plugins/plasmid/data/dna-annotation.wasm.sha256",
+    "oligo-measurement.wasm": "plugins/dna/data/oligo-measurement.sha256",
 }
 
 
@@ -40,7 +41,7 @@ def verified(payload: tuple[Path, Path]) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_verifies_both_modules(payload: tuple[Path, Path]) -> None:
+def test_verifies_all_modules(payload: tuple[Path, Path]) -> None:
     result = verified(payload)
     assert result.returncode == 0, result.stderr
     for name in PINS:
@@ -63,9 +64,10 @@ def test_verification_names_the_bad_module_and_both_digests(
     assert name in result.stderr and expected in result.stderr and actual in result.stderr
 
 
-def test_fails_before_using_an_incomplete_payload(payload: tuple[Path, Path]) -> None:
+@pytest.mark.parametrize("name", [*PINS, "rust-standard-library.html"])
+def test_fails_before_using_an_incomplete_payload(payload: tuple[Path, Path], name: str) -> None:
     _, artifact = payload
-    (artifact / "rust-standard-library.html").unlink()
+    (artifact / name).unlink()
     result = verified(payload)
     assert result.returncode != 0
-    assert "rust-standard-library.html" in result.stderr
+    assert name in result.stderr

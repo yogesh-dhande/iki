@@ -12,7 +12,7 @@ ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c00
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 # The worker's Rust image (worker/Dockerfile), for the web app's parsers.
 ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
-# Both Wasm digests are pinned to this compiler host. Published images import
+# The Wasm digests are pinned to this compiler host. Published images import
 # the artifacts built on an AMD64 runner, so neither compiler stage runs in them.
 ARG WASM_BUILD_PLATFORM=linux/amd64
 
@@ -33,24 +33,28 @@ COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
 # Its build settings: rules' CEL keeps only UTC's time zone (ADR 0127).
 COPY worker/.cargo .cargo
+COPY scripts/build-oligo-wasm.sh /src/scripts/build-oligo-wasm.sh
 # rustup checks the target against the release's manifest as it installs it.
 # A module with every time zone missed .cargo's filter: it fails here, not in browsers.
 RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
- && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm
-COPY --from=dna-annotation /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html ./
+ && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+ && /src/scripts/build-oligo-wasm.sh --with-notice /src/worker/oligo-measurement.wasm
+# Both worker modules use the standard library notice from the pinned Rust image.
+COPY --from=dna-annotation /src/worker/dna-annotation.wasm ./
 
 # --- Portable payload for both native image builds ------------------------
 # CI exports this target once, then replaces it with the downloaded named
 # context in both platform builds. Plain Docker builds use the stages above.
 FROM scratch AS server-wasm-artifacts
 COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm /
-COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html /
+COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/oligo-measurement.wasm /src/worker/rust-standard-library.html /
 
 FROM ${PYTHON_IMAGE} AS verified-wasm
-COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /rust-standard-library.html /artifacts/
+COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /oligo-measurement.wasm /rust-standard-library.html /artifacts/
 COPY scripts/verify-server-wasm.sh /src/scripts/
 COPY server/iki_wasm.wasm.sha256 /src/server/
+COPY plugins/dna/data/oligo-measurement.sha256 /src/plugins/dna/data/
 COPY plugins/plasmid/data/dna-annotation.wasm.sha256 /src/plugins/plasmid/data/
 RUN /src/scripts/verify-server-wasm.sh /artifacts
 
@@ -74,7 +78,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY web web
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
-COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/app/wasm/
+COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/packages/science/wasm/
 # Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
 # The parsers are built above, so this builds the rest (`build` would build them too).
 RUN pnpm --filter @ikisci/app build:web \
@@ -83,8 +87,9 @@ RUN pnpm --filter @ikisci/app build:web \
 
 # --- Build: resolve the locked dependencies into a virtualenv ----------------
 FROM ${PYTHON_IMAGE} AS build
-RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev libpq-dev \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY install -y --no-install-recommends gcc libc6-dev libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -111,7 +116,7 @@ COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/
 COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_server/web/static/viewers
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
-COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.wasm /artifacts/rust-standard-library.html spec/src/iki_spec/
+COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.wasm /artifacts/oligo-measurement.wasm /artifacts/rust-standard-library.html spec/src/iki_spec/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM"
@@ -129,9 +134,10 @@ RUN key() { /opt/iki/venv/bin/python -c "import base64,os; print(base64.urlsafe_
 
 # --- Runtime ------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS runtime
-RUN apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends libpq5 \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY upgrade -y --no-install-recommends \
+ && apt-get $APT_RETRY install -y --no-install-recommends libpq5 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 iki \
  && useradd --system --uid 10001 --gid iki --no-create-home --home-dir /nonexistent \

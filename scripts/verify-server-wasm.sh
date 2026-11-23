@@ -48,4 +48,5 @@ verify() {
 
 verify iki_wasm.wasm server/iki_wasm.wasm.sha256
 verify dna-annotation.wasm plugins/plasmid/data/dna-annotation.wasm.sha256
+verify oligo-measurement.wasm plugins/dna/data/oligo-measurement.sha256
 required_file "$artifact/rust-standard-library.html"
