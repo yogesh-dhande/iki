@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from fake_gcs import FakeGcs
     from fake_idp import FakeIdP
     from fake_saml_idp import FakeSamlIdP
+    from playwright.sync_api import Browser, BrowserContext
 
 # Same major version as production; pinned by digest so tests are reproducible.
 POSTGRES_IMAGE = (
@@ -80,6 +81,31 @@ def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
         return FAKE_VIEWER_FILES[name]
 
     monkeypatch.setattr(viewers, "_file", viewer_file)
+
+
+@pytest.fixture(autouse=True)
+def _watch_browser_click_stability(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    if "browser" not in request.fixturenames or request.node.get_closest_marker("allows_drag"):
+        yield
+        return
+
+    from click_stability import finish, install
+
+    # Each test gets a collector, even when several tests share one browser process.
+    browser: Browser = request.getfixturevalue("browser")
+    new_context = browser.new_context
+    records: list[dict[str, Any]] = []
+
+    def watched_context(**options: Any) -> "BrowserContext":
+        context = new_context(**options)
+        install(context, records)
+        return context
+
+    monkeypatch.setattr(browser, "new_context", watched_context)
+    yield
+    finish(request, browser.browser_type.name, records)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
