@@ -85,6 +85,13 @@ outside a deploy. `migrate_deployment` names the app role as
 `IKI_APP_DATABASE_URL`), or takes `--no-grant` for a database with one
 role, such as a plugin's test database.
 
+Plugins can also be migrated to zero with Django after `sync_plugins`
+has installed their guards. When reversing a generated field addition,
+Iki drops the unique-field and rule triggers that name that column in
+`UPDATE OF` before Django drops the column. Both steps run in the
+migration's transaction. Other columns' guards continue to protect the
+remaining tables during a partial rollback.
+
 ### Alternatives
 
 - **Putting the guards back in each migration's transaction.** A
