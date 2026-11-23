@@ -3462,8 +3462,9 @@ export interface paths {
         head?: never;
         /**
          * Resolve a reconciliation's line
-         * @description Saves or clears a line decision for the reviewed revision. Returns 409 if the
-         *     observations or another decision changed in the meantime.
+         * @description Save or clear the decision for the reviewed line_revision. A changed finding,
+         *     supporting scan, or decision on this line returns 409. Superseding a decision
+         *     requires a reason in addition to any note supporting the new decision.
          */
         patch: operations["iki_server_api_storage_resolve_line"];
         trace?: never;
@@ -3479,8 +3480,10 @@ export interface paths {
         put?: never;
         /**
          * Scan positions
-         * @description What's in each position, or that it's empty. A position scanned again replaces what
-         *     was scanned there.
+         * @description Record the scans in one transaction. Fresh positions and tubes need no precondition.
+         *     Supply the reviewed line revisions for observations being replaced or repeated.
+         *     A change of slot or contents also needs a reason. A conflict returns 409 with the
+         *     currently affected line IDs and versions in `affected_lines`.
          */
         post: operations["iki_server_api_storage_scan_positions"];
         delete?: never;
@@ -6547,6 +6550,19 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** CancelReconciliationIn */
+        CancelReconciliationIn: {
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
+            /**
+             * Reason
+             * @description Why this count is being cancelled.
+             */
+            reason: string;
+        };
         /** CarriedSignatureOut */
         CarriedSignatureOut: {
             /**
@@ -7279,6 +7295,34 @@ export interface components {
              * @description Machine time.
              */
             seconds: number;
+        };
+        /** CountScanEvidenceOut */
+        CountScanEvidenceOut: {
+            /**
+             * Code
+             * @description The actual scanned label, null for empty; hidden labels are redacted.
+             */
+            code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description The immutable scan event.
+             */
+            id: string;
+            /**
+             * Line Id
+             * Format: uuid
+             * @description The physical scan line, usable as a history filter.
+             */
+            line_id: string;
+            /** Position */
+            position: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            scanned_by: components["schemas"]["UserOut"];
         };
         /** CountsOut */
         CountsOut: {
@@ -13269,8 +13313,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Line Revision
+             * @description The version of this line and its supporting slot evidence.
+             */
+            line_revision: number;
             /** Note */
             note: string;
+            /** @description The scan supporting the finding, including a missing tube's expected slot. */
+            observation: components["schemas"]["CountScanEvidenceOut"] | null;
             ref: components["schemas"]["RefOut"] | null;
             /** Resolution */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
@@ -13280,11 +13331,16 @@ export interface components {
              */
             resolution_stale: boolean;
             resolved_by: components["schemas"]["UserOut"] | null;
+            /** @description The exact scan on which the saved decision was based. */
+            reviewed_observation: components["schemas"]["CountScanEvidenceOut"] | null;
         };
         /** ReconciliationOut */
         ReconciliationOut: {
             /** Can Change */
             can_change: boolean;
+            /** Cancel Reason */
+            cancel_reason: string;
+            cancelled_by: components["schemas"]["UserOut"] | null;
             /** Completed At */
             completed_at: string | null;
             completed_by: components["schemas"]["UserOut"] | null;
@@ -13784,16 +13840,19 @@ export interface components {
         };
         /** ResolveIn */
         ResolveIn: {
+            /** Line Revision */
+            line_revision: number;
             /**
              * Note
              * @default
              */
             note: string;
             /**
-             * Plan Revision
-             * @description The revision of the reconciliation plan being reviewed.
+             * Reason
+             * @description Why a saved decision is being changed or cleared.
+             * @default
              */
-            plan_revision: number;
+            reason: string;
             /**
              * Resolution
              * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
@@ -13846,6 +13905,16 @@ export interface components {
              * @description The states that send it back to the asking project, where it stays.
              */
             released_states: string[];
+        };
+        /** ReviewedCountLine */
+        ReviewedCountLine: {
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Line Revision */
+            line_revision: number;
         };
         /** ReviewedExtraIn */
         ReviewedExtraIn: {
@@ -15108,6 +15177,17 @@ export interface components {
         };
         /** ScansIn */
         ScansIn: {
+            /**
+             * Reason
+             * @description Why an earlier observation is being replaced.
+             * @default
+             */
+            reason: string;
+            /**
+             * Reviewed Lines
+             * @description Prior observations to recheck or replace, including empty slots.
+             */
+            reviewed_lines?: components["schemas"]["ReviewedCountLine"][];
             /**
              * Scans
              * @description Each position scanned: one at a time, or a rack scanner's file.
@@ -23606,7 +23686,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelReconciliationIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {

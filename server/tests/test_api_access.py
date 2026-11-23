@@ -793,9 +793,11 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         line = started.lines.get(entity=tube)
         payload = (
             {**body, "plan_revision": started.plan_revision}
-            if suffix.endswith(("/complete", "/lines/{line}"))
+            if suffix.endswith(("/complete", "/cancel"))
             else body
         )
+        if suffix.endswith("/lines/{line}"):
+            payload = {**body, "line_revision": line.line_revision}
         return suffix.format(reconciliation=started.pk, line=line.pk), payload
 
     return build
@@ -1391,7 +1393,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/reconciliations/{reconciliation_id}/cancel",
-        reconciliation("/reconciliations/{reconciliation}/cancel"),
+        reconciliation("/reconciliations/{reconciliation}/cancel", {"reason": "Wrong box"}),
         editors(200),
     ),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.

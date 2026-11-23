@@ -38,8 +38,7 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
     ]
     scanned = api.post(f"{path}/scans", {"scans": scans})
     assert scanned.status_code == 200, scanned.content
-    view = scanned.json()
-    lines = {line["code"]: line["id"] for line in view["lines"]}
+    lines = {line["code"]: line for line in scanned.json()["lines"]}
     for code, decision in [
         ("SWAP-1", "moved"),
         ("SWAP-2", "moved"),
@@ -47,16 +46,16 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
         ("KEEP", "kept"),
         ("EXTRA", "placed"),
     ]:
+        line = lines[code]
         saved = api.patch(
-            f"{path}/lines/{lines[code]}",
+            f"{path}/lines/{line['id']}",
             {
                 "resolution": decision,
                 "note": "Inventory check",
-                "plan_revision": view["plan_revision"],
+                "line_revision": line["line_revision"],
             },
         )
         assert saved.status_code == 200, saved.content
-        view = saved.json()
     reviewed = api.get(path)
     assert reviewed.status_code == 200, reviewed.content
     revision = reviewed.json()["plan_revision"]

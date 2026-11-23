@@ -232,15 +232,17 @@ def find(user: User, code: str) -> list[Entity]:
     return sorted(found.values(), key=lambda e: (e.hrid, str(e.pk)))
 
 
-def confirms(entity: Entity, code: str) -> bool:
-    """Whether ``code`` names ``entity``: its barcode, its HRID, or a link to it."""
+def confirms(entity: Entity, code: str, *, barcode: str | None = None) -> bool:
+    """Whether a scan names this record, with its barcode preloaded when checking a rack."""
     text = code.strip()
     linked = _LINK.search(text)
     if linked is not None:
         text = linked.group(1)
         if text == str(entity.pk):
             return True
-    return text.upper() == entity.hrid.upper() or text == codes_of([entity])[entity.pk]
+    return text.upper() == entity.hrid.upper() or text == (
+        barcode if barcode is not None else codes_of([entity])[entity.pk]
+    )
 
 
 # --- Who may change what ------------------------------------------------------------------------

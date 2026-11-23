@@ -907,6 +907,13 @@ def _receipt(me: User, pk: UUID) -> Receipt:
 def _receiving(call: Any) -> Any:  # noqa: ANN401 - what it answers
     try:
         return call()
+    except reconciliations.LinesChanged as changed:
+        raise Problem(
+            409,
+            str(changed),
+            code="count_lines_changed",
+            extensions={"affected_lines": changed.lines},
+        ) from None
     except PermissionError as refused:
         raise Problem(403, str(refused)) from None
     except Invalid as error:
@@ -1196,7 +1203,27 @@ def cancel_receipt(
 # --- Reconciliations ----------------------------------------------------------------------------
 
 
+class CountScanEvidenceOut(Schema):
+    id: UUID = Field(description="The immutable scan event.")
+    line_id: UUID = Field(description="The physical scan line, usable as a history filter.")
+    position: str
+    code: str | None = Field(
+        description="The actual scanned label, null for empty; hidden labels are redacted."
+    )
+    scanned_by: UserOut
+    scanned_at: datetime
+
+
 class ReconciliationLineOut(Schema):
+    line_revision: int = Field(
+        ge=1, description="The version of this line and its supporting slot evidence."
+    )
+    observation: CountScanEvidenceOut | None = Field(
+        description="The scan supporting the finding, including a missing tube's expected slot."
+    )
+    reviewed_observation: CountScanEvidenceOut | None = Field(
+        description="The exact scan on which the saved decision was based."
+    )
     id: UUID
     entity: UUID | None
     ref: RefOut | None
@@ -1230,6 +1257,8 @@ class ReconciliationOut(Schema):
     note: str
     started_by: UserOut
     started_at: datetime
+    cancelled_by: UserOut | None
+    cancel_reason: str
     completed_by: UserOut | None
     completed_at: datetime | None
     lines: list[ReconciliationLineOut]
@@ -1239,7 +1268,9 @@ class ReconciliationOut(Schema):
 
 def _reconciliation(me: User, pk: UUID) -> Reconciliation:
     found = (
-        Reconciliation.objects.select_related("container", "started_by", "completed_by")
+        Reconciliation.objects.select_related(
+            "container", "started_by", "completed_by", "cancelled_by"
+        )
         .filter(pk=pk)
         .first()
     )
@@ -1248,21 +1279,55 @@ def _reconciliation(me: User, pk: UUID) -> Reconciliation:
     return found
 
 
-def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
+def _count_scan(
+    event: ObservationEvent | None, refs: dict[Any, dict[str, Any]]
+) -> dict[str, Any] | None:
+    if event is None or not event.after:
+        return None
+    snapshot = event.after
+    linked = snapshot.get("entity_id")
+    readable = refs.get(UUID(linked)) if linked else None
+    code = "" if linked and (not readable or readable["purged"]) else snapshot["code"]
+    return {
+        "id": event.pk,
+        "line_id": event.line_id,
+        "position": snapshot["position"],
+        "code": code,
+        "scanned_by": event.actor,
+        "scanned_at": snapshot["scanned_at"],
+    }
+
+
+def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) -> dict[str, Any]:
     # Return the reviewed lines and their revision from the same plan. Every scan,
     # decision and completion takes this lock. Finalized plans are immutable.
-    if r.status == ReceiptStatus.OPEN:
+    if r.status == ReceiptStatus.OPEN and not locked:
         with transaction.atomic():
             r = (
                 Reconciliation.objects.select_for_update(of=("self",))
-                .select_related("container", "started_by", "completed_by")
+                .select_related("container", "started_by", "completed_by", "cancelled_by")
                 .get(pk=r.pk)
             )
             found = reconciliations.findings(r)
     else:
         found = reconciliations.findings(r)
+    slots = reconciliations.observed_slots([line for line, _ in found])
     shape = reconciliations.shape_of(r)
-    refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found)})
+    # A stale decision can still refer to a different physical line that is gone from
+    # the working map. Resolve both historical links against this reader's current access.
+    events = {
+        e.pk: e
+        for x, _ in found
+        for e in (x.current_observation, x.reviewed_observation)
+        if e is not None
+    }
+    ids = {
+        UUID(e.after["entity_id"]) for e in events.values() if e.after and e.after.get("entity_id")
+    }
+    refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found), *ids})
+    evidence: dict[UUID | None, dict[str, Any] | None] = {
+        pk: _count_scan(e, refs) for pk, e in events.items()
+    }
     counted: dict[str, int] = {}
     for _, what in found:
         counted[what] = counted.get(what, 0) + 1
@@ -1276,6 +1341,8 @@ def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
         "started_by": r.started_by,
         "started_at": r.started_at,
         "completed_by": r.completed_by,
+        "cancelled_by": r.cancelled_by,
+        "cancel_reason": r.cancel_reason,
         "completed_at": r.completed_at,
         "lines": [
             {
@@ -1286,10 +1353,16 @@ def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
                 "expected": storage.label(shape, x.expected_row, x.expected_column),
                 "found": storage.label(shape, x.found_row, x.found_column),
                 "finding": what,
+                "line_revision": x.line_revision,
+                "observation": evidence.get(reconciliations.evidence_id(x, what, slots)),
+                "reviewed_observation": evidence.get(x.reviewed_observation_id),
                 "resolution": x.resolution,
                 "resolution_stale": r.status == ReceiptStatus.OPEN
                 and reconciliations.resolution_stale(
-                    x, what, reconciliations.decision_position(x, what, shape)
+                    x,
+                    what,
+                    reconciliations.decision_position(x, what, shape),
+                    reconciliations.evidence_id(x, what, slots),
                 ),
                 "note": x.note,
                 "resolved_by": x.resolved_by,
@@ -1311,7 +1384,7 @@ def list_reconciliations(request: HttpRequest, ref: str) -> list[dict[str, Any]]
     me = caller(request)
     container = _container(me, ref)
     found = Reconciliation.objects.filter(container=container).select_related(
-        "container", "started_by", "completed_by"
+        "container", "started_by", "completed_by", "cancelled_by"
     )
     return [_reconciliation_out(me, r) for r in found.order_by("-started_at")[:20]]
 
@@ -1326,8 +1399,9 @@ def start_reconciliation(request: HttpRequest, ref: str) -> Status[dict[str, Any
     Editor in its project."""
     me = caller(request)
     container = _container(me, ref)
-    r = _receiving(lambda: reconciliations.start(me, container))
-    return Status(201, _reconciliation_out(me, _reconciliation(me, r.pk)))
+    with transaction.atomic():
+        r = _receiving(lambda: reconciliations.start(me, container))
+        return Status(201, _reconciliation_out(me, r))
 
 
 @router.get(
@@ -1359,7 +1433,26 @@ class ScanIn(Schema):
     code: str | None = Field(None, max_length=200, description="Null: it's empty.")
 
 
+class ReviewedReconciliationIn(Schema):
+    plan_revision: int = Field(
+        ge=1, strict=True, description="The revision of the reconciliation plan being reviewed."
+    )
+
+
+class ReviewedCountLine(Schema):
+    line_id: UUID
+    line_revision: int = Field(ge=1, strict=True)
+
+
 class ScansIn(Schema):
+    reviewed_lines: list[ReviewedCountLine] = Field(
+        default_factory=list,
+        max_length=3072,
+        description="Prior observations to recheck or replace, including empty slots.",
+    )
+    reason: str = Field(
+        "", max_length=2000, description="Why an earlier observation is being replaced."
+    )
     scans: list[ScanIn] = Field(
         min_length=1,
         max_length=1536,
@@ -1375,25 +1468,32 @@ class ScansIn(Schema):
 def scan_positions(
     request: HttpRequest, reconciliation_id: UUID, payload: ScansIn
 ) -> dict[str, Any]:
-    """What's in each position, or that it's empty. A position scanned again replaces what
-    was scanned there."""
+    """Record the scans in one transaction. Fresh positions and tubes need no precondition.
+    Supply the reviewed line revisions for observations being replaced or repeated.
+    A change of slot or contents also needs a reason. A conflict returns 409 with the
+    currently affected line IDs and versions in `affected_lines`."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(
-        lambda: reconciliations.scan(
-            me, r, [reconciliations.Scan(s.position, s.code) for s in payload.scans]
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.scan(
+                me,
+                r,
+                [reconciliations.Scan(s.position, s.code) for s in payload.scans],
+                reviewed_lines=[
+                    (line.line_id, line.line_revision) for line in payload.reviewed_lines
+                ],
+                reason=payload.reason,
+            )
         )
+        return _reconciliation_out(me, r, locked=True)
+
+
+class ResolveIn(Schema):
+    line_revision: int = Field(ge=1, strict=True)
+    reason: str = Field(
+        "", max_length=2000, description="Why a saved decision is being changed or cleared."
     )
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
-
-
-class ReviewedReconciliationIn(Schema):
-    plan_revision: int = Field(
-        ge=1, strict=True, description="The revision of the reconciliation plan being reviewed."
-    )
-
-
-class ResolveIn(ReviewedReconciliationIn):
     resolution: Resolution | None = Field(
         description="`moved` (a record in the wrong position), `removed` (one missing), "
         "`placed` (one unexpected), or `kept`, with a note; null clears it."
@@ -1409,16 +1509,24 @@ class ResolveIn(ReviewedReconciliationIn):
 def resolve_line(
     request: HttpRequest, reconciliation_id: UUID, line_id: UUID, payload: ResolveIn
 ) -> dict[str, Any]:
-    """Saves or clears a line decision for the reviewed revision. Returns 409 if the
-    observations or another decision changed in the meantime."""
+    """Save or clear the decision for the reviewed line_revision. A changed finding,
+    supporting scan, or decision on this line returns 409. Superseding a decision
+    requires a reason in addition to any note supporting the new decision."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(
-        lambda: reconciliations.resolve(
-            me, r, line_id, payload.resolution, payload.note, plan_revision=payload.plan_revision
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.resolve(
+                me,
+                r,
+                line_id,
+                payload.resolution,
+                payload.note,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
         )
-    )
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+        return _reconciliation_out(me, r, locked=True)
 
 
 class CompleteReconciliationIn(ReviewedReconciliationIn):
@@ -1440,16 +1548,23 @@ def complete_reconciliation(
     that needs review or a change in the container's recorded contents returns 422."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(
-        lambda: reconciliations.complete(
-            me,
-            r,
-            plan_revision=payload.plan_revision,
-            missing_rest=payload.missing_rest,
-            note=payload.note,
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.complete(
+                me,
+                r,
+                plan_revision=payload.plan_revision,
+                missing_rest=payload.missing_rest,
+                note=payload.note,
+            )
         )
+        return _reconciliation_out(me, r, locked=True)
+
+
+class CancelReconciliationIn(ReviewedReconciliationIn):
+    reason: str = Field(
+        min_length=1, max_length=2000, description="Why this count is being cancelled."
     )
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
 
 
 @router.post(
@@ -1457,11 +1572,18 @@ def complete_reconciliation(
     response=ReconciliationOut,
     summary="Cancel a reconciliation",
 )
-def cancel_reconciliation(request: HttpRequest, reconciliation_id: UUID) -> dict[str, Any]:
+def cancel_reconciliation(
+    request: HttpRequest, reconciliation_id: UUID, payload: CancelReconciliationIn
+) -> dict[str, Any]:
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(lambda: reconciliations.cancel(me, r))
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.cancel(
+                me, r, plan_revision=payload.plan_revision, reason=payload.reason
+            )
+        )
+        return _reconciliation_out(me, r, locked=True)
 
 
 # --- Labels -------------------------------------------------------------------------------------

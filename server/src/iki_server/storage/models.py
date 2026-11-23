@@ -334,6 +334,10 @@ class Reconciliation(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    cancel_reason = models.CharField(max_length=2000, blank=True, default="", db_default="")
     operation = models.UUIDField(default=uuid7)
 
     class Meta:
@@ -377,6 +381,16 @@ class ReconciliationLine(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     scanned_at = models.DateTimeField(null=True, blank=True)
+    line_revision = models.PositiveIntegerField(default=1, db_default=1)
+    # The exact scan at the found position. Null for a surviving pre-history observation.
+    current_observation = models.ForeignKey(
+        "ObservationEvent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    resolved_finding = models.CharField(max_length=32, null=True, blank=True)
+    # A missing decision reviews the event at the expected slot, even when it was empty.
+    reviewed_observation = models.ForeignKey(
+        "ObservationEvent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     resolution = models.CharField(max_length=16, choices=Resolution.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
     # The observed slot the receiver approved, or the expected slot for a missing record.
@@ -391,6 +405,9 @@ class ReconciliationLine(models.Model):
         db_table = "iki_storage_reconciliation_line"
         db_table_comment = "A record or code in a reconciliation, and its resolution (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(line_revision__gt=0), name="iki_storage_count_line_positive_revision"
+            ),
             models.UniqueConstraint(
                 fields=["reconciliation", "entity"], name="iki_storage_reconciliation_line_once"
             ),

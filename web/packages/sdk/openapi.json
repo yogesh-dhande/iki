@@ -2453,6 +2453,29 @@
         "title": "CancelReceiptIn",
         "type": "object"
       },
+      "CancelReconciliationIn": {
+        "properties": {
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "Why this count is being cancelled.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_revision",
+          "reason"
+        ],
+        "title": "CancelReconciliationIn",
+        "type": "object"
+      },
       "CarriedSignatureOut": {
         "properties": {
           "id": {
@@ -3983,6 +4006,56 @@
           "seconds"
         ],
         "title": "CostTotalOut",
+        "type": "object"
+      },
+      "CountScanEvidenceOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The actual scanned label, null for empty; hidden labels are redacted.",
+            "title": "Code"
+          },
+          "id": {
+            "description": "The immutable scan event.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "line_id": {
+            "description": "The physical scan line, usable as a history filter.",
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "string"
+          },
+          "scanned_at": {
+            "format": "date-time",
+            "title": "Scanned At",
+            "type": "string"
+          },
+          "scanned_by": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "required": [
+          "id",
+          "line_id",
+          "position",
+          "code",
+          "scanned_by",
+          "scanned_at"
+        ],
+        "title": "CountScanEvidenceOut",
         "type": "object"
       },
       "CountsOut": {
@@ -17323,9 +17396,26 @@
             "title": "Id",
             "type": "string"
           },
+          "line_revision": {
+            "description": "The version of this line and its supporting slot evidence.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
             "title": "Note",
             "type": "string"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountScanEvidenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan supporting the finding, including a missing tube's expected slot."
           },
           "ref": {
             "anyOf": [
@@ -17368,9 +17458,23 @@
                 "type": "null"
               }
             ]
+          },
+          "reviewed_observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountScanEvidenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact scan on which the saved decision was based."
           }
         },
         "required": [
+          "line_revision",
+          "observation",
+          "reviewed_observation",
           "id",
           "entity",
           "ref",
@@ -17391,6 +17495,20 @@
           "can_change": {
             "title": "Can Change",
             "type": "boolean"
+          },
+          "cancel_reason": {
+            "title": "Cancel Reason",
+            "type": "string"
+          },
+          "cancelled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completed_at": {
             "anyOf": [
@@ -17476,6 +17594,8 @@
           "note",
           "started_by",
           "started_at",
+          "cancelled_by",
+          "cancel_reason",
           "completed_by",
           "completed_at",
           "lines",
@@ -18443,17 +18563,23 @@
       },
       "ResolveIn": {
         "properties": {
+          "line_revision": {
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
             "default": "",
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
           },
-          "plan_revision": {
-            "description": "The revision of the reconciliation plan being reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
+          "reason": {
+            "default": "",
+            "description": "Why a saved decision is being changed or cleared.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
           },
           "resolution": {
             "anyOf": [
@@ -18475,7 +18601,7 @@
           }
         },
         "required": [
-          "plan_revision",
+          "line_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -18556,6 +18682,26 @@
           "released_states"
         ],
         "title": "ResultTypeOut",
+        "type": "object"
+      },
+      "ReviewedCountLine": {
+        "properties": {
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "line_revision": {
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line_id",
+          "line_revision"
+        ],
+        "title": "ReviewedCountLine",
         "type": "object"
       },
       "ReviewedExtraIn": {
@@ -21311,6 +21457,22 @@
       },
       "ScansIn": {
         "properties": {
+          "reason": {
+            "default": "",
+            "description": "Why an earlier observation is being replaced.",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          },
+          "reviewed_lines": {
+            "description": "Prior observations to recheck or replace, including empty slots.",
+            "items": {
+              "$ref": "#/components/schemas/ReviewedCountLine"
+            },
+            "maxItems": 3072,
+            "title": "Reviewed Lines",
+            "type": "array"
+          },
           "scans": {
             "description": "Each position scanned: one at a time, or a rack scanner's file.",
             "items": {
@@ -40949,6 +41111,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReconciliationIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -41120,7 +41292,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
-        "description": "Saves or clears a line decision for the reviewed revision. Returns 409 if the\nobservations or another decision changed in the meantime.",
+        "description": "Save or clear the decision for the reviewed line_revision. A changed finding,\nsupporting scan, or decision on this line returns 409. Superseding a decision\nrequires a reason in addition to any note supporting the new decision.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
@@ -41182,7 +41354,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
       "post": {
-        "description": "What's in each position, or that it's empty. A position scanned again replaces what\nwas scanned there.",
+        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`.",
         "operationId": "iki_server_api_storage_scan_positions",
         "parameters": [
           {

@@ -320,13 +320,37 @@ position it refers to. A changed observation requires the operator to review
 the affected decision. The completion screen shows each tube and its planned
 destination. A move or placement requires a positive scan at that exact slot.
 
-Each edit advances the count's revision. Saving or clearing a line decision
-and completing the count each require the revision the operator reviewed.
-The server checks it under the same lock that protects the count. Completion
-also verifies each saved decision against its current observation. Another operator can save
-a valid replacement while the first has the form open. The first operator
-must review that revision and enter a fresh approval before completing.
-Completing it applies
+Scanning a fresh slot and tube needs no precondition. Operators can scan independent
+positions at the same time. An operator replacing a prior scan must review each
+affected line and give a correction reason. An explicitly empty position counts as
+an observation. A repeat observation of the same tube or empty slot needs the
+reviewed line version and records a fresh observation without a correction reason.
+A rack file supplies all affected line versions together. Conflicting assignments
+inside a file, or a changed observation on any affected line, refuse the whole file.
+
+Each saved decision is bound to the exact scan, including the scan at the expected
+slot that established a missing finding. Saving, clearing or replacing a decision
+requires that line's revision. Changing or clearing an existing decision requires
+a correction reason separate from its supporting note. A new observation makes a
+decision based on the old scan stale, even when both observations agree. The count
+history retains the original observation, decision and note, their actors and times,
+and the evidence that replaced them. Earlier counts keep the facts that survived;
+an open decision with no surviving evidence identifier requires a fresh scan before
+it can be confirmed.
+
+On a count line, `observation` identifies the physical scan supporting its current
+finding. `reviewed_observation` identifies the scan supporting its saved decision.
+Both contain the event ID, the physical line ID, the scanned position and code, and
+the operator and time. For a missing tube the physical line is the empty slot or
+the different tube scanned there. To see that scan in history, filter by its
+`line_id` and find its event ID. The missing tube's own line history contains its
+decisions. A null scan means there is no recorded scan event, a null code within
+a scan means the slot was observed empty, and a hidden linked tube's code is
+redacted to an empty string.
+
+Completing or cancelling the whole count requires the parent revision the operator
+reviewed. Cancellation records its operator, time and reason. The count closes
+with its observations intact. Completing it applies
 every resolution as one change, which its movements share as their
 operation, and is refused if anything moved in or out of the container since
 it started. Each movement records its scan position or why the item was

@@ -2339,7 +2339,7 @@ def receive_at_core(
         fail(f"{incoming['hrid']} did not receive the expected tubes at A1 and A2: {contents}")
     ok(f"the core received {request['hrid']}'s tubes, one damaged, put away in {incoming['hrid']}")
 
-    def review(plan: dict[str, Any], decision: str | None) -> str:
+    def review(plan: dict[str, Any], decision: str | None) -> tuple[str, int]:
         """Check the two tubes and the empty slot before approving this version."""
         lines = plan["lines"]
         actual = {
@@ -2358,7 +2358,8 @@ def receive_at_core(
             or any(line["resolution_stale"] for line in lines)
         ):
             fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
-        return str(next(line["id"] for line in lines if line["entity"] == tubes[1]["id"]))
+        wrong = next(line for line in lines if line["entity"] == tubes[1]["id"])
+        return str(wrong["id"]), int(wrong["line_revision"])
 
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
@@ -2377,12 +2378,12 @@ def receive_at_core(
     if observed.status_code != 200:
         fail(f"scanning {incoming['hrid']} answered {observed.status_code}: {observed.text[:300]}")
     found = observed.json()
-    wrong = review(found, None)
+    wrong, line_revision = review(found, None)
     resolved = api_call(
         alice,
         "PATCH",
         f"{count}/lines/{wrong}",
-        {"resolution": "moved", "plan_revision": found["plan_revision"]},
+        {"resolution": "moved", "line_revision": line_revision},
     )
     if resolved.status_code != 200:
         fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")

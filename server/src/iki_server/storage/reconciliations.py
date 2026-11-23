@@ -12,9 +12,11 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from uuid import UUID
+from typing import Any
+from uuid import UUID, uuid4
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from iki_server.accounts.models import User
@@ -22,6 +24,7 @@ from iki_server.audit import log
 from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.org.services import Refused
+from iki_server.storage import observations
 from iki_server.storage import services as storage
 from iki_server.storage.grids import NotAPosition, Shape
 from iki_server.storage.models import (
@@ -81,7 +84,11 @@ def scanned_positions(lines: Sequence[ReconciliationLine]) -> set[tuple[int, int
 
 
 def findings(reconciliation: Reconciliation) -> list[tuple[ReconciliationLine, str]]:
-    lines = list(reconciliation.lines.select_related("entity").order_by("id"))
+    lines = list(
+        reconciliation.lines.select_related(
+            "entity", "current_observation__actor", "reviewed_observation__actor", "resolved_by"
+        ).order_by("id")
+    )
     scanned = scanned_positions(lines)
     return [(x, finding(x, scanned)) for x in lines]
 
@@ -122,18 +129,24 @@ def start(user: User, container: Entity) -> Reconciliation:
 def _open(
     user: User, reconciliation: Reconciliation, *, plan_revision: int | None = None
 ) -> Reconciliation:
-    locked = (
-        Reconciliation.objects.select_for_update(of=("self",))
-        .select_related("container")
-        .get(pk=reconciliation.pk)
+    # Refresh the caller's instance under the lock. A mutation can serialize it under
+    # that same transaction without reading a later revision back from the database.
+    reconciliation.refresh_from_db(
+        from_queryset=Reconciliation.objects.select_for_update(of=("self",)).select_related(
+            "container", "started_by", "completed_by", "cancelled_by"
+        )
     )
-    if not storage.keeps(user, locked.container):
-        raise PermissionError(f"Reconciling {locked.container.hrid} needs Editor in its project.")
-    if plan_revision is not None and locked.plan_revision != plan_revision:
+    if not storage.keeps(user, reconciliation.container):
+        raise PermissionError(
+            f"Reconciling {reconciliation.container.hrid} needs Editor in its project."
+        )
+    if plan_revision is not None and reconciliation.plan_revision != plan_revision:
         raise Refused("The count changed. Reload it and review its current findings and decisions.")
-    if locked.status != ReceiptStatus.OPEN:
-        raise Wrong({"": [f"This reconciliation is {locked.get_status_display().lower()}."]})
-    return locked
+    if reconciliation.status != ReceiptStatus.OPEN:
+        raise Wrong(
+            {"": [f"This reconciliation is {reconciliation.get_status_display().lower()}."]}
+        )
+    return reconciliation
 
 
 def _advance_plan(reconciliation: Reconciliation) -> None:
@@ -149,70 +162,239 @@ class Scan:
     code: str | None
 
 
+def _reason(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise Wrong(
+            {"reason": ["Say why the previous count observation or decision is being changed."]}
+        )
+    if len(value) > MAX_NOTE:
+        raise Wrong({"reason": [f"is longer than {MAX_NOTE} characters."]})
+    return value
+
+
+class LinesChanged(Refused):
+    def __init__(self, lines: Sequence[ReconciliationLine]) -> None:
+        self.lines = [
+            {"line_id": str(line.pk), "line_revision": line.line_revision} for line in lines
+        ]
+        super().__init__("The count evidence changed. Review the affected lines before saving.")
+
+
+@dataclass(frozen=True)
+class PlannedScan:
+    row: int
+    column: int
+    code: str
+    line: ReconciliationLine
+
+
+def _scanned_line(
+    user: User,
+    count: Reconciliation,
+    lines: list[ReconciliationLine],
+    barcodes: dict[UUID, str],
+    links: dict[UUID, Entity],
+    occupied: ReconciliationLine | None,
+    code: str,
+) -> ReconciliationLine:
+    if not code:
+        if occupied and occupied.entity_id is None and not occupied.code:
+            return occupied
+        return ReconciliationLine(reconciliation=count)
+    for line in lines:
+        linked = links.get(line.pk, line.entity)
+        if linked is not None and storage.confirms(linked, code, barcode=barcodes.get(linked.pk)):
+            return line
+    options = [e for e in storage.find(user, code) if storage.spec(e.type) is not None]
+    entity = options[0] if len(options) == 1 else None
+    if entity is not None:
+        seen = next((line for line in lines if line.entity_id == entity.pk), None)
+        if seen is not None:
+            return seen
+    if entity is not None and entity.pk not in barcodes:
+        barcodes.update(storage.codes_of([entity]))
+    unknown = next((line for line in lines if line.entity_id is None and line.code == code), None)
+    if unknown is not None:
+        if entity is not None:
+            links[unknown.pk] = entity
+        return unknown
+    return ReconciliationLine(reconciliation=count, entity=entity, code=code)
+
+
 def scan(
-    user: User, reconciliation: Reconciliation, scans: Sequence[Scan]
+    user: User,
+    reconciliation: Reconciliation,
+    scans: Sequence[Scan],
+    *,
+    reviewed_lines: Sequence[tuple[UUID, int]] = (),
+    reason: str = "",
 ) -> list[ReconciliationLine]:
-    """Records what's in each scanned position; a later scan of a position replaces an
-    earlier one."""
+    """Review only prior physical observations this command would replace."""
     if not scans:
         raise Wrong({"scans": ["names no position."]})
     with transaction.atomic():
         reconciliation = _open(user, reconciliation)
         shape = shape_of(reconciliation)
-        out: list[ReconciliationLine] = []
-        for index, s in enumerate(scans):
+        lines = list(reconciliation.lines.select_related("entity", "current_observation"))
+        barcodes = storage.codes_of([line.entity for line in lines if line.entity is not None])
+        slots = observed_slots(lines)
+        # A missing finding depends on the actual observation at the expected slot.
+        old_basis = _finding_basis(lines)
+        required: dict[UUID, ReconciliationLine] = {}
+        selected: dict[UUID, tuple[int, int]] = {}
+        positions: dict[tuple[int, int], ReconciliationLine] = {}
+        planned: list[PlannedScan] = []
+        links: dict[UUID, Entity] = {}
+        correction = False
+        for index, item in enumerate(scans):
             try:
-                row, column = shape.parse(s.position)
+                slot = shape.parse(item.position)
             except NotAPosition as error:
                 raise Wrong({f"scans/{index}/position": [str(error)]}) from None
-            out.append(_scan_one(user, reconciliation, row, column, (s.code or "").strip()))
-        _advance_plan(reconciliation)
-        return out
-
-
-def _scan_one(
-    user: User, reconciliation: Reconciliation, row: int, column: int, code: str
-) -> ReconciliationLine:
-    lines = list(reconciliation.lines.select_related("entity"))
-    now = timezone.now()
-    # Whatever was scanned here before isn't, any more.
-    gone: set[UUID] = set()
-    for line in lines:
-        if (line.found_row, line.found_column) == (row, column):
-            if line.expected_row is not None or line.resolution is not None:
-                line.found_row = line.found_column = None
-                line.scanned_by, line.scanned_at = None, None
-                line.save(update_fields=["found_row", "found_column", "scanned_by", "scanned_at"])
-            else:
-                gone.add(line.pk)
+            raw_code = item.code or ""
+            code = raw_code.strip()
+            occupied = slots.get(slot)
+            line = _scanned_line(
+                user, reconciliation, lines, barcodes, links, positions.get(slot, occupied), code
+            )
+            previous_slot = selected.get(line.pk)
+            if previous_slot is not None and previous_slot != slot:
+                raise Wrong(
+                    {
+                        f"scans/{index}/code": [
+                            f"The same tube was submitted at {shape.label(*previous_slot)} "
+                            f"and {shape.label(*slot)}."
+                        ]
+                    }
+                )
+            if slot in positions and positions[slot] is not line:
+                raise Wrong(
+                    {
+                        f"scans/{index}/position": [
+                            f"Conflicting observations for {shape.label(*slot)} in one scan file."
+                        ]
+                    }
+                )
+            if line._state.adding and previous_slot is None:
+                lines.append(line)
+            if occupied is not None:
+                required[occupied.pk] = occupied
+                correction |= occupied is not line
+            if line.found_row is not None:
+                required[line.pk] = line
+                correction |= occupied is not line
+            if line.pk in links and not line._state.adding:
+                required[line.pk] = line
+                correction = True
+            selected[line.pk] = slot
+            positions[slot] = line
+            planned.append(PlannedScan(*slot, raw_code if code else "", line))
+        reviewed = dict(reviewed_lines)
+        if len(reviewed) != len(reviewed_lines):
+            raise Wrong({"reviewed_lines": ["names the same reviewed line more than once."]})
+        if reviewed != {pk: line.line_revision for pk, line in required.items()}:
+            raise LinesChanged(list(required.values()))
+        if correction:
+            reason = _reason(reason)
+        revision, operation = reconciliation.plan_revision + 1, uuid4()
+        # Vacate the affected positions first. This preserves both identities in a swap
+        # and respects the unique slot constraint regardless of the rack file's order.
+        reconciliation.lines.filter(pk__in=required).update(found_row=None, found_column=None)
+        for line in required.values():
+            if line.pk in selected:
+                continue
+            before = _slot_snapshot(line, shape)
+            remove = line.expected_row is None and line.resolution is None
+            line.found_row = line.found_column = None
+            line.scanned_at = line.scanned_by = line.current_observation = None
+            line.line_revision += 1
+            observations.record(
+                reconciliation,
+                line_id=line.pk,
+                kind="scan",
+                before=before,
+                after=None if remove else _slot_snapshot(line, shape),
+                user=user,
+                reason=reason.strip(),
+                revision=revision,
+                operation=operation,
+            )
+            if remove:
+                lines.remove(line)
                 line.delete()
-    lines = [x for x in lines if x.pk not in gone]
-    if not code:
-        return ReconciliationLine.objects.create(
-            reconciliation=reconciliation,
-            found_row=row,
-            found_column=column,
-            scanned_by=user,
-            scanned_at=now,
-        )
-    chosen = next(
-        (x for x in lines if x.entity is not None and storage.confirms(x.entity, code)), None
-    )
-    if chosen is None:
-        found = [e for e in storage.find(user, code) if storage.spec(e.type) is not None]
-        known = found[0] if len(found) == 1 else None
-        chosen = next((x for x in lines if known is not None and x.entity_id == known.pk), None)
-        if chosen is None:
-            chosen = next((x for x in lines if x.entity_id is None and x.code == code), None)
-        if chosen is None:
-            chosen = ReconciliationLine(reconciliation=reconciliation, entity=known, code=code)
-    line = chosen
-    line.found_row, line.found_column = row, column
-    line.scanned_by, line.scanned_at = user, now
-    # Keep the saved decision visible. Its author approved a particular observation;
-    # read and complete both check whether that decision still applies.
-    line.save()
-    return line
+            else:
+                line.save()
+        for entry in planned:
+            line = entry.line
+            previous = None if line._state.adding else _slot_snapshot(line, shape)
+            if not line._state.adding:
+                line.line_revision += 1
+            if line.pk in links:
+                line.entity = links[line.pk]
+            line.found_row, line.found_column = entry.row, entry.column
+            line.scanned_by, line.scanned_at = user, timezone.now()
+            after = _slot_snapshot(line, shape)
+            after.pop("input_unknown", None)
+            after["code"] = entry.code or None
+            line.current_observation = observations.record(
+                reconciliation,
+                line_id=line.pk,
+                kind="scan",
+                before=previous,
+                after=after,
+                user=user,
+                reason=reason.strip(),
+                revision=revision,
+                operation=operation,
+            )
+            line.save()
+        changes = _finding_basis(lines)
+        dependent = [
+            pk
+            for pk, basis in changes.items()
+            if pk not in selected and pk not in required and basis != old_basis.get(pk)
+        ]
+        if dependent:
+            reconciliation.lines.filter(pk__in=dependent).update(
+                line_revision=F("line_revision") + 1
+            )
+        _advance_plan(reconciliation)
+        return [item.line for item in planned]
+
+
+def _finding_basis(lines: Sequence[ReconciliationLine]) -> dict[UUID, tuple[str, UUID | None]]:
+    slots = observed_slots(lines)
+    scanned = set(slots)
+    result = {}
+    for line in lines:
+        what = finding(line, scanned)
+        result[line.pk] = (what, evidence_id(line, what, slots))
+    return result
+
+
+def _slot_snapshot(line: ReconciliationLine, shape: Shape) -> dict[str, Any]:
+    # An expected barcode may differ from what the scanner actually sent. In older counts
+    # only an unexpected unknown code and an explicitly empty slot identify the input.
+    state: dict[str, Any] = {
+        "line_revision": line.line_revision,
+        "expected": storage.label(shape, line.expected_row, line.expected_column),
+        "position": storage.label(shape, line.found_row, line.found_column),
+        "observed": line.found_row is not None,
+    }
+    if line.entity_id:
+        state["entity_id"] = str(line.entity_id)
+    if line.found_row is not None:
+        state["scanned_by"] = str(line.scanned_by_id) if line.scanned_by_id else None
+        state["scanned_at"] = line.scanned_at.isoformat() if line.scanned_at else None
+        current = line.current_observation
+        if current is not None and current.after is not None:
+            state["code"] = current.after["code"]
+        elif line.entity_id is None:
+            state["code"] = line.code or None
+        else:
+            state["input_unknown"] = True
+    return state
 
 
 def _allowed(line: ReconciliationLine, what: str) -> tuple[Resolution, ...]:
@@ -231,19 +413,68 @@ def decision_position(line: ReconciliationLine, what: str, shape: Shape) -> str 
     return None
 
 
-def resolution_stale(line: ReconciliationLine, what: str, position: str | None) -> bool:
+def observed_slots(
+    lines: Sequence[ReconciliationLine],
+) -> dict[tuple[int, int], ReconciliationLine]:
+    return {
+        (x.found_row, x.found_column): x
+        for x in lines
+        if x.found_row is not None and x.found_column is not None
+    }
+
+
+def evidence_line(
+    line: ReconciliationLine, what: str, slots: dict[tuple[int, int], ReconciliationLine]
+) -> ReconciliationLine | None:
+    if (
+        what == Finding.MISSING
+        and line.expected_row is not None
+        and line.expected_column is not None
+    ):
+        return slots.get((line.expected_row, line.expected_column))
+    return line
+
+
+def evidence_id(
+    line: ReconciliationLine, what: str, slots: dict[tuple[int, int], ReconciliationLine]
+) -> UUID | None:
+    observed = evidence_line(line, what, slots)
+    return observed.current_observation_id if observed is not None else None
+
+
+def resolution_stale(
+    line: ReconciliationLine, what: str, position: str | None, evidence: UUID | None
+) -> bool:
     """Whether the saved action still applies to this finding and its particular slot."""
     if line.resolution is None:
         return False
     return (
         line.resolution not in _allowed(line, what)
         or position is None
+        or line.resolved_finding != what
         or position != line.resolved_position
         or line.resolved_at is None
         or line.resolved_by_id is None
-        or (line.scanned_at is not None and line.scanned_at > line.resolved_at)
+        or evidence is None
+        or evidence != line.reviewed_observation_id
         or (line.resolution == Resolution.KEPT and not line.note.strip())
     )
+
+
+def _decision_snapshot(line: ReconciliationLine) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "line_revision": line.line_revision,
+        "finding": line.resolved_finding,
+        "position": line.resolved_position,
+        "resolution": line.resolution,
+        "note": line.note,
+        "resolved_by": str(line.resolved_by_id) if line.resolved_by_id else None,
+        "resolved_at": line.resolved_at.isoformat() if line.resolved_at else None,
+        "observation": str(line.reviewed_observation_id) if line.reviewed_observation_id else None,
+    }
+    if line.entity_id:
+        state["entity_id"] = str(line.entity_id)
+    return state
 
 
 def resolve(
@@ -253,24 +484,24 @@ def resolve(
     resolution: str | None,
     note: str = "",
     *,
-    plan_revision: int,
+    line_revision: int,
+    reason: str = "",
 ) -> ReconciliationLine | None:
-    """Says what's done about a line that isn't matched."""
+    """Applies the decision to the physical observation the operator reviewed."""
+    note = note.strip()
     if len(note) > MAX_NOTE:
         raise Wrong({"note": [f"is longer than {MAX_NOTE} characters."]})
     with transaction.atomic():
-        reconciliation = _open(user, reconciliation, plan_revision=plan_revision)
+        reconciliation = _open(user, reconciliation)
         lines = list(reconciliation.lines.select_related("entity"))
         line = next((x for x in lines if str(x.pk) == str(line_id)), None)
         if line is None:
-            raise Wrong({"line": ["isn't one of this reconciliation's."]})
+            raise LinesChanged([])
+        if line.line_revision != line_revision:
+            raise LinesChanged([line])
         found = finding(line, scanned_positions(lines))
-        if resolution is None and found == NO_LONGER_FOUND:
-            # No recorded or observed slot remains. The operator has dismissed its old choice.
-            line.delete()
-            _advance_plan(reconciliation)
-            return None
         position = None
+        evidence = None
         if resolution is not None:
             allowed = _allowed(line, found)
             if resolution not in allowed:
@@ -284,19 +515,63 @@ def resolve(
                     }
                 )
             position = decision_position(line, found, shape_of(reconciliation))
-            if position is None:
-                raise Wrong({"resolution": ["needs a current observation for this position."]})
-            if resolution == Resolution.KEPT and not note.strip():
+            evidence = evidence_id(line, found, observed_slots(lines))
+            if position is None or evidence is None:
+                raise Wrong(
+                    {
+                        "resolution": [
+                            "Rescan this position to record the evidence for this decision."
+                        ]
+                    }
+                )
+            if resolution == Resolution.KEPT and not note:
                 raise Wrong({"note": ["is required: say why it's left as recorded."]})
+        elif note:
+            raise Wrong({"note": ["Use a correction reason when clearing a decision."]})
+        if (
+            line.resolution == resolution
+            and line.note == note
+            and not resolution_stale(line, found, position, evidence)
+        ):
+            return line
+        before = _decision_snapshot(line) if line.resolution or line.note else None
+        if before:
+            reason = _reason(reason)
+        line.line_revision += 1
+        line.resolved_finding = found if resolution else None
         line.resolution = resolution
         line.resolved_position = position
-        line.note = note.strip()
+        line.note = note
         line.resolved_by = user if resolution is not None else None
         line.resolved_at = timezone.now() if resolution is not None else None
-        line.save(
-            update_fields=["resolution", "resolved_position", "note", "resolved_by", "resolved_at"]
+        line.reviewed_observation_id = evidence
+        observations.record(
+            reconciliation,
+            line_id=line.pk,
+            kind="resolution",
+            before=before,
+            after=_decision_snapshot(line) if resolution is not None else None,
+            user=user,
+            reason=reason.strip(),
+            revision=reconciliation.plan_revision + 1,
+            operation=uuid4(),
         )
         _advance_plan(reconciliation)
+        if resolution is None and found == NO_LONGER_FOUND:
+            line.delete()
+            return None
+        line.save(
+            update_fields=[
+                "line_revision",
+                "resolution",
+                "resolved_position",
+                "resolved_finding",
+                "note",
+                "resolved_by",
+                "resolved_at",
+                "reviewed_observation",
+            ]
+        )
         return line
 
 
@@ -311,9 +586,11 @@ def complete(
     """Applies every resolution as one change, refused if anything moved into or out of the
     container since it started."""
     with transaction.atomic():
+        # Starting a count holds the container while returning its open count. Take
+        # these two locks in the same order when applying its storage movements.
+        Entity.objects.select_for_update(no_key=True).filter(pk=reconciliation.container_id).first()
         reconciliation = _open(user, reconciliation, plan_revision=plan_revision)
         container = reconciliation.container
-        Entity.objects.select_for_update(no_key=True).filter(pk=container.pk).first()
         if storage.events_since(container, reconciliation.started_at):
             raise Wrong(
                 {
@@ -325,13 +602,14 @@ def complete(
             )
         shape = shape_of(reconciliation)
         found = findings(reconciliation)
+        slots = observed_slots([line for line, _ in found])
         wrong: dict[str, list[str]] = {}
         wanted: list[storage.Wanted] = []
         decisions: Counter[str] = Counter()
         assumed_missing: list[ReconciliationLine] = []
         for line, what in found:
             position = decision_position(line, what, shape)
-            if resolution_stale(line, what, position):
+            if resolution_stale(line, what, position, evidence_id(line, what, slots)):
                 name = "This record"
                 if line.entity is not None and access.can_read(user, line.entity):
                     name = line.entity.hrid
@@ -347,6 +625,8 @@ def complete(
                     wrong[f"lines/{line.pk}"] = ["isn't scanned yet: scan its position."]
                     continue
                 assumed_missing.append(line)
+                line.line_revision += 1
+                line.resolved_finding = UNCHECKED
                 line.resolution, line.resolved_by = Resolution.REMOVED, user
                 line.resolved_at = timezone.now()
                 line.resolved_position = storage.label(
@@ -379,8 +659,28 @@ def complete(
         if wrong:
             raise Wrong(wrong)
         if assumed_missing:
+            for line in assumed_missing:
+                observations.record(
+                    reconciliation,
+                    line_id=line.pk,
+                    kind="resolution",
+                    before=None,
+                    after={**_decision_snapshot(line), "assumed_missing": True},
+                    user=user,
+                    reason="",
+                    revision=plan_revision,
+                    operation=reconciliation.operation,
+                )
             ReconciliationLine.objects.bulk_update(
-                assumed_missing, ["resolution", "resolved_by", "resolved_at", "resolved_position"]
+                assumed_missing,
+                [
+                    "resolution",
+                    "resolved_by",
+                    "resolved_at",
+                    "resolved_position",
+                    "resolved_finding",
+                    "line_revision",
+                ],
             )
         moved = 0
         if wanted:
@@ -399,6 +699,17 @@ def complete(
         reconciliation.completed_at = timezone.now()
         reconciliation.note = note.strip()[:MAX_NOTE]
         reconciliation.save(update_fields=["status", "completed_by", "completed_at", "note"])
+        observations.record(
+            reconciliation,
+            line_id=None,
+            kind="status",
+            before={"status": ReceiptStatus.OPEN},
+            after={"status": ReceiptStatus.COMPLETED, "note": reconciliation.note},
+            user=user,
+            reason="",
+            revision=plan_revision,
+            operation=reconciliation.operation,
+        )
         counts = Counter(what for _, what in found if what not in (EMPTY, OUT))
         log.record(
             "storage.reconciled",
@@ -418,10 +729,33 @@ def complete(
         return reconciliation
 
 
-def cancel(user: User, reconciliation: Reconciliation) -> Reconciliation:
+def cancel(
+    user: User, reconciliation: Reconciliation, *, plan_revision: int, reason: str
+) -> Reconciliation:
     with transaction.atomic():
-        reconciliation = _open(user, reconciliation)
+        reconciliation = _open(user, reconciliation, plan_revision=plan_revision)
+        reason = _reason(reason)
         reconciliation.status = ReceiptStatus.CANCELLED
+        reconciliation.cancelled_by = user
+        reconciliation.cancel_reason = reason
         reconciliation.completed_at = timezone.now()
-        reconciliation.save(update_fields=["status", "completed_at"])
+        _advance_plan(reconciliation)
+        reconciliation.save(
+            update_fields=["status", "completed_at", "cancelled_by", "cancel_reason"]
+        )
+        observations.record(
+            reconciliation,
+            line_id=None,
+            kind="status",
+            before={"status": ReceiptStatus.OPEN},
+            after={
+                "status": ReceiptStatus.CANCELLED,
+                "cancelled_by": str(user.pk),
+                "cancelled_at": reconciliation.completed_at.isoformat(),
+            },
+            user=user,
+            reason=reason,
+            revision=reconciliation.plan_revision,
+            operation=uuid4(),
+        )
         return reconciliation
