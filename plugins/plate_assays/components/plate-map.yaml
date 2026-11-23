@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: plate_map
+label: Plate map
+description: Well assignments, replicate concentrations and the mapped reader preview.
+module: ./components/plate-map.js
+element: assay-plate-map
+slots:
+  - { slot: entity.tab, type: AssayPlate, label: Plate map }
+events: { run: { actions: [assign_dilution_series, preview_reader, commit_reader] } }

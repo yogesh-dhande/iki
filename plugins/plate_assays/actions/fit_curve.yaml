@@ -1,0 +1,29 @@
+apiVersion: iki/v1
+kind: Action
+name: fit_curve
+label: Fit a dose-response curve
+description: >-
+  Fit the sample's dose series from a committed plate read. Each fit keeps
+  its measurements, raw responses, exclusions and the selected review flow.
+inputs:
+  read: { type: PlateRead, schema: ">=1", include: [measurements] }
+  sample: { type: iki/core.Entity, description: The sample assigned to the dilution series. }
+params:
+  endpoint_kind:
+    type: enum
+    values: [IC50, EC50]
+    default: IC50
+    description: Name the endpoint according to the biological interpretation of this assay.
+  exclusions:
+    type: text
+    max_length: 20000
+    description: "One excluded well and its reason per line, for example A4: bubble noted at acquisition. The run records who made each exclusion."
+effects:
+  creates:
+    - { type: ResearchAssayResult, cardinality: many, derived_from: [read, sample] }
+    - { type: QCAssayResult, cardinality: many, derived_from: [read, sample] }
+    - { type: RequestedResearchAssayResult, cardinality: many, derived_from: [read, sample] }
+    - { type: RequestedQCAssayResult, cardinality: many, derived_from: [read, sample] }
+runs_on: { tier: backend, environment: assay-tools }
+command: [python, ./scripts/assays.py, fit]
+timeout: 5m

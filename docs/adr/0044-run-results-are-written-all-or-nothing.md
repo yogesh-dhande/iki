@@ -63,8 +63,12 @@ that resumes the run another. The run's output is its last attempt's.
 
 - A plugin can't write outside its declared effects, even with a bug or a
   compromised worker.
-- Entity values that changed after the run read its inputs are still
-  written over. Provenance shows which input revisions the run read.
+- An update may request `require_unchanged: true` when the decision to write
+  depends on the record revision the run read, such as a previewed import.
+  Iki checks the pinned input revision under the write lock and rejects the
+  whole result with `conflict` if the record changed. By default an update
+  writes its declared fields on the current revision. Provenance records the
+  revisions the run read in either case.
 - Result files are uploaded by the worker before it completes, as ordinary
   checked uploads for the launcher. A run may attach only its own uploads
   and files its inputs already had. Attaching any file the launcher can

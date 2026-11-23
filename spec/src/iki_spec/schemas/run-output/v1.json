@@ -192,7 +192,11 @@
               "format": "uuid",
               "description": "The input entity's ID, from input.json."
             },
-            "values": { "type": "object", "minProperties": 1 }
+            "values": { "type": "object", "minProperties": 1 },
+            "require_unchanged": {
+              "type": "boolean",
+              "description": "When true, write this output only if the record is still at the revision this input read. Any intervening revision rejects the entire result, including its creates."
+            }
           }
         }
       }
