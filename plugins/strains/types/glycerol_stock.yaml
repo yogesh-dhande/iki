@@ -1,0 +1,21 @@
+apiVersion: iki/v1
+kind: EntityType
+name: GlycerolStock
+label: Glycerol stock
+label_plural: Glycerol stocks
+schema_version: 1
+sample: true
+description: One physical stock of a registered strain, with a position, movement history and volume balance.
+hrid: { prefix: GST }
+storage: { barcode: barcode, confirm: [draw] }
+amount: { unit: uL, label: Volume, material: strain }
+fields:
+  strain:
+    type: ref
+    to: [BaseStrain, TransformedStrain]
+    required: true
+    immutable: true
+  barcode: { type: string, max_length: 64, unique: true, indexed: true }
+  prepared_on: { type: date, label: Prepared on }
+display:
+  title: "{{ barcode or hrid }}"
