@@ -10,6 +10,7 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { iki, type Project } from "./api";
 import {
+  searchEntities,
   ENTITIES,
   typesQuery,
   validateEntitySearch,
@@ -20,6 +21,7 @@ import {
 } from "./entities";
 import { formFields } from "./entity-values";
 import type { Filter } from "./filters";
+import { pageReadSignal } from "./page-reads";
 
 export type Intake = Schemas["IntakeOut"];
 export type Service = Schemas["ServiceOut"];
@@ -29,10 +31,11 @@ export type TwoSides = Schemas["RequestOut"];
 export function intakeQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "intake"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/intake", {
           params: { path: { project_id: projectId } },
+          signal: pageReadSignal(signal),
         }),
       ),
   });
@@ -93,10 +96,11 @@ export function sentBy(projectId: string): Filter[] {
 export function sentToQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "sent-to"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/sent-to", {
           params: { path: { project_id: projectId } },
+          signal: pageReadSignal(signal),
         }),
       ),
   });
@@ -119,19 +123,21 @@ export function sentFromQuery(projectId: string) {
 export function ownsRequestsQuery(projectId: string, types: readonly string[]) {
   return queryOptions({
     queryKey: [...ENTITIES, "owns-requests", projectId, types],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
+      const read = pageReadSignal(signal);
       const found = await Promise.all(
         types.map(async (type) =>
           unwrap(
-            await iki.POST("/api/v1/entities/search", {
-              body: {
+            await searchEntities(
+              {
                 project: projectId,
                 type,
                 exact_type: false,
                 limit: 1,
                 where: { field: "owner_project", op: "eq", value: projectId },
               },
-            }),
+              read,
+            ),
           ),
         ),
       );
@@ -173,16 +179,17 @@ export function useRequestSides(project: Project) {
 export function queuedQuery(projectId: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "queued", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
+        await searchEntities(
+          {
             project: projectId,
             exact_type: false,
             limit: 1,
             where: sentTo(projectId) as Schemas["Condition"],
           },
-        }),
+          pageReadSignal(signal),
+        ),
       ).items.length > 0,
   });
 }

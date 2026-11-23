@@ -21,6 +21,7 @@ import {
 import { useCallback } from "react";
 
 import { BACKGROUND_HEADER, isIdle } from "./activity";
+import { fetchPageRead, pageReadSignal, runPageQuery } from "./page-reads";
 
 export type Me = Schemas["MeOut"];
 export type Project = Schemas["ProjectOut"];
@@ -45,8 +46,14 @@ function csrfToken(): string | undefined {
 export const iki: IkiClient = createIkiClient({
   baseUrl: window.location.origin,
   csrfToken,
-  // Looked up on each call, not captured once.
-  fetch: (input, init) => globalThis.fetch(input, init),
+  // Page data uses GET or HEAD by default. A query that sends JSON can select
+  // fetchPageRead too. An independent operation such as a download supplies its own fetch.
+  fetch: (input, init) => {
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    return method === "GET" || method === "HEAD"
+      ? fetchPageRead(input, init)
+      : globalThis.fetch(input, init);
+  },
 });
 
 // What the page asks for by itself doesn't keep the session open (ADR 0153).
@@ -106,6 +113,12 @@ export function signInAgain(): void {
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      // TanStack passes ordinary and infinite query executions through this hook.
+      persister: (read, context) =>
+        runPageQuery(
+          () => read(context),
+          () => context.signal,
+        ),
       staleTime: 30_000,
       retry: (failures, error) =>
         !(error instanceof ApiError && error.status < 500) && failures < 2,
@@ -365,8 +378,13 @@ export function watchQuery(ref: string) {
   return queryOptions({
     queryKey: [...NOTIFICATIONS, "watch", ref],
     meta: { background: true },
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/watch", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/watch", {
+          params: { path: { ref } },
+          signal: pageReadSignal(signal),
+        }),
+      ),
   });
 }
 
@@ -487,7 +505,11 @@ export function deliveryQuery(webhookId: string, deliveryId: string) {
 /** Looks a person or service account up by email address, for adding them to a project. */
 export async function findPerson(email: string) {
   const found = unwrap(
-    await iki.GET("/api/v1/users", { params: { query: { email: email.trim() } } }),
+    await iki.GET("/api/v1/users", {
+      // The membership change needs this person's ID before it can submit the PUT.
+      fetch: globalThis.fetch,
+      params: { query: { email: email.trim() } },
+    }),
   );
   return found.items[0];
 }
