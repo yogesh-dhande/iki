@@ -39,6 +39,7 @@ urlpatterns: list[URLPattern] = [
         name="project_webhook",
     ),
     path("projects/<slug:slug>/settings/", app, name="project_settings"),
+    path("projects/<slug:slug>/settings/starters/", app, name="project_starters"),
     path("projects/<slug:slug>/imports/<uuid:import_id>/", app, name="project_import"),
     path("projects/<slug:slug>/apps/drafts/<uuid:draft>/", app, name="project_app_draft"),
     path("teams/", views.team_list, name="team_list"),

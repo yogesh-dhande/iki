@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: design_guides
+label: Find the guides and where else they could cut
+description: >-
+  Reads both strands of the target for the nuclease's own protospacer adjacent motif,
+  keeps the sites whose cut falls in the region the design names, and reports each with
+  its GC content, what is known to make a guide work less well, and everywhere in the
+  sequences the design names that the same guide could also cut.
+inputs:
+  design: { type: GuideDesign, schema: ">=1", include: [target, search_in] }
+params:
+  gc_min:
+    type: float
+    default: 40.0
+    min: 0.0
+    max: 100.0
+    label: Least GC in a guide
+    description: >-
+      Below this share of G and C, a guide is flagged. 40 to 80% is the band CHOPCHOP
+      keeps to (Labun et al., Nucleic Acids Res 44:W272, 2016); it is that tool's rule,
+      not a number from the efficiency papers, and a guide outside it is reported, not
+      dropped.
+  gc_max:
+    type: float
+    default: 80.0
+    min: 0.0
+    max: 100.0
+    label: Most GC in a guide
+    description: Above this share of G and C, a guide is flagged, for the same reason.
+  most_off_targets_kept:
+    type: int
+    default: 100
+    min: 1
+    max: 1000
+    label: Most off-targets kept per guide
+    description: >-
+      How many of a guide's off-targets the record keeps, nearest first. A guide searched
+      against a mammalian genome to four mismatches can have thousands, and the count of
+      all of them is kept whatever this is.
+effects:
+  updates:
+    - input: design
+      fields: [guides_found, guides, searched, designed_with]
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+runs_on: { tier: backend, environment: sequence-tools }
+command: [python, ./scripts/design_guides.py]
+deterministic: true
+batchable: 5
+metrics:
+  guides:
+    label: Guides found
+    description: How many places the nuclease could cut in the region.
+  off_targets:
+    label: Off-targets found
+    description: How many other places the kept guides could cut.
+timeout: 1h

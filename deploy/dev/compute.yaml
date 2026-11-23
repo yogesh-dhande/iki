@@ -94,6 +94,11 @@ kind: EnvironmentBinding
 environment: iki/strains.strain-tools
 templates: [{ template: backend-small }]
 ---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/mouse_strains.mouse-catalogue
+templates: [{ template: backend-small }]
+---
 # What the fake FoldCloud's calls cost, so runs that call it have costs to
 # show and count against budgets (ADR 0130).
 apiVersion: iki/v1

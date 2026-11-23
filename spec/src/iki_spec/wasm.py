@@ -30,6 +30,7 @@ EXPORTS = (
     "iki_check",
     "iki_check_rules",
     "iki_evaluate_rules",
+    "iki_state_origins",
     "iki_helm",
     "iki_annotate_dna_sequence",
 )

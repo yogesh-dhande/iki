@@ -1286,6 +1286,42 @@
         "title": "AppPluginComponentOut",
         "type": "object"
       },
+      "AppliedStarterOut": {
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "requester_project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Original requester for an assay project Admin who may edit that project.",
+            "title": "Requester Project"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "flow",
+          "requester_project"
+        ],
+        "title": "AppliedStarterOut",
+        "type": "object"
+      },
       "ApplyIn": {
         "properties": {
           "reason": {
@@ -7898,6 +7934,72 @@
           "fired_at"
         ],
         "title": "FiringOut",
+        "type": "object"
+      },
+      "FlowFieldOut": {
+        "properties": {
+          "initial": {
+            "title": "Initial",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "states": {
+            "items": {
+              "$ref": "#/components/schemas/StateOut"
+            },
+            "title": "States",
+            "type": "array"
+          },
+          "transitions": {
+            "description": "Possible explicit moves. A state's on_edit separately identifies where a reasoned value correction returns the record.",
+            "items": {
+              "$ref": "#/components/schemas/FlowTransitionOut"
+            },
+            "title": "Transitions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "initial",
+          "states",
+          "transitions"
+        ],
+        "title": "FlowFieldOut",
+        "type": "object"
+      },
+      "FlowTransitionOut": {
+        "properties": {
+          "conditional": {
+            "description": "Whether a guard remains undecided from the field, origin and destination alone. A record's can.states supplies its current permissions, holds and guard decisions.",
+            "title": "Conditional",
+            "type": "boolean"
+          },
+          "from": {
+            "description": "The possible preceding state.",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "The state being set. Its roles, guards and signatures apply.",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "conditional"
+        ],
+        "title": "FlowTransitionOut",
         "type": "object"
       },
       "FormatOut": {
@@ -24647,6 +24749,283 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StarterFlowOut": {
+        "properties": {
+          "id": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "required_roles": {
+            "description": "Qualified lab roles needed to run this flow.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Roles",
+            "type": "array"
+          },
+          "result_type": {
+            "description": "Qualified type for a requested result in this flow.",
+            "title": "Result Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "result_type",
+          "required_roles"
+        ],
+        "title": "StarterFlowOut",
+        "type": "object"
+      },
+      "StarterOut": {
+        "properties": {
+          "applied": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedStarterOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Current choice in the requested project, if applied there."
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "flows": {
+            "items": {
+              "$ref": "#/components/schemas/StarterFlowOut"
+            },
+            "title": "Flows",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/StarterRoleOut"
+            },
+            "title": "Roles",
+            "type": "array"
+          },
+          "types": {
+            "description": "Qualified types the starter uses.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "label",
+          "description",
+          "flows",
+          "roles",
+          "types",
+          "applied"
+        ],
+        "title": "StarterOut",
+        "type": "object"
+      },
+      "StarterRoleOut": {
+        "properties": {
+          "id": {
+            "description": "Qualified lab role.",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minimum_project_role": {
+            "description": "The least project role a member needs to carry out this lab role.",
+            "enum": [
+              "viewer",
+              "editor"
+            ],
+            "title": "Minimum Project Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "minimum_project_role"
+        ],
+        "title": "StarterRoleOut",
+        "type": "object"
+      },
+      "StarterSetupIn": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "project": {
+            "description": "The assay service project. Requires its Admin role.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "description": "A different project in which the caller can create the example request.",
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "version": {
+            "description": "Installed starter version shown at setup.",
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "role_assignments"
+        ],
+        "title": "StarterSetupIn",
+        "type": "object"
+      },
+      "StarterSetupOut": {
+        "properties": {
+          "changed": {
+            "description": "Whether applying this choice would change anything (preview), or did (apply).",
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "examples": {
+            "additionalProperties": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "description": "IDs of example records already present at preview or available after setup.",
+            "title": "Examples",
+            "type": "object"
+          },
+          "examples_to_create": {
+            "description": "Names of examples missing when the setup was checked.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Examples To Create",
+            "type": "array"
+          },
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "grants_to_add": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Lab role grants missing when the setup was checked, by membership ID.",
+            "title": "Grants To Add",
+            "type": "object"
+          },
+          "project": {
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "result_type": {
+            "title": "Result Type",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "starter": {
+            "title": "Starter",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "starter",
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "result_type",
+          "changed",
+          "role_assignments",
+          "grants_to_add",
+          "examples_to_create",
+          "examples"
+        ],
+        "title": "StarterSetupOut",
+        "type": "object"
+      },
       "StateCan": {
         "description": "A state a record's state field could be set to (ADR 0125), and whether you may.",
         "properties": {
@@ -26072,6 +26451,34 @@
           "count"
         ],
         "title": "TypeCountOut",
+        "type": "object"
+      },
+      "TypeFlowOut": {
+        "properties": {
+          "fields": {
+            "description": "The live state fields, including inherited ones.",
+            "items": {
+              "$ref": "#/components/schemas/FlowFieldOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "description": "Qualified entity type name.",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "fields"
+        ],
+        "title": "TypeFlowOut",
         "type": "object"
       },
       "TypeGridOut": {
@@ -35095,6 +35502,47 @@
         ]
       }
     },
+    "/api/v1/entity-types/{name}/flow": {
+      "get": {
+        "description": "The declared flow, independent of any record or current assignment (ADR 0198).",
+        "operationId": "iki_server_api_entities_get_type_flow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TypeFlowOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A type's state fields and possible transitions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
     "/api/v1/entries/{ref}": {
       "get": {
         "description": "For whoever reads a record of it, and its registry's registrars.",
@@ -43434,6 +43882,161 @@
         "summary": "Delete a saved mapping",
         "tags": [
           "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/starters": {
+      "get": {
+        "description": "Include the current flow and version when the caller supplies a readable project.",
+        "operationId": "iki_server_api_starters_list_starters",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StarterOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "List installed starters",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{starter}/apply": {
+      "post": {
+        "description": "Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.\nChanging the flow selects the result type for future fits. Existing results keep their flow.",
+        "operationId": "iki_server_api_starters_apply_starter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "starter",
+            "required": true,
+            "schema": {
+              "title": "Starter",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterSetupOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Apply a starter to a project",
+        "tags": [
+          "starters"
+        ]
+      }
+    },
+    "/api/v1/starters/{starter}/preview": {
+      "post": {
+        "description": "Check the installed version, projects, roles and flow without changing either project.",
+        "operationId": "iki_server_api_starters_preview_starter",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "starter",
+            "required": true,
+            "schema": {
+              "title": "Starter",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarterSetupIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarterSetupOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Preview a starter choice",
+        "tags": [
+          "starters"
         ]
       }
     },

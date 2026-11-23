@@ -1,0 +1,283 @@
+# Run with `iki plugin test plugins/dna` (ADR 0093).
+apiVersion: iki/v1
+kind: ActionTest
+name: a_human_gene_is_rewritten_in_the_hosts_codons_and_codes_for_the_same_protein
+description: >-
+  Human beta-globin's coding sequence (HBB, NM_000518.5, 444 bp) rewritten for
+  E. coli K-12: 76 of its 148 codons are written differently and the protein is the one
+  the template codes for, base for base. Its codon adaptation index against E. coli's own
+  codon usage goes from 0.66 to 0.995, and the record says which table that is against.
+  The template has one EcoRI site, in the Lys-Glu-Phe at codons 121 to 123 (GGCAAAGAATTCACC):
+  it is kept out, so the gene can be cloned with EcoRI, and the Phe there is written TTT
+  rather than TTC, which is also E. coli's preferred codon for it.
+action: optimize_codons
+inputs:
+  optimization:
+    - values:
+        name: HBB for E. coli
+        host: e_coli_k12
+        strategy: highest_usage
+        avoid_enzymes: [EcoRI, BamHI]
+      included:
+        template:
+          - values:
+              name: HBB
+              accession: NM_000518.5
+              bases: "ATGGTGCATCTGACTCCTGAGGAGAAGTCTGCCGTTACTGCCCTGTGGGGCAAGGTGAACGTGGATGAAGTTGGTGGTGAGGCCCTGGGCAGGCTGCTGGTGGTCTACCCTTGGACCCAGAGGTTCTTTGAGTCCTTTGGGGATCTGTCCACTCCTGATGCTGTTATGGGCAACCCTAAGGTGAAGGCTCATGGCAAGAAAGTGCTCGGTGCCTTTAGTGATGGCCTGGCTCACCTGGACAACCTCAAGGGCACCTTTGCCACACTGAGTGAGCTGCACTGTGACAAGCTGCACGTGGATCCTGAGAACTTCAGGCTCCTGGGCAACGTGCTGGTCTGTGTGCTGGCCCATCACTTTGGCAAAGAATTCACCCCACCAGTGCAGGCTGCCTATCAGAAAGTGGTGGCTGGTGTGGCTAATGCCCTGGCCCACAAGTATCACTAA"
+              topology: linear
+              strandedness: double
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: optimized-1
+        values:
+          bases: "ATGGTGCATCTGACCCCGGAAGAAAAAAGCGCGGTGACCGCGCTGTGGGGCAAAGTGAACGTGGATGAAGTGGGCGGCGAAGCCCTGGGCCGCCTGCTGGTGGTGTATCCGTGGACCCAGCGCTTTTTTGAAAGCTTTGGCGATCTGAGCACCCCGGATGCGGTGATGGGCAACCCGAAAGTGAAAGCGCATGGCAAAAAAGTGCTGGGCGCGTTTAGCGATGGCCTGGCGCATCTGGATAACCTGAAAGGCACCTTTGCGACCCTGAGCGAACTGCATTGCGATAAACTGCATGTTGATCCGGAAAACTTTCGCCTGCTGGGCAACGTGCTGGTGTGCGTGCTGGCGCATCATTTTGGCAAAGAATTTACCCCGCCGGTGCAGGCGGCGTATCAGAAAGTGGTGGCGGGCGTGGCGAACGCGCTGGCGCATAAATATCATTAA"
+          topology: linear
+          strandedness: double
+          name: HBB for E. coli
+    updates:
+      optimization:
+        - values:
+            codons: 148
+            codons_changed: 76
+            protein_length: 147
+            source_cai: 0.6605
+            optimized_cai: 0.9955
+            cai_reference: >-
+              Escherichia coli K-12 substr. MG1655 (GCF_000005845.2 ASM584v2, 4,286 CDS)
+            source_gc_content: 56.08
+            optimized_gc_content: 57.43
+            constraints_met: true
+            unmet_constraints: []
+    metrics:
+      codons_changed: 76
+      cai_after: 0.9955
+      unmet: 0
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_codon_the_host_hardly_uses_is_never_written
+description: >-
+  Nine arginines written AGA, which E. coli decodes with a rare tRNA: its relative
+  adaptiveness there is 0.088, below the 0.1 the run allows, so not one AGA is left and
+  the gene's CAI goes from 0.088 to 0.975. The run doesn't write nine CGCs either, though
+  CGC is E. coli's most-used arginine codon: that would be 27 bases repeating a three-base
+  word, which the repeat constraint refuses, so the run alternates CGT and CGC. Both are
+  arginine, and the protein is nine arginines either way.
+action: optimize_codons
+inputs:
+  optimization:
+    - values: { host: e_coli_k12, strategy: highest_usage }
+      included:
+        template:
+          - values:
+              bases: "ATGAGAAGAAGAAGAAGAAGAAGAAGATAA"
+              topology: linear
+              strandedness: double
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: optimized-1
+        values:
+          bases: "ATGCGTCGTCGTCGTCGCCGCCGCCGCTAA"
+          topology: linear
+          strandedness: double
+    updates:
+      optimization:
+        - values:
+            codons: 10
+            codons_changed: 8
+            protein_length: 9
+            source_cai: 0.088
+            optimized_cai: 0.9751
+            constraints_met: true
+            codon_changes:
+              - { codon: 2, residue: R, from: AGA, to: CGT, from_weight: 0.088, to_weight: 0.9508 }
+              - { codon: 3, residue: R, from: AGA, to: CGT, from_weight: 0.088, to_weight: 0.9508 }
+              - { codon: 4, residue: R, from: AGA, to: CGT, from_weight: 0.088, to_weight: 0.9508 }
+              - { codon: 5, residue: R, from: AGA, to: CGT, from_weight: 0.088, to_weight: 0.9508 }
+              - { codon: 6, residue: R, from: AGA, to: CGC, from_weight: 0.088, to_weight: 1.0 }
+              - { codon: 7, residue: R, from: AGA, to: CGC, from_weight: 0.088, to_weight: 1.0 }
+              - { codon: 8, residue: R, from: AGA, to: CGC, from_weight: 0.088, to_weight: 1.0 }
+              - { codon: 9, residue: R, from: AGA, to: CGC, from_weight: 0.088, to_weight: 1.0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_restriction_site_is_kept_out_of_the_coding_region_and_left_alone_outside_it
+description: >-
+  A gene with an EcoRI site inside it, in a vector whose two flanks have EcoRI sites too.
+  Only bases 11 to 40 are the coding region, so only the site within it is designed away
+  -- the Glu-Phe at codons 4 and 5 is written GAATTT instead of GAATTC -- and the flanks'
+  sites are the template's and are left exactly as they are. Nothing outside a coding
+  region is a codon, and an optimizer that rewrote it would be changing something nobody
+  asked it to.
+action: optimize_codons
+inputs:
+  optimization:
+    - values:
+        host: e_coli_k12
+        coding_start: 11
+        coding_end: 40
+        avoid_enzymes: [EcoRI]
+      included:
+        template:
+          - values:
+              name: pFlank
+              bases: "GGAATTCCGGATGAAATTTGAATTCGGCCATAAAGGCTAACCGAATTCGG"
+              topology: linear
+              strandedness: double
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: optimized-1
+        values:
+          bases: "GGAATTCCGGATGAAATTTGAATTTGGCCATAAAGGCTAACCGAATTCGG"
+          topology: linear
+          strandedness: double
+          name: pFlank, E. coli codons
+    updates:
+      optimization:
+        - values:
+            codons: 10
+            codons_changed: 1
+            constraints_met: true
+            codon_changes:
+              - { codon: 5, residue: F, from: TTC, to: TTT, from_weight: 0.743, to_weight: 1.0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_gene_on_the_other_strand_is_read_and_written_back_on_that_strand
+description: >-
+  The same gene written on the reverse strand of its template, bases 5 to 34. It is read
+  from base 34 back to base 5 as its own strand reads, optimized, and written back
+  complemented, so the product reads as the template does and every base outside the
+  region is untouched. The codon changed is the same one, and on the given strand it shows
+  as GAA becoming AAA: TTC becoming TTT on the strand the gene is read from.
+action: optimize_codons
+inputs:
+  optimization:
+    - values: { host: e_coli_k12, coding_start: 5, coding_end: 34, coding_strand: reverse }
+      included:
+        template:
+          - values:
+              bases: "ACGTTTAGCCTTTATGGCCGAATTCAAATTTCATTTTT"
+              topology: linear
+              strandedness: double
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: optimized-1
+        values:
+          bases: "ACGTTTAGCCTTTATGGCCAAATTCAAATTTCATTTTT"
+          topology: linear
+          strandedness: double
+    updates:
+      optimization:
+        - values:
+            codons: 10
+            codons_changed: 1
+            codon_changes:
+              - { codon: 5, residue: F, from: TTC, to: TTT, from_weight: 0.743, to_weight: 1.0 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_constraint_no_synonymous_codon_can_meet_is_registered_with_what_is_still_broken
+description: >-
+  Five methionines, with ATGATG forbidden. Methionine has one codon in the standard code,
+  so there is no synonymous choice at all and the motif cannot be designed away: the run
+  registers the gene as it is, says every constraint was not met, and places each of the
+  four overlapping occurrences of the motif. A tool that silently returned a sequence
+  breaking what was asked for, or that changed a methionine to something else, would be
+  worse than one that says so.
+action: optimize_codons
+params: { gc_min: 0.0, gc_window: 0 }
+inputs:
+  optimization:
+    - values: { host: e_coli_k12, avoid_motifs: [ATGATG] }
+      included:
+        template:
+          - values:
+              bases: "ATGATGATGATGATGTAA"
+              topology: linear
+              strandedness: double
+expect:
+  output:
+    creates:
+      - type: iki/dna.DNASequence
+        key: optimized-1
+        values: { bases: "ATGATGATGATGATGTAA", topology: linear, strandedness: double }
+    updates:
+      optimization:
+        - values:
+            codons: 6
+            codons_changed: 0
+            protein_length: 5
+            constraints_met: false
+            codon_changes: []
+            unmet_constraints:
+              - { kind: motif, start: 1, end: 6, detail: "the motif ATGATG, on the given strand" }
+              - { kind: motif, start: 4, end: 9, detail: "the motif ATGATG, on the given strand" }
+              - { kind: motif, start: 7, end: 12, detail: "the motif ATGATG, on the given strand" }
+              - { kind: motif, start: 10, end: 15, detail: "the motif ATGATG, on the given strand" }
+    metrics: { codons_changed: 0, unmet: 4 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_region_that_isnt_a_whole_number_of_codons_is_refused
+description: >-
+  Eight bases are not a reading frame, so nothing is optimized and nothing is registered:
+  a run that guessed where the codons started would be guessing what the protein is.
+action: optimize_codons
+inputs:
+  optimization:
+    - values: { host: e_coli_k12 }
+      included:
+        template:
+          - values: { bases: "ATGAAAGG", topology: linear, strandedness: double }
+expect:
+  error: >-
+    OPT-000001: The coding region is 8 bases, which isn't a whole number of codons: give
+    the region of the sequence that is the coding sequence.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_region_with_a_stop_codon_in_the_middle_is_refused
+description: >-
+  A region whose third codon is TAA isn't one coding sequence read in one frame: it is
+  either the wrong region or the wrong frame, and either way the protein the optimizer
+  would preserve isn't the protein the lab means.
+action: optimize_codons
+inputs:
+  optimization:
+    - values: { host: e_coli_k12 }
+      included:
+        template:
+          - values: { bases: "ATGAAATAACGCGGCTAA", topology: linear, strandedness: double }
+expect:
+  error: >-
+    OPT-000001: The coding region has a stop codon at codon 3 of 6, so it isn't one coding
+    sequence read in one frame: give the region that is.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_harmonized_design_without_the_source_organism_is_refused
+description: >-
+  Harmonization matches each codon's share within its family to the share the template's
+  codon has where the gene came from, so without that organism there is nothing to match
+  (Angov et al., PLoS ONE 3:e2189, 2008). The run says so rather than quietly optimizing
+  some other way.
+action: optimize_codons
+inputs:
+  optimization:
+    - values: { host: e_coli_k12, strategy: harmonized }
+      included:
+        template:
+          - values: { bases: "ATGAAACGCGGCTAA", topology: linear, strandedness: double }
+expect:
+  error: >-
+    OPT-000001: A harmonized design needs the organism the template's gene is from, so
+    that each codon's share there can be matched in the host.

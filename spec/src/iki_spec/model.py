@@ -1509,6 +1509,8 @@ class Plugin:
     components: dict[str, Component] = field(default_factory=dict)
     #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
     roles: dict[str, LabRole] = field(default_factory=dict)
+    #: Installed project starter recipes and their versions (ADR 0198).
+    starters: dict[str, str] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
 
