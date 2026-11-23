@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@bwip-js/browser": "4.11.4",
+    "@ikisci/science": "workspace:*",
     "@ikisci/sdk": "workspace:*",
     "@ikisci/ui": "workspace:*",
     "@noble/hashes": "^2.4.0",

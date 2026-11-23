@@ -1,0 +1,15 @@
+### Storage box map
+
+Import `@ikisci/science/box-map`, `@ikisci/ui/tokens.css` and `@ikisci/science/box-map.css`. Give an `<iki-box-map>` its `data` property. The [box map story](./box-map.html) shows a synthetic storage box.
+
+| Property              | Format                                                                                                                                                                                                                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `label`               | Accessible name of the grid.                                                                                                                                                                                                                          |
+| `shape`               | Object with positive integer `rows` and `columns`, `labels` (`letter_number` or `number`), and `order` (`by_row` or `by_column`).                                                                                                                     |
+| `contents`            | Array of occupied positions with one-based `row` and `column`, optional string `identifier`, `name`, `checkedOutBy`, and optional integer `count` for nested containers. Omit the identifier for a restricted position. Unlisted positions are empty. |
+| `mode`                | Optional `open` (default), `select` or `pick`.                                                                                                                                                                                                        |
+| `selected`, `marked`  | Optional array of `"row:column"` keys and optional object with `row`, `column` to mark a position.                                                                                                                                                    |
+| `showFree`, `compact` | Optional booleans to highlight free positions or show smaller cells.                                                                                                                                                                                  |
+| `findings`            | Optional object keyed by `"row:column"`. Each value has a spoken `label` and optional `style` of `matched`, `missing`, `unexpected`, `wrong_slot`, `empty`, `checked_out`, or `suggested`.                                                            |
+
+Clicks, Enter and Space emit a bubbling `slot-activate` event whose detail contains `row`, `column`, the displayed `label` and the input `occupant` (undefined for an empty cell). The host updates `data.selected` to change the selection. Call `focusPosition(row, column)` to move keyboard focus after scanning a position. Arrow keys, Home, End, Page Up and Page Down navigate within the grid. Ctrl+Home and Ctrl+End reach the first and last positions.

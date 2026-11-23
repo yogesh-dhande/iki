@@ -14,22 +14,52 @@
       "@ikisci/source": "./src/booking-calendar.ts",
       "types": "./dist/booking-calendar.d.ts",
       "default": "./dist/booking-calendar.js"
+    },
+    "./box-map": {
+      "@ikisci/source": "./src/box-map.ts",
+      "types": "./dist/box-map.d.ts",
+      "default": "./dist/box-map.js"
+    },
+    "./quantity-input": {
+      "@ikisci/source": "./src/quantity-input.ts",
+      "types": "./dist/quantity-input.d.ts",
+      "default": "./dist/quantity-input.js"
+    },
+    "./sequence-input": {
+      "@ikisci/source": "./src/sequence-input.ts",
+      "types": "./dist/sequence-input.d.ts",
+      "default": "./dist/sequence-input.js"
+    },
+    "./box-map.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/box-map.css"
+    },
+    "./science-inputs.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/science-inputs.css"
     }
   },
   "files": [
     "dist",
     "stories",
-    "src/booking-calendar.ts",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "src/*.ts",
+    "!src/*.test.ts",
+    "style.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node ../../../scripts/check-web-package-size.js",
+    "build": "tsc -p tsconfig.build.json && cp ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "ikiSizeBudgets": {
-    "./booking-calendar": 2560
+    "./booking-calendar": 2560,
+    "./box-map": 2816,
+    "./quantity-input": 1536,
+    "./sequence-input": 1024,
+    "./box-map.css": 1536,
+    "./science-inputs.css": 320
   },
   "devDependencies": {
     "jsdom": "^31.0.0"

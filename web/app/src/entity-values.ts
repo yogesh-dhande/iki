@@ -5,6 +5,10 @@
  * answers sooner, in plain words.
  */
 
+import { OTHER_UNIT, type QuantityDraft } from "@ikisci/science/quantity-input";
+
+export { OTHER_UNIT, type QuantityDraft } from "@ikisci/science/quantity-input";
+
 import { inSentence, type Entity, type EntityType, type FieldDef } from "./entities";
 
 /** A referenced entity, as a picker shows it; or a person, with their email in `hrid`. */
@@ -25,21 +29,12 @@ export interface Picked {
   size?: number;
 }
 
-export interface QuantityDraft {
-  number: string;
-  /** A UCUM code from the field's units, or OTHER_UNIT to type one. */
-  unit: string;
-  other: string;
-}
-
 /** A list's row (ADR 0137): each of its fields' drafts, by name. */
 export interface RowDraft {
   cells: Record<string, Draft>;
 }
 
 export type Draft = string | QuantityDraft | Picked | RowDraft | null | Draft[];
-
-export const OTHER_UNIT = "__other";
 
 /** The fields people fill in: actions set computed ones. */
 /** What a form's fields are checked against: an entity type's values, or an action's params. */
