@@ -367,13 +367,12 @@ def mean_load(rows: list[Mapping[str, Any]]) -> float | None:
 
 def chains(conjugate: Mapping[str, Any] | None) -> tuple[int, int] | None:
     """How many light and heavy chains each molecule of ``conjugate`` (its values) has, by
-    its parts' copies, as a complex of them, such as an antibody, says: (2, 2) for an IgG,
-    (1, 1) for a Fab. None if it doesn't say."""
+    the counts its registered antibody carrier contributes: (2, 2) for an IgG, (1, 1)
+    for a Fab. Both chain types must be present for a two-chain distribution."""
     if conjugate is None:
         return None
-    parts = conjugate.get("components") or []
-    light = sum(int(p.get("copies") or 0) for p in parts if p.get("role") == "light")
-    heavy = sum(int(p.get("copies") or 0) for p in parts if p.get("role") == "heavy")
+    light = conjugate.get("carrier_light_copies")
+    heavy = conjugate.get("carrier_heavy_copies")
     return (light, heavy) if light and heavy else None
 
 
@@ -399,8 +398,8 @@ def dar(
         return (
             None,
             None,
-            "what it's a lot of doesn't say how many light and heavy chains each molecule "
-            "has, as a complex of them, such as an antibody, does",
+            "the conjugate doesn't say how many light and heavy chains its carrier has "
+            "for this reduced distribution",
         )
     each_light, each_heavy = copies
     return (
@@ -439,6 +438,7 @@ def polymer(lot: Lot) -> None:
     if not mn or mw is None:
         lot.set("dispersity", None)
         return
+    # IUPAC, Dispersity in polymer science (2009), doi:10.1351/PAC-REC-08-05-02.
     dispersity = round(mw / mn, 3)
     lot.set("dispersity", dispersity)
     print(f"{lot.hrid}: Đ = Mw/Mn = {_shown(mw)} / {_shown(mn)} = {dispersity:.3f}")

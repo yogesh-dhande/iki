@@ -163,17 +163,15 @@ L/(mol·cm) free; with KEGG D03257's 16 disulfides, 145,165.16 g/mol and 215,380
 1.4837 mL/(mg·cm). A protein's own are its sequence's: its ε280 with its
 cysteines paired or reduced, as the lot says.
 
-**Kinds that aren't registered yet refer to any entity.** Conjugates and
-synthetic polymers have no types yet, so `ConjugateLot.conjugate` and
-`PolymerLot.polymer` name any entity. When a plugin registers them, those
-references narrow to its types, `iki/lots` depending on it, and the deploy
-checks that the lots recorded fit (ADR 0136). A lab adds a kind of its own by
-extending `Lot` or `BiologicLot` in its plugin.
+**A conjugate or polymer lot names its registered design.** The conjugate entry
+identifies the carrier and its attachments. Each physical lot records its
+own measured distribution and DAR (ADR 0182). A synthetic polymer lot names a registered
+polymer and records its own molar-mass measurements and dispersity (ADR 0183). A lab can
+extend `Lot` or `BiologicLot` for additional material types.
 
-**Lots live in one plugin that depends on the kinds.** `iki/lots` depends on
-`iki/protein`, `iki/oligo` and `iki/plasmid`, rather than each
-kind's plugin depending on it, so installing a kind doesn't install lots,
-and no plugin of a kind changes to have them.
+**Lots depend on their material types.** `iki/lots` depends on
+`iki/protein`, `iki/oligo`, `iki/plasmid`, `iki/conjugate` and `iki/polymer`. Each
+material plugin can also be installed on its own.
 
 ## Consequences
 

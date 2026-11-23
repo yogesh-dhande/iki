@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: inspect_bigsmiles
+label: Inspect BigSMILES
+description: >-
+  Examine a submitted BigSMILES v1.1 expression. List its stochastic objects,
+  repeat-unit fragments and implicit end-group options when the inspector
+  supports the notation. Identify an error or report the unsupported feature.
+inputs:
+  polymer: { type: Polymer, schema: ">=1" }
+effects:
+  updates:
+    - input: polymer
+      fields:
+        [notation_status, notation_note, stochastic_objects, repeat_units, implicit_end_groups]
+runs_on: { tier: backend, environment: polymer-tools }
+command: [python, ./scripts/bigsmiles.py]
+deterministic: true
+batchable: 100
+timeout: 5m

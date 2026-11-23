@@ -18,8 +18,8 @@ import pytest
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.utils import timezone
+from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
-from test_first_party_plugins import FIRST_PARTY, PLUGINS
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 from test_signatures import evidence as authenticated
@@ -51,8 +51,8 @@ def test_witnesses_sign_the_experiment_at_its_recorded_versions(
     tmp_path: Path, database: str
 ) -> None:
     build = tmp_path / "build"
-    dependencies = dict.fromkeys([*FIRST_PARTY[LOTS], LOTS, *FIRST_PARTY[EXPERIMENTS]])
-    built = iki("plugin", "build", *dependencies, EXPERIMENTS, "--output", build, cwd=PLUGINS)
+    plugins = build_order(EXPERIMENTS, LOTS, PLUGINS / "protein")
+    built = iki("plugin", "build", *plugins, "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)

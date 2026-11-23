@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: structure
+label: Structure
+description: The polymer ensemble, with its BigSMILES fragments, declared architecture, end groups and registered source monomers.
+module: ./components/structure.js
+element: polymer-structure
+slots: [{ slot: entity.tab, type: Polymer }]
+events: { run: { actions: [inspect_bigsmiles] } }
