@@ -139,7 +139,7 @@
     "./sequence-input": 1024,
     "./box-map.css": 1536,
     "./science-inputs.css": 320,
-    "./parsers": 563200,
+    "./parsers": 614400,
     "./sequence": 7168,
     "./translation": 3072,
     "./oligo-chemistry": 2304,
