@@ -2421,6 +2421,8 @@ class LabelsIn(TypedDict):
     dpi: NotRequired[int]
     #: `print`: for the browser to print; `zpl`: ZPL II for a Zebra printer.
     format: Literal['print', 'zpl']
+    #: Only to show them: not recorded as prepared, and with no ZPL.
+    preview: NotRequired[bool]
     records: list[str]
     #: One of `GET /storage/labels`' sizes.
     size: str

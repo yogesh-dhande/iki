@@ -1194,6 +1194,9 @@ class LabelsIn(Schema):
     symbology: Literal["datamatrix", "qr"] = "datamatrix"
     dpi: int = Field(203, description="For ZPL: the printer's resolution, 203 or 300 dpi.")
     copies: int = Field(1, ge=1, le=labelling.MAX_COPIES)
+    preview: bool = Field(
+        False, description="Only to show them: not recorded as prepared, and with no ZPL."
+    )
 
 
 class LabelOut(Schema):
@@ -1227,7 +1230,8 @@ def prepare_labels(request: HttpRequest, payload: LabelsIn) -> dict[str, Any]:
                 storage.Wrong({f"records/{index}": [f"{r.hrid} isn't kept anywhere to label."]})
             )
     made = labelling.labels_of(records)
-    labelling.recorded(me, made, size=size, how=payload.format, copies=payload.copies)
+    if not payload.preview:
+        labelling.recorded(me, made, size=size, how=payload.format, copies=payload.copies)
     return {
         "labels": [
             {"id": x.entity.pk, "hrid": x.hrid, "title": x.title, "line": x.line, "code": x.code}
@@ -1237,6 +1241,6 @@ def prepare_labels(request: HttpRequest, payload: LabelsIn) -> dict[str, Any]:
         "zpl": labelling.zpl(
             made, size=size, dpi=payload.dpi, symbology=payload.symbology, copies=payload.copies
         )
-        if payload.format == "zpl"
+        if payload.format == "zpl" and not payload.preview
         else None,
     }

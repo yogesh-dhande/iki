@@ -10186,6 +10186,12 @@ export interface components {
              * @enum {string}
              */
             format: "print" | "zpl";
+            /**
+             * Preview
+             * @description Only to show them: not recorded as prepared, and with no ZPL.
+             * @default false
+             */
+            preview: boolean;
             /** Records */
             records: string[];
             /**

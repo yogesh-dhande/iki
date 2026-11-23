@@ -617,6 +617,13 @@ def test_labels_are_zpl_with_the_printers_own_barcodes_and_are_audited(world: Wo
     ).json()["zpl"]
     assert "^BQN" in cryo_label and "^BCN" not in cryo_label
     assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
+    # A preview shows what would print, and records nothing.
+    shown = api.post(
+        "/storage/labels",
+        {"records": [t["id"]], "size": "cryo", "format": "zpl", "preview": True},
+    ).json()
+    assert shown["labels"][0]["code"] == "LB-0042" and shown["zpl"] is None
+    assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
     assert labels.code128_modules("LB-0042") < labels.code128_modules("LB-0042-LONGER-CODE")
     assert errors(
         api.post("/storage/labels", {"records": [t["id"]], "size": "a4", "format": "print"})

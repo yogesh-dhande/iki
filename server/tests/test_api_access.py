@@ -654,6 +654,7 @@ def _tube(w: World, *, project: Any = None, into: Any = None, out: bool = False)
     import uuid
 
     from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
     from iki_server.storage import services as storage
 
     found = entities.create(
@@ -663,6 +664,7 @@ def _tube(w: World, *, project: Any = None, into: Any = None, out: bool = False)
         {"barcode": f"T-{uuid.uuid4().hex[:8]}"},
         amount={"value": "10", "unit": "uL"},
     ).entity
+    found = Entity.objects.get(pk=found.pk)
     if into is not None:
         storage.move(w.users["editor"], [storage.Wanted(found, into, None)], reason="Put away")
     if out:
@@ -712,6 +714,7 @@ def _received(w: World) -> Any:
     from iki_server.accounts.models import User
     from iki_server.entities import requests
     from iki_server.entities import services as entities
+    from iki_server.entities.models import Entity
     from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
     from iki_server.storage import receipts
 
@@ -723,6 +726,7 @@ def _received(w: World) -> Any:
         w.project,
         {"title": "Purity", "tubes": [str(tube.pk)]},
     ).entity
+    found = Entity.objects.get(pk=found.pk)
     requests.submit(w.users["editor"], found, core, expected_revision=1)
     tech = User.objects.create_user(f"tech-{w.project.pk}@example.com", "Tech")
     grant = ProjectMembership.objects.create(project=core, user=tech, role=ProjectRole.EDITOR)

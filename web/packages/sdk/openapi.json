@@ -10474,6 +10474,12 @@
             "title": "Format",
             "type": "string"
           },
+          "preview": {
+            "default": false,
+            "description": "Only to show them: not recorded as prepared, and with no ZPL.",
+            "title": "Preview",
+            "type": "boolean"
+          },
           "records": {
             "items": {
               "type": "string"
