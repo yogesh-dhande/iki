@@ -64,6 +64,7 @@ REACHABLE = {
     ("GET", "/lab-roles"),
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
+    ("GET", "/entity-types/{name}/flow"),
     ("GET", "/actions"),
     ("GET", "/actions/{name}"),
     ("GET", "/workflows"),
