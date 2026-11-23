@@ -26,6 +26,9 @@
       "3ce2ce47e27f7c6a42abddbd9f2844bf9e4fc3a5",
       "8dd0a0c7b06766291abc967d19b1f9827d800ec9"
     ],
+    "iki/conjugate": [
+      "f82eaa1dbcc907d2652126ffb7dbccf0b095a7f9"
+    ],
     "iki/dna": [
       "40397192fc2432cf43b2c249c3db77cab5afce6d",
       "ff600bae8843c6d5a2fc91d0388bf175c909597f",
@@ -89,7 +92,8 @@
       "0980235ea534a97cbb358cdd43f0edee99ba35d8",
       "12157c978452e031160e86ed3ed1f7e701f8ac88",
       "626a471638181457ffa25ab9242dcb0bb6f99837",
-      "1c60de2b57a98ca77ce1a0558fafd6e979210e12"
+      "1c60de2b57a98ca77ce1a0558fafd6e979210e12",
+      "bc0f69b24f7b43ed5b58495321a38b6eaa3e4086"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",

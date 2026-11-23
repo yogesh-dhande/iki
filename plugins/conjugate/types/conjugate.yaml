@@ -1,0 +1,173 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Conjugate
+label: Conjugate
+label_plural: Conjugates
+schema_version: 1
+hrid: { prefix: CJG }
+description: >-
+  One carrier with one or more covalent attachments. Register a defined
+  species with integer copy counts, or a product with distributed loading
+  and a measured distribution on each physical lot.
+identity: [carrier, attachments]
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  carrier:
+    type: list
+    required: true
+    immutable: true
+    min_items: 1
+    max_items: 1
+    description: The conjugate class and the registered molecule bearing the attachments.
+    items:
+      type: row
+      identity: [kind, molecule]
+      by: kind
+      fields:
+        kind:
+          type: enum
+          label: Conjugate class
+          required: true
+          values: [antibody_drug, oligo_conjugate, pegylated_protein]
+        molecule:
+          type: ref
+          required: true
+          to:
+            [
+              iki/antibody.Antibody,
+              iki/protein.Protein,
+              iki/oligo.Oligonucleotide,
+              iki/oligo.Duplex,
+            ]
+      roles:
+        antibody_drug:
+          label: Antibody–drug conjugate
+          max: 1
+          to: { molecule: iki/antibody.Antibody }
+        oligo_conjugate:
+          label: Oligo conjugate
+          max: 1
+          to: { molecule: [iki/oligo.Oligonucleotide, iki/oligo.Duplex] }
+        pegylated_protein:
+          label: PEGylated protein
+          max: 1
+          to: { molecule: [iki/protein.Protein, iki/antibody.Antibody] }
+  attachments:
+    type: list
+    required: true
+    immutable: true
+    min_items: 1
+    max_items: 64
+    description: >-
+      Each attached species and site once, with its copy count when defined.
+      Attachment order has no effect on the registry identity.
+    items:
+      type: row
+      identity: [part, site, copies, loss_formula, peg_grade]
+      fields:
+        part:
+          type: ref
+          to: iki/small_molecule.Compound
+          required: true
+          description: >-
+            The registered attachment, including its linker, or the registered
+            precursor monomer for a polydisperse PEG identified by its grade.
+        site:
+          type: string
+          max_length: 200
+          required: true
+          description: >-
+            A site on the carrier. Identify the chain or strand and position
+            using the registered sequence's numbering, a terminus, or the
+            residue class for a distribution of sites. Enter “unlocalized”
+            when the location is unknown.
+        copies:
+          type: int
+          min: 1
+          max: 10000
+          description: >-
+            Attachments at this site per carrier. Leave empty for distributed
+            or unreported loading. Record measured DAR and peak areas on the lot.
+        loss_formula:
+          type: string
+          max_length: 200
+          label: Atoms lost per attachment
+          pattern: '^(none|((\[[1-9][0-9]*[A-Z][a-z]?\]|[A-Z][a-z]?)([1-9][0-9]*)?)+)$'
+          pattern_help: "a neutral elemental formula such as H2O or [13C]O2, or none"
+          description: >-
+            Total atoms lost from both reactants per attachment, in Hill
+            order, including isotope labels such as [13C] where specified.
+            Enter “none” for a verified atom-conserving conjugation.
+            Leave empty when the elemental change is unknown.
+        peg_grade:
+          type: string
+          max_length: 200
+          label: Polydisperse PEG grade
+          description: >-
+            For a PEG of distributed chain lengths, give the grade including
+            end groups and nominal size. The part identifies its precursor
+            monomer, and copies counts attached PEG chains. For a discrete
+            oligomer, reference its full compound and leave this field empty.
+  molecular_formula:
+    type: string
+    computed: true
+    max_length: 1000
+    label: Theoretical molecular formula
+    description: >-
+      Formula of the specified species on its carrier basis, with reduced,
+      unmodified protein chains or a neutral free-acid oligo. See the composition note.
+  molecular_weight:
+    type: quantity
+    unit: u
+    computed: true
+    min: 0
+    label: Theoretical average mass
+    description: Average atomic mass summed over the theoretical formula on the stated carrier basis.
+  monoisotopic_mass:
+    type: quantity
+    unit: u
+    computed: true
+    min: 0
+    label: Theoretical monoisotopic mass
+    description: >-
+      Mass of the theoretical formula on the stated carrier basis, using each
+      unlabelled element's most abundant isotope and each specified isotope's mass.
+  composition_note:
+    type: string
+    max_length: 1000
+    computed: true
+    label: Composition basis
+    description: The carrier basis used or the reason a single composition cannot be calculated.
+  carrier_heavy_copies:
+    type: int
+    registry: derived
+    computed: true
+    min: 0
+    label: Heavy chains per antibody
+    description: Heavy chain copies in the carrier antibody, used to weight the lot's reduced-chain DAR.
+  carrier_light_copies:
+    type: int
+    registry: derived
+    computed: true
+    min: 0
+    label: Light chains per antibody
+    description: Light chain copies in the carrier antibody, used to weight the lot's reduced-chain DAR.
+rules:
+  grade_is_for_peg:
+    label: A polydisperse PEG grade belongs to a PEGylated protein
+    check: >-
+      record.carrier.exists(c, c.kind == "pegylated_protein") ||
+      record.attachments.all(r, !has(r.peg_grade) || r.peg_grade == null || r.peg_grade == "")
+    message: A PEG grade identifies the reagent for a PEGylated protein.
+    fields: [carrier, attachments]
+  one_row_per_part_and_site:
+    label: Each attachment at a site occurs once
+    check: >-
+      record.attachments.all(r, record.attachments.exists_one(s,
+      r.part == s.part && r.site == s.site))
+    message: List each attachment at a site once and give its copies in that row.
+    fields: [attachments]
+display:
+  title: "{{ name or hrid }}"

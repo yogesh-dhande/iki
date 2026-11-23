@@ -6,5 +6,5 @@
     "types": ["node"],
     "jsx": "react-jsx"
   },
-  "include": ["src", "vitest.config.ts", "generated/*.d.ts"]
+  "include": ["style.d.ts", "src", "vitest.config.ts", "generated/*.d.ts"]
 }
