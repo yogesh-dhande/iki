@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
+from first_party_dependencies import FIRST_PARTY, build_order, withs
+from first_party_dependencies import PLUGINS as FIRST_PARTY_PLUGINS
 from test_worker_e2e import (
     PLUGINS,
     worker_bin,  # noqa: F401 - a fixture
@@ -177,48 +178,19 @@ def test_what_cant_be_run_is_a_usage_error(
 
 # --- iki plugin test (ADR 0093) --------------------------------------------------------------
 
-FIRST_PARTY = Path(__file__).resolve().parents[2] / "plugins"
-TEMPLATE = FIRST_PARTY.parent / "plugin-template"
-
-
-#: Every `iki/<plugin>.Type` a manifest or a fixture names.
+#: First-party types used by a fixture can come from outside the plugin's dependencies.
 NEEDS = re.compile(r"\biki/([a-z][a-z0-9_]*)\.[A-Z]")
 
 
-def dependencies_of(plugin: Path) -> list[str]:
-    """The first-party plugins a plugin's manifests and fixtures need, and what those
-    need in turn, each before what needs it.
-
-    Read off the tree -- the manifest's declared dependencies, and every plugin whose
-    type something in the directory names -- so a fixture that starts using another
-    plugin's type gets that plugin passed to `iki plugin test` without anyone remembering
-    to add it here.
-    """
-    out: list[str] = []
-    seen: set[str] = set()
-
-    def needed(at: Path) -> list[str]:
-        held = yaml.safe_load((at / "plugin.yaml").read_text(encoding="utf-8")) or {}
-        found = {str(name).removeprefix("iki/") for name in held.get("dependencies") or {}}
-        for path in sorted(at.rglob("*.yaml")):
-            found.update(NEEDS.findall(path.read_text(encoding="utf-8")))
-        mine = str(held.get("name", "")).removeprefix("iki/")
-        return sorted(
-            name
-            for name in found
-            if name != mine and (FIRST_PARTY / name / "plugin.yaml").is_file()
-        )
-
-    def walk(at: Path) -> None:
-        for name in needed(at):
-            if name in seen:
-                continue
-            seen.add(name)
-            walk(FIRST_PARTY / name)
-            out.append(name)
-
-    walk(plugin)
-    return out
+def dependencies_of(plugin: Path) -> tuple[Path, ...]:
+    """Build the declared closure, plus providers of types the action tests exercise."""
+    referenced = {
+        FIRST_PARTY_PLUGINS / name
+        for path in plugin.rglob("*.yaml")
+        for name in NEEDS.findall(path.read_text(encoding="utf-8"))
+    }
+    providers = sorted(path for path in referenced if path in FIRST_PARTY and path != plugin)
+    return tuple(path for path in build_order(*providers, plugin) if path != plugin)
 
 
 def with_action_tests() -> list[Path]:
@@ -228,10 +200,9 @@ def with_action_tests() -> list[Path]:
     added -- or a plugin written -- without iki-worker being run against them: the
     plasmid plugin's eleven fixtures were in the tree and in no CI job.
     """
-    everything = [*sorted(p for p in FIRST_PARTY.iterdir() if (p / "plugin.yaml").is_file())]
     return [
         plugin
-        for plugin in [*everything, TEMPLATE]
+        for plugin in FIRST_PARTY
         if any(
             "\nkind: ActionTest" in found.read_text(encoding="utf-8")
             for found in sorted((plugin / "tests").glob("*.yaml"))
@@ -245,7 +216,7 @@ def test_first_party_plugins_and_the_template_pass_their_action_tests(
     tmp_path: Path,
     plugin: Path,
 ) -> None:
-    deps = [arg for name in dependencies_of(plugin) for arg in ("--with", str(FIRST_PARTY / name))]
+    deps = withs(dependencies_of(plugin))
     result = subprocess.run(  # noqa: S603 - this interpreter, the iki CLI
         [sys.executable, "-m", "iki_cli", "plugin", "test", str(plugin), *deps],
         env={**os.environ, "IKI_WORKER": str(worker_bin), "IKI_WORK_DIR": str(tmp_path)},

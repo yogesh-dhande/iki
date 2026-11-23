@@ -1,0 +1,46 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: record_plasmid_verification
+label: Record plasmid verification
+description: >-
+  Select an existing alignment of this physical prep's reads, an externally reviewed
+  report for the prep, or both. Record the outcome stated by the evidence. The action
+  checks an alignment's reference against the prep plasmid's registered DNA and
+  records the plasmid project record and revision pinned when this action launched.
+  The alignment's own run retains the provenance of the original comparison.
+inputs:
+  prep:
+    type: PlasmidPrep
+    schema: ">=1"
+    include: [plasmid]
+    label: Physical prep
+  alignment:
+    type: iki/core.Alignment
+    schema: ">=1"
+    optional: true
+    description: The alignment of the selected prep's reads against its registered plasmid sequence.
+params:
+  report:
+    type: file
+    label: Externally reviewed report
+    max_size: 50MiB
+    media_types: [application/pdf, text/plain, text/csv, chemical/seq-na-fasta]
+    description: >-
+      An existing verification file identifying the selected prep and its reference.
+      Check those identifiers before recording its outcome.
+  outcome:
+    type: enum
+    required: true
+    values: [match, discrepancy, inconclusive]
+    description: The outcome supported by the selected evidence, including an inconclusive result.
+  notes:
+    type: text
+    max_length: 10000
+    description: Scope of the comparison and observations that explain the outcome.
+effects:
+  creates: [{ type: PlasmidVerification, cardinality: one, derived_from: [prep, alignment] }]
+runs_on: { tier: backend, environment: lot-tools }
+command: [python, ./scripts/verification.py]
+deterministic: true
+timeout: 1m

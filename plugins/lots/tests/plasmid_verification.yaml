@@ -1,0 +1,90 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: attach_existing_prep_report
+description: A synthetic externally reviewed report is attached by its existing file ID.
+action: record_plasmid_verification
+inputs:
+  prep:
+    - values: { lot_number: demonstration-prep }
+      included:
+        plasmid:
+          - values: { name: demonstration plasmid, sequence: 00000000-0000-7000-8003-000000000099 }
+params: { outcome: inconclusive, report: { $file: report } }
+files: { report: tests/data/verification-report.txt }
+settings: { verification_flow: regulated_qc }
+expect:
+  output:
+    creates:
+      - type: iki/lots.PlasmidVerification
+        values:
+          prep: 00000000-0000-7000-8003-000000000001
+          plasmid: 00000000-0000-7000-8003-000000000002
+          plasmid_record_id: 00000000-0000-7000-8003-000000000002
+          plasmid_revision: 1
+          report: 00000000-0000-7000-8004-000000000001
+          outcome: inconclusive
+          review_flow: regulated_qc
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: link_prep_to_existing_alignment
+description: A synthetic alignment and its prep share one registered DNA reference.
+action: record_plasmid_verification
+inputs:
+  prep:
+    - values: {}
+      included:
+        plasmid:
+          - values: { sequence: 00000000-0000-7000-8003-000000000099 }
+  alignment:
+    - values:
+        reference: 00000000-0000-7000-8003-000000000099
+        aligned: { $file: aligned }
+params: { outcome: inconclusive, notes: A position is unobserved in the synthetic fixture. }
+files: { aligned: tests/data/verification.fasta }
+expect:
+  output:
+    creates:
+      - type: iki/lots.PlasmidVerification
+        values:
+          alignment: 00000000-0000-7000-8003-000000000003
+          alignment_revision: 1
+          outcome: inconclusive
+          review_flow: research
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_other_reference
+description: A report does not make an alignment of different registered DNA eligible for this prep.
+action: record_plasmid_verification
+inputs:
+  prep:
+    - values: {}
+      included:
+        plasmid:
+          - values: { sequence: 00000000-0000-7000-8003-000000000099 }
+  alignment:
+    - values:
+        reference: 00000000-0000-7000-8003-000000000088
+        aligned: { $file: aligned }
+params: { outcome: inconclusive, report: { $file: report } }
+files:
+  aligned: tests/data/verification.fasta
+  report: tests/data/verification-report.txt
+expect:
+  error: The alignment reference must be the prep plasmid's registered DNA.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_missing_evidence
+description: A recorded outcome alone cannot be archived as verification evidence.
+action: record_plasmid_verification
+inputs:
+  prep:
+    - values: {}
+      included:
+        plasmid:
+          - values: { sequence: 00000000-0000-7000-8003-000000000099 }
+params: { outcome: match }
+expect:
+  error: Select an alignment or an externally reviewed report for this prep.

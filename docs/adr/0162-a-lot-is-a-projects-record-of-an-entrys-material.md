@@ -163,6 +163,11 @@ L/(mol·cm) free; with KEGG D03257's 16 disulfides, 145,165.16 g/mol and 215,380
 1.4837 mL/(mg·cm). A protein's own are its sequence's: its ε280 with its
 cysteines paired or reduced, as the lot says.
 
+**A prep can have several verification records.** Each links that physical
+prep to its evidence, the plasmid project-record revision, the outcome and
+the signed review.
+[ADR 0184](0184-a-plasmid-prep-links-to-reviewed-verification-evidence.md)
+
 **A conjugate or polymer lot names its registered design.** The conjugate entry
 identifies the carrier and its attachments. Each physical lot records its
 own measured distribution and DAR (ADR 0182). A synthetic polymer lot names a registered

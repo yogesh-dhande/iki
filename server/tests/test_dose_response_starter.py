@@ -15,8 +15,8 @@ from api_client import Api
 from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 from org_world import World, build_world
-from test_first_party_plugins import FIRST_PARTY, PLUGINS
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 

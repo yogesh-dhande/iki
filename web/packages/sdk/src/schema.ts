@@ -6837,6 +6837,13 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * People
+             * @description Display names for the people those fields name, by ID.
+             */
+            people?: {
+                [key: string]: components["schemas"]["ComponentPersonOut"];
+            };
             /** @description The project it belongs to, if you can see it. */
             project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -6902,6 +6909,14 @@ export interface components {
             sha256: string;
             /** Slots */
             slots: components["schemas"]["SlotOut"][];
+        };
+        /** ComponentPersonOut */
+        ComponentPersonOut: {
+            /**
+             * Name
+             * @description The person's display name for this record.
+             */
+            name: string;
         };
         /**
          * Condition
