@@ -51,9 +51,17 @@ jobs:
             python3 deploy/live/live_runs.py gate HEAD --dry-run
           fi
 
+  server-wasm:
+    name: Build server Wasm on amd64
+    needs: live-tests
+    permissions:
+      contents: read
+    # The pinned actionlint does not support $/ workflow calls yet. This resolves to the same commit.
+    uses: ./.github/workflows/build-server-wasm.yml # zizmor: ignore[self-repository]
+
   build:
     name: Build ${{ matrix.image }} ${{ matrix.platform }}
-    needs: live-tests
+    needs: server-wasm
     strategy:
       fail-fast: true
       matrix:
@@ -103,6 +111,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Download the canonical server Wasm
+        if: matrix.image == 'iki-server' && needs.server-wasm.outputs.artifact-id != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.server-wasm.outputs.artifact-id }}
+          path: ${{ runner.temp }}/server-wasm
+      - name: Verify server Wasm
+        if: matrix.image == 'iki-server'
+        env:
+          ARTIFACT_ID: ${{ needs.server-wasm.outputs.artifact-id }}
+        run: |
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo '::error::The canonical server Wasm build did not return an artifact ID.'
+            exit 1
+          fi
+          scripts/verify-server-wasm.sh "$RUNNER_TEMP/server-wasm"
       - name: Image name
         id: name
         env:
@@ -122,6 +146,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platform }}
+          build-contexts: ${{ matrix.image == 'iki-server' && format('server-wasm-artifacts={0}/server-wasm', runner.temp) || '' }}
           # Untagged until the scan below passes and the merge job tags it.
           outputs: type=image,name=${{ steps.name.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           # Provenance and SBOM are attested separately with GitHub artifact attestations.

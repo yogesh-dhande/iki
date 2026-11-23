@@ -5,10 +5,10 @@
  * matched is resolved, and completing applies every resolution as one change.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { BoxMap, slotKey } from "../box-map";
@@ -57,7 +57,7 @@ export function ReconcilePage() {
     );
   }
   if (!r) return <Loading label="Loading the reconciliation…" />;
-  return <ReconcileView r={r} />;
+  return <ReconcileView key={r.id} r={r} />;
 }
 
 /** Each position's finding, for the map: where it was found, else where it's recorded. */
@@ -120,10 +120,59 @@ function lineName(line: ReconciliationLine): string {
   return line.ref ? line.ref.hrid : line.code || "An unknown code";
 }
 
-function ReconcileView({ r: initial }: { r: Reconciliation }) {
+function describeFinding(line: ReconciliationLine): string {
+  const expected = line.expected ?? "";
+  const found = line.found ?? "";
+  switch (line.finding) {
+    case "wrong_slot":
+      return `Recorded at ${expected}, found at ${found}.`;
+    case "matched":
+      return `Recorded and found at ${expected}.`;
+    case "checked_out":
+      return `Checked out from ${expected}.`;
+    case "empty":
+      return `Scanned ${found} as empty.`;
+    case "missing":
+      return `Recorded at ${expected}, not found there.`;
+    case "unchecked":
+      return `Recorded at ${expected}, not scanned yet.`;
+    case "no_longer_found":
+      return "This record no longer has a scanned position in this container.";
+    case "unexpected":
+      return line.ref
+        ? `Found at ${found}, recorded elsewhere or nowhere.`
+        : `Found at ${found}. No readable record matches this code.`;
+  }
+}
+
+/** Scans can change a finding or its destination without replacing its line. */
+function decisionKey(line: ReconciliationLine): string {
+  return JSON.stringify([
+    line.id,
+    line.entity,
+    line.code,
+    line.expected,
+    line.found,
+    line.finding,
+    line.resolution_stale,
+    line.resolution,
+    line.note,
+  ]);
+}
+
+function confirmed(line: ReconciliationLine): boolean {
+  if (line.resolution_stale || !line.resolution || !resolutionsFor(line).includes(line.resolution))
+    return false;
+  if (line.resolution === "kept") return !!line.note.trim();
+  if (line.resolution === "moved" || line.resolution === "placed")
+    return !!(line.entity && line.ref && line.found);
+  return true;
+}
+
+function ReconcileView({ r }: { r: Reconciliation }) {
   const client = useQueryClient();
   const { say } = useMessages();
-  const [r, setR] = useState(initial);
+  const [reviewedRevision, setReviewedRevision] = useState(r.plan_revision);
   const shape = r.shape;
   const order = useMemo(() => {
     const all: { row: number; column: number; label: string }[] = [];
@@ -137,13 +186,27 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
   const [cursor, setCursor] = useState(0);
   const [heard, setHeard] = useState("");
   const [note, setNote] = useState("");
-  const [missingRest, setMissingRest] = useState(false);
+  const unchecked = r.lines.filter((line) => line.finding === "unchecked");
+  const uncheckedKey = unchecked
+    .map((line) => line.id)
+    .sort()
+    .join(",");
+  const [acknowledgedMissing, setAcknowledgedMissing] = useState<string | null>(null);
+  const missingRest = unchecked.length > 0 && acknowledgedMissing === uncheckedKey;
   const [cancelling, setCancelling] = useState(false);
   const here = order[cursor];
   const open = r.status === "open" && r.can_change;
   const update = (next: Reconciliation) => {
-    setR(next);
-    client.setQueryData(reconciliationQuery(next.id).queryKey, next);
+    const queryKey = reconciliationQuery(next.id).queryKey;
+    const latest = client.getQueryData<Reconciliation>(queryKey);
+    if (latest && latest.plan_revision > next.plan_revision) return;
+    if (next.plan_revision !== reviewedRevision) {
+      setNote("");
+      setAcknowledgedMissing(null);
+      setReviewedRevision(next.plan_revision);
+    }
+    void client.cancelQueries({ queryKey, exact: true });
+    client.setQueryData(queryKey, next);
   };
   const scan = useApiMutation(
     async (code: string | null) =>
@@ -156,29 +219,21 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
     [],
   );
   const resolve = useApiMutation(
-    async ({
-      line,
-      resolution,
-      note,
-    }: {
-      line: string;
-      resolution: Resolution | null;
-      note: string;
-    }) =>
+    async ({ line, decision }: { line: string; decision: Schemas["ResolveIn"] }) =>
       unwrap(
         await iki.PATCH("/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}", {
           params: { path: { reconciliation_id: r.id, line_id: line } },
-          body: { resolution, note },
+          body: decision,
         }),
       ),
     [],
   );
   const complete = useApiMutation(
-    async () =>
+    async (approval: Schemas["CompleteReconciliationIn"]) =>
       unwrap(
         await iki.POST("/api/v1/reconciliations/{reconciliation_id}/complete", {
           params: { path: { reconciliation_id: r.id } },
-          body: { missing_rest: missingRest, note: note.trim() },
+          body: approval,
         }),
       ),
     [STORAGE],
@@ -192,12 +247,41 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
       ),
     [STORAGE],
   );
+  const writing = useRef(false);
+  const [saving, setSaving] = useState(false);
+  const problem = complete.error ? problemOf(complete.error) : undefined;
+  // A background read can reveal a different plan while the approval form is open.
+  const resolveProblem = resolve.error ? problemOf(resolve.error) : undefined;
+  const mustReview =
+    r.plan_revision > reviewedRevision || problem?.status === 409 || resolveProblem?.status === 409;
+  const locked = saving || mustReview || r.plan_revision !== reviewedRevision;
+  async function saveChange(
+    send: () => Promise<Reconciliation>,
+    saved?: (next: Reconciliation) => void,
+    failed?: (error: unknown) => void,
+  ) {
+    // Keyboard scans and a second click can arrive before a mutation observer renders.
+    if (writing.current || locked) return;
+    writing.current = true;
+    setSaving(true);
+    try {
+      const next = await send();
+      update(next);
+      saved?.(next);
+    } catch (error) {
+      // Each mutation retains its error for the form. A failed scan is also announced.
+      failed?.(error);
+    } finally {
+      writing.current = false;
+      setSaving(false);
+    }
+  }
   const record = (code: string | null) => {
     if (!here) return;
     const at = here.label;
-    scan.mutate(code, {
-      onSuccess: (next) => {
-        update(next);
+    void saveChange(
+      () => scan.mutateAsync(code),
+      (next) => {
         const line = next.lines.find((l) => l.found === at);
         setHeard(
           code === null
@@ -206,17 +290,19 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
         );
         setCursor(Math.min(cursor + 1, order.length - 1));
       },
-      onError: (error) => {
+      (error) => {
         setHeard(problemOf(error).detail);
       },
-    });
+    );
   };
-  const problem = complete.error ? problemOf(complete.error) : undefined;
   const errors = fieldErrors(problem);
   const findings = findingsAt(r);
   const contents = contentsOf(r);
-  const toResolve = r.lines.filter(needsResolving);
-  const unchecked = r.lines.filter((l) => l.finding === "unchecked").length;
+  const toResolve = r.lines.filter((line) => line.resolution_stale || needsResolving(line));
+  const destinations = toResolve.filter(
+    (line) => confirmed(line) && (line.resolution === "moved" || line.resolution === "placed"),
+  );
+  const ready = !locked && (unchecked.length === 0 || missingRest) && toResolve.every(confirmed);
   const counts = (["matched", "wrong_slot", "missing", "unexpected", "unchecked"] as const).map(
     (k) => ({ k, n: r.lines.filter((l) => l.finding === k).length }),
   );
@@ -253,13 +339,14 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
                 label={`What’s in ${here?.label ?? ""}`}
                 help="Scan the tube in this position; then the next one is asked for."
                 busy={scan.isPending}
+                disabled={locked}
                 onScan={(code) => {
                   record(code);
                 }}
               />
               <div className="actions">
                 <Button
-                  disabled={scan.isPending}
+                  disabled={locked}
                   onClick={() => {
                     record(null);
                   }}
@@ -268,6 +355,7 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
                 </Button>
                 <Button
                   variant="quiet"
+                  disabled={locked}
                   onClick={() => {
                     setCursor(Math.min(cursor + 1, order.length - 1));
                   }}
@@ -288,7 +376,7 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
             mode="pick"
             {...(here && open ? { marked: { row: here.row, column: here.column } } : {})}
             onActivate={(slot) => {
-              if (!open) return;
+              if (!open || locked) return;
               const i = order.findIndex((o) => o.row === slot.row && o.column === slot.column);
               if (i >= 0) setCursor(i);
             }}
@@ -310,27 +398,24 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
           </h2>
           {!toResolve.length ? (
             <p className="muted">
-              {unchecked
-                ? `Nothing yet: ${String(unchecked)} recorded positions aren’t scanned.`
+              {unchecked.length
+                ? `Nothing yet: ${String(unchecked.length)} recorded positions aren’t scanned.`
                 : "Nothing: everything scanned is where it’s recorded."}
             </p>
           ) : null}
-          <ProblemAlert problem={resolve.error ? problemOf(resolve.error) : undefined} />
+          <ProblemAlert problem={resolveProblem} />
           <ul className="resolve-list">
             {toResolve.map((line) => (
               <ResolveLine
-                key={line.id}
+                key={decisionKey(line)}
                 line={line}
-                disabled={!open}
+                open={open && !mustReview}
+                locked={locked}
                 busy={resolve.isPending && resolve.variables.line === line.id}
                 error={errors[`lines/${line.id}`]}
                 onResolve={(resolution, text) => {
-                  resolve.mutate(
-                    { line: line.id, resolution, note: text },
-                    {
-                      onSuccess: update,
-                    },
-                  );
+                  const decision = { plan_revision: r.plan_revision, resolution, note: text };
+                  void saveChange(() => resolve.mutateAsync({ line: line.id, decision }));
                 }}
               />
             ))}
@@ -342,59 +427,100 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
           <h2 className="section-title" id="finish-title">
             Complete
           </h2>
-          <ProblemAlert
-            problem={
-              problem && !Object.keys(errors).some((k) => k.startsWith("lines/"))
-                ? problem
-                : undefined
-            }
-          />
-          {problem && Object.keys(errors).some((k) => k.startsWith("lines/")) ? (
-            <div className="alert alert-error" role="alert">
-              <p>Some positions aren’t scanned or resolved yet: they’re marked above.</p>
-            </div>
-          ) : null}
-          <p>Completing applies each resolution as one change, and keeps what was found.</p>
-          {unchecked ? (
-            <CheckboxField
-              label={`Count the ${String(unchecked)} not scanned as missing, and take them out of storage`}
-              checked={missingRest}
-              onChange={setMissingRest}
-            />
-          ) : null}
-          <TextField
-            label="Note"
-            value={note}
-            onChange={setNote}
-            optional
-            multiline
-            maxLength={2000}
-          />
-          <div className="actions">
-            <Button
-              variant="primary"
-              busy={complete.isPending}
-              busyText="Completing…"
-              onClick={() => {
-                complete.mutate(undefined, {
-                  onSuccess: (next) => {
-                    update(next);
-                    say(`Reconciled ${r.container.hrid}.`);
-                  },
-                });
-              }}
-            >
-              Complete the reconciliation
-            </Button>
-            <Button
-              variant="quiet"
-              onClick={() => {
-                setCancelling(true);
-              }}
-            >
-              Cancel it
-            </Button>
-          </div>
+          {mustReview ? (
+            <>
+              <p className="alert alert-warning" role="alert">
+                The reconciliation changed. Review the latest count and its planned destinations
+                before completing it.
+              </p>
+              <Button
+                onClick={() => {
+                  window.location.reload();
+                }}
+              >
+                Review latest count
+              </Button>
+            </>
+          ) : (
+            <>
+              <ProblemAlert
+                problem={
+                  problem && !Object.keys(errors).some((k) => k.startsWith("lines/"))
+                    ? problem
+                    : undefined
+                }
+              />
+              {problem && Object.keys(errors).some((k) => k.startsWith("lines/")) ? (
+                <div className="alert alert-error" role="alert">
+                  <p>Some positions aren’t scanned or resolved yet: they’re marked above.</p>
+                </div>
+              ) : null}
+              <p>Completing applies each resolution as one change, and keeps what was found.</p>
+              {destinations.length ? (
+                <>
+                  <h3 id="planned-destinations">Planned destinations</h3>
+                  <ul aria-labelledby="planned-destinations">
+                    {destinations.map((line) => (
+                      <li key={line.id}>
+                        {lineName(line)} → {r.container.hrid}, {line.found}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {unchecked.length ? (
+                <CheckboxField
+                  label={`Count the ${String(unchecked.length)} not scanned as missing, and take them out of storage`}
+                  checked={missingRest}
+                  onChange={(checked) => {
+                    setAcknowledgedMissing(checked ? uncheckedKey : null);
+                  }}
+                />
+              ) : null}
+              <TextField
+                label="Note"
+                value={note}
+                onChange={setNote}
+                optional
+                multiline
+                maxLength={2000}
+              />
+              <div className="actions">
+                <Button
+                  key={ready ? "ready" : "waiting"}
+                  variant="primary"
+                  disabled={!ready}
+                  busy={complete.isPending}
+                  busyText="Completing…"
+                  onClick={() => {
+                    if (!ready) return;
+                    const approval = {
+                      plan_revision: reviewedRevision,
+                      missing_rest: missingRest,
+                      note: note.trim(),
+                    };
+                    void saveChange(
+                      () => complete.mutateAsync(approval),
+                      () => {
+                        say(`Reconciled ${r.container.hrid}.`);
+                      },
+                    );
+                  }}
+                >
+                  Complete the reconciliation
+                </Button>
+                <Button
+                  variant="quiet"
+                  disabled={locked}
+                  onClick={() => {
+                    setCancelling(true);
+                  }}
+                >
+                  Cancel it
+                </Button>
+              </div>
+            </>
+          )}
         </section>
       ) : (
         <section className="card" aria-labelledby="done-title">
@@ -417,12 +543,12 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
           setCancelling(false);
         }}
         onConfirm={() => {
-          cancel.mutate(undefined, {
-            onSuccess: (next) => {
+          void saveChange(
+            () => cancel.mutateAsync(undefined),
+            () => {
               setCancelling(false);
-              update(next);
             },
-          });
+          );
         }}
       >
         <p>What was scanned is kept as cancelled; nothing is changed.</p>
@@ -433,26 +559,26 @@ function ReconcileView({ r: initial }: { r: Reconciliation }) {
 
 function ResolveLine({
   line,
-  disabled,
+  open,
+  locked,
   busy,
   error,
   onResolve,
 }: {
   line: ReconciliationLine;
-  disabled: boolean;
+  open: boolean;
+  locked: boolean;
   busy: boolean;
   error: string | undefined;
   onResolve: (resolution: Resolution | null, note: string) => void;
 }) {
-  const [choice, setChoice] = useState<string>(line.resolution ?? "");
-  const [note, setNote] = useState(line.note);
+  const [choice, setChoice] = useState<Resolution | "">(
+    line.resolution_stale ? "" : (line.resolution ?? ""),
+  );
+  const [note, setNote] = useState(line.resolution_stale ? "" : line.note);
   const options = resolutionsFor(line);
-  const where =
-    line.finding === "wrong_slot"
-      ? `Recorded at ${line.expected ?? ""}, found at ${line.found ?? ""}.`
-      : line.finding === "missing" || line.finding === "unchecked"
-        ? `Recorded at ${line.expected ?? ""}${line.finding === "missing" ? ", not found there" : ", not scanned yet"}.`
-        : `Found at ${line.found ?? ""}${line.ref ? ", recorded elsewhere or nowhere" : ": a code no record you can read has"}.`;
+  const canSave =
+    !locked && !!choice && options.includes(choice) && (choice !== "kept" || !!note.trim());
   return (
     <li className={`resolve-line box-map-${line.finding}${error ? " resolve-invalid" : ""}`}>
       <p>
@@ -467,23 +593,28 @@ function ResolveLine({
         </strong>{" "}
         <span className="badge">{FINDINGS[line.finding]}</span>
       </p>
-      <p className="muted">{where}</p>
+      <p className="muted">{describeFinding(line)}</p>
       {error ? (
         <p className="field-error" role="alert">
           {error}
         </p>
       ) : null}
-      {line.resolution && line.resolved_by ? (
+      {line.resolution_stale ? (
+        <p className="alert alert-warning" role="alert">
+          The scan changed. Review this finding and choose again.
+        </p>
+      ) : null}
+      {confirmed(line) && line.resolution && line.resolved_by ? (
         <p className="muted">
           {RESOLUTIONS[line.resolution]}: {personName(line.resolved_by)}
         </p>
       ) : null}
-      {!disabled ? (
+      {open && options.length ? (
         <form
           className="resolve-form"
           onSubmit={(e) => {
             e.preventDefault();
-            onResolve((choice || null) as Resolution | null, note.trim());
+            if (canSave) onResolve(choice, note.trim());
           }}
         >
           <SelectField
@@ -503,15 +634,20 @@ function ResolveLine({
             maxLength={2000}
             {...(choice === "kept" ? { help: "Say why it’s left as recorded." } : {})}
           />
-          <Button
-            type="submit"
-            busy={busy}
-            busyText="Saving…"
-            disabled={!choice || (choice === "kept" && !note.trim())}
-          >
+          <Button type="submit" busy={busy} busyText="Saving…" disabled={!canSave}>
             Resolve
           </Button>
         </form>
+      ) : open && line.resolution_stale ? (
+        <Button
+          disabled={locked}
+          busy={busy}
+          onClick={() => {
+            onResolve(null, "");
+          }}
+        >
+          Clear previous decision
+        </Button>
       ) : null}
     </li>
   );

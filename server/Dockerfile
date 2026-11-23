@@ -12,13 +12,14 @@ ARG PYTHON_IMAGE=python:3.14-slim-trixie@sha256:9aaa474097d094040649f2162a627c00
 ARG NODE_IMAGE=node:24-trixie-slim@sha256:0820eaa85e07d0490446dd01d14707e17e6108a36988cf374899cd057eb3812d
 # The worker's Rust image (worker/Dockerfile), for the web app's parsers.
 ARG RUST_IMAGE=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
-# The worker artifact's digest is pinned to this compiler host.
-ARG ANNOTATION_BUILD_PLATFORM=linux/amd64
+# Both Wasm digests are pinned to this compiler host. Published images import
+# the artifacts built on an AMD64 runner, so neither compiler stage runs in them.
+ARG WASM_BUILD_PLATFORM=linux/amd64
 
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
 # --- Build the digest-pinned worker artifact on its canonical compiler host ------
-FROM --platform=$ANNOTATION_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation
+FROM --platform=$WASM_BUILD_PLATFORM ${RUST_IMAGE} AS dna-annotation
 WORKDIR /src/worker
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
@@ -26,7 +27,7 @@ COPY scripts/build-dna-annotation-wasm.sh /src/scripts/build-dna-annotation-wasm
 RUN /src/scripts/build-dna-annotation-wasm.sh --build-here /src/worker
 
 # --- The web app's parsers: iki-wasm, Rust built for browsers (ADR 0088) ----
-FROM ${RUST_IMAGE} AS wasm
+FROM --platform=$WASM_BUILD_PLATFORM ${RUST_IMAGE} AS wasm
 WORKDIR /src/worker
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
@@ -38,6 +39,20 @@ RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
  && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm
 COPY --from=dna-annotation /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html ./
+
+# --- Portable payload for both native image builds ------------------------
+# CI exports this target once, then replaces it with the downloaded named
+# context in both platform builds. Plain Docker builds use the stages above.
+FROM scratch AS server-wasm-artifacts
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm /
+COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html /
+
+FROM ${PYTHON_IMAGE} AS verified-wasm
+COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /rust-standard-library.html /artifacts/
+COPY scripts/verify-server-wasm.sh /src/scripts/
+COPY server/iki_wasm.wasm.sha256 /src/server/
+COPY plugins/plasmid/data/dna-annotation.wasm.sha256 /src/plugins/plasmid/data/
+RUN /src/scripts/verify-server-wasm.sh /artifacts
 
 # --- Web app: the React app the server serves (web/app) ----------------------
 FROM ${NODE_IMAGE} AS web
@@ -51,12 +66,15 @@ WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY web/app/package.json web/app/
 COPY web/packages/sdk/package.json web/packages/sdk/
+COPY web/packages/component/package.json web/packages/component/
+COPY web/packages/science/package.json web/packages/science/
+COPY web/packages/ui/package.json web/packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
-COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm web/app/wasm/
+COPY --from=verified-wasm /artifacts/iki_wasm.wasm web/app/wasm/
 # Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
 # The parsers are built above, so this builds the rest (`build` would build them too).
 RUN pnpm --filter @ikisci/app build:web \
@@ -93,8 +111,7 @@ COPY --from=web /src/server/src/iki_server/web/static/app server/src/iki_server/
 COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_server/web/static/viewers
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
-COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm spec/src/iki_spec/
-COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/rust-standard-library.html spec/src/iki_spec/
+COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.wasm /artifacts/rust-standard-library.html spec/src/iki_spec/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM"

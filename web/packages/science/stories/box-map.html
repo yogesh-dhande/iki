@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Storage box</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/box-map.css" />
+    <style>
+      body {
+        margin: 1rem;
+        color: var(--text);
+        background: var(--bg);
+        font-family: var(--font);
+      }
+      output {
+        display: block;
+        margin-block: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Storage box</h1>
+      <p>Six positions in a synthetic storage box.</p>
+      <iki-box-map></iki-box-map>
+      <output></output>
+    </main>
+    <script type="module">
+      import "../dist/box-map.js";
+      const box = document.querySelector("iki-box-map");
+      box.data = {
+        label: "Cold room box",
+        shape: { rows: 2, columns: 3, labels: "letter_number", order: "by_row" },
+        contents: [{ row: 1, column: 1, identifier: "Demo 1", name: "Blank" }],
+        mode: "select",
+        selected: [],
+      };
+      box.addEventListener("slot-activate", ({ detail }) => {
+        const key = `${detail.row}:${detail.column}`;
+        const selected = new Set(box.data.selected);
+        if (selected.has(key)) selected.delete(key);
+        else selected.add(key);
+        box.data = { ...box.data, selected: [...selected] };
+        document.querySelector("output").textContent =
+          `${detail.label} ${selected.has(key) ? "selected" : "cleared"}`;
+      });
+    </script>
+  </body>
+</html>

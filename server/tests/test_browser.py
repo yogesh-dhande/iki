@@ -3570,6 +3570,37 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     assert_clean(page)
 
 
+def test_pressing_the_new_project_icon_while_saved_views_arrive(open_as: Any) -> None:
+    page = open_as("team_member", "/")
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    sidebar = page.locator("iki-sidebar")
+    add = sidebar.get_by_role("link", name="New project", exact=True)
+    # Capture the native down target on the link: its icon has a separate hit-tested path.
+    add.evaluate("""link => link.addEventListener("pointerdown", event => {
+        window.pressedNewProjectPath = event.target.matches("svg path");
+    }, {once: true, capture: true})""")
+    add.locator("svg path").hover()
+    page.mouse.down()
+    assert page.evaluate("window.pressedNewProjectPath") is True
+    # The empty saved-views result refreshes the sidebar without moving the plus.
+    before = sidebar.evaluate_handle("sidebar => sidebar.data")
+    assert len(deferred) == 1
+    with page.expect_response(saved_views) as response:
+        deferred[0].continue_()
+    assert response.value.json() == []
+    page.wait_for_function(
+        "before => document.querySelector('iki-sidebar').data !== before", arg=before
+    )
+    page.mouse.up()
+    page.wait_for_url("**/projects/new/")
+    page.get_by_role("textbox", name="Project name").wait_for()
+
+
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()
@@ -4646,14 +4677,23 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
-    script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet, react_aria = (
-        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    script = page.locator('script[type=module][src^="/static/app/assets/main-"]').get_attribute(
+        "src"
     )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
-    assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
-    for url in (script, stylesheet, react_aria):
+
+    assets = [script]
+    styles = set()
+    for link in page.locator("link[rel=stylesheet]").all():
+        href = link.get_attribute("href")
+        assert href
+        name = re.fullmatch(r"/static/iki/([\w-]+)\.[0-9a-f]{12}\.css", href)
+        assert name, href
+        styles.add(name[1])
+        assets.append(href)
+    assert {"iki", "react-aria", "tokens", "fonts", "button"} <= styles
+
+    for url in assets:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url
