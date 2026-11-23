@@ -155,11 +155,47 @@ export type FrameMessage =
   | { type: "select"; entities: string[] }
   | { type: "more" }
   | { type: "refine"; refinement: Refinement | null }
-  | { type: "open"; entity: string }
+  | { type: "open"; entity: string; revision?: number }
   | { type: "run"; action: string };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const RECORD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface PinnedContext {
+  values?: Record<string, unknown>;
+  refs?: Record<string, { purged: boolean }>;
+}
+
+/** Builds a same-origin historical record link from a pin stored in the host's copy
+ * of the entity. A registry pin also holds the entry UUID used by its typed ref.
+ * The revision API independently checks the person's access to that exact record. */
+export function pinnedRevisionUrl(
+  given: PinnedContext | undefined,
+  id: string,
+  revision: number,
+): string | null {
+  if (!RECORD_UUID.test(id) || !Number.isSafeInteger(revision) || revision < 1) return null;
+  if (!given?.refs || !given.values) return null;
+  for (const rows of Object.values(given.values)) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      if (!isObject(row)) continue;
+      const ref = row["entry_id"] ?? row["record_id"];
+      if (typeof ref !== "string" || !RECORD_UUID.test(ref)) continue;
+      const readable = given.refs[ref];
+      if (!readable || readable.purged) continue;
+      if (row["record_id"] === id && row["record_revision"] === revision) {
+        return `/api/v1/entities/${id}/revisions/${String(revision)}`;
+      }
+      if (row["entry_id"] === id && row["entry_revision"] === revision) {
+        return `/api/v1/entries/${id}/revisions/${String(revision)}`;
+      }
+    }
+  }
+  return null;
 }
 
 /** A refinement's conditions, if each names a field the component reads and they're
@@ -266,6 +302,19 @@ export function readMessage(component: PluginComponent, data: unknown): FrameMes
       return refinement === undefined ? null : { type: "refine", refinement };
     }
     case "open": {
+      if ("revision" in message) {
+        const record = message["entity"];
+        const revision = message["revision"];
+        if (
+          typeof record !== "string" ||
+          !RECORD_UUID.test(record) ||
+          typeof revision !== "number" ||
+          !Number.isSafeInteger(revision) ||
+          revision < 1
+        )
+          return null;
+        return { type: "open", entity: record, revision };
+      }
       const hrid = readHrid(message["entity"]);
       return hrid ? { type: "open", entity: hrid } : null;
     }

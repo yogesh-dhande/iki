@@ -1,0 +1,159 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A CRISPR guide design: the sequence to cut, where in it, which nuclease, and where to
+# look for other places the guides could cut. It has no identity, as a codon optimization
+# and a mutagenesis have none (ADR 0163, ADR 0172): the same gene is targeted differently
+# with different nucleases and different genomes to be particular against, and which
+# design a lab ordered is the lab's record, not a fact about the molecule.
+#
+# Its guides are not entities. A guide is a 20-base stretch of a sequence Iki already has,
+# and nothing is ordered until a lab picks one, so the design keeps them in a field and
+# the oligos a lab goes on to order are registered where oligos are (ADR 0205).
+apiVersion: iki/v1
+kind: EntityType
+name: GuideDesign
+label: Guide design
+label_plural: Guide designs
+schema_version: 1
+description: >-
+  Where a CRISPR nuclease can cut a sequence, and how particular each place is: the
+  target, the region of it to cut, which nuclease, and the sequences to search for other
+  places the same guide could cut. Iki reads both strands for the nuclease's own
+  protospacer adjacent motif, reports each guide with its GC content, what is known to
+  make a guide work less well, and every off-target it found with where the mismatches
+  lie.
+hrid: { prefix: GDE }
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  target:
+    type: ref
+    to: DNASequence
+    required: true
+    description: >-
+      The sequence to cut: a gene, a locus, a plasmid or a whole genome. Its topology
+      decides whether a guide may lie across its origin.
+  region_start:
+    type: int
+    min: 1
+    label: Cut no earlier than
+    description: >-
+      The first base the cut may fall on, counting from 1. Given with `region_end`, only
+      guides cutting inside that stretch are offered -- the exon to knock out, the codon
+      to change, the place a cassette goes in. Left empty, the whole sequence is read.
+  region_end:
+    type: int
+    min: 1
+    label: Cut no later than
+    description: The last base the cut may fall on.
+  nuclease:
+    type: enum
+    default: spcas9
+    values: [spcas9, sacas9, ascas12a, fncas12a]
+    description: >-
+      Which nuclease the guides are for. Each reads its own protospacer adjacent motif,
+      which the guide cannot change, and cuts in its own place. `spcas9` reads NGG 3' of a
+      20-base protospacer and cuts bluntly 3 bases from it (Jinek et al., Science 337:816,
+      2012). `sacas9` reads NNGRRT 3' of a 21- to 23-base one (Ran et al., Nature 520:186,
+      2015), and is small enough to be delivered in one AAV. `ascas12a` is AsCas12a or
+      LbCas12a, which read TTTV 5' of the protospacer (Kim HK et al., Nat Methods 14:153,
+      2017) and cut staggered, leaving a 5-base 5' overhang (Zetsche et al., Cell 163:759,
+      2015). `fncas12a` is Francisella Cas12a, whose motif is the looser TTN.
+  spacer_length:
+    type: int
+    min: 17
+    max: 25
+    label: Protospacer length
+    description: >-
+      How many bases of the target the guide pairs with. Left empty, each nuclease's own
+      is used: 20 for SpCas9, 21 for SaCas9, 23 for Cas12a.
+  search_in:
+    type: list
+    max_items: 10
+    items: { type: ref, to: DNASequence }
+    label: Search for off-targets in
+    description: >-
+      The sequences to read for other places each guide could cut: the genome the cut is
+      to be made in, the plasmids in the cell, anything else there. A design that names
+      none gets its guides with no specificity reported, since there is nothing to be
+      particular against -- which is said rather than left to look like a guide with
+      nothing else to cut.
+  most_mismatches:
+    type: int
+    default: 3
+    min: 0
+    max: 5
+    label: Most mismatches searched
+    description: >-
+      How many bases of a guide may differ at a place for that place still to be reported
+      as somewhere it could cut. Three is what the CRISPR Design tool searched to; four
+      and five find more, and take longer.
+  most_guides:
+    type: int
+    default: 50
+    min: 1
+    max: 500
+    label: Most guides kept
+    description: >-
+      How many guides the record keeps, best first. A long sequence has thousands of
+      sites, and the ones past the first few dozen are no use to anybody.
+  guides_found:
+    type: int
+    computed: true
+    min: 0
+    description: How many places the nuclease could cut were found in the region.
+  guides:
+    type: json
+    computed: true
+    description: >-
+      The guides, best specificity first: the protospacer and its PAM, which strand, where
+      it lies, where the nuclease cuts, GC content, what is known to make a guide work
+      less well, its specificity where that can be computed, and everywhere else it could
+      cut with where the mismatches lie.
+    schema:
+      type: array
+      items:
+        type: object
+        properties:
+          protospacer: { type: string }
+          pam: { type: string }
+          strand: { type: string }
+          start: { type: integer }
+          end: { type: integer }
+          cuts: { type: array, items: { type: integer } }
+          gc: { type: number }
+          flags: { type: array, items: { type: string } }
+          specificity: { type: ["number", "null"] }
+          off_targets: { type: integer }
+          hits:
+            type: array
+            items:
+              type: object
+              properties:
+                where: { type: string }
+                protospacer: { type: string }
+                pam: { type: string }
+                strand: { type: string }
+                start: { type: integer }
+                mismatched: { type: array, items: { type: integer } }
+                score: { type: ["number", "null"] }
+              required: [where, protospacer, pam, strand, start, mismatched]
+        required: [protospacer, pam, strand, start, end, cuts, gc]
+  searched:
+    type: string
+    max_length: 600
+    computed: true
+    label: Searched in
+    description: >-
+      Which sequences the off-target search read, and how many bases in all, so a
+      specificity can be read as what it is: particular against what was searched, not
+      against a genome nobody gave.
+  designed_with:
+    type: string
+    max_length: 600
+    computed: true
+    description: >-
+      The nuclease, its motif and where it cuts, with the papers each is from, and how
+      specificity was computed, so a guide here can be compared with another tool's.
+display:
+  title: "{{ name or hrid }}"

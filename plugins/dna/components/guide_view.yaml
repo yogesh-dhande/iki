@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A guide design's own tab (ADR 0205): the guides placed along the target, and what is
+# known about each. The record's `guides` field is a row per site with its off-targets
+# nested inside it, which no field display can show; and where the guides fall -- bunched
+# in one stretch, or spread, or all on one strand -- is the first thing a reader wants,
+# which is a picture. Iki sets `entity` to the design, as the person viewing it may read
+# it.
+apiVersion: iki/v1
+kind: Component
+name: guide_view
+label: Guides
+description: >-
+  The guides a design found, placed along the target: a strip with a mark where each cuts,
+  the forward-strand guides above the line and the reverse-strand ones below, then every
+  guide with its protospacer, PAM, where it cuts, GC content and specificity, what is
+  known to make a guide work less well, and everywhere else each could cut with where the
+  mismatches lie. Nothing is told by colour alone: the strip is said in words, the two
+  strands are drawn on their own sides of the line, and every guide is in a table beneath.
+module: ./components/guide-view.js
+element: guide-view
+slots:
+  - slot: entity.tab
+    type: GuideDesign
+    label: Guides
+# Until the guides have been found, the tab offers the action that finds them, where the
+# person viewing it may run it (ADR 0170).
+events: { run: { actions: [design_guides] } }
