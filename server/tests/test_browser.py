@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from browser_evidence import DISPOSABLE_BROWSER
 from conftest import S3_ACCESS_KEY, S3_SECRET_KEY
 from django.conf import settings
 from django.test import Client
@@ -196,8 +197,12 @@ def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[
         launched = getattr(playwright, request.param).launch(**options)
     except PlaywrightError as error:
         pytest.fail(f"{request.param} failed to launch: {error}\nRun make test-browsers.")
-    yield launched
-    launched.close()
+    request.node.stash[DISPOSABLE_BROWSER] = launched
+    try:
+        yield launched
+    finally:
+        del request.node.stash[DISPOSABLE_BROWSER]
+        launched.close()
 
 
 @pytest.fixture

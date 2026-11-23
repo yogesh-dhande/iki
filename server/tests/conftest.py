@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 import pytest
 import pytest_django
+from browser_evidence import _browser_evidence as _browser_evidence
+from browser_evidence import report_browser_evidence
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
@@ -103,6 +105,7 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
     teardown can say more when the test failed (the browser tests' pages do)."""
     report = yield
     setattr(item, f"rep_{report.when}", report)
+    report_browser_evidence(item, report)
     return report
 
 
