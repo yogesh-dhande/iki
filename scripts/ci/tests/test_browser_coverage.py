@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -53,23 +54,48 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
     check_imports.parent.mkdir()
     check_imports.write_text("#!/bin/sh\nexit 0\n")
     check_imports.chmod(0o755)
+    trace_wrapper = Path("scripts/ci/with-browser-traces.sh")
+    (tmp_path / trace_wrapper).parent.mkdir()
+    (tmp_path / trace_wrapper).symlink_to(ROOT / trace_wrapper)
     wasm = check_imports.with_name("build-wasm.sh")
     wasm.write_text("#!/bin/sh\nexit 0\n")
     wasm.chmod(0o755)
     uv = tmp_path / "uv"
     uv.write_text(
         '#!/bin/sh\nprintf "UV %s [%s] gate=%s\\n" "$*" "${IKI_SKIP_BROWSER_TESTS:-}" "$IKI_GATE"\n'
+        'if [ "$1 $2" = "run pytest" ] && [ -n "${SIMULATE_BROWSER_FAILURE:-}" ]; then\n'
+        '  mkdir -p "$IKI_BROWSER_ARTIFACTS/gw1/test_name"\n'
+        '  echo trace > "$IKI_BROWSER_ARTIFACTS/gw1/test_name/context-1-trace.zip"\n'
+        "  exit 17\n"
+        "fi\n"
     )
     uv.chmod(0o755)
     env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.defpath}"}
     env.pop("CI", None)
     env.pop("IKI_GATE", None)
     env.pop("IKI_SKIP_BROWSER_TESTS", None)
+    env.pop("IKI_BROWSER_ARTIFACTS", None)
     args = ["make", "-f", str(ROOT / "Makefile"), "-k", "check-python", "PYTEST_PARALLEL="]
     if command_line:
         args.append("IKI_SKIP_BROWSER_TESTS=1")
     else:
         env["IKI_SKIP_BROWSER_TESTS"] = "1"
+    failed = subprocess.run(  # noqa: S603 - fixed make recipe
+        args,
+        cwd=tmp_path,
+        env={**env, "SIMULATE_BROWSER_FAILURE": "1"},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    assert failed.returncode != 0, failed.stdout
+    bundle = tmp_path / "build/browser-failures.tar.gz"
+    with tarfile.open(bundle) as archive:
+        traces = [member for member in archive if member.isfile()]
+        assert len(traces) == 1 and traces[0].name == "./gw1/test_name/context-1-trace.zip"
+        contents = archive.extractfile(traces[0])
+        assert contents is not None and contents.read() == b"trace\n"
     run = subprocess.run(  # noqa: S603 - fixed make recipe
         args, cwd=tmp_path, env=env, capture_output=True, text=True, check=True, timeout=10
     )
@@ -78,3 +104,5 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
     assert any("check_test_prerequisites.py wasm" in line for line in recorded)
     assert any("check_test_prerequisites.py web" in line for line in recorded)
     assert "UV run pytest [] gate=1" in recorded, recorded
+    with tarfile.open(bundle) as archive:
+        assert not any(member.isfile() for member in archive)

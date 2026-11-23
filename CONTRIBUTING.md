@@ -111,6 +111,29 @@ CI require browsers. A gate failure lists each unexpected pytest skip. When a
 new capability or opt-in suite warrants a skip, record its exact reason and
 the tests it applies to in `scripts/ci/pytest_gate_skips.py`.
 
+When a shared Playwright browser test fails, CI keeps its context traces in the
+`browser-failures-<python>-<shard>` artifact for three days. A local
+`make check-python` or `make check` that reaches pytest writes
+`build/browser-failures.tar.gz`. Each trace identifies the worker and test in
+its path. Extract the archive and open a trace with
+`uv run playwright show-trace path/to/trace.zip`. The traces come from
+disposable test contexts and can contain test cookies, visible data, and
+request and response bodies. Keep them with the test run.
+
+For the test VM, run the following from the worktree root. It collects traces
+across the entire gate and fetches the archive back to the same local path.
+
+```sh
+rm -f build/browser-failures.tar.gz
+VM_RUN_FETCH=build/browser-failures.tar.gz ~/.local/share/iki-test-vm/bin/vm-run.sh \
+  scripts/ci/with-browser-traces.sh bash -c 'pnpm install --frozen-lockfile && make -k check'
+```
+
+The archive is empty when a completed gate produced no failing browser traces.
+If the VM loses the run or the transfer fails, the local file is absent.
+For a focused `uv run pytest`, set `IKI_BROWSER_ARTIFACTS` to a fresh directory
+to keep the individual trace files there, or use the wrapper to get an archive.
+
 ## Dependencies
 
 - Lockfiles (`uv.lock`, `pnpm-lock.yaml`, `worker/Cargo.lock`) are committed and

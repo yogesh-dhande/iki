@@ -103,7 +103,8 @@ check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports 
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
-	env -u IKI_SKIP_BROWSER_TESTS IKI_GATE=1 uv run pytest $(PYTEST_PARALLEL)
+	@# A surrounding VM gate can collect traces for the whole command in its own directory.
+	$(if $(IKI_BROWSER_ARTIFACTS),,scripts/ci/with-browser-traces.sh) env -u IKI_SKIP_BROWSER_TESTS IKI_GATE=1 uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations
