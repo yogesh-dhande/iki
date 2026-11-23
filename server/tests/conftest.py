@@ -167,7 +167,13 @@ def _seed_after_flush(sender: Any, app_config: Any, **kwargs: Any) -> None:
     """Recreates the rows data migrations made, once a transactional test's flush has
     emptied every table: flush sends post_migrate after it. Run one at a time,
     pytest-django puts those tests last. In parallel, a file's tests run together, so
-    other files' tests follow them on the same worker."""
+    other files' tests follow them on the same worker. The plugins' baseline, which a
+    sync keeps, is kept again too: a plugin's preflight compares against it (ADR 0181)."""
+    if app_config.label == "iki_plugins":
+        from iki_server.plugins import baseline
+
+        baseline.keep()
+        return
     if app_config.label != "iki_oauth":
         return
     import importlib

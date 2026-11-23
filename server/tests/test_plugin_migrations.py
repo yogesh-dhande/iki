@@ -416,7 +416,7 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
     out = build(migrated, "dna", "protein", "structure_prediction")
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:14] == [
+    assert report.splitlines()[:18] == [
         # The core plugin's alignments, apps, collections and views, which every deployment
         # has, beside the fixtures'.
         "  HRID sequence iki_hrid_aln",
@@ -424,15 +424,19 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         "  HRID sequence iki_hrid_arq",
         "  HRID sequence iki_hrid_ars",
         "  HRID sequence iki_hrid_bat",
+        "  HRID sequence iki_hrid_box",
         "  HRID sequence iki_hrid_bsp",
         "  HRID sequence iki_hrid_col",
         "  HRID sequence iki_hrid_dna",
+        "  HRID sequence iki_hrid_frz",
         "  HRID sequence iki_hrid_lot",
         "  HRID sequence iki_hrid_mlt",
         "  HRID sequence iki_hrid_pls",
         "  HRID sequence iki_hrid_prt",
         "  HRID sequence iki_hrid_pst",
+        "  HRID sequence iki_hrid_rck",
         "  HRID sequence iki_hrid_smp",
+        "  HRID sequence iki_hrid_tub",
     ]
     assert sync(out, database) == report  # idempotent
     result = orm(

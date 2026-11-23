@@ -115,7 +115,7 @@ def start(user: User, container: Entity) -> Reconciliation:
 
 def _open(user: User, reconciliation: Reconciliation) -> Reconciliation:
     locked = (
-        Reconciliation.objects.select_for_update()
+        Reconciliation.objects.select_for_update(of=("self",))
         .select_related("container")
         .get(pk=reconciliation.pk)
     )

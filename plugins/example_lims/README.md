@@ -189,7 +189,7 @@ And it keeps material where it is
 `storage:`, what it holds and its positions.
 
 - A rack's 20 slots are numbered 1 to 20 (`grid: {rows: 5, columns: 4, labels:
-  number}`); a box's rows and columns are fields set as it's made and never
+number}`); a box's rows and columns are fields set as it's made and never
   changed (`immutable: true`), so a 9 × 9 box's positions are A1 to I9. Iki
   refuses a position outside the grid, or one that's taken, and a swap is one
   change. Each move says why, and is in the tube's location history and the
@@ -206,7 +206,7 @@ And it keeps material where it is
   only a QA sampling draw.
 - An **`AnalysisRequest`** sends its `tubes` with it, and the core's
   Coordinators receive them against that list (`receives: {field: tubes, by:
-  [coordinator]}`): each matched, missing, extra, damaged or rejected, put away
+[coordinator]}`): each matched, missing, extra, damaged or rejected, put away
   into the next free positions, and whoever asked is told of anything that
   didn't arrive as expected.
 

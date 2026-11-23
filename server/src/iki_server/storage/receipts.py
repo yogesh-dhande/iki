@@ -126,7 +126,9 @@ def start(user: User, entity: Entity) -> Receipt:
 
 
 def _open(user: User, receipt: Receipt) -> Receipt:
-    locked = Receipt.objects.select_for_update().select_related("request").get(pk=receipt.pk)
+    locked = (
+        Receipt.objects.select_for_update(of=("self",)).select_related("request").get(pk=receipt.pk)
+    )
     if locked.status != ReceiptStatus.OPEN:
         raise Wrong({"": [f"This receipt is {locked.get_status_display().lower()}."]})
     refused = why_not_receiver(user, locked.request)

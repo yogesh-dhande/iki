@@ -129,6 +129,7 @@ class AssayRequest_History(models.Model):
     revision = models.PositiveIntegerField()
     title = models.TextField(null=True)
     samples = ArrayField(models.UUIDField(), null=True)
+    tubes = ArrayField(models.UUIDField(), null=True)
     protein = models.UUIDField(db_column='protein_id', null=True)
     assays = ArrayField(models.TextField(), null=True)
     needed_by = models.DateField(null=True)
@@ -166,6 +167,31 @@ class AssayRequest_samples(models.Model):
             models.CheckConstraint(
                 condition=Q(position__lt=20),
                 name='acme__protein_assayrequest__samples__position__max_items',
+            ),
+        ]
+
+
+class AssayRequest_tubes(models.Model):
+    """The items of acme/protein.AssayRequest.tubes, in order."""
+
+    IKI_LIST_OF = ('AssayRequest', 'tubes')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'AssayRequest',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('Tube', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest__tubes'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=96),
+                name='acme__protein_assayrequest__tubes__position__max_items',
             ),
         ]
 
@@ -482,6 +508,152 @@ class Bispecific_Entry_arms(models.Model):
                 name='acme__protein_bispecific__entry__arms__position__max_items',
             ),
         ]
+
+
+class Box(Entity):
+    """Box (acme/protein.Box), schema version 1. A cryobox of tubes, its grid set as it's made (ADR 0180)."""
+
+    IKI_TYPE = 'acme/protein.Box'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200)
+    rows = models.BigIntegerField(db_default=9)
+    columns = models.BigIntegerField(db_default=9)
+    barcode = models.CharField(max_length=64, null=True, db_index=True)
+
+    class Meta:
+        db_table = 'acme__protein_box'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_box__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_box__name__one_line',
+            ),
+            models.CheckConstraint(condition=Q(rows__gte=1), name='acme__protein_box__rows__min'),
+            models.CheckConstraint(condition=Q(rows__lte=10), name='acme__protein_box__rows__max'),
+            models.CheckConstraint(
+                condition=Q(columns__gte=1),
+                name='acme__protein_box__columns__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(columns__lte=12),
+                name='acme__protein_box__columns__max',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('barcode'), 1),
+                name='acme__protein_box__barcode__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(barcode__regex='[\\r\\n]'),
+                name='acme__protein_box__barcode__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['barcode'],
+                opclasses=['gin_trgm_ops'],
+                name='barcode_trgm_dd6aa4e5b184807b1',
+            ),
+        ]
+
+
+class Box_History(models.Model):
+    """The history of acme__protein_box: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Box'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    rows = models.BigIntegerField(null=True)
+    columns = models.BigIntegerField(null=True)
+    barcode = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_box__history'
+
+
+class Freezer(Entity):
+    """Freezer (acme/protein.Freezer), schema version 1. A freezer, holding racks and boxes on its shelves (ADR 0180)."""
+
+    IKI_TYPE = 'acme/protein.Freezer'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200)
+    asset_tag = models.CharField(max_length=64, null=True, db_index=True)
+    temperature_c = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_freezer'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_freezer__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_freezer__name__one_line',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('asset_tag'), 1),
+                name='acme__protein_freezer__asset_tag__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(asset_tag__regex='[\\r\\n]'),
+                name='acme__protein_freezer__asset_tag__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(temperature_c__gte=-196),
+                name='acme__protein_freezer__temperature_c__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(temperature_c__lte=25),
+                name='acme__protein_freezer__temperature_c__max',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['asset_tag'],
+                opclasses=['gin_trgm_ops'],
+                name='asset_tag_trgm_ad1080392746384',
+            ),
+        ]
+
+
+class Freezer_History(models.Model):
+    """The history of acme__protein_freezer: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Freezer'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+    asset_tag = models.TextField(null=True)
+    temperature_c = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_freezer__history'
 
 
 class Lot(Entity):
@@ -995,6 +1167,50 @@ class ProteinStructure_chains(models.Model):
         db_table = 'acme__protein_proteinstructure__chains'
 
 
+class Rack(Entity):
+    """Rack (acme/protein.Rack), schema version 1. A freezer rack of four shelves of five boxes (ADR 0180)."""
+
+    IKI_TYPE = 'acme/protein.Rack'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    name = models.CharField(max_length=200)
+
+    class Meta:
+        db_table = 'acme__protein_rack'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('name'), 1),
+                name='acme__protein_rack__name__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(name__regex='[\\r\\n]'),
+                name='acme__protein_rack__name__one_line',
+            ),
+        ]
+
+
+class Rack_History(models.Model):
+    """The history of acme__protein_rack: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Rack'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    name = models.TextField(null=True)
+
+    class Meta:
+        db_table = 'acme__protein_rack__history'
+
+
 class Sample(Entity):
     """Sample (acme/protein.Sample), schema version 1."""
 
@@ -1189,3 +1405,58 @@ class Sample_helpers(models.Model):
                 name='acme__protein_sample__helpers__position__max_items',
             ),
         ]
+
+
+class Tube(Entity):
+    """Tube (acme/protein.Tube), schema version 1. A tube of a sample, whose volume is drawn at the bench (ADR 0180): the sample's holds and purposes apply to it, and a draw needs its barcode scanned."""
+
+    IKI_TYPE = 'acme/protein.Tube'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    barcode = models.CharField(max_length=64, null=True, db_index=True)
+    sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
+    lot = models.ForeignKey('Lot', models.PROTECT, related_name='+', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_tube'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('barcode'), 1),
+                name='acme__protein_tube__barcode__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(barcode__regex='[\\r\\n]'),
+                name='acme__protein_tube__barcode__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['barcode'],
+                opclasses=['gin_trgm_ops'],
+                name='barcode_trgm_6ca5cef1390b3ec9a',
+            ),
+        ]
+
+
+class Tube_History(models.Model):
+    """The history of acme__protein_tube: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Tube'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    barcode = models.TextField(null=True)
+    sample = models.UUIDField(db_column='sample_id', null=True)
+    lot = models.UUIDField(db_column='lot_id', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_tube__history'
