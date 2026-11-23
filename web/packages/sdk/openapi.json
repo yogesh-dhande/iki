@@ -4202,6 +4202,18 @@
             "title": "Derived From",
             "type": "array"
           },
+          "receive_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The required input container for a fresh stock receipt.",
+            "title": "Receive Into"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -12367,6 +12379,68 @@
         "title": "OccupantOut",
         "type": "object"
       },
+      "OpenOrder": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_hrid": {
+            "title": "Item Hrid",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "order_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Reference"
+          },
+          "ordered_packs": {
+            "title": "Ordered Packs",
+            "type": "integer"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "received_packs": {
+            "title": "Received Packs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "order_reference",
+          "item_id",
+          "item_hrid",
+          "item_name",
+          "ordered_packs",
+          "received_packs",
+          "outstanding_packs"
+        ],
+        "title": "OpenOrder",
+        "type": "object"
+      },
       "OrgParams": {
         "properties": {
           "by": {
@@ -13214,6 +13288,35 @@
         "title": "Page[NotificationOut]",
         "type": "object"
       },
+      "Page_OpenOrder_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpenOrder"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OpenOrder]",
+        "type": "object"
+      },
       "Page_PreviewRowOut_": {
         "properties": {
           "items": {
@@ -13560,6 +13663,64 @@
           "next_cursor"
         ],
         "title": "Page[SpreadsheetImportOut]",
+        "type": "object"
+      },
+      "Page_StockLot_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockLot"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockLot]",
+        "type": "object"
+      },
+      "Page_StockSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockSummary]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -25318,6 +25479,231 @@
         "title": "StepRunOut",
         "type": "object"
       },
+      "StockFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "low_only": {
+            "default": false,
+            "title": "Low Only",
+            "type": "boolean"
+          }
+        },
+        "title": "StockFilters",
+        "type": "object"
+      },
+      "StockLot": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "checked_out": {
+            "title": "Checked Out",
+            "type": "boolean"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "container_hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Hrid"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires On"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lot_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Number"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "boolean"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "lot_number",
+          "expires_on",
+          "expired",
+          "held",
+          "unit",
+          "amount",
+          "available",
+          "container_id",
+          "container_hrid",
+          "row",
+          "column",
+          "checked_out",
+          "placed"
+        ],
+        "title": "StockLot",
+        "type": "object"
+      },
+      "StockSummary": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "physical": {
+            "title": "Physical",
+            "type": "string"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "name",
+          "unit",
+          "threshold",
+          "physical",
+          "stored",
+          "available",
+          "low",
+          "outstanding_packs"
+        ],
+        "title": "StockSummary",
+        "type": "object"
+      },
       "StructureViewerOut": {
         "properties": {
           "label": {
@@ -26104,6 +26490,12 @@
             "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
             "title": "Unit",
             "type": "string"
+          },
+          "whole_units": {
+            "default": false,
+            "description": "Whether quantities must be whole numbers in this ledger unit.",
+            "title": "Whole Units",
+            "type": "boolean"
           }
         },
         "required": [
@@ -39675,6 +40067,246 @@
         "summary": "The project's saved spreadsheet mappings",
         "tags": [
           "spreadsheets"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock": {
+      "get": {
+        "description": "All active catalogue items owned by the project, including items with no lots.\nPhysical is the amount on hand. Stored excludes unplaced and checked-out material.\nAvailable counts stored material eligible for routine use. Amounts are exact decimal\nstrings in the item's unit. A low-only page can be empty and have a next cursor.",
+        "operationId": "iki_server_api_stock_project_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "low_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Low Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockSummary_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Current stock and reorder thresholds",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/orders": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_orders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OpenOrder_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outstanding stock reorders",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_lots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockLot_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A catalogue item's lots and storage positions",
+        "tags": [
+          "stock"
         ]
       }
     },

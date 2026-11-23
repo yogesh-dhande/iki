@@ -65,7 +65,7 @@ with a letter. The namespace is your lab's or company's.
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
   `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`,
-  `iki/plate_assays`, `iki/experiments` and `iki/example_lims`. No other plugin may use
+  `iki/plate_assays`, `iki/experiments`, `iki/reagents` and `iki/example_lims`. No other plugin may use
   it, or a namespace starting with `iki_` (`reserved-namespace`), and a
   lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
@@ -713,6 +713,9 @@ fields:
   it, and kept exactly, as a decimal; each movement keeps what was asked
   for as it was given, to 40 places either side of its point. `display_unit`
   measures the same thing (`amount-unit`).
+- `whole_units: true` requires an integer quantity in the ledger unit after
+  conversion. A lot of individual consumables uses this for its initial stock,
+  draws, transfers, splits and adjustments.
 - `concentration` names a quantity field of the type whose unit, times a
   volume, is a mass or an amount of substance (mg/mL, mmol/L), or the
   other way about (`amount-concentration`). Then an amount in a volume
@@ -762,6 +765,43 @@ fields:
   draws, transfers and adjusts it and lists its ledger, and
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
   and the webhook event `entity.amount_moved` says so.
+
+A catalogue type opts into the project's stock view and reorder list with
+`stock_catalogue` (ADR 0190). A lab declares its item, lot, order and
+recipient fields on its own types.
+
+```yaml
+stock_catalogue:
+  name: name
+  unit: stock_unit
+  threshold: low_stock_at
+  notify: [stock_manager]
+  lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
+  orders:
+    type: ReorderLine
+    item: item
+    reference: order_reference
+    ordered: ordered_packs
+    received: received_packs
+```
+
+The item's required, immutable enum gives its ledger unit. Its required
+numeric threshold has a nonnegative minimum. Each lot and order refers to
+an active catalogue item owned by the same project with a required,
+immutable reference. Every concrete lot type's amount uses that reference
+as its `material` and matches the item's unit. An open order contributes
+its ordered packs less the packs already received. A missing received
+count means zero.
+
+A project reader can page through `GET /api/v1/projects/{project_id}/stock`,
+the item's `/stock/{item_id}/lots` and the project's `/stock/orders`.
+Physical stock is the current ledger balance of its lots. Stored stock
+is in a container and checked in. Available stock must also pass routine
+draw guards and hold, archive and expiry checks. A reader sees a container's
+ID and position only when they can read it. The low-stock list
+(`low_only=true`) includes items with available stock at or below the
+threshold, including items without lots. The periodic stock check notifies
+the declared project lab roles once per low-stock episode.
 
 ### Extensions
 
@@ -2172,6 +2212,28 @@ old name still imports
   "fills": ["scientific_name"]
 }
 ```
+
+### Receiving a delivery
+
+A create can receive a delivery by declaring `receive_into`, a single required
+input holding a storage container that accepts the new record's type. The
+created type declares `amount` and `storage`. The command includes the
+starting amount and the reason for receipt alongside the create's values.
+
+```json
+{
+  "type": "lab/inventory.StockLot",
+  "values": { "lot_number": "L-12" },
+  "receipt": { "amount": { "value": "10", "unit": "mg" }, "reason": "Delivery D-42 line 1" }
+}
+```
+
+The input supplies the destination. A receipt may give a `position` such as
+`A1` within a grid and a `confirmation` for a required barcode scan. The
+storage service checks the launcher's permission, the lot's identity and
+the destination at commit. The starting amount, placement and any updates
+to the order commit in one transaction. Each received lot must be fresh and
+created inline. A unique delivery-line field can prevent duplicate receipts.
 
 ### Creates in a file
 

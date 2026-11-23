@@ -64,6 +64,7 @@ const SAMPLE: Schemas["EntityTypeOut"] = {
     unit: "uL",
     label: "Volume",
     description: null,
+    whole_units: false,
     display_unit: null,
     concentration: "concentration",
     aliquots: "acme/lims.Sample",

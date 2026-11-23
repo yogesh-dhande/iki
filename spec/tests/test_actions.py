@@ -1081,3 +1081,67 @@ def test_kept_values_are_short() -> None:
     assert apis.short(3) == 3
     assert apis.short({"a": 1}) == '{"a":1}'
     assert apis.short("x" * 2000, 10) == "x" * 9 + "…"
+
+
+def test_a_receipt_declares_a_single_container_and_a_fresh_lot(tmp_path: Path) -> None:
+    from iki_spec import outputs, schemas
+
+    types = (
+        TYPES
+        + """
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Lot
+schema_version: 1
+hrid: { prefix: LOT }
+amount: { unit: mg }
+storage: {}
+fields:
+  delivery_key: { type: string, indexed: true, unique: true, max_length: 100 }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Bin
+schema_version: 1
+hrid: { prefix: BIN }
+storage: { holds: [Lot] }
+"""
+    )
+
+    def receiving(dest: str, effect: str) -> Result:
+        return make(
+            tmp_path,
+            action(
+                inputs=f"{{ storage: {{ {dest} }} }}", effects=f"{{ creates: [{{ {effect} }}] }}"
+            ),
+            files={"types/types.yaml": types},
+        )
+
+    effect = "type: Lot, receive_into: storage"
+    assert only(receiving("type: Bin, optional: true", effect), "receipt-container-input")
+    assert only(receiving("type: Assay", effect), "receipt-container-type")
+    assert only(receiving("type: Bin", effect + ", match_on: delivery_key"), "receipt-match")
+    result = receiving("type: Bin", effect)
+    assert result.problems == []
+    assert result.plugin is not None
+    plugin = result.plugin
+    declared = plugin.actions["score"]
+    assert declared.creates[0].receive_into == "storage"
+    checked = outputs.SpecTypes({t.qualified_name: t for t in plugin.types.values()}, ())
+    receipt = {"amount": {"value": "1.5", "unit": "mg"}, "reason": "Delivery D-42"}
+    row = {"type": "acme/lab.Lot", "values": {}, "receipt": receipt}
+    assert not outputs.check_creates(declared, [row], checked)
+    missing = outputs.check_creates(declared, [{"type": "acme/lab.Lot", "values": {}}], checked)
+    assert len(missing) == 1 and missing[0].pointer == "#/creates/0/receipt"
+    ordinary = dataclasses.replace(
+        declared, creates=(dataclasses.replace(declared.creates[0], receive_into=None),)
+    )
+    assert outputs.check_creates(ordinary, [row], checked)[0].pointer == "#/creates/0/receipt"
+    assert outputs.check_creates_file(declared, [json.dumps(row)], [], checked)[0].pointer.endswith(
+        "/receipt"
+    )
+    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": [row]}
+    assert not list(schemas.check("run-output", output))
+    bad = {**row, "receipt": {**receipt, "destination": "an-unchecked-container"}}
+    assert list(schemas.check("run-output", {**output, "creates": [bad]}))
