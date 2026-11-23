@@ -205,7 +205,7 @@ describe("what it lists", () => {
     expect(within(nav()).getByRole("link", { name: "All projects" })).not.toHaveAttribute(
       "aria-current",
     );
-    expect(within(nav()).getByRole("link", { name: "New project" })).toHaveAttribute(
+    expect(within(nav()).getByRole("link", { name: "New project from sidebar" })).toHaveAttribute(
       "href",
       "/projects/new/",
     );
@@ -223,7 +223,7 @@ describe("what it lists", () => {
     signedIn({ can: { ...ME.can, create_projects: false } });
     answer("GET /api/v1/projects", page([]));
     await renderApp("/projects/");
-    expect(within(nav()).queryByRole("link", { name: "New project" })).toBeNull();
+    expect(within(nav()).queryByRole("link", { name: "New project from sidebar" })).toBeNull();
   });
 
   it("lists the reader's saved searches, each opening from its own address", async () => {

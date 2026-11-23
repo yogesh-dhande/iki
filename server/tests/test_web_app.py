@@ -279,6 +279,7 @@ def current_links(html: str) -> list[str]:
 @pytest.mark.parametrize(
     ("principal", "admin"),
     [
+        ("team_member", None),
         ("viewer", None),
         ("org_admin", "/admin/"),
         ("compute_admin", "/admin/"),
@@ -310,7 +311,7 @@ def test_server_pages_have_the_web_apps_sidebar(
         "Runs",
         "Files",
         "Storage",
-        *(["New project"] if can["create_projects"] else []),
+        *(["New project from sidebar"] if can["create_projects"] else []),
         *projects,
         "All projects",
         "Types",

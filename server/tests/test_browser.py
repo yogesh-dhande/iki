@@ -3485,7 +3485,9 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
 
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
-    page.get_by_role("link", name="New project").first.click()
+    sidebar = page.get_by_role("navigation", name="Main")
+    expect(sidebar.get_by_role("link", name="New project from sidebar", exact=True)).to_be_visible()
+    page.get_by_role("main").get_by_role("link", name="New project", exact=True).click()
     page.get_by_role("heading", name="New project", level=1).wait_for()
     # Navigating moves focus to the new page's heading, as a page load would. WebKit moves
     # it a moment after the heading appears, so wait for it.

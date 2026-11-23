@@ -196,7 +196,7 @@
     "href": "/projects/",
     "shown": 8,
     "new": {
-      "label": "New project",
+      "label": "New project from sidebar",
       "href": "/projects/new/",
       "app": true,
       "requires": "create_projects"

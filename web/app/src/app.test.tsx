@@ -181,7 +181,7 @@ describe("the frame", () => {
       "Runs",
       "Files",
       "Storage",
-      "New project",
+      "New project from sidebar",
       "All projects",
       "Types",
       "People and teams",
