@@ -2187,6 +2187,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
+    core_facility_requests(alice, bob, carol, project, core)
     bench_material(alice, project, core, protein)
     cell_bank_history(alice, project)
 
@@ -2351,6 +2352,109 @@ def analysis_result(
     ):
         fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
     ok(f"{result['hrid']}: QA released corrected revision {review['revision']} to the requester")
+
+
+def core_facility_requests(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    qa: requests.Session,
+    asking: dict[str, Any],
+    core: dict[str, Any],
+) -> None:
+    """The working core returns production and sequencing deliverables through Requests."""
+    give_lab_roles(analyst, core, LIMS_TYPE + "coordinator")
+    example = Path(__file__).resolve().parents[2] / "plugins" / "example_lims" / "examples"
+    # The production transaction is simulated; only the registered UniProt identity is public.
+    fasta = (example / "P00330.fasta").read_text().splitlines()
+    protein = created(
+        analyst,
+        asking,
+        "iki/protein.Protein",
+        {
+            "name": "Yeast alcohol dehydrogenase 1",
+            "sequence": "".join(fasta[1:]),
+            "uniprot_accession": "P00330",
+        },
+    )
+    # The tube handoff is simulated; the public ENA run is for yeast isolate CEY652.
+    tube = created(analyst, asking, LIMS_TYPE + "Tube", {"name": "Training CEY652"})
+    requester = cli_read_token(analyst, project=asking["id"])
+    for prefix, filename, values, evidence, steps in (
+        (
+            "Research",
+            "P00330-production.txt",
+            {
+                "title": "Training: ADH1 production",
+                "facility_service": "protein_production",
+                "protein": entry_of(protein),
+                "requested_mass": 1,
+            },
+            {"protein": entry_of(protein), "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            ((reviewer, "bob", "signed_off"),),
+        ),
+        (
+            "QC",
+            "ERR13376132-delivery.txt",
+            {
+                "title": "Training: long-read sequencing",
+                "facility_service": "sequencing",
+                "sequencing_method": "long_read",
+                "tubes": [tube["id"]],
+            },
+            {"tube": tube["id"], "run_accession": "ERR13376132"},
+            (
+                (analyst, "alice", "submitted"),
+                (reviewer, "bob", "reviewed"),
+                (qa, "carol", "released"),
+            ),
+        ),
+    ):
+        request = created(analyst, asking, f"{LIMS_TYPE}{prefix}CoreRequest", values)
+        path = f"/entities/{request['id']}"
+        sent = api_call(
+            analyst,
+            "POST",
+            f"{path}/submit",
+            {"service": core["id"]},
+            {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+        )
+        if sent.status_code != 200:
+            fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+        for state in ("accepted", "in_progress"):
+            advanced = api_call(
+                analyst,
+                "POST",
+                f"{path}/states/status",
+                {"state": state, "reason": ""},
+                {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+            )
+            if advanced.status_code != 200:
+                fail(
+                    f"setting {request['hrid']} {state} gave {advanced.status_code}: "
+                    f"{advanced.text[:200]}"
+                )
+        report = upload(analyst, core, filename, (example / filename).read_bytes(), "text/plain")
+        delivery = created(
+            analyst,
+            core,
+            f"{LIMS_TYPE}{prefix}CoreDeliverable",
+            {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
+        )
+        if bearer_call(requester, "GET", f"/files/{report}").status_code != 404:
+            fail(f"{delivery['hrid']}'s report was visible before signing")
+        for signer, name, state in steps:
+            done = signing(signer, delivery, state, name, field="review")
+            if done["status"] != "signed" or not done["set"]:
+                fail(f"signing {delivery['hrid']} as {state} gave {done}")
+        received = bearer_call(requester, "GET", path + "/request").json()["result_releases"]
+        if [item["entity"] for item in received] != [delivery["id"]]:
+            fail(f"{request['hrid']} didn't receive {delivery['hrid']}: {received}")
+        if bearer_call(requester, "GET", f"/files/{report}").status_code != 200:
+            fail(f"{delivery['hrid']}'s report wasn't delivered to the requester")
+        ok(
+            f"{request['hrid']}: {delivery['hrid']} returned its report "
+            f"with {len(steps)} signatures"
+        )
 
 
 #: Example LIMS types (ADR 0180).

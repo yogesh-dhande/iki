@@ -1,0 +1,9 @@
+Training record: simulated production and delivery.
+Protein identity: Alcohol dehydrogenase 1, Saccharomyces cerevisiae S288c
+Protein accession: P00330
+Identity source: https://www.uniprot.org/uniprotkb/P00330/entry
+Training lot: TRAINING-ADH1-01
+Requested mass: 1 mg (synthetic)
+Delivered mass: 0.8 mg (synthetic)
+
+UniProtKB identifies the protein. The lot and quantities are synthetic.

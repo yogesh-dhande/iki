@@ -1,0 +1,9 @@
+Training record: simulated receipt and release for a public dataset.
+Service requested: Long-read sequencing
+Example sample identifier: CEY652
+Organism: Saccharomyces cerevisiae
+Public run: ERR13376132
+Archive record: https://www.ncbi.nlm.nih.gov/sra/ERX12747051
+
+The sample identifier and run accession are from the archive record.
+The facility request, custody, and signatures in the walkthrough are simulated.

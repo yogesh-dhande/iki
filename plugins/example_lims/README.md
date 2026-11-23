@@ -123,6 +123,35 @@ It shows the parts of Iki such a plugin needs:
   QA must also be independent of the creator, submitting analyst, reviewer
   and value editors to sign the reviewed revision. The project that asked
   receives the locked release. Released is final.
+- **Protein production and sequencing** use the same request queue, assignment,
+  tube receipt, and released result links
+  ([ADR 0195](../../docs/adr/0195-core-facility-requests-return-signed-deliverables.md)).
+  A core's admin accepts `ResearchCoreRequest` or `QCCoreRequest` in the
+  service project's **Settings → Requests**, and names the projects that can
+  send them. An intake for the parent `AnalysisRequest` accepts both
+  subtypes. Choose a concrete subtype to set one review flow for intake.
+  The request type determines which deliverable can be made for that request.
+
+  - The project asking for production names the protein and mass. For
+    sequencing, it names the method and the tubes to send. It can provide a
+    needed-by date and instructions with either service.
+  - The core accepts and schedules the request, assigns an analyst, and
+    receives any tubes against the submitted list. The analyst moves it to
+    In progress and records one deliverable per produced lot or sequenced
+    tube, with a delivery report uploaded to the core's project. A
+    successful production deliverable records its protein, lot number, and
+    delivered mass. A successful sequencing deliverable names the shipped
+    tube and holds the files or public run accession. If work failed, the
+    analyst records the outcome and explains it in the report.
+  - In Research, a Reviewer signs the recorded `ResearchCoreDeliverable` to
+    send it back. In Regulated QC, the Analyst submits the
+    `QCCoreDeliverable` with a signature, an independent Reviewer signs the
+    review, and another person in QA signs release. Corrections before
+    release return the deliverable to Recorded with a reason and require new
+    submission and review. The requesting project can open the returned
+    report and release receipt from its request. The core marks the request
+    Delivered once its deliverables have been released.
+
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
   a sample's volume, in µL (shown in mL), and each aliquot's. A sample is
@@ -222,3 +251,21 @@ lims_host: lims.example.org
 and map the `LIMS_TOKEN` secret (key `iki__example_lims.LIMS_TOKEN`) to an API token the LIMS issued for Iki,
 which can read and change proteins. The scripts use only Python's standard
 library.
+
+### Try a facility request
+
+For production, register the yeast alcohol dehydrogenase 1 sequence from
+`examples/P00330.fasta`. Send a Research request for 1 mg and upload
+`examples/P00330-production.txt` in the core as the delivery report for the
+training lot and 0.8 mg delivery. The requested quantity, delivered quantity,
+and lot are synthetic. The protein and sequence come from the UniProtKB
+entry under its attribution license.
+[UniProtKB P00330](https://www.uniprot.org/uniprotkb/P00330/entry),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+For sequencing, register a training tube named CEY652 and send it with a
+Regulated QC request for long-read sequencing. In the core, receive it and
+use `examples/ERR13376132-delivery.txt` for the tube's report with public
+run accession `ERR13376132`. The accession and sample identifier refer to
+a published yeast dataset. The request, custody, and signatures are training
+events. [NCBI Sequence Read Archive](https://www.ncbi.nlm.nih.gov/sra/ERX12747051)
