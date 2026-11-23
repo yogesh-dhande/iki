@@ -1192,6 +1192,7 @@ def actions() -> None:
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
     reads_aligned(alice, project)
     sequences_aligned(alice, project)
+    sequence_library_annotation(alice, project)
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
@@ -1199,6 +1200,83 @@ def actions() -> None:
     polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
+
+
+def strain_stocks(
+    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
+) -> None:
+    """A catalogue strain, a local transformant and the data from a scanned stock draw."""
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/data/atcc.csv"
+    file_id = upload(alice, project, "atcc.csv", catalogue.read_bytes(), "text/csv")
+    imported = launch(alice, project, "iki/strains.import_base_strains", {}, {"file": file_id})
+    entries = [
+        record(alice, effect["entity"])
+        for effect in imported["effects"]
+        if effect["type"] == "iki/strains.BaseStrain"
+    ]
+    strains = {row["values"]["accession"]: row for row in entries}
+    if {key: row["values"]["name"] for key, row in strains.items()} != {
+        "700926": "MG1655",
+        "201388": "BY4741",
+    }:
+        fail(f"{imported['hrid']} did not register the two ATCC catalogue strains")
+    # The local transformant, barcode, quantities and sequence read are synthetic test data.
+    base = strains["700926"]
+    identity = {"base": entry_of(base), "plasmids": [entry_of(plasmid)]}
+    strain = created(alice, project, "iki/strains.TransformedStrain", identity)
+    again = created(alice, project, "iki/strains.TransformedStrain", identity)
+    if not again["reused"] or again["id"] != strain["id"]:
+        fail(f"Registering {strain['hrid']}'s base and plasmid again created another strain")
+    barcode = f"SYNTHETIC-{secrets.token_hex(4)}"
+    stock = created(
+        alice,
+        project,
+        "iki/strains.GlycerolStock",
+        {"strain": entry_of(strain), "barcode": barcode},
+        {"value": 100, "unit": "uL"},
+    )
+    box = created(alice, project, "iki/strains.StrainBox", {"name": "Synthetic glycerol stocks"})
+    moved(alice, [(stock, box, "A1")], "Synthetic inventory example")
+    location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
+    if [(step["hrid"], step["position"]) for step in location["path"]] != [(box["hrid"], "A1")]:
+        fail(f"{stock['hrid']} has an unexpected storage path {location['path']}")
+    read = created(
+        alice,
+        project,
+        "iki/dna.DNASequence",
+        {
+            "name": "Synthetic sequence read",
+            "bases": "".join(secrets.choice("ACGT") for _ in range(32)),
+        },
+    )
+    drawn = api_call(
+        alice,
+        "POST",
+        f"/entities/{stock['id']}/amount/draw",
+        {
+            "amount": {"value": 10, "unit": "uL"},
+            "used_in": read["id"],
+            "reason": "Synthetic sequencing example",
+            "confirm": barcode,
+        },
+    )
+    if drawn.status_code != 200:
+        fail(f"Drawing from {stock['hrid']} answered HTTP {drawn.status_code}: {drawn.text[:300]}")
+    movement = drawn.json()["movement"]
+    if (
+        Decimal(drawn.json()["amount"]["value"]) != 90
+        or movement["used_in"] != read["id"]
+        or movement["confirmed"] != barcode
+    ):
+        fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    if ancestry.status_code != 200:
+        fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
+    graph = ancestry.json()
+    ancestors = {entity["id"] for entity in graph["entities"]}
+    if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
+        fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
+    ok(f"{read['hrid']} traces to {strain['hrid']} through the draw from {stock['hrid']} at A1")
 
 
 def _abif(bases: str, quality: list[int], sample: str) -> bytes:
@@ -1249,6 +1327,18 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     if made.status_code not in (200, 201):
         fail(f"registering a plasmid answered HTTP {made.status_code}: {made.text[:300]}")
     reference = made.json()
+    design = created(
+        alice,
+        project,
+        "iki/plasmid.Plasmid",
+        {"sequence": entry_of(reference), "name": "Synthetic read-verification control"},
+    )
+    prep = created(
+        alice,
+        project,
+        "iki/lots.PlasmidPrep",
+        {"plasmid": design["id"], "notes": "Synthetic prep for the read-verification control."},
+    )
     # Bases 201-700, read forward, with another base at 451, between poor ends.
     called = list(plasmid[200:700])
     other = "A" if called[250] != "A" else "C"
@@ -1272,13 +1362,13 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     expected = f"Differences from {reference['hrid']}: o.451{plasmid[450]}>{other} (clone_F1 Q40)."
     if expected not in said:
         fail(f"{run['hrid']} said {said}, not {expected!r}")
-    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
-    if [e["type"] for e in created] != ["iki/core.Alignment"]:
-        fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    alignments = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in alignments] != ["iki/core.Alignment"]:
+        fail(f"{run['hrid']} created {alignments}, not one iki/core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{alignments[0]['hrid']}").json()["values"]
     plasmid_entry = entry_of(reference)
     if values["reference"] != plasmid_entry or values["members"] != [plasmid_entry]:
-        fail(f"{created[0]['hrid']} is {values}")
+        fail(f"{alignments[0]['hrid']} is {values}")
     # It keeps Iki's alignment, its file, and the same with `-` for every gap, which tools
     # reading aligned FASTA take (alignment-standard.fasta).
     artifacts = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
@@ -1287,12 +1377,93 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{run['hrid']} kept {sorted(kept)}, not its alignment and the standard one")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if stored["sha256"] != kept["alignment.fasta"]["sha256"]:
-        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+        fail(f"{alignments[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     ok(
         f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
         f"{metrics['coverage_percent']}% covered, {expected[:-1].split(': ', 1)[1]}, "
-        f"making {created[0]['hrid']}"
+        f"making {alignments[0]['hrid']}"
     )
+    verify_prep(alice, project, prep, design, record(alice, alignments[0]["entity"]))
+
+
+def verify_prep(
+    alice: requests.Session,
+    project: dict[str, Any],
+    prep: dict[str, Any],
+    design: dict[str, Any],
+    alignment: dict[str, Any],
+) -> None:
+    """Archive the synthetic prep's alignment, sign its discrepancy and open it from the prep."""
+    run = launch(
+        alice,
+        project,
+        "iki/lots.record_plasmid_verification",
+        {"prep": prep["id"], "alignment": alignment["id"]},
+        {"outcome": "discrepancy", "notes": "Synthetic control: partial coverage, one mismatch."},
+    )
+    (effect,) = [e for e in run["effects"] if e["type"] == "iki/lots.PlasmidVerification"]
+    assessment = record(alice, effect["entity"])
+    values = assessment["values"]
+    expected = {
+        "prep": prep["id"],
+        "plasmid": entry_of(design),
+        "plasmid_record_id": design["id"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "review_flow": "research",
+        "review": "recorded",
+        "outcome": "discrepancy",
+    }
+    if any(values.get(k) != v for k, v in expected.items()):
+        fail(f"{run['hrid']} created {assessment['hrid']} with {values}, expected {expected}")
+    pinned = api_call(
+        alice,
+        "GET",
+        f"/entities/{values['plasmid_record_id']}/revisions/{values['plasmid_revision']}",
+    )
+    evidence = api_call(
+        alice, "GET", f"/entities/{values['alignment']}/revisions/{values['alignment_revision']}"
+    )
+    if (
+        pinned.status_code != 200
+        or evidence.status_code != 200
+        or pinned.json()["values"]["sequence"] != alignment["values"]["reference"]
+        or evidence.json()["values"]["aligned"] != alignment["values"]["aligned"]
+    ):
+        fail(f"{assessment['hrid']} could not reopen the recorded plasmid and alignment revisions")
+    give_lab_roles(alice, project, "iki/lots.verification_reviewer")
+    reviewer = api_call(alice, "GET", "/me").json()["id"]
+    path = f"/entities/{assessment['id']}"
+    assigned = api_call(
+        alice,
+        "PATCH",
+        path,
+        {"values": {"reviewer": reviewer}},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if assigned.status_code != 200:
+        fail(f"assigning the reviewer answered {assigned.status_code}: {assigned.text[:300]}")
+    signed = signing(alice, assessment, "signed_off", "alice", field="review")
+    if signed["status"] != "signed" or not signed["set"]:
+        fail(f"signing the research assessment {assessment['hrid']} gave {signed}")
+    tab = api_call(
+        alice, "POST", "/components/iki/lots.prep_verifications/entities", {"entity": prep["id"]}
+    )
+    if tab.status_code != 200 or [r["hrid"] for r in tab.json()["items"]] != [assessment["hrid"]]:
+        fail(f"{prep['hrid']}'s Verification tab did not return its assessment: {tab.text[:300]}")
+    row = tab.json()["items"][0]["values"]
+    reviewed = {
+        "plasmid_record_id": design["id"],
+        "plasmid_revision": values["plasmid_revision"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "reviewer": reviewer,
+        "outcome": "discrepancy",
+        "review": "signed_off",
+    }
+    if any(row.get(k) != v for k, v in reviewed.items()):
+        fail(f"{prep['hrid']}'s Verification tab returned {row}")
+    ok(f"{prep['hrid']} shows the signed discrepancy and the pinned alignment {alignment['hrid']}")
 
 
 def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1676,30 +1847,30 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
 
 
-def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
-    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
-    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
-    verifies; signing in at Keycloak as someone else gives no signature."""
-    bob = sign_in_as("bob")
-    if api_call(bob, "GET", "/signatures/certification").json()["certification"] is None:
+def certify_dev_signatures(admin: requests.Session) -> None:
+    if api_call(admin, "GET", "/signatures/certification").json()["certification"] is None:
         certified = api_call(
-            bob,
+            admin,
             "POST",
             "/signatures/certification",
             {"submitted_on": datetime.now(UTC).date().isoformat(), "reference": "DEV-CERT-1"},
         )
         if certified.status_code != 200:
             fail(f"recording the certification answered HTTP {certified.status_code}")
-    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
-    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    roles = {
-        "roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer", "iki/example_lims.qa"]
-    }
-    given = api_call(
-        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", roles
+
+
+def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
+    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
+    verifies; signing in at Keycloak as someone else gives no signature."""
+    bob = sign_in_as("bob")
+    give_lab_roles(
+        alice,
+        project,
+        "iki/example_lims.analyst",
+        "iki/example_lims.reviewer",
+        "iki/example_lims.qa",
     )
-    if given.status_code != 200:
-        fail(f"giving alice lab roles answered HTTP {given.status_code}: {given.text[:300]}")
     made = api_call(
         alice,
         "POST",
@@ -3196,6 +3367,38 @@ def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{order['hrid']}: both racks arrived and the draw raised a low-stock alert at 97 tubes")
 
 
+def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Find routine vector features on a DNA sequence and retain its GenBank features."""
+    # INSDC OL989372.1, the published circular vector pET-28a-ZaTdT12. Import the
+    # pinned GenBank record so the original feature table is present before the run.
+    accession = "OL989372.1"
+    fixture = Path(__file__).resolve().parents[2] / "server/tests/data/plasmids" / f"{accession}.gb"
+    source = upload(alice, project, fixture.name, fixture.read_bytes(), "chemical/seq-na-genbank")
+    imported = launch(alice, project, "iki/dna.import_sequences", {}, {"file": source})
+    sequences = [e for e in imported["effects"] if e["type"] == "iki/dna.DNASequence"]
+    if len(sequences) != 1:
+        fail(f"{imported['hrid']} did not import one DNA sequence from {accession}")
+    entity = sequences[0]["entity"]
+    before = record(alice, entity)["values"]
+    if not before.get("features") or before.get("topology") != "circular":
+        fail(f"{accession} did not retain its original features and circular topology on import")
+
+    action = "iki/plasmid.annotate_dna_sequence"
+    run = launch(alice, project, action, {"sequence": entity})
+    dna = record(alice, entity)
+    values = dna["values"]
+    if values.get("features") != before["features"] or values.get("bases") != before["bases"]:
+        fail(f"{run['hrid']} changed {dna['hrid']}'s imported features or bases")
+    # The GenBank FEATURES table independently gives these locations on opposite strands.
+    expected = {("T7 promoter", 4984, 5002, "forward"), ("lacI promoter", 4598, 4675, "reverse")}
+    found = {
+        (f["name"], f["start"], f["end"], f["strand"]) for f in values.get("library_features") or []
+    }
+    if not expected.issubset(found) or not values.get("library_annotated_with"):
+        fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
+    ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
+
+
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
     2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
@@ -3304,6 +3507,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     read_bases(alice, project, plasmid)
     plan = assembled(alice, project, plasmid)
     constructs(alice, project, plan)
+    strain_stocks(alice, project, plasmid)
 
 
 #: NEB's M13/pUC sequencing primers (#S1201S and #S1233S), the pair pUC19's polylinker is
@@ -5132,6 +5336,7 @@ def main() -> None:
         provisioning(admin)
         rest_api(admin)
         webhooks(admin)
+        certify_dev_signatures(admin)
         actions()
         lims()
         containers()

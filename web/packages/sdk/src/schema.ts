@@ -6798,6 +6798,13 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * People
+             * @description Display names for the people those fields name, by ID.
+             */
+            people?: {
+                [key: string]: components["schemas"]["ComponentPersonOut"];
+            };
             /** @description The project it belongs to, if you can see it. */
             project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -6863,6 +6870,14 @@ export interface components {
             sha256: string;
             /** Slots */
             slots: components["schemas"]["SlotOut"][];
+        };
+        /** ComponentPersonOut */
+        ComponentPersonOut: {
+            /**
+             * Name
+             * @description The person's display name for this record.
+             */
+            name: string;
         };
         /**
          * Condition
@@ -8992,7 +9007,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "record";
+            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "used" | "record";
             /**
              * Node
              * Format: uuid
@@ -9142,9 +9157,9 @@ export interface components {
             down: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
             /**
              * Project
              * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
@@ -13372,7 +13387,7 @@ export interface components {
              * Edges
              * @description The kinds of edge it walks; empty for all.
              */
-            edges: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+            edges: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
         };
         /** ReproduceIn */
         ReproduceIn: {
@@ -17626,9 +17641,9 @@ export interface components {
             depth: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
             /**
              * Limit
              * @description Results per page.
@@ -17661,9 +17676,9 @@ export interface components {
             depth: number;
             /**
              * Edges
-             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
+             * @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth.
              */
-            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+            edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
             /**
              * Project
              * @description Whose record, when an entry's ID or HRID names several (ADR 0115).
@@ -17693,10 +17708,10 @@ export interface components {
             hidden_run: boolean;
             /**
              * Kind
-             * @description `reference`, `run` or `file`; `record` when it goes on to another project's record of the same registry entry (ADR 0115).
+             * @description How the entities are linked: `reference`, `run`, `file`, `aliquot`, `transfer`, or `used` for a material draw. A `record` step goes on to another project's record of the same registry entry (ADR 0115).
              * @enum {string}
              */
-            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "record";
+            kind: "reference" | "run" | "file" | "aliquot" | "transfer" | "used" | "record";
             /**
              * Revision
              * @description For a run's input: its revision the run read. Empty for a reference, which names what's there now.
@@ -20230,8 +20245,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -20267,8 +20282,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -20332,8 +20347,8 @@ export interface operations {
                 up?: number;
                 /** @description How many steps downstream. */
                 down?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
             };
             header?: never;
             path: {
@@ -20902,8 +20917,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */
@@ -20939,8 +20954,8 @@ export interface operations {
                 project?: string | null;
                 /** @description How many edges away, at most. */
                 depth?: number;
-                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it, ADR 0139) and `transfer` (some of it was moved into it). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
-                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer")[];
+                /** @description Only these kinds of edge: `reference` (a ref field names it), `run` (a run made or updated it from it), `file` (a run made it from a file it held, or that a run on it wrote), `aliquot` (split from it), `transfer` (some of it was moved into it), or `used` (a draw from it was used in the other record). All, if none are given. A project's record of a registry entry and the entry are one thing (ADR 0115), so the walk always goes between them, at no depth. */
+                edges?: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
                 /** @description Only results of these types, with their subtypes. The walk still goes through every type. */
                 type?: string[];
                 /** @description Only archived results, or only others. */

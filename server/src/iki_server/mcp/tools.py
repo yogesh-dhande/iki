@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from iki_server.amounts.models import DrawPurpose
 from iki_server.api.entities import Condition, SortIn
+from iki_server.api.graph import FollowedName
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
 from iki_server.graph import queries
@@ -58,11 +59,12 @@ Depth = Annotated[
     Field(ge=1, le=queries.MAX_DEPTH, description="How many edges away, at most."),
 ]
 Edges = Annotated[
-    list[Literal["reference", "run", "file", "aliquot", "transfer"]] | None,
+    list[FollowedName] | None,
     Field(
         description="Only these kinds of edge: reference (a field names it), run (a run made "
-        "it from it), file (a run made it from a file it held), aliquot (split from it) and "
-        "transfer (some of it was moved into it). All if left out. A "
+        "it from it), file (a run made it from a file it held), aliquot (split from it), "
+        "transfer (some of it was moved into it), or used (a draw from it was used in the "
+        "other record). All if left out. A "
         "project's record of a registry entry and the entry are one, and always followed."
     ),
 ]

@@ -104,6 +104,7 @@ FIRST_PARTY = frozenset(
         "iki/conjugate",
         "iki/polymer",
         "iki/lots",
+        "iki/strains",
         "iki/plate_assays",
         "iki/experiments",
         "iki/reagents",

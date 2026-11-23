@@ -56,7 +56,12 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
     types = result.plugin.types
     lot = types["iki/lots.Lot"]
     assert lot.abstract and lot.amount is None
-    concrete = {name.rsplit(".", 1)[1]: t for name, t in types.items() if not t.abstract}
+    lot_parents = {"iki/lots.Lot", "iki/lots.BiologicLot"}
+    concrete = {
+        name.rsplit(".", 1)[1]: t
+        for name, t in types.items()
+        if not t.abstract and t.extends in lot_parents
+    }
     # One search finds every kind: each extends Lot, directly or through BiologicLot.
     parents = {name: t.extends for name, t in concrete.items()}
     assert parents == {

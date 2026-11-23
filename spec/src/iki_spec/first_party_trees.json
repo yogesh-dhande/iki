@@ -20,7 +20,6 @@
       "bd3ef7f15f14a6be0439d1728d07857c29f48099"
     ],
     "iki/cell_lines": [
-      "c2fc6997c75d4dee59205a45bb121b455a3ad47d",
       "669310dacb04752cb1ccdebab110ff578a8dc7b8"
     ],
     "iki/complex": [
@@ -55,7 +54,8 @@
       "5e78e32205464137cc142ba3a0d5dcc5784c68f1",
       "78aa9bf431182ed47e6cb3b2e20c7820a41f7199",
       "0474ff0a696810e212fb538fd2dd1b1c5cbb5bef",
-      "c086b9230f40fc99a925d397bcea6c89e206be50"
+      "c086b9230f40fc99a925d397bcea6c89e206be50",
+      "c239a1e44639dc5736a2271d7640e818844287d5"
     ],
     "iki/example_lims": [
       "51ee81013451aafb10f4a1f377049d01ba0ee19c",
@@ -99,7 +99,8 @@
       "1c60de2b57a98ca77ce1a0558fafd6e979210e12",
       "bc0f69b24f7b43ed5b58495321a38b6eaa3e4086",
       "422d5f9025312c8dc2da736a61cf5dafbb53eb03",
-      "d883baf80692511d563ecde6805dc9156c4569f6"
+      "0f70785c251edc255e617572b778000dddfb6db8",
+      "5d1350bcd02aeb9944575efcdaa242740773fba6"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",
@@ -128,7 +129,9 @@
       "baec120854abb8d54fcb6da3fe9fadd96ba418a7",
       "83952cab0cd06ab7afd2982fde0eb7103c58cce6",
       "0e5e8785dce2dc7ce7bab13f3177537792eda2e5",
-      "b3127a62cb268a9754edf0a235519b6fb585a864"
+      "b3127a62cb268a9754edf0a235519b6fb585a864",
+      "8051358947ad7f10f3b28cf1a6fa57a4681d6b00",
+      "44a0eb2d9d8661ee4155ee6fe44fe5daa53a37cc"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2"
@@ -169,6 +172,10 @@
       "c6d3b0a4020cc7cafac622bf0233a5a62d72b0ea",
       "625f8a9ff963913f753cdff7b195303413b1acd1",
       "81b020b08b5880479e1c5f03da4cd63d0dcf0673"
+    ],
+    "iki/strains": [
+      "ffd3bb13863247881360620a7098022d1b29b317",
+      "2aa2a9c053514bd4c9308d6d9748915fccf35788"
     ]
   }
 }
