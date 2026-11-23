@@ -55,6 +55,7 @@ from iki_server.org.models import Project, registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun
+from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE
 from iki_server.tasks import task
 from iki_spec import titles
 from iki_spec.model import EntityType, Field
@@ -817,9 +818,11 @@ class _Planner:
         )
 
     def _clash(self, entity_id: uuid.UUID, entity_type: EntityType, values: dict[str, Any]) -> str:
-        """A unique value of the record's own another record of the project has. (Its
-        entry's are the registry's, checked with the entry.)"""
+        """Check the proposed current barcode and the record's project-scoped unique fields."""
         form = shape(entity_type.qualified_name)
+        name = form.vendor_barcode
+        if name is not None and form.is_reserved_vendor_code(name, values.get(name)):
+            return f"Its {name} {RESERVED_VENDOR_MESSAGE}"
         for message in _unique_clashes(self.made.project, form, values, entity_id, self.ids):
             return message
         return ""

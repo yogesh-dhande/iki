@@ -48,8 +48,14 @@ export interface Problem {
     rule?: string;
     hold?: boolean;
   }[];
+  /** Readable alternatives when a scan needs an explicit choice (`scan_ambiguous`). */
+  candidates?: Schemas["ScanCandidateOut"][];
+  /** Zero-based position of that scan in a submitted rack. */
+  index?: number;
   /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
   guard?: string;
+  /** On a storage observation conflict, the affected lines and their current revisions. */
+  affected_lines?: { line_id: string; line_revision: number }[];
   /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
   entities?: { id: string; hrid: string; type: string }[];
   /**

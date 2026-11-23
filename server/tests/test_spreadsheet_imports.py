@@ -803,3 +803,20 @@ def test_a_preview_whose_runner_went_away_goes_on(world: World) -> None:
     assert sheets.recover() == 1
     settle()
     assert SpreadsheetImport.objects.get(pk=imported["id"]).state == "previewed"
+
+
+def test_reserved_vendor_code_is_a_field_problem_before_a_tube_is_imported(world: World) -> None:
+    from test_storage import TUBE
+
+    uploaded = started(world, b"Barcode\nVendor-43\niKi:unassigned\n", TUBE, name="tubes.csv")
+    checked = previewed(world, uploaded)
+    problems = rows(world, checked, "problem")
+    assert len(problems) == 1 and problems[0]["row"] == 3
+    assert any(p["field"] == "barcode" and "IKI:" in p["detail"] for p in problems[0]["problems"])
+    assert checked["preview"]["counts"]["create"] == 1
+    refused = api_as(world).post(f"/spreadsheet-imports/{uploaded['id']}/commit", {})
+    assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
+    assert not records(world, TUBE, "barcode")
+    done = committed(world, checked, skip_problems=True, reason="Import the valid supplier row")
+    assert done["state"] == "imported"
+    assert list(records(world, TUBE, "barcode")) == ["Vendor-43"]

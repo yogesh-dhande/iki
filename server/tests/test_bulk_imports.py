@@ -14,7 +14,7 @@ from django.test.utils import CaptureQueriesContext
 from org_world import World
 from test_api_entities import api_as, create
 from test_files import run_tasks
-from test_run_imports import IMPORT, origin, stored
+from test_run_imports import IMPORT, importing, origin, stored
 from test_run_results import output
 from test_runs import launch, world
 from test_workers import WorkerClient, keep_connection, worker
@@ -178,6 +178,35 @@ def test_a_run_imports_its_creates_from_a_file(world: World) -> None:
     # Its staged lines are gone once it's written.
     assert imported.cleared
     assert not _staged_tables()
+
+
+def test_a_worker_import_refuses_a_reserved_tube_barcode_atomically(world: World) -> None:
+    type_name = "acme/protein.Tube"
+    file_id = stored(world)
+    run = importing(world, file_id).json()
+    # The fixture importer normally creates proteins. Declare Tube before its worker leases it.
+    stored_run = ActionRun.objects.get(pk=run["id"])
+    stored_run.spec["creates"].append(
+        {"type": type_name, "cardinality": "many", "derived_from": []}
+    )
+    stored_run.save(update_fields=["spec"])
+    pod = worker(world)
+    job = pod.lease().json()
+    data = lines(
+        *(
+            {"type": type_name, "values": {"barcode": code}, "origin": origin(file_id, code)}
+            for code in ("VENDOR-01", "iKi:reserved")
+        )
+    )
+    answer = pod.report(job, "complete", output=output(creates_file=upload(pod, job, data)))
+    assert answer.json()["run_status"] == "running", answer.content
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["code"] == "invalid_output"
+    (error,) = body["error"]["errors"]
+    assert error["pointer"] == "#/creates_file/2/values/barcode"
+    assert "cannot start with IKI:" in error["detail"]
+    assert not Entity.objects.filter(type=type_name).exists()
 
 
 def test_its_lines_take_every_kind_of_value_a_create_does(world: World) -> None:

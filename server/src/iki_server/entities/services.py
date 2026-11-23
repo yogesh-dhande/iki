@@ -80,7 +80,6 @@ from iki_server.entities.values import (
     read_value,
     row_columns,
     shape,
-    to_db,
     to_history,
 )
 from iki_server.entities.values import is_list_table as _is_list
@@ -773,7 +772,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = _observation_ids(form, f, to_db(f, value, refs))
+                given[name] = _observation_ids(form, f, form.field_value(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -782,7 +781,10 @@ def prepare(
         if f.type == "state" and not f.removed:
             given[name] = f.initial  # Where new records start (ADR 0125).
         elif name not in values and f.has_default and not f.computed:
-            given[name] = to_db(f, f.default, refs)
+            try:
+                given[name] = form.field_value(f, f.default, refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
     if not errors:
@@ -939,7 +941,7 @@ def update(
             current = rows.value(part, f)
             if name in identifying:
                 try:
-                    converted = to_db(f, value, refs)
+                    converted = form.field_value(f, value, refs)
                 except ValueError as error:
                     errors.update(problems_of(name, error))
                     continue
@@ -959,7 +961,9 @@ def update(
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
                 with using.namer.keeping(_named_in(f, current)):
-                    converted = _observation_ids(form, f, to_db(f, value, using), current)
+                    converted = _observation_ids(
+                        form, f, form.field_value(f, value, using), current
+                    )
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue

@@ -3354,6 +3354,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A receipt's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_receipt_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
         parameters: {
             query?: never;
@@ -3364,15 +3384,29 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /**
-         * Drop an extra line
-         * @description An extra line scanned by mistake, while the receipt is open.
-         */
+        /** Remove an observed extra */
         delete: operations["iki_server_api_storage_drop_line"];
         options?: never;
         head?: never;
         /** Check a receipt's line */
         patch: operations["iki_server_api_storage_check_line"];
+        trace?: never;
+    };
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a removed extra on an open receipt */
+        post: operations["iki_server_api_storage_restore_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/receipts/{receipt_id}/scan": {
@@ -3450,6 +3484,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reconciliations/{reconciliation_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A reconciliation's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_reconciliation_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
         parameters: {
             query?: never;
@@ -3465,8 +3519,9 @@ export interface paths {
         head?: never;
         /**
          * Resolve a reconciliation's line
-         * @description Saves or clears a line decision for the reviewed revision. Returns 409 if the
-         *     observations or another decision changed in the meantime.
+         * @description Save or clear the decision for the reviewed line_revision. A changed finding,
+         *     supporting scan, or decision on this line returns 409. Superseding a decision
+         *     requires a reason in addition to any note supporting the new decision.
          */
         patch: operations["iki_server_api_storage_resolve_line"];
         trace?: never;
@@ -3482,8 +3537,13 @@ export interface paths {
         put?: never;
         /**
          * Scan positions
-         * @description What's in each position, or that it's empty. A position scanned again replaces what
-         *     was scanned there.
+         * @description Record the scans in one transaction. Fresh positions and tubes need no precondition.
+         *     Supply the reviewed line revisions for observations being replaced or repeated.
+         *     A change of slot or contents also needs a reason. A conflict returns 409 with the
+         *     currently affected line IDs and versions in `affected_lines`. A shared label at its
+         *     expected slot records a positional match. An ambiguous label elsewhere returns 409
+         *     with the readable candidates and the zero-based scan index. A selected candidate
+         *     is rechecked against the original label when the rack is submitted again.
          */
         post: operations["iki_server_api_storage_scan_positions"];
         delete?: never;
@@ -4590,6 +4650,27 @@ export interface paths {
         get: operations["iki_server_api_storage_scan"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/storage/scan/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Identify a scan in its storage context
+         * @description Preview a box search, a destination, or the evidence for confirming a selected record.
+         *     Each candidate names the record, project and placement that the caller may read.
+         */
+        post: operations["iki_server_api_storage_scan_resolve_storage_scan"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6554,6 +6635,29 @@ export interface components {
              */
             reason: string;
         };
+        /** CancelReceiptIn */
+        CancelReceiptIn: {
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /** Reason */
+            reason: string;
+        };
+        /** CancelReconciliationIn */
+        CancelReconciliationIn: {
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
+            /**
+             * Reason
+             * @description Why this count is being cancelled.
+             */
+            reason: string;
+        };
         /** CarriedSignatureOut */
         CarriedSignatureOut: {
             /**
@@ -6667,7 +6771,7 @@ export interface components {
         CheckInIn: {
             /** Confirmations */
             confirmations?: {
-                [key: string]: string;
+                [key: string]: string | components["schemas"]["IkiIdConfirmationIn"];
             };
             /** Items */
             items: components["schemas"]["CheckInItemIn"][];
@@ -6685,9 +6789,12 @@ export interface components {
             record: string;
             /**
              * To
-             * @description Another container to put it in; null: where it was.
+             * @description Destination container ID, label or entity link; null: where it was.
              */
             to?: string | null;
+            /** To Choice */
+            to_choice?: string | null;
+            to_mode?: components["schemas"]["ScanMode"];
         };
         /** CheckOutIn */
         CheckOutIn: {
@@ -6744,6 +6851,21 @@ export interface components {
             title: string;
             /** Type */
             type: string;
+        };
+        /** CheckedReceiptOut */
+        CheckedReceiptOut: {
+            /**
+             * Found
+             * @description Whether this observation changed.
+             * @enum {string}
+             */
+            found: "recorded" | "again";
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            receipt: components["schemas"]["ReceiptOut"];
         };
         /** CheckpointOut */
         CheckpointOut: {
@@ -6848,10 +6970,14 @@ export interface components {
         CompleteReceiptIn: {
             /**
              * Missing Rest
-             * @description Mark every expected line not yet checked missing.
-             * @default false
+             * @description Mark every unchecked expected line missing. Defaults to false.
              */
-            missing_rest: boolean;
+            missing_rest?: boolean;
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
             /** Put Away */
             put_away?: components["schemas"]["PutAwayIn"][];
         };
@@ -6859,15 +6985,14 @@ export interface components {
         CompleteReconciliationIn: {
             /**
              * Missing Rest
-             * @description Take each recorded position nobody scanned to be missing, removed.
-             * @default false
+             * @description Treat unscanned occupants as missing and remove them. Defaults to false.
              */
-            missing_rest: boolean;
+            missing_rest?: boolean;
             /**
              * Note
-             * @default
+             * @description Completion note. Defaults to empty.
              */
-            note: string;
+            note?: string | null;
             /**
              * Plan Revision
              * @description The revision of the reconciliation plan being reviewed.
@@ -7267,6 +7392,36 @@ export interface components {
              */
             seconds: number;
         };
+        /** CountScanEvidenceOut */
+        CountScanEvidenceOut: {
+            /**
+             * Code
+             * @description The actual scanned label, null for empty; hidden labels are redacted.
+             */
+            code: string | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description The immutable scan event.
+             */
+            id: string;
+            /** @description How the record was identified. A shared label at its expected slot uses position. Null for an unidentified, empty or older scan. */
+            identity_basis: components["schemas"]["IdentityBasis"] | null;
+            /**
+             * Line Id
+             * Format: uuid
+             * @description The physical scan line, usable as a history filter.
+             */
+            line_id: string;
+            /** Position */
+            position: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            scanned_by: components["schemas"]["UserOut"];
+        };
         /** CountsOut */
         CountsOut: {
             /**
@@ -7592,10 +7747,10 @@ export interface components {
             amount: components["schemas"]["AmountIn"];
             /**
              * Confirm
-             * @description The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.
+             * @description For a type that requires a scan: its unique label or printed Iki code, a link to the record, or its HRID explicitly entered from the tube.
              * @default
              */
-            confirm: string;
+            confirm: string | components["schemas"]["IkiIdConfirmationIn"];
             /**
              * @description Why material is being drawn.
              * @default routine
@@ -9697,6 +9852,21 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** @enum {string} */
+        IdentityBasis: "record_link" | "iki_id" | "position" | "choice" | "label";
+        /**
+         * IkiIdConfirmationIn
+         * @description The operator independently entered the HRID printed on the selected record.
+         */
+        IkiIdConfirmationIn: {
+            /** Code */
+            code: string;
+            /**
+             * Mode
+             * @constant
+             */
+            mode: "iki_id";
+        };
         /** ImportCounts */
         ImportCounts: {
             /** Conflict */
@@ -10426,7 +10596,7 @@ export interface components {
         LabelOut: {
             /**
              * Code
-             * @description What its barcodes encode: its barcode, or its HRID.
+             * @description Unique Iki record identity encoded in the Data Matrix or QR.
              */
             code: string;
             /** Hrid */
@@ -10440,12 +10610,17 @@ export interface components {
             line: string;
             /** Title */
             title: string;
+            /**
+             * Vendor Code
+             * @description Additional vendor Code 128 requested for this print, otherwise null.
+             */
+            vendor_code: string | null;
         };
         /** LabelSizeOut */
         LabelSizeOut: {
             /**
              * Code128
-             * @description It has room for a Code 128 beside the 2D code.
+             * @description This stock supports an additional vendor Code 128 if it fits.
              */
             code128: boolean;
             /** Height Mm */
@@ -10483,6 +10658,11 @@ export interface components {
              * @enum {string}
              */
             format: "print" | "zpl";
+            /**
+             * Include Vendor Code
+             * @description Also print the vendor barcode as Code 128 when it fits. Defaults to false.
+             */
+            include_vendor_code?: boolean;
             /**
              * Preview
              * @description Only to show them: not recorded as prepared, and with no ZPL.
@@ -10815,9 +10995,12 @@ export interface components {
             record: string;
             /**
              * To
-             * @description The container it goes in, by ID or HRID; null: out of storage.
+             * @description Destination container ID, label or entity link; null: out of storage.
              */
             to: string | null;
+            /** To Choice */
+            to_choice?: string | null;
+            to_mode?: components["schemas"]["ScanMode"];
         };
         /** MovedOut */
         MovedOut: {
@@ -11026,10 +11209,10 @@ export interface components {
         MovesIn: {
             /**
              * Confirmations
-             * @description The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.
+             * @description Proof for each selected record that requires confirmation, keyed by its ID or HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.
              */
             confirmations?: {
-                [key: string]: string;
+                [key: string]: string | components["schemas"]["IkiIdConfirmationIn"];
             };
             /** Items */
             items: components["schemas"]["MoveItemIn"][];
@@ -11228,6 +11411,66 @@ export interface components {
             id: string;
             /** Type */
             type: string;
+        };
+        /** ObservationEventOut */
+        ObservationEventOut: {
+            actor: components["schemas"]["UserOut"];
+            /** After */
+            after: {
+                [key: string]: unknown;
+            } | null;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outcome" | "handoff" | "scan" | "resolution" | "status";
+            /**
+             * Line Id
+             * @description The original line, including after its removal.
+             */
+            line_id: string | null;
+            /**
+             * Operation
+             * Format: uuid
+             */
+            operation: string;
+            /**
+             * Previous
+             * @description The prior observation of this kind on this line.
+             */
+            previous: string | null;
+            /** Reason */
+            reason: string;
+            /** Receipt Id */
+            receipt_id: string | null;
+            /** Reconciliation Id */
+            reconciliation_id: string | null;
+            /** Revision */
+            revision: number;
+        };
+        /** ObservationEventsOut */
+        ObservationEventsOut: {
+            /** Items */
+            items: components["schemas"]["ObservationEventOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** OccupantOut */
         OccupantOut: {
@@ -12885,9 +13128,12 @@ export interface components {
             position?: string | null;
             /**
              * To
-             * @description The container, by ID or HRID.
+             * @description The destination container's ID, HRID or label.
              */
             to: string;
+            /** To Choice */
+            to_choice?: string | null;
+            to_mode?: components["schemas"]["ScanMode"];
         };
         /**
          * QueryIn
@@ -13064,22 +13310,42 @@ export interface components {
             handed_over_by?: string | null;
             /**
              * Note
-             * @description Such as its temperature on arrival.
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
             note?: string | null;
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /**
+             * Reason
+             * @description Defaults to empty. Required when correcting existing handoff information.
+             */
+            reason?: string | null;
         };
         /** ReceiptLineIn */
         ReceiptLineIn: {
             /**
-             * Note
-             * @default
+             * Line Revision
+             * @description Version of the line being corrected.
              */
-            note: string;
+            line_revision?: number | null;
+            /**
+             * Note
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
+             */
+            note?: string | null;
             /**
              * Outcome
-             * @description Null clears an expected line's. Damaged, rejected and extra need a note.
+             * @description Null clears an expected line. First observations can omit line_revision.
              */
             outcome: ("matched" | "missing" | "extra" | "damaged" | "rejected") | null;
+            /**
+             * Reason
+             * @description Defaults to empty. Required to change an existing outcome or replace a saved note.
+             */
+            reason?: string | null;
         };
         /** ReceiptLineOut */
         ReceiptLineOut: {
@@ -13097,6 +13363,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Line Revision
+             * @description The version of this line’s saved observation.
+             */
+            line_revision: number;
             /** Note */
             note: string;
             /** Outcome */
@@ -13112,6 +13383,9 @@ export interface components {
              * @description You may change it, while it's open.
              */
             can_receive: boolean;
+            /** Cancel Reason */
+            cancel_reason: string;
+            cancelled_by: components["schemas"]["UserOut"] | null;
             /** Completed At */
             completed_at: string | null;
             /** Handed Over By */
@@ -13133,12 +13407,22 @@ export interface components {
                 [key: string]: number;
             };
             /**
+             * Plan Revision
+             * @description The receipt revision shown for review.
+             */
+            plan_revision: number;
+            /**
              * Project
              * Format: uuid
              * @description The service receiving it.
              */
             project: string;
             received_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Removed Lines
+             * @description Removed extras kept for review and restoration.
+             */
+            removed_lines: components["schemas"]["ReceiptLineOut"][];
             request: components["schemas"]["StepOut"];
             /**
              * Started At
@@ -13154,17 +13438,20 @@ export interface components {
         };
         /** ReceiptScanIn */
         ReceiptScanIn: {
+            /** Choice */
+            choice?: string | null;
             /** Code */
             code: string;
+            mode?: components["schemas"]["ScanMode"];
         };
         /** ReceiptScanOut */
         ReceiptScanOut: {
             /**
              * Found
-             * @description `matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.
+             * @description `matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because several readable records share its label; `removed`: an extra that can be restored.
              * @enum {string}
              */
-            found: "matched" | "again" | "extra";
+            found: "matched" | "again" | "extra" | "ambiguous_extra" | "removed";
             /**
              * Line
              * Format: uuid
@@ -13218,8 +13505,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Line Revision
+             * @description The version of this line and its supporting slot evidence.
+             */
+            line_revision: number;
             /** Note */
             note: string;
+            /** @description The scan supporting the finding, including a missing tube's expected slot. */
+            observation: components["schemas"]["CountScanEvidenceOut"] | null;
             ref: components["schemas"]["RefOut"] | null;
             /** Resolution */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
@@ -13229,11 +13523,16 @@ export interface components {
              */
             resolution_stale: boolean;
             resolved_by: components["schemas"]["UserOut"] | null;
+            /** @description The exact scan on which the saved decision was based. */
+            reviewed_observation: components["schemas"]["CountScanEvidenceOut"] | null;
         };
         /** ReconciliationOut */
         ReconciliationOut: {
             /** Can Change */
             can_change: boolean;
+            /** Cancel Reason */
+            cancel_reason: string;
+            cancelled_by: components["schemas"]["UserOut"] | null;
             /** Completed At */
             completed_at: string | null;
             completed_by: components["schemas"]["UserOut"] | null;
@@ -13733,19 +14032,21 @@ export interface components {
         };
         /** ResolveIn */
         ResolveIn: {
+            /** Line Revision */
+            line_revision: number;
             /**
              * Note
-             * @default
+             * @description Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
              */
-            note: string;
+            note?: string | null;
             /**
-             * Plan Revision
-             * @description The revision of the reconciliation plan being reviewed.
+             * Reason
+             * @description Defaults to empty. Required when changing or clearing a saved decision.
              */
-            plan_revision: number;
+            reason?: string | null;
             /**
              * Resolution
-             * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
+             * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.
              */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
         };
@@ -13795,6 +14096,26 @@ export interface components {
              * @description The states that send it back to the asking project, where it stays.
              */
             released_states: string[];
+        };
+        /** ReviewedCountLine */
+        ReviewedCountLine: {
+            /**
+             * Line Id
+             * Format: uuid
+             */
+            line_id: string;
+            /** Line Revision */
+            line_revision: number;
+        };
+        /** ReviewedExtraIn */
+        ReviewedExtraIn: {
+            /**
+             * Line Revision
+             * @description The reviewed version of the extra line.
+             */
+            line_revision: number;
+            /** Reason */
+            reason: string;
         };
         /** RevisionDetailOut */
         RevisionDetailOut: {
@@ -14972,13 +15293,60 @@ export interface components {
             /** Shared */
             shared?: boolean | null;
         };
+        /** ScanCandidateBoxOut */
+        ScanCandidateBoxOut: {
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string;
+        };
+        /** ScanCandidateOut */
+        ScanCandidateOut: {
+            box: components["schemas"]["ScanCandidateBoxOut"] | null;
+            /** Hrid */
+            hrid: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            owner_project: components["schemas"]["ScanCandidateProjectOut"] | null;
+            /** Position */
+            position: string | null;
+            /** Title */
+            title: string;
+            /** Type */
+            type: string;
+        };
+        /** ScanCandidateProjectOut */
+        ScanCandidateProjectOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** ScanIn */
         ScanIn: {
+            /**
+             * Choice
+             * @description The readable candidate selected for this scanned label.
+             */
+            choice?: string | null;
             /**
              * Code
              * @description Null: it's empty.
              */
             code?: string | null;
+            /** @description Defaults to label. Use iki_id for a printed Iki ID. */
+            mode?: components["schemas"]["ScanMode"];
             /** Position */
             position: string;
         };
@@ -15027,6 +15395,8 @@ export interface components {
             /** Type */
             type: string;
         };
+        /** @enum {string} */
+        ScanMode: "label" | "iki_id";
         /** ScanOut */
         ScanOut: {
             /** Code */
@@ -15045,8 +15415,67 @@ export interface components {
              */
             code: string;
         };
+        /** ScanResolveIn */
+        ScanResolveIn: {
+            /**
+             * Choice
+             * @description A readable candidate chosen for navigation.
+             */
+            choice?: string | null;
+            /**
+             * Code
+             * @description The label, printed Iki ID or record link read.
+             */
+            code: string;
+            /**
+             * Container
+             * @description The container to search for a box scan.
+             */
+            container?: string | null;
+            mode?: components["schemas"]["ScanMode"];
+            /**
+             * Position
+             * @description Only the usable occupant at this position.
+             */
+            position?: string | null;
+            /**
+             * Record
+             * @description The record whose identity is being confirmed.
+             */
+            record?: string | null;
+            /**
+             * Records
+             * @description Selected record UUIDs or HRIDs. Omit record to identify a tube across the selection (up to 500). With record, include the target.
+             */
+            records?: string[] | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "box" | "confirmation" | "destination";
+        };
+        /** ScanResolveOut */
+        ScanResolveOut: {
+            /** Candidates */
+            candidates: components["schemas"]["ScanCandidateOut"][];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "one" | "ambiguous" | "none";
+        };
         /** ScansIn */
         ScansIn: {
+            /**
+             * Reason
+             * @description Defaults to empty. Required when replacing an earlier observation.
+             */
+            reason?: string | null;
+            /**
+             * Reviewed Lines
+             * @description Prior observations to recheck or replace, including empty slots.
+             */
+            reviewed_lines?: components["schemas"]["ReviewedCountLine"][];
             /**
              * Scans
              * @description Each position scanned: one at a time, or a rack scanner's file.
@@ -23508,7 +23937,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelReceiptIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -23547,6 +23980,34 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_receipt_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
+                };
+            };
+        };
+    };
     iki_server_api_storage_drop_line: {
         parameters: {
             query?: never;
@@ -23557,7 +24018,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewedExtraIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -23583,6 +24048,33 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ReceiptLineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckedReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_restore_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewedExtraIn"];
             };
         };
         responses: {
@@ -23654,7 +24146,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelReconciliationIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -23689,6 +24185,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_reconciliation_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
                 };
             };
         };
@@ -25332,6 +25856,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScanOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_scan_resolve_storage_scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanResolveIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanResolveOut"];
                 };
             };
         };

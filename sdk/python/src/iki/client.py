@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         EntryOut,
         FileOut,
         GraphOut,
+        IkiIdConfirmationIn,
         IntakeOut,
         MeOut,
         MovementOut,
@@ -690,7 +691,7 @@ class Entities(_Part):
         *,
         purpose: DrawPurpose = "routine",
         used_in: str | None = None,
-        confirm: str = "",
+        confirm: str | IkiIdConfirmationIn = "",
         reason: str = "",
     ) -> AmountMovedOut:
         """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
@@ -698,7 +699,8 @@ class Entities(_Part):
         Give the amount in its own unit or one that converts to it. A recorded
         concentration also permits a mass to be drawn by volume or vice versa.
         ``used_in`` identifies the receiving experiment or analysis by ID or HRID.
-        Supply the barcode or HRID in ``confirm`` when the source type requires a scan."""
+        Supply the scanned label in ``confirm``. To enter the HRID printed on the tube
+        independently, pass ``{"mode": "iki_id", "code": "TUB-000001"}``."""
         body: dict[str, Any] = {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
         if used_in is not None:
             body["used_in"] = used_in
