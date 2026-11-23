@@ -205,6 +205,19 @@ molecule **and** from what a run asked for, and a better run corrects them.
 complemented,** so a coding sequence annotated `complement(...)` in a vector
 is optimized where it lies and the product still reads as the template does.
 
+### It runs on the server, not in `iki-wasm`
+
+`iki-wasm` carries the science the sequence viewer computes while a person
+interacts with it: a melting temperature that follows a selection, annotation
+matching as a sequence is drawn, primer checks beside a map -- work that has
+to happen between frames. An optimization is not that. A host and a coding
+sequence are stated, a result is asked for, and the person reads what comes
+back; nothing in the viewer needs it per frame. So it runs server-side like
+the other plugins' science, and a WebAssembly module would buy only a second
+implementation and a digest to keep in step with it. If a viewer ever needs
+codon usage recomputed live as someone edits, that is the moment to move it,
+and this is the paragraph that will say what changed.
+
 ## Consequences
 
 - A lab can design a synthesis order inside Iki, and the order, the gene it
