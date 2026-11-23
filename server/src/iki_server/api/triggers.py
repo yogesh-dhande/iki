@@ -17,6 +17,7 @@ from ninja import Field, Query, Router, Schema
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
+from iki_server.api.graph import FollowedName
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import Tier
@@ -40,9 +41,7 @@ class RelatedOut(Schema):
         description="`downstream`: what was derived from it; `upstream`: what it was derived from."
     )
     depth: int = Field(description="How many edges away, at most.")
-    edges: list[Literal["reference", "run", "file", "aliquot", "transfer"]] = Field(
-        description="The kinds of edge it walks; empty for all."
-    )
+    edges: list[FollowedName] = Field(description="The kinds of edge it walks; empty for all.")
 
 
 class TriggerOut(Schema):
