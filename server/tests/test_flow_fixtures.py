@@ -29,8 +29,7 @@ DRAWN = {
 def served() -> dict[str, Any]:
     """Each drawn type's state fields as the API serves them, and its plugins' lab roles'
     labels, by role."""
-    from test_example_lims import DEPENDENCIES as LIMS
-    from test_first_party_plugins import FIRST_PARTY, PLUGINS
+    from first_party_dependencies import FIRST_PARTY, PLUGINS
 
     from iki_server.api.entities import _state_out
     from iki_spec.validate import load_plugin
@@ -39,8 +38,7 @@ def served() -> dict[str, Any]:
     roles: dict[str, str] = {}
     for plugin, names in DRAWN.items():
         directory = PLUGINS / plugin
-        dependencies = LIMS if plugin == "example_lims" else list(FIRST_PARTY[directory])
-        loaded = load_plugin(directory, dependencies=dependencies)
+        loaded = load_plugin(directory, dependencies=list(FIRST_PARTY[directory]))
         assert loaded.problems == [], loaded.problems
         assert loaded.plugin is not None
         for role in loaded.plugin.roles.values():

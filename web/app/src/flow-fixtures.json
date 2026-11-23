@@ -6,6 +6,8 @@
     "iki/example_lims.qa": "Sample and result QA",
     "iki/example_lims.reviewer": "Reviewer",
     "iki/lots.qa": "Lot QA",
+    "iki/lots.verification_analyst": "Verification analyst",
+    "iki/lots.verification_reviewer": "Verification reviewer",
     "iki/plate_assays.analyst": "Assay analyst",
     "iki/plate_assays.qa": "Assay QA",
     "iki/plate_assays.reviewer": "Assay reviewer"
