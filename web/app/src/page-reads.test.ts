@@ -161,3 +161,63 @@ describe.each([
       await expect(reading).resolves.toBeInstanceOf(Response);
     }));
 });
+
+describe("a navigation away", () => {
+  function leave() {
+    window.dispatchEvent(new Event("beforeunload", { cancelable: true }));
+  }
+
+  it("stops the page's reads as it begins, before the browser cuts them off", async () => {
+    const { sent } = transport();
+    const reading = fetchPageRead(url, { signal: new AbortController().signal });
+    await vi.waitFor(() => {
+      expect(sent).toHaveLength(1);
+    });
+    leave();
+    await expect(reading).rejects.toMatchObject({ message: "The document is leaving." });
+    const later = fetchPageRead(url);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(1);
+    transition("pagehide");
+    transition("pageshow");
+    await vi.waitFor(() => {
+      expect(sent).toHaveLength(2);
+    });
+    sent[1]?.answer();
+    await expect(later).resolves.toBeInstanceOf(Response);
+  });
+
+  it.each(["pointerdown", "keydown", "touchstart"])(
+    "that doesn't happen, as with a download, resumes them on the next %s on the page",
+    async (type) => {
+      const { sent } = transport();
+      leave();
+      const reading = fetchPageRead(url);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(sent).toHaveLength(0);
+      document.body.dispatchEvent(new Event(type, { bubbles: true }));
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(1);
+      });
+      expect(sent[0]?.request.signal.aborted).toBe(false);
+      sent[0]?.answer();
+      await expect(reading).resolves.toBeInstanceOf(Response);
+    },
+  );
+
+  it("that the page left for stays stopped whatever the old page hears, until restoration", async () => {
+    const { sent } = transport();
+    leave();
+    transition("pagehide");
+    const reading = fetchPageRead(url);
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(sent).toHaveLength(0);
+    transition("pageshow");
+    await vi.waitFor(() => {
+      expect(sent).toHaveLength(1);
+    });
+    sent[0]?.answer();
+    await expect(reading).resolves.toBeInstanceOf(Response);
+  });
+});

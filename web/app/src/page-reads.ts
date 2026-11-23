@@ -3,26 +3,57 @@ const left = new DOMException("The document is leaving.", "AbortError");
 let lifetime = new AbortController();
 let restored: Promise<void> | undefined;
 let restore: (() => void) | undefined;
+/** Listening for a sign that a departure was called off, from beforeunload until pagehide. */
+let watching: AbortController | undefined;
 
+function depart(): void {
+  if (restored) return;
+  restored = new Promise<void>((resolve) => {
+    restore = resolve;
+  });
+  lifetime.abort(left);
+}
+
+function resume(): void {
+  watching?.abort();
+  watching = undefined;
+  if (!restored) return;
+  lifetime = new AbortController();
+  restored = undefined;
+  restore?.();
+  restore = undefined;
+}
+
+// A browser stops a document's loads once a navigation away begins: WebKit before pagehide,
+// reporting each read it cuts off as an access-control failure. So the page's reads stop at
+// beforeunload. The navigation may still not happen (a download, a 204, the person stopping
+// it or choosing to stay): the next thing they do on the page resumes them. Waiting for that
+// rather than a timer keeps a slow navigation's old page from starting reads again.
+window.addEventListener(
+  "beforeunload",
+  () => {
+    depart();
+    if (watching) return;
+    watching = new AbortController();
+    for (const type of ["pointerdown", "keydown", "touchstart"]) {
+      window.addEventListener(type, resume, { capture: true, signal: watching.signal });
+    }
+  },
+  { capture: true },
+);
 window.addEventListener(
   "pagehide",
   () => {
-    if (restored) return;
-    restored = new Promise<void>((resolve) => {
-      restore = resolve;
-    });
-    lifetime.abort(left);
+    watching?.abort();
+    watching = undefined;
+    depart();
   },
   { capture: true },
 );
 window.addEventListener(
   "pageshow",
   (event) => {
-    if (!event.persisted || !restored) return;
-    lifetime = new AbortController();
-    restored = undefined;
-    restore?.();
-    restore = undefined;
+    if (event.persisted) resume();
   },
   { capture: true },
 );
