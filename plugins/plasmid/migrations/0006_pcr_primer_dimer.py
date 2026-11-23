@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('iki__dna', '0003_primer_checks'),
+        ('iki__dna', '0006_primer_checks'),
         ('iki__plasmid', '0005_plasmid_source_assembly_and_more'),
         ('iki_entities', '0021_released_review_revision'),
     ]

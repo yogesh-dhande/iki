@@ -12,6 +12,11 @@ A primer's own checks -- its melting temperature in the buffer a PCR runs in, th
 it folds into, the dimer it forms with another copy of itself, how firmly its 3' end sits
 and its longest run of one base -- are computed by the packaged Rust module (ADR 0201,
 `oligos.py`), not here: they are the same numbers the server and the web app quote.
+
+`melting_temperature` is the same module asked for the conditions a primer's own Tm is
+quoted under instead (`Conditions::PRIMER`: SantaLucia 1998 at 50 mM Na+, no Mg2+ or
+dNTPs, 25 nM of each strand, or 50 nM of a primer that pairs with itself), which is what
+the mutagenesis and guide designs compare against. It is not a second implementation.
 """
 
 import json
@@ -24,6 +29,10 @@ import oligos
 
 GC = frozenset("GCS")
 KNOWN = frozenset("ACGTUSW")
+COMPLEMENT = str.maketrans("ACGT", "TGCA")
+#: The module's request fields for `Conditions::PRIMER`: every field left out is that
+#: constant's, so an empty object asks for exactly it.
+PRIMER_CONDITIONS: dict[str, Any] = {}
 #: What the module reports per oligo, and the field each value goes in. A value the
 #: module leaves out -- an oligo with ambiguity codes has no thermodynamics, and an oligo
 #: that folds into nothing has no hairpin -- leaves its field alone.
@@ -39,6 +48,26 @@ def gc_content(bases: str) -> float | None:
     if not counted:
         return None
     return round(100 * sum(base in GC for base in counted) / len(counted), 2)
+
+
+def reverse_complement(bases: str) -> str:
+    return bases.translate(COMPLEMENT)[::-1]
+
+
+def melting_temperature(bases: str) -> float | None:
+    """°C under `Conditions::PRIMER`, or None for a primer with other bases than A, C, G
+    and T, or fewer than two."""
+    bases = bases.upper()
+    if len(bases) < 2 or set(bases) - set("ACGT"):
+        return None
+    answer = oligos.call(
+        "iki_check_oligos",
+        {"oligos": [{"hrid": "tm", "name": "", "bases": bases}], "conditions": PRIMER_CONDITIONS},
+    )
+    if "error" in answer:
+        raise RuntimeError(f"The melting temperature was refused: {answer['error']}")
+    tm = answer["oligos"][0].get("melting_temperature")
+    return None if tm is None else round(tm, 1)
 
 
 def composition(bases: str) -> dict[str, float]:
