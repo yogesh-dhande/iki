@@ -1433,3 +1433,50 @@ function ListInput(props: InputProps) {
     </fieldset>
   );
 }
+
+/**
+ * A record chosen outside a form, as a reference field's: what a draw went into, say. It's
+ * the reference input, given a field of its own to search `to`'s types.
+ */
+export function RecordPicker({
+  name,
+  label,
+  to = [],
+  types,
+  value,
+  onChange,
+  error,
+  help,
+}: {
+  name: string;
+  label: string;
+  to?: string[];
+  types: EntityType[];
+  value: Picked | null;
+  onChange: (picked: Picked | null) => void;
+  error?: string | undefined;
+  help?: string | undefined;
+}) {
+  const field = {
+    name,
+    label,
+    type: "ref",
+    to,
+    required: false,
+    description: null,
+  } as unknown as FieldDef;
+  return (
+    <RefInput
+      field={field}
+      type={{ values_schema: {} }}
+      types={types}
+      draft={value}
+      onChange={(d) => {
+        onChange(d as Picked | null);
+      }}
+      error={error}
+      note={help}
+      projectId=""
+    />
+  );
+}

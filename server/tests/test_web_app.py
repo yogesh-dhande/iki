@@ -309,6 +309,7 @@ def test_server_pages_have_the_web_apps_sidebar(
         "Requests",
         "Runs",
         "Files",
+        "Storage",
         *(["New project"] if can["create_projects"] else []),
         *projects,
         "All projects",

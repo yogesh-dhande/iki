@@ -33,6 +33,7 @@ import {
 } from "../requests";
 import {
   Button,
+  buttonClass,
   ConfirmDialog,
   Loading,
   ProblemAlert,
@@ -210,6 +211,17 @@ export function EntityRequest({ entity, type }: { entity: Entity; type: EntityTy
           </>
         ) : null}
       </dl>
+      {sent && type.request?.receives && sides.yours.includes("service") ? (
+        <div className="actions">
+          <Link
+            className={buttonClass("primary")}
+            to="/storage/receive/$ref/"
+            params={{ ref: entity.hrid }}
+          >
+            Receive what it sent
+          </Link>
+        </div>
+      ) : null}
       {sending ? <Sending entity={entity} type={type} sides={sides} named={named} /> : null}
     </section>
   );

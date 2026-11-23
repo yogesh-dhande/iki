@@ -212,9 +212,55 @@ describe("a record's amount", () => {
       amount: { value: "12.5", unit: "uL" },
       purpose: "routine",
       reason: "SEC",
+      used_in: null,
       confirm: "",
     });
     expect(await screen.findByText("SMP-000001 has 237.5 uL now.")).toBeInTheDocument();
+  });
+
+  it("records what a draw went into, once the tube's own label is scanned to confirm it", async () => {
+    const tube: Schemas["EntityTypeOut"] = {
+      ...SAMPLE,
+      storage: { holds: [], grid: null, barcode: "label", label: null, confirm: ["draw"] },
+    };
+    onSample();
+    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
+      path: [],
+      hidden: false,
+      stored: false,
+      position: null,
+      custodian: null,
+      custody_since: null,
+    });
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location/events`, page([]));
+    const experiment = entity({
+      id: "00000000-0000-7000-8000-00000000e0e1",
+      hrid: "EXP-000003",
+      title: "Kinase assay",
+    });
+    answer("GET /api/v1/entities", page([experiment]));
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Volume" });
+    await user.click(within(card).getByRole("button", { name: "Draw" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const draw = within(dialog).getByRole("button", { name: "Draw" });
+    await user.type(within(dialog).getByRole("textbox", { name: "How much" }), "5");
+    expect(draw).toHaveAttribute("aria-disabled", "true");
+    await user.click(within(dialog).getByRole("combobox", { name: /^Used in/ }));
+    await user.click(await screen.findByRole("option", { name: /EXP-000003/ }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Scan its label" }), "S-1");
+    expect(draw).not.toHaveAttribute("aria-disabled");
+    answer(DRAW, respond(200, { amount: amount("245"), movement: movement("drawn", "-5", "245") }));
+    await user.click(draw);
+    expect(await screen.findByText("SMP-000001 has 245 uL now.")).toBeInTheDocument();
+    expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/draw`).at(-1)?.body).toEqual({
+      amount: { value: "5", unit: "uL" },
+      purpose: "routine",
+      reason: "",
+      used_in: experiment.id,
+      confirm: "S-1",
+    });
   });
 
   it("explains a due retest on the page and in the dialog, and allows a QA sample", async () => {
@@ -255,6 +301,7 @@ describe("a record's amount", () => {
       amount: { value: "2", unit: "uL" },
       purpose: "qa_sampling",
       reason: "",
+      used_in: null,
       confirm: "",
     });
   });

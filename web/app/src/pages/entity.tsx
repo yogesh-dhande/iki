@@ -53,6 +53,7 @@ import { EntityHolds } from "./entity-holds";
 import { EntitySignatures, signaturesQuery } from "./entity-signatures";
 import { EntityRequest, ResultNote } from "./entity-request";
 import { EntityAmount } from "./entity-amount";
+import { EntityLocation } from "./entity-location";
 import { EntityState } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityTabs, neighboursOf, neighboursQuery, trailCount } from "./entity-header";
@@ -1327,6 +1328,7 @@ export function EntityOverview() {
           {type?.result ? <ResultNote entity={entity} type={type} /> : null}
           {type && sides ? <EntityRequest entity={entity} type={type} /> : null}
           {!entity.archived ? <EntityState entity={entity} type={type} /> : null}
+          <EntityLocation entity={entity} type={type} />
           <EntityAmount entity={entity} type={type} types={types} />
           {!entity.archived && type ? <EntityWork entity={entity} type={type} /> : null}
           <EntitySignatures entity={entity} {...(signing ? { signing } : {})} />

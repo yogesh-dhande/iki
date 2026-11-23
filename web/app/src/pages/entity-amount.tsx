@@ -10,6 +10,8 @@ import { useId, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
+import { RecordPicker } from "../entity-inputs";
+import type { Picked } from "../entity-values";
 import {
   Button,
   ConfirmDialog,
@@ -150,6 +152,8 @@ export function EntityAmount({
         <AmountDialog
           entity={entity}
           kept={kept}
+          types={types}
+          confirmDraw={!!type.storage?.confirm.includes("draw")}
           aliquotType={types.find((t) => t.name === (kept.aliquots ?? type.name))}
           doing={doing}
           onClose={() => {
@@ -172,12 +176,17 @@ function ownFields(aliquotType: EntityType | undefined, kept: Schemas["TypeAmoun
 function AmountDialog({
   entity,
   kept,
+  types,
+  confirmDraw,
   aliquotType,
   doing,
   onClose,
 }: {
   entity: Entity;
   kept: Schemas["TypeAmountOut"];
+  types: EntityType[];
+  /** Its type asks for its label to be scanned before it's drawn from. */
+  confirmDraw: boolean;
   aliquotType: EntityType | undefined;
   doing: Doing;
   onClose: () => void;
@@ -187,6 +196,8 @@ function AmountDialog({
   const [to, setTo] = useState("");
   const [count, setCount] = useState("2");
   const [reason, setReason] = useState("");
+  const [usedIn, setUsedIn] = useState<Picked | null>(null);
+  const [scanned, setScanned] = useState("");
   const purposes = DRAW_PURPOSES.filter((p) => entity.can.draw_purposes?.includes(p.value));
   const [purpose, setPurpose] = useState<Schemas["DrawPurpose"]>(purposes[0]?.value ?? "routine");
   const purposeAllowed = purposes.some((p) => p.value === purpose);
@@ -209,7 +220,13 @@ function AmountDialog({
           moved: unwrap(
             await iki.POST("/api/v1/entities/{ref}/amount/draw", {
               params: { path: { ref } },
-              body: { amount: quantity, purpose, reason: reason.trim(), confirm: "" },
+              body: {
+                amount: quantity,
+                purpose,
+                reason: reason.trim(),
+                used_in: usedIn?.id ?? null,
+                confirm: scanned.trim(),
+              },
             }),
           ),
           aliquots: [],
@@ -260,7 +277,9 @@ function AmountDialog({
     !errors["purpose"] &&
     !errors["reason"] &&
     !errors["to"] &&
-    !errors["count"]
+    !errors["count"] &&
+    !errors["used_in"] &&
+    !errors["confirm"]
       ? problem
       : undefined;
   const titles: Record<Doing, string> = {
@@ -283,7 +302,9 @@ function AmountDialog({
       title={titles[doing]}
       confirmLabel={confirm[doing]}
       confirmVariant="primary"
-      confirmDisabled={doing === "draw" && (!purposeAllowed || !!refusal)}
+      confirmDisabled={
+        doing === "draw" && (!purposeAllowed || !!refusal || (confirmDraw && !scanned.trim()))
+      }
       busy={move.isPending}
       problem={shownProblem}
       onCancel={onClose}
@@ -334,6 +355,30 @@ function AmountDialog({
           }}
           error={errors["purpose"]}
           {...(refusal ? { help: refusal } : {})}
+        />
+      ) : null}
+      {doing === "draw" ? (
+        <RecordPicker
+          name="used_in"
+          label="Used in"
+          types={types}
+          value={usedIn}
+          onChange={setUsedIn}
+          error={errors["used_in"]}
+          help={`The experiment or record it went into: it’s linked to ${entity.hrid} in both’s lineage.`}
+        />
+      ) : null}
+      {doing === "draw" && confirmDraw ? (
+        <TextField
+          label="Scan its label"
+          value={scanned}
+          onChange={(v) => {
+            setScanned(v);
+            if (move.isError) move.reset();
+          }}
+          maxLength={200}
+          error={errors["confirm"]}
+          help={`Scan ${entity.hrid}’s own label, to confirm it’s the one in your hand.`}
         />
       ) : null}
       {doing === "transfer" ? (
