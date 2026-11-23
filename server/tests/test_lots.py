@@ -20,7 +20,10 @@ from iki_spec.validate import load_plugin
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "plugins"
 LOTS = PLUGINS / "lots"
-DEPENDENCIES = [PLUGINS / n for n in ("dna", "protein", "oligo", "plasmid")]
+DEPENDENCIES = [
+    PLUGINS / n
+    for n in ("dna", "protein", "oligo", "plasmid", "antibody", "small_molecule", "conjugate")
+]
 #: A concrete type of complex, for a protein lot of one.
 COMPLEX = PLUGINS / "complex"
 #: Inotersen (Tegsedi): a 5-10-5 2′-MOE gapmer, phosphorothioate throughout, every C a
@@ -103,7 +106,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "PolymerLot": ["iki/core.Entity"],
         # A protein, or a complex of them: an antibody, an Fc fusion, a multispecific.
         "ProteinLot": ["iki/protein.Protein", "iki/core.Complex"],
-        "ConjugateLot": ["iki/core.Entity"],
+        "ConjugateLot": ["iki/conjugate.Conjugate"],
     }
     # QA's disposition: quarantined until released, which locks it and is signed for;
     # on hold, rejected and expired hold its amount, whichever kind it is.
@@ -241,12 +244,9 @@ def test_a_reduced_dar_counts_the_chains_its_conjugate_has() -> None:
     dar, _, why = lots.dar(rows, None)
     assert dar is None
     assert "doesn't say how many light and heavy chains" in why
-    parts = [
-        {"part": "00000000-0000-7000-8003-000000000001", "copies": 1, "role": "heavy"},
-        {"part": "00000000-0000-7000-8003-000000000002", "copies": 1, "role": "light"},
-    ]
-    assert lots.chains({"components": parts}) == fab
-    assert lots.chains({"name": "an ADC registered as something else"}) is None
+    assert lots.chains({"carrier_heavy_copies": 1, "carrier_light_copies": 1}) == fab
+    assert lots.chains({"carrier_heavy_copies": 1, "carrier_light_copies": 0}) is None
+    assert lots.chains({}) is None
 
 
 def compute(kind: str, *entities: dict[str, Any]) -> dict[str, Any]:
@@ -617,6 +617,32 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             alice, "iki/lots.ProteinLot", project, {{"protein": str(hemoglobin.pk)}},
             amount={{"value": 10, "unit": "mg"}},
         ).entity
+        # Synthetic conjugate for testing the link. Its component is aspirin (PubChem 2244).
+        aspirin = services.create(
+            alice, "iki/small_molecule.Compound", project,
+            {{"inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N", "smiles": "CC(=O)Oc1ccccc1C(=O)O"}},
+        ).entity
+        def register_conjugate(rows, kind="oligo_conjugate"):
+            return services.create(
+                alice, "iki/conjugate.Conjugate", project,
+                {{"carrier": [{{"kind": kind, "molecule": str(oligo.entry_id)}}],
+                  "attachments": rows}},
+            ).entity
+
+        one = {{"part": str(aspirin.entry_id), "site": "site A", "copies": 1,
+               "loss_formula": "H2O"}}
+        two = {{**one, "site": "site B"}}
+        conjugate = register_conjugate([one, two])
+        reordered = register_conjugate([two, one])
+        moved = register_conjugate([one, {{**two, "site": "site C"}}])
+        another_ratio = register_conjugate([one, {{**two, "copies": 2}}])
+        mismatched_kind = errors(lambda: register_conjugate([one], kind="antibody_drug"))
+        conjugate_lot = services.create(
+            alice, "iki/lots.ConjugateLot", project, {{"conjugate": str(conjugate.entry_id)}},
+        ).entity
+        of_carrier = errors(lambda: services.create(
+            alice, "iki/lots.ConjugateLot", project, {{"conjugate": str(oligo.entry_id)}},
+        ))
         polymer = errors(lambda: services.create(
             alice, "iki/lots.PolymerLot", project,
             {{"polymer": str(puc.pk), "mn": 38560, "mw": 29184}},
@@ -639,6 +665,13 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             "prep_left": str(amounts.amounts_of([prep])[prep.pk].value),
             "of_a_sequence": of_a_sequence,
             "of_a_complex": of_a_complex.type,
+            "of_conjugate": services.current_values_of([conjugate_lot])[conjugate_lot.pk][
+                "conjugate"
+            ] == conjugate.entry_id,
+            "conjugate_identities": [str(c.entry_id) for c in
+                                    (conjugate, reordered, moved, another_ratio)],
+            "mismatched_kind": mismatched_kind,
+            "of_carrier": of_carrier,
             "polymer": polymer,
             "lots": sorted(e.type for e in everything),
             "hrids": sorted(e.hrid.split("-")[0] for e in everything),
@@ -663,6 +696,19 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         "plasmid": ["must refer to a iki/plasmid.Plasmid, not a iki/dna.DNASequence."]
     }
     assert result["of_a_complex"] == "iki/lots.ProteinLot"
+    assert result["of_conjugate"] is True
+    first, reordered, moved, another_ratio = result["conjugate_identities"]
+    assert first == reordered
+    assert len({first, moved, another_ratio}) == 3
+    assert result["mismatched_kind"] == {
+        "carrier/0/molecule": [
+            "must refer to a iki/antibody.Antibody in a antibody_drug row, "
+            "not a iki/oligo.Oligonucleotide."
+        ]
+    }
+    assert result["of_carrier"] == {
+        "conjugate": ["must refer to a iki/conjugate.Conjugate, not a iki/oligo.Oligonucleotide."]
+    }
     assert result["polymer"] == {
         "mw": [
             "Its Mw, 29184 g/mol, is below its Mn, 38560 g/mol: a weight average is never "
@@ -670,13 +716,14 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         ]
     }
     assert result["lots"] == [
+        "iki/lots.ConjugateLot",
         "iki/lots.GenericLot",
         "iki/lots.OligoLot",
         "iki/lots.OligoLot",
         "iki/lots.PlasmidPrep",
         "iki/lots.ProteinLot",
     ]
-    assert result["hrids"] == ["GLOT", "OLOT", "OLOT", "PLOT", "PREP"]
+    assert result["hrids"] == ["CJLOT", "GLOT", "OLOT", "OLOT", "PLOT", "PREP"]
 
 
 def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(

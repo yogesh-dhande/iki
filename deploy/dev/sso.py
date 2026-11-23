@@ -1195,6 +1195,7 @@ def actions() -> None:
     proteins(alice, project)
     compounds(alice, project)
     oligonucleotides(alice, project)
+    conjugates(alice, project)
     plasmids(alice, project)
     lots(alice, project)
 
@@ -2464,6 +2465,67 @@ def oligonucleotides(alice: requests.Session, project: dict[str, Any]) -> None:
     if [(e["kind"], e["entity"]) for e in again] != [("reused", oligo["id"])]:
         fail(f"{run['hrid']} made {run['effects']}, not {oligo['hrid']} reused")
     ok(f"nusinersen's HELM written another way is {oligo['hrid']}, reused ({run['hrid']})")
+
+
+def conjugates(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Register the adenylated strand in PDB 8V1W and a demonstration lot of it."""
+    # PDB 8V1W, chain C: its SEQRES has seven bases, its LINK joins DG1 P to AMP101 O3P.
+    # https://files.rcsb.org/view/8V1W.pdb
+    helm = "RNA1{P." + "P.".join(f"[dR]({base})" for base in "GTCGGAC") + "}$$$$V2.0"
+    carrier_run = launch(alice, project, "iki/oligo.register_oligonucleotide", {}, {"helm": helm})
+    (carrier,) = [
+        e["entity"] for e in carrier_run["effects"] if e["type"] == "iki/oligo.Oligonucleotide"
+    ]
+    # Free AMP as deposited in the PDB Chemical Component Dictionary, UDMBCSSLTHHNCD-KQYNXXCUSA-N.
+    # https://files.rcsb.org/ligands/view/AMP.cif
+    amp_smiles = "Nc1ncnc2n(cnc12)[C@@H]3O[C@H](CO[P](O)(O)=O)[C@@H](O)[C@H]3O"
+    amp_run = launch(
+        alice, project, "iki/small_molecule.register_compounds", {}, {"smiles": f"{amp_smiles} AMP"}
+    )
+    (amp,) = [e["entity"] for e in amp_run["effects"] if e["type"] == "iki/small_molecule.Compound"]
+    launch(alice, project, "iki/small_molecule.compute_descriptors", {"compound": amp})
+    conjugate = created(
+        alice,
+        project,
+        "iki/conjugate.Conjugate",
+        {
+            "name": "5′-adenylated DNA (PDB 8V1W, chain C)",
+            "carrier": [{"kind": "oligo_conjugate", "molecule": entry_of(record(alice, carrier))}],
+            "attachments": [
+                {
+                    "part": entry_of(record(alice, amp)),
+                    "site": "5′ phosphate",
+                    "copies": 1,
+                    "loss_formula": "H2O",
+                }
+            ],
+        },
+    )
+    run = launch(
+        alice, project, "iki/conjugate.compute_composition", {"conjugate": conjugate["id"]}
+    )
+    values = record(alice, conjugate["id"])["values"]
+    # Free-acid DNA C68H87N28O43P7 + AMP C10H14N5O7P less H2O at the diphosphate.
+    expected = {
+        "molecular_formula": "C78H99N33O49P8",
+        "molecular_weight": 2530.62,
+        "monoisotopic_mass": 2529.417,
+    }
+    if any(values.get(k) != v for k, v in expected.items()):
+        fail(f"{run['hrid']} computed {values} for the adenylated strand, expected {expected}")
+    lot = created(
+        alice,
+        project,
+        "iki/lots.ConjugateLot",
+        {
+            "conjugate": conjugate["id"],
+            "lot_number": f"DEMO-8V1W-{secrets.token_hex(3)}",
+            "notes": "Demonstration lot of the deposited structure.",
+        },
+    )
+    if record(alice, lot["id"])["values"]["conjugate"] != entry_of(conjugate):
+        fail(f"{lot['hrid']} did not retain its reference to {conjugate['hrid']}")
+    ok(f"{lot['hrid']} links to {conjugate['hrid']}, the adenylated strand at 2530.62 u")
 
 
 #: Cloning vector pUC19, 2,686 bp, as INSDC record L09137.2 gives it: the vector most

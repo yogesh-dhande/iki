@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Environment
+name: conjugate-tools
+label: Conjugate tools
+description: Python 3.12 with RDKit for elemental compositions and atomic masses.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.25, memory: 512Mi }
+python: { version: "3.12", requirements: requirements.txt }
