@@ -734,6 +734,48 @@ class RenameEntityType(migrations.operations.base.Operation):
         return f"rename_type_{self.new_name.split('.')[-1].lower()}"
 
 
+class AddPluginField(migrations.AddField):
+    """Add a field to a plugin table where sync_plugins can install column guards.
+
+    PostgreSQL refuses to drop a column named in an UPDATE OF trigger. Reversing this
+    operation first drops the affected Iki guards in the same migration transaction.
+    Consult the database since even a later, migration-free manifest can add a rule.
+    """
+
+    def database_backwards(
+        self,
+        app_label: str,
+        schema_editor: BaseDatabaseSchemaEditor,
+        from_state: ProjectState,
+        to_state: ProjectState,
+    ) -> None:
+        model = from_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        field = model._meta.get_field(self.name)
+        schema_editor.execute(
+            """
+            DO $$
+            DECLARE guard record;
+            BEGIN
+                FOR guard IN
+                    SELECT t.tgname, t.tgrelid::regclass AS relation
+                    FROM pg_trigger t JOIN pg_attribute a ON a.attrelid = t.tgrelid
+                    WHERE t.tgrelid = %s::regclass AND a.attname = %s
+                      AND a.attnum = ANY(t.tgattr) AND NOT t.tgisinternal
+                      AND (starts_with(t.tgname, 'iki_rule__')
+                           OR starts_with(t.tgname, 'iki_unique__'))
+                    ORDER BY t.tgname
+                LOOP
+                    EXECUTE format('DROP TRIGGER %%I ON %%s', guard.tgname, guard.relation);
+                END LOOP;
+            END $$;
+            """,
+            [schema_editor.quote_name(model._meta.db_table), field.column],
+        )
+        super().database_backwards(app_label, schema_editor, from_state, to_state)
+
+
 class AppendOnly(migrations.operations.base.Operation):
     """Makes a history table append-only for every role, its owner included.
 

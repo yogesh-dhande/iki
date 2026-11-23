@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: register_mgi_strain
+label: Register a mouse strain from an MGI report
+description: >-
+  Looks up one MGI strain accession in the official strain nomenclature report.
+  Keeps its name and the exact source row's digest. Add a JAX stock number
+  from the JAX catalogue when one applies.
+params:
+  file:
+    type: file
+    label: MGI strain nomenclature report
+    description: The headerless, tab-delimited MGI_Strain.rpt or a selection of its rows.
+    media_types: [text/plain, text/tab-separated-values, application/octet-stream]
+    max_size: 64MiB
+    required: true
+  mgi_id:
+    type: string
+    label: MGI strain accession
+    pattern: "^MGI:[1-9][0-9]*$"
+    required: true
+  jax_stock:
+    type: string
+    label: JAX stock number
+    description: All six digits, including any leading zeros.
+    pattern: "^[0-9]{6}$"
+effects:
+  creates:
+    - { type: MouseStrain }
+runs_on: { tier: backend, environment: mouse-catalogue }
+command: [python, ./scripts/catalogue.py]
+deterministic: true
+timeout: 5m

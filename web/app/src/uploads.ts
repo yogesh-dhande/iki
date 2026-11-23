@@ -255,7 +255,11 @@ export async function sendParts(
 async function finished(uploadId: string, signal: AbortSignal | undefined): Promise<UploadedFile> {
   for (let delay = timing.poll; ; delay = Math.min(delay * 1.5, timing.maxPoll)) {
     const current = unwrap(
-      await iki.GET("/api/v1/uploads/{upload_id}", { params: { path: { upload_id: uploadId } } }),
+      await iki.GET("/api/v1/uploads/{upload_id}", {
+        // The upload owns this poll and its cancellation, independently of the current page.
+        fetch: globalThis.fetch,
+        params: { path: { upload_id: uploadId } },
+      }),
     );
     if (current.state === "ready" && current.file) return current.file;
     if (current.state !== "checking" && current.state !== "pending") {

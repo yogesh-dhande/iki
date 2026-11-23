@@ -1,0 +1,111 @@
+:root {
+  color-scheme: light dark;
+  /* The page, white; what sits on it; and quieter fills, for headers and hover. */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f6f6f4;
+  --surface-3: #efefeb;
+  --text: #1d1f21;
+  --muted: #5d6064;
+  /* Lines that only divide; a button's edge; an input's, which is all that marks it. */
+  --border: #e4e4df;
+  --border-strong: #d6d6d0;
+  --input-border: #8d9095;
+  --accent: #0b6e5f;
+  --accent-hover: #095a4e;
+  --accent-text: #ffffff;
+  --accent-soft: #e3f2ed;
+  --focus: #0b6e5f;
+  --focus-ring: #d5e9e4;
+  --error: #b42318;
+  --error-bg: #fdf0ef;
+  --warning: #8a5300;
+  --warning-bg: #fdf5e6;
+  --success: #116d3a;
+  --success-bg: #ecf8f0;
+  /* The sidebar: warm grey, the current page's item tinted with the accent. */
+  --sidebar-bg: #f6f6f4;
+  --sidebar-text: #33363a;
+  --sidebar-hover: #ebebe7;
+  --sidebar-current: #e1ece9;
+  --sidebar-current-text: #0b5d50;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --shadow: 0 1px 2px rgb(16 24 40 / 5%), 0 2px 8px rgb(16 24 40 / 5%);
+  --shadow-menu: 0 4px 12px rgb(16 24 40 / 12%), 0 1px 3px rgb(16 24 40 / 8%);
+  --font: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  /* The type scale, in px at the default text size. */
+  --text-xs: calc(11rem / 13);
+  --text-sm: calc(12rem / 13);
+  --text-base: 1rem;
+  --text-md: calc(14rem / 13);
+  --text-lg: calc(15rem / 13);
+  --text-xl: calc(18rem / 13);
+  /* Heights: a control (a button, an input), and a table's rows and its header's. */
+  --control-height: calc(28rem / 13);
+  --row-height: calc(34rem / 13);
+  --row-height-head: calc(32rem / 13);
+  --sidebar-width: calc(236rem / 13);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141517;
+    --surface: #1a1b1e;
+    --surface-2: #212226;
+    --surface-3: #2a2b30;
+    --text: #e8e9eb;
+    --muted: #a3a6ab;
+    --border: #2d2f33;
+    --border-strong: #3a3c41;
+    --input-border: #6c6f75;
+    --accent: #3fb8ad;
+    --accent-hover: #5cc8be;
+    --accent-text: #06201e;
+    --accent-soft: #173a35;
+    --focus: #5cc8be;
+    --focus-ring: #1d3d38;
+    --error: #ff8f85;
+    --error-bg: #2b1715;
+    --warning: #f2b75a;
+    --warning-bg: #2a2111;
+    --success: #6fd49a;
+    --success-bg: #11251a;
+    --sidebar-bg: #1a1b1e;
+    --sidebar-text: #d4d6d9;
+    --sidebar-hover: #26272b;
+    --sidebar-current: #1d3833;
+    --sidebar-current-text: #7fd6cb;
+    --shadow: none;
+    --shadow-menu: 0 4px 16px rgb(0 0 0 / 45%);
+  }
+}
+
+/* Projects' and people's colors (project-color.ts), one of eight from their ID: each at least
+   3:1 against the page and its surfaces, with --swatch-text on it at 4.5:1, in both themes. */
+:root {
+  --swatch-1: #2a62c9;
+  --swatch-2: #0b7a6b;
+  --swatch-3: #b35c00;
+  --swatch-4: #7048c8;
+  --swatch-5: #b8336e;
+  --swatch-6: #4f6b12;
+  --swatch-7: #a83c32;
+  --swatch-8: #4d5b6a;
+  --swatch-text: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --swatch-1: #7fb0ff;
+    --swatch-2: #4fc7b4;
+    --swatch-3: #f2a65a;
+    --swatch-4: #b9a0f5;
+    --swatch-5: #f28dbb;
+    --swatch-6: #a8cf5f;
+    --swatch-7: #ff9b85;
+    --swatch-8: #a3b0bd;
+    --swatch-text: #0f141a;
+  }
+}

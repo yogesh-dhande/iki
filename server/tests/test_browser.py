@@ -371,7 +371,8 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     has both a plugin's component frame and an element named by `aria-labelledby`
     (aria-allowed-attr, aria-conditional-attr, aria-prohibited-attr, nested-interactive,
     label-content-name-mismatch and more each do). axe checks the DOM, which is the same
-    in every browser.
+    in every browser. Pass it only for a page that crashes, and take it off again once
+    Playwright's Firefox stops crashing: a page kept here is unchecked in one engine.
     """
     assert page.evaluate("window.__cspViolations") == [], page.url
     assert PAGE_ERRORS[page] == [], (page.url, FAILED_REQUESTS.get(page))
@@ -3543,6 +3544,37 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     assert_clean(page)
 
 
+def test_pressing_the_new_project_icon_while_saved_views_arrive(open_as: Any) -> None:
+    page = open_as("team_member", "/")
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    sidebar = page.locator("iki-sidebar")
+    add = sidebar.get_by_role("link", name="New project", exact=True)
+    # Capture the native down target on the link: its icon has a separate hit-tested path.
+    add.evaluate("""link => link.addEventListener("pointerdown", event => {
+        window.pressedNewProjectPath = event.target.matches("svg path");
+    }, {once: true, capture: true})""")
+    add.locator("svg path").hover()
+    page.mouse.down()
+    assert page.evaluate("window.pressedNewProjectPath") is True
+    # The empty saved-views result refreshes the sidebar without moving the plus.
+    before = sidebar.evaluate_handle("sidebar => sidebar.data")
+    assert len(deferred) == 1
+    with page.expect_response(saved_views) as response:
+        deferred[0].continue_()
+    assert response.value.json() == []
+    page.wait_for_function(
+        "before => document.querySelector('iki-sidebar').data !== before", arg=before
+    )
+    page.mouse.up()
+    page.wait_for_url("**/projects/new/")
+    page.get_by_role("textbox", name="Project name").wait_for()
+
+
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()
@@ -4078,6 +4110,293 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
     page.context.close()
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_type_s_page_draws_how_its_records_move(open_as: Any, color_scheme: str) -> None:
+    """A type's flow (ADR 0199): a batch's states, who moves a record into each and what
+    they sign, where an edit returns it, and the same in words with its guards' messages.
+    Its states are buttons, reached by Tab and the arrow keys; choosing one lights its
+    arrows. Side by side at 1440px, one above another at 390px, with no sideways scroll.
+    By role, never by label (Firefox; see above)."""
+    page: Page = open_as("admin", f"/types/{BATCH}/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    section = page.locator("section", has=page.get_by_role("heading", name="How records move"))
+    states = section.get_by_role("list", name="Status’s states", exact=True)
+    states.wait_for()
+    assert states.get_by_role("button").count() == 5
+    # Side by side once the page is wide: it lays out again as its width changes.
+    named = page.get_by_role("list", name="Status’s states", exact=True)
+    section.locator(".flow-row", has=named).wait_for()
+    # Each state's name is what it shows, its marks in words.
+    approved = states.get_by_role(
+        "button", name=re.compile(r"^Approved\s*,\s*locks it\s*\.\s*Set by Reviewer$")
+    )
+    approved.wait_for()
+    states.get_by_role(
+        "button",
+        name=re.compile(
+            r"^Certified\s*\.\s*Set by Reviewer or QA · from any state\s*,\s*"
+            r"signed:\s*Review and Approval$"
+        ),
+    ).wait_for()
+    words = section.get_by_role("list", name="Status’s states in words")
+    words.get_by_text("A batch is approved from In review.").wait_for()
+    words.get_by_text(
+        "Reviewer sets it from In review. It locks the record: its values can’t change. "
+        "Correcting a value returns it to In testing, with a reason."
+    ).wait_for()
+    assert_clean(page)
+
+    first = states.get_by_role("button").first
+    first.focus()
+    page.keyboard.press("ArrowRight")
+    focused = page.evaluate("document.activeElement.textContent")
+    assert focused.startswith("In review."), focused
+    approved.press("Enter")
+    assert approved.get_attribute("aria-pressed") == "true"
+    lit = page.locator(".flow-edge.is-lit")
+    assert sorted(lit.evaluate_all("els => els.map(e => e.dataset.edge)")) == [
+        "approved~in_testing",
+        "in_review>approved",
+    ]
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    section.locator(".flow-column", has=named).wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_record_shows_where_it_is_in_its_flow(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """A record's states (ADR 0199): asked, each state field shows its flow, the record's
+    state marked as now, and what the reader may move it to next. Compact until asked, and
+    no wider than a phone at 390px. By role (Firefox; see above)."""
+    from iki_server.entities import services as entities
+
+    _lab_roles(world, editor=("analyst",))
+    made = entities.create(world.users["editor"], BATCH, world.project, {"name": "L-9"})
+    hrid = cast("Entity", made.entity).hrid
+
+    page: Page = open_as("editor", f"/entities/{hrid}/", color_scheme)
+    card = page.locator("section", has=page.get_by_role("heading", name="States"))
+    card.get_by_text("Status: In testing").wait_for()
+    assert card.get_by_role("list", name="Status’s states", exact=True).count() == 0
+    toggle = card.get_by_role("button", name="How it moves").first
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+    assert toggle.get_attribute("aria-expanded") == "true"
+    flow = card.get_by_role("list", name="Status’s states", exact=True)
+    flow.wait_for()
+    card.get_by_text("Next for you: In review.").wait_for()
+    now = flow.locator("[aria-current='step']")
+    assert (now.text_content() or "").startswith("In testing, where records start, Now")
+    flow.get_by_role(
+        "button",
+        name=re.compile(r"^In review\s*,\s*You can\s*\.\s*Set by Analyst · from any state$"),
+    ).wait_for()
+    assert_clean(page)
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    toggle.click()
+    assert card.get_by_role("list", name="Status’s states", exact=True).count() == 0
+    page.context.close()
+
+
+#: The flows the dose-response starter's results follow: plate assays' own (the app's
+#: flow-fixtures.json, which test_flow_fixtures keeps what the endpoint serves).
+FLOW_FIXTURES = Path(__file__).parents[2] / "web" / "app" / "src" / "flow-fixtures.json"
+PLATE = "iki/plate_assays."
+
+
+def _starter_api(page: Page) -> dict[str, Any]:
+    """Answers the starter API as a deployment with plate assays installed would (ADR 0198):
+    this one's fixture plugins don't include them. This stubs the API for the screen's sake
+    and is not its coverage: what the endpoints themselves do, grants and examples included,
+    is tested against the real server in test_starter_applications, test_starter_api and
+    test_dose_response_starter. Members, projects and everything else here are the real
+    server's. Returns what the page sent."""
+    import json
+
+    fixtures = json.loads(FLOW_FIXTURES.read_text())
+    roles = {
+        "iki/example_lims.coordinator": ("Coordinator", "editor"),
+        PLATE + "analyst": ("Assay analyst", "editor"),
+        PLATE + "reviewer": ("Assay reviewer", "viewer"),
+        PLATE + "qa": ("Assay QA", "viewer"),
+    }
+    flows = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
+    state: dict[str, Any] = {"applied": None, "sent": []}
+
+    def starters() -> list[dict[str, Any]]:
+        required = list(roles)
+        return [
+            {
+                "id": "dose-response",
+                "version": "1.0.0",
+                "label": "Dose-response plate assay",
+                "description": "Receive an example request, map a reader file to wells, fit a "
+                "curve and return the signed result to the requester.",
+                "flows": [
+                    {
+                        "id": flow,
+                        "label": "Research" if flow == "research" else "Regulated QC",
+                        "result_type": f"{PLATE}Requested{base}",
+                        "required_roles": required if flow == "regulated_qc" else required[:3],
+                    }
+                    for flow, base in flows.items()
+                ],
+                "roles": [
+                    {"id": r, "label": label, "minimum_project_role": minimum}
+                    for r, (label, minimum) in roles.items()
+                ],
+                "types": [],
+                "applied": state["applied"],
+            }
+        ]
+
+    def flow_of(route: Any) -> None:
+        name = urllib.parse.unquote(route.request.url.split("/entity-types/")[1]).removesuffix(
+            "/flow"
+        )
+        base = PLATE + name.removeprefix(PLATE + "Requested")
+        found = next(t for t in fixtures["types"] if t["type"] == base)
+        route.fulfill(json={**found, "type": name, "label": f"Requested {found['label']}"})
+
+    def lab_roles(route: Any) -> None:
+        served = route.fetch().json()
+        route.fulfill(
+            json=served
+            + [
+                {
+                    "name": r,
+                    "label": label,
+                    "description": None,
+                    "plugin": r[: r.index(".")],
+                    "uses": [],
+                }
+                for r, (label, _) in roles.items()
+            ]
+        )
+
+    def setup(route: Any) -> None:
+        body = route.request.post_data_json
+        state["sent"].append((route.request.url.rsplit("/", 1)[1], body))
+        applying = route.request.url.endswith("/apply")
+        if applying:
+            state["applied"] = {
+                "version": "1.0.0",
+                "flow": body["flow"],
+                "requester_project": body["requester_project"],
+            }
+        route.fulfill(
+            json={
+                **body,
+                "starter": "dose-response",
+                "result_type": f"{PLATE}Requested{flows[body['flow']]}",
+                "changed": True,
+                "grants_to_add": body["role_assignments"],
+                "examples_to_create": ["request", "protein", "sample", "tube", "plate"],
+                "examples": {"request": str(uuid.uuid4())} if applying else {},
+            }
+        )
+
+    page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
+    page.route(re.compile(r"/api/v1/entity-types/.*Requested.*/flow$"), flow_of)
+    page.route(re.compile(r"/api/v1/lab-roles$"), lab_roles)
+    page.route(re.compile(r"/api/v1/starters/dose-response/(preview|apply)$"), setup)
+    page.reload()
+    return state
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_admin_sets_a_project_up_from_a_starter(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """A starter (ADR 0198): its Admin chooses Regulated QC, seeing its flow drawn; the
+    requesting project; and three different people for its three signatures, which the
+    screen checks before asking. Preview says what applying will do, then it applies. At
+    1440px and 390px, in both schemes. By role (Firefox; see above)."""
+    requester = Project.objects.create(team=world.team, name="Assay Requests")
+    ProjectMembership.objects.create(
+        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
+    )
+    page: Page = open_as("admin", "/projects/kinase-atlas/settings/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    sent = _starter_api(page)
+    page.get_by_role("link", name="Set it up from a starter").click()
+    card = page.get_by_role("region", name="Dose-response plate assay")
+    card.get_by_text("Not applied here").wait_for()
+    card.get_by_role("radio", name=re.compile("^Regulated QC")).check()
+    states = card.get_by_role("list", name="Review’s states", exact=True)
+    states.get_by_role("button", name=re.compile(r"^QA released")).wait_for()
+    assert states.get_by_role("button").count() == 4
+    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
+        label="Assay Requests"
+    )
+
+    # Who may hold each role: people of their own, active, with a high enough role.
+    analysts = card.get_by_role("group", name="Assay analyst")
+    assert analysts.get_by_role("checkbox").count() == 3  # Editor, Runner, Admin
+    reviewers = card.get_by_role("group", name="Assay reviewer")
+    assert reviewers.get_by_role("checkbox").count() == 5  # and Viewer, Mixed
+    qa = card.get_by_role("group", name="Assay QA")
+    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
+    for group in (analysts, reviewers, qa):
+        group.get_by_role("checkbox", name="Editor").check()
+    card.get_by_role("button", name="Preview").click()
+    card.get_by_role("alert").get_by_text(re.compile("^Choose 3 different people")).wait_for()
+    assert sent["sent"] == []
+    # Playwright's Firefox crashes in axe on this page (see assert_clean).
+    assert_clean(page, axe_in_firefox=False)
+
+    reviewers.get_by_role("checkbox", name="Editor").uncheck()
+    reviewers.get_by_role("checkbox", name="Viewer").check()
+    qa.get_by_role("checkbox", name="Editor").uncheck()
+    qa.get_by_role("checkbox", name="Admin").check()
+    card.get_by_role("button", name="Preview").click()
+    plan = card.get_by_role("status", name="What applying will do")
+    plan.get_by_text("Viewer becomes Assay reviewer.").wait_for()
+    plan.get_by_text(re.compile("^Kinase Atlas takes no requests yet")).wait_for()
+    assert_clean(page, axe_in_firefox=False)
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page, axe_in_firefox=False)
+
+    card.get_by_role("button", name="Apply").click()
+    page.get_by_text("Applied Dose-response plate assay with the Regulated QC flow.").wait_for()
+    card.get_by_text("Applied: Regulated QC, version 1.0.0").wait_for()
+    assert [what for what, _ in sent["sent"]] == ["preview", "apply"]
+    assert sent["sent"][1][1]["role_assignments"][PLATE + "qa"] == [
+        str(world.project.memberships.get(user=world.users["admin"]).pk)
+    ]
+    assert_clean(page, axe_in_firefox=False)
+    page.context.close()
+
+
+def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None:
+    """A project's members read its starters and their flows, drawn, with what's applied,
+    and no controls to change them."""
+    page: Page = open_as("viewer", "/projects/kinase-atlas/settings/starters/")
+    _starter_api(page)
+    card = page.get_by_role("region", name="Dose-response plate assay")
+    card.get_by_text("Only the project’s Admins set it up. These are its review flows.").wait_for()
+    flows = card.get_by_role("list", name="Review’s states", exact=True)
+    flows.nth(1).wait_for()
+    assert flows.count() == 2
+    assert card.get_by_role("radio").count() == 0
+    assert card.get_by_role("button", name="Preview").count() == 0
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    # Playwright's Firefox crashes in axe on this page (see assert_clean).
+    assert_clean(page, axe_in_firefox=False)
+    page.context.close()
+
+
 def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
     """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
     state's control says so in the guard's words, and won't set it."""
@@ -4332,14 +4651,23 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
-    script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet, react_aria = (
-        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    script = page.locator('script[type=module][src^="/static/app/assets/main-"]').get_attribute(
+        "src"
     )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
-    assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
-    for url in (script, stylesheet, react_aria):
+
+    assets = [script]
+    styles = set()
+    for link in page.locator("link[rel=stylesheet]").all():
+        href = link.get_attribute("href")
+        assert href
+        name = re.fullmatch(r"/static/iki/([\w-]+)\.[0-9a-f]{12}\.css", href)
+        assert name, href
+        styles.add(name[1])
+        assets.append(href)
+    assert {"iki", "react-aria", "tokens", "fonts", "button"} <= styles
+
+    for url in assets:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url

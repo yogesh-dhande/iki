@@ -27,8 +27,11 @@ model version, response scale, fitted parameters, status, midpoint and its
 approximate 95% confidence interval. A midpoint outside the tested range carries
 an explicit qualifier. A fit that cannot estimate an endpoint reports why.
 
-A deployment selects the research or regulated QC review flow. The result
-records that choice so the signer can see which flow applies. Research needs
+The deployment sets the default research or regulated QC review flow. A project
+can select its own flow by applying a versioned assay starter.
+[ADR 0198](0198-a-project-applies-a-versioned-assay-starter.md)
+
+The result records that choice so the signer can see which flow applies. Research needs
 one signature. In regulated QC the analyst signs the submission, an independent
 reviewer signs the review, and QA signs the release. Reviewers and QA must be
 independent of the people who edited the submitted work. The signature is

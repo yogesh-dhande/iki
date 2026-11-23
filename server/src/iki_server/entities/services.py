@@ -86,6 +86,7 @@ from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
+from iki_server.setup import starter_flows
 from iki_spec.model import EntityType, Field, names_people
 
 __all__ = [
@@ -265,6 +266,8 @@ def create(
         hold_reason=hold_reason,
     )
     with transaction.atomic(), _unique_values():
+        if refused := starter_flows.refused_create(project, [type_name]):
+            raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
             _hold(saved, holding, user, hold_reason, saved.revision.number)
