@@ -21,7 +21,7 @@ import {
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, page, respond } from "./test-server";
+import { answer, calls, page, problem, respond } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -353,6 +353,89 @@ describe("where an import starts", () => {
 });
 
 describe("an import's steps", () => {
+  it("keeps a rejected header visible until it is fixed or restored", async () => {
+    onImport(sheet());
+    answer(`PATCH ${BASE}`, () =>
+      problem(422, "validation_failed", "Some fields are invalid.", [
+        { pointer: "#/header_row", detail: "The header is outside this sheet." },
+      ]),
+    );
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const header = await screen.findByRole("spinbutton", { name: "Header row" });
+    const next = screen.getByRole("button", { name: "Next: columns" });
+    await user.clear(header);
+    await user.type(header, "99{Enter}");
+    await waitFor(() => expect(header).toHaveAttribute("aria-invalid", "true"));
+    expect(header).toHaveValue(99);
+    expect(header).toHaveAccessibleDescription(/outside this sheet.*Escape.*columns’ names/);
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    await user.click(next);
+    expect(calls("PATCH", BASE)).toHaveLength(1);
+    expect(calls("POST", `${BASE}/preview`)).toHaveLength(0);
+    expect(screen.getByRole("heading", { name: "Sheet and rows" })).toBeVisible();
+    // A save to another field must not hide the rejected header or allow advancement.
+    const last = screen.getByRole("spinbutton", { name: /Last row/ });
+    answer(`PATCH ${BASE}`, sheet({ last_row: 4 }));
+    await user.type(last, "4{Enter}");
+    await waitFor(() => expect(last).toBeEnabled());
+    expect(header).toHaveAttribute("aria-invalid", "true");
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    // Returning to the acknowledged header needs no duplicate save.
+    await user.clear(header);
+    await user.type(header, "1");
+    expect(header).not.toHaveAttribute("aria-invalid");
+    expect(next).not.toHaveAttribute("aria-disabled");
+    await user.click(next);
+    expect(await screen.findByRole("button", { name: "Check every row" })).toBeVisible();
+    expect(calls("PATCH", BASE)).toHaveLength(2);
+  });
+
+  it("restores invalid local ranges and releases an old rejection on a genuine sheet switch", async () => {
+    onImport(sheet());
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const skip = await screen.findByRole("textbox", { name: /Rows to leave out/ });
+    const next = screen.getByRole("button", { name: "Next: columns" });
+    await user.type(skip, "5-{Enter}");
+    expect(skip).toHaveAccessibleDescription(/isn’t a row.*Escape.*Such as/);
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    await user.keyboard("{Escape}");
+    expect(skip).toHaveValue("");
+    expect(next).not.toHaveAttribute("aria-disabled");
+    expect(calls("PATCH", BASE)).toHaveLength(0);
+    answer(`PATCH ${BASE}`, () =>
+      problem(422, "validation_failed", "Invalid", [
+        { pointer: "#/skip/0", detail: "The range is outside this sheet." },
+      ]),
+    );
+    await user.type(skip, "98-99{Enter}");
+    await waitFor(() => expect(skip).toHaveAttribute("aria-invalid", "true"));
+    expect(skip).toHaveAccessibleDescription(/range is outside this sheet/);
+    answer(`PATCH ${BASE}`, sheet({ sheet: "Notes" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Sheet" }), "Notes");
+    await waitFor(() => expect(next).not.toHaveAttribute("aria-disabled"));
+    expect(screen.getByRole("textbox", { name: /Rows to leave out/ })).toHaveValue("");
+    expect(calls("PATCH", BASE)).toHaveLength(2);
+  });
+
+  it("requires a deliberate reload to review a stale sheet and header basis", async () => {
+    onImport(sheet());
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const header = await screen.findByRole("spinbutton", { name: "Header row" });
+    answer(`PATCH ${BASE}`, problem(409, "conflict", "The selected sheet or header has changed."));
+    await user.clear(header);
+    await user.type(header, "3{Enter}");
+    expect(await screen.findByText("The selected sheet or header has changed.")).toBeVisible();
+    await user.keyboard("{Escape}");
+    const next = screen.getByRole("button", { name: "Next: columns" });
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    answer(`GET ${BASE}`, sheet({ sheet: "Notes", header_row: 0, first_row: 1 }));
+    await user.click(screen.getByRole("button", { name: "Reload saved choices" }));
+    await waitFor(() => expect(next).not.toHaveAttribute("aria-disabled"));
+    expect(screen.getByRole("combobox", { name: "Sheet" })).toHaveValue("Notes");
+    expect(screen.getByRole("spinbutton", { name: "Header row" })).toHaveValue(0);
+    expect(calls("PATCH", BASE)).toHaveLength(1);
+  });
+
   it("waits for a sheet switch before accepting choices relative to its header", async () => {
     onImport(sheet({ header_row: 3, first_row: 4 }));
     let finishSwitch!: (snapshot: SheetImport) => void;
@@ -396,7 +479,9 @@ describe("an import's steps", () => {
     });
     answer(`GET ${BASE}`, () => slowRead);
     const refresh = queryClient.refetchQueries({ queryKey: importQuery(ID).queryKey });
-    await waitFor(() => expect(calls("GET", BASE)).toHaveLength(2));
+    await waitFor(() => {
+      expect(calls("GET", BASE)).toHaveLength(2);
+    });
     answer(`PATCH ${BASE}`, newer);
     await user.clear(header);
     await user.type(header, "3{Enter}");
@@ -411,10 +496,10 @@ describe("an import's steps", () => {
     expect(first).toHaveValue(4);
   });
 
-  it("keeps the newer selection when an earlier visit's save finishes last", async () => {
+  it.each([200, 422])("ignores an earlier visit's late %i", async (status) => {
     onImport(sheet());
-    let finishOld!: (snapshot: SheetImport) => void;
-    const old = new Promise<SheetImport>((resolve) => {
+    let finishOld!: (snapshot: SheetImport | Response) => void;
+    const old = new Promise<SheetImport | Response>((resolve) => {
       finishOld = resolve;
     });
     answer(`PATCH ${BASE}`, () => old);
@@ -423,7 +508,9 @@ describe("an import's steps", () => {
     const header = await screen.findByRole("spinbutton", { name: "Header row" });
     await user.clear(header);
     await user.type(header, "2{Enter}");
-    await waitFor(() => expect(calls("PATCH", BASE)).toHaveLength(1));
+    await waitFor(() => {
+      expect(calls("PATCH", BASE)).toHaveLength(1);
+    });
 
     await act(() => router.navigate({ to: "/" }));
     await screen.findByRole("heading", { name: /Welcome/ });
@@ -437,13 +524,25 @@ describe("an import's steps", () => {
     const first = screen.getByRole("spinbutton", { name: "First row" });
     await waitFor(() => expect(first).toHaveValue(4));
     await act(async () => {
-      finishOld(sheet({ header_row: 2, first_row: 3 }));
+      finishOld(
+        status === 200
+          ? sheet({ header_row: 2, first_row: 3 })
+          : problem(422, "validation_failed", "Old header rejected", [
+              { pointer: "#/header_row", detail: "The old header is invalid." },
+            ]),
+      );
       await old;
     });
-    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+    await waitFor(() => {
+      expect(queryClient.isMutating()).toBe(0);
+    });
     expect(queryClient.getQueryData(importQuery(ID).queryKey)).toEqual(newer);
     expect(again).toHaveValue(3);
     expect(first).toHaveValue(4);
+    expect(again).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByRole("button", { name: "Next: columns" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
   });
 
   it("shows the sheet's first rows, its header marked and the rows it leaves out", async () => {

@@ -21,7 +21,15 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type SubmitEvent,
+} from "react";
 
 import { fieldErrors, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
@@ -335,63 +343,132 @@ export function ChooseWorkbook({
 
 // --- 2. Its sheet and rows ----------------------------------------------------------------
 
-/** A whole number, changed when the person leaves the box or presses Enter. */
-function RowNumber({
+type RowChoiceField = "header_row" | "first_row" | "last_row" | "skip";
+
+interface RowDraftNotifications {
+  onDirty?: ((field: RowChoiceField, dirty: boolean) => void) | undefined;
+  onReconcile?: ((field: RowChoiceField) => void) | undefined;
+}
+
+/** Parse a row choice at commit time so that "5-" can still be typed. */
+function readRowChoice(
+  field: RowChoiceField,
+  text: string,
+): { saved: string; choice: SheetChange } {
+  if (field === "skip") {
+    const ranges = parseRanges(text);
+    return { saved: rangesText(ranges), choice: { skip: ranges } };
+  }
+  if (text.trim() === "") {
+    if (field === "last_row") return { saved: "", choice: { last_row: 0 } };
+    throw new Error("Enter a row number.");
+  }
+  const value = Number(text);
+  const min = field === "header_row" ? 0 : 1;
+  if (!Number.isSafeInteger(value) || value < min) {
+    throw new Error(`Enter a whole number of ${String(min)} or more.`);
+  }
+  return { saved: String(value), choice: { [field]: value } };
+}
+
+/** Keep the person's text through refetches and rejections. Once a submission is
+ * acknowledged, use the server value again, including changes made by other fields. */
+function RowChoice({
+  field,
   label,
-  value,
-  onCommit,
+  saved,
   help,
   error,
-  optional = false,
-  min = 1,
-}: {
+  change,
+  onDirty,
+  onReconcile,
+}: RowDraftNotifications & {
+  field: RowChoiceField;
   label: string;
-  value: number | null;
-  onCommit: (value: number | null) => void;
+  saved: string;
   help?: string;
   error?: string | undefined;
-  optional?: boolean;
-  min?: number;
+  change: (choice: SheetChange) => void;
 }) {
   const id = useId();
-  const [text, setText] = useState(value == null ? "" : String(value));
-  const [shown, setShown] = useState(value);
-  // The import's value, when it changes: another choice may have moved it.
-  if (shown !== value) {
-    setShown(value);
-    setText(value == null ? "" : String(value));
-  }
-  const commit = () => {
-    const trimmed = text.trim();
-    const next = trimmed === "" ? null : Number(trimmed);
-    if (next === value || (next !== null && !Number.isInteger(next))) return;
-    if (next === null && !optional) return;
-    onCommit(next);
+  const [draft, setDraft] = useState<{ text: string; submitted?: string; error?: string }>();
+  if (draft?.submitted !== undefined && draft.submitted === saved) setDraft(undefined);
+  const dirty = draft !== undefined;
+  const reported = useRef(false);
+  useLayoutEffect(() => {
+    if (reported.current !== dirty) {
+      reported.current = dirty;
+      onDirty?.(field, dirty);
+    }
+  }, [dirty, field, onDirty]);
+  const revert = () => {
+    setDraft(undefined);
+    onReconcile?.(field);
   };
+  const commit = (input: HTMLInputElement) => {
+    const text = input.value;
+    let next: ReturnType<typeof readRowChoice>;
+    try {
+      if (input.validity.badInput) throw new Error("Enter a whole row number.");
+      next = readRowChoice(field, text);
+    } catch (caught) {
+      setDraft({ text, error: (caught as Error).message });
+      return;
+    }
+    if (next.saved === saved) {
+      if (draft) revert();
+      return;
+    }
+    if (draft?.submitted === next.saved) return;
+    setDraft({ text, submitted: next.saved });
+    change(next.choice);
+  };
+  const number = field !== "skip";
+  const shownError = draft?.error ?? error;
   return (
-    <div className={error ? "field field-invalid sheet-number" : "field sheet-number"}>
-      <label htmlFor={id}>{label}</label>
-      {error ? (
+    <div
+      className={["field", number && "sheet-number", shownError && "field-invalid"]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <label htmlFor={id}>
+        {label}
+        {number ? null : <span className="optional"> (optional)</span>}
+      </label>
+      {shownError ? (
         <p className="field-error" id={`${id}-error`}>
-          {error}
+          {shownError} Press Escape to use the saved value{saved ? ` (${saved})` : " (empty)"}.
         </p>
       ) : null}
       <input
         id={id}
-        type="number"
-        inputMode="numeric"
-        min={min}
-        value={text}
-        aria-invalid={error ? "true" : undefined}
-        aria-describedby={[error ? `${id}-error` : "", help ? `${id}-help` : ""]
-          .filter(Boolean)
-          .join(" ")}
+        type={number ? "number" : "text"}
+        inputMode={number ? "numeric" : undefined}
+        min={number ? (field === "header_row" ? 0 : 1) : undefined}
+        value={draft?.text ?? saved}
+        aria-invalid={shownError ? "true" : undefined}
+        aria-describedby={
+          [shownError && `${id}-error`, help && `${id}-help`].filter(Boolean).join(" ") || undefined
+        }
         onChange={(event) => {
-          setText(event.target.value);
+          const { value, validity } = event.currentTarget;
+          if (value === saved && !validity.badInput) revert();
+          else {
+            if (error) onReconcile?.(field);
+            setDraft({ text: value });
+          }
         }}
-        onBlur={commit}
+        onBlur={(event) => {
+          commit(event.currentTarget);
+        }}
         onKeyDown={(event) => {
-          if (event.key === "Enter") commit();
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit(event.currentTarget);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            revert();
+          }
         }}
       />
       {help ? (
@@ -403,78 +480,20 @@ function RowNumber({
   );
 }
 
-/** Rows to leave out, as people write them ("5-7, 12"), said when the person leaves the
- * box or presses Enter: not while they're typing "5-". */
-function RowsToSkip({
-  value,
-  error,
-  onCommit,
-}: {
-  value: readonly (readonly number[])[];
-  error?: string | undefined;
-  onCommit: (ranges: number[][]) => void;
-}) {
-  const id = useId();
-  const said = rangesText(value);
-  const [text, setText] = useState(said);
-  const [shown, setShown] = useState(said);
-  const [wrong, setWrong] = useState<string>();
-  if (shown !== said) {
-    setShown(said);
-    setText(said);
-  }
-  const commit = () => {
-    try {
-      const ranges = parseRanges(text);
-      setWrong(undefined);
-      if (rangesText(ranges) !== said) onCommit(ranges);
-    } catch (problem) {
-      setWrong((problem as Error).message);
-    }
-  };
-  const shownError = wrong ?? error;
-  return (
-    <div className={shownError ? "field field-invalid" : "field"}>
-      <label htmlFor={id}>
-        Rows to leave out<span className="optional"> (optional)</span>
-      </label>
-      {shownError ? (
-        <p className="field-error" id={`${id}-error`}>
-          {shownError}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="text"
-        value={text}
-        aria-invalid={shownError ? "true" : undefined}
-        aria-describedby={`${shownError ? `${id}-error ` : ""}${id}-help`}
-        onChange={(event) => {
-          setText(event.target.value);
-        }}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") commit();
-        }}
-      />
-      <p className="field-help" id={`${id}-help`}>
-        Such as 5-7, 12: totals, notes, or rows someone struck through.
-      </p>
-    </div>
-  );
-}
-
 /** The sheet to import, its header row, and the rows to import. */
 export function ChooseRows({
   made,
   change,
   problem,
-}: {
+  onDirty,
+  onReconcile,
+}: RowDraftNotifications & {
   made: SheetImport;
   change: (choice: SheetChange) => void;
   problem?: ReturnType<typeof problemOf> | undefined;
 }) {
   const errors = fieldErrors(problem);
+  const editing = { change, onDirty, onReconcile };
   const sheet = made.sheets.find((s) => s.name === made.sheet);
   const id = useId();
   return (
@@ -503,41 +522,39 @@ export function ChooseRows({
         </p>
       )}
       <div className="sheet-numbers">
-        <RowNumber
+        <RowChoice
+          {...editing}
+          field="header_row"
           label="Header row"
-          value={made.header_row}
-          min={0}
+          saved={String(made.header_row)}
           help="Its columns’ names. 0 when it has none."
           error={errors["header_row"]}
-          onCommit={(value) => {
-            change({ header_row: value ?? 0 });
-          }}
         />
-        <RowNumber
+        <RowChoice
+          {...editing}
+          field="first_row"
           label="First row"
-          value={made.first_row}
+          saved={String(made.first_row)}
           error={errors["first_row"]}
-          onCommit={(value) => {
-            if (value != null) change({ first_row: value });
-          }}
         />
-        <RowNumber
+        <RowChoice
+          {...editing}
+          field="last_row"
           label="Last row"
-          value={made.last_row}
-          optional
+          saved={made.last_row == null ? "" : String(made.last_row)}
           help="Empty for the sheet’s last."
           error={errors["last_row"]}
-          onCommit={(value) => {
-            change({ last_row: value ?? 0 });
-          }}
         />
       </div>
-      <RowsToSkip
-        value={made.skip}
-        error={errors["skip"]}
-        onCommit={(ranges) => {
-          change({ skip: ranges });
-        }}
+      <RowChoice
+        {...editing}
+        field="skip"
+        label="Rows to leave out"
+        saved={rangesText(made.skip)}
+        help="Such as 5-7, 12: totals, notes, or rows someone struck through."
+        error={
+          errors["skip"] ?? Object.entries(errors).find(([key]) => key.startsWith("skip/"))?.[1]
+        }
       />
       <SheetSample made={made} />
     </section>
@@ -639,7 +656,7 @@ export function MapColumns({
           : "Iki matched columns to fields by their headers. "}
         Check each, and choose Not imported for those to leave out.
       </p>
-      <SavedMappings made={made} change={change} />
+      <SavedMappings made={made} change={change} error={errors["mapping"]} />
       {made.warnings.length ? (
         <div className="alert alert-warning" role="status">
           <ul className="plain-list">
@@ -890,9 +907,11 @@ function Spellings({
 function SavedMappings({
   made,
   change,
+  error,
 }: {
   made: SheetImport;
   change: (choice: SheetChange) => void;
+  error?: string | undefined;
 }) {
   const client = useQueryClient();
   const { say } = useMessages();
@@ -908,6 +927,7 @@ function SavedMappings({
       {others.length ? (
         <SelectField
           label="Map by a saved mapping"
+          error={error}
           value=""
           onChange={(value) => {
             if (value) change({ mapping: value });
@@ -974,10 +994,13 @@ function SavedMappings({
 export function NumbersAndDates({
   made,
   change,
+  problem,
 }: {
   made: SheetImport;
   change: (choice: SheetChange) => void;
+  problem?: ReturnType<typeof problemOf> | undefined;
 }) {
+  const errors = fieldErrors(problem);
   const id = useId();
   const columns = new Map(made.columns.map((c) => [c.index, c]));
   const numbers = made.readings.some((r) => r.kind === "numbers");
@@ -1010,6 +1033,7 @@ export function NumbersAndDates({
       <div className="sheet-locale">
         <RadioField
           label="Decimal mark"
+          error={errors["locale/decimal"]}
           value={(locale.decimal ?? "") as (typeof DECIMALS)[number]["value"]}
           onChange={(value) => {
             say({ decimal: value || null });
@@ -1018,6 +1042,7 @@ export function NumbersAndDates({
         />
         <RadioField
           label="Dates written as numbers"
+          error={errors["locale/dates"]}
           value={(locale.dates ?? "") as (typeof DATE_ORDERS)[number]["value"]}
           onChange={(value) => {
             say({ dates: value || null });
@@ -1541,8 +1566,12 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
   const generation = useRef(0);
   const writing = useRef(false);
   const [saving, setSaving] = useState(false);
-  const [changeProblem, setChangeProblem] = useState<ReturnType<typeof problemOf>>();
-  const found = useQuery({ ...importQuery(importId), enabled: !saving });
+  const [rejected, setRejected] = useState<Record<string, ReturnType<typeof problemOf>>>({});
+  const [dirty, setDirty] = useState<RowChoiceField[]>([]);
+  const [review, setReview] = useState(0);
+  const problems = Object.values(rejected);
+  const unresolved = dirty.length > 0 || problems.length > 0;
+  const found = useQuery({ ...importQuery(importId), enabled: !saving && !unresolved });
   useEffect(
     () => () => {
       generation.current += 1;
@@ -1561,7 +1590,7 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
   const made = found.data;
   usePageTitle(made ? `Import of ${made.file.name} · ${project.name}` : project.name);
   if (found.isPending) return <Loading label="Loading the import…" />;
-  if (found.isError || !made) {
+  if (!made) {
     return (
       <>
         <ImportHeading title="Import a spreadsheet" />
@@ -1570,15 +1599,46 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
     );
   }
   const type = types.find((t) => t.name === made.type);
+  const query = { queryKey: importQuery(importId).queryKey, exact: true };
+  const changeProblem = problems[0] && {
+    ...problems[0],
+    errors: problems.flatMap((problem) => problem.errors ?? []),
+  };
+  const clearRejection = (field: string) => {
+    setRejected((prior) => {
+      if (!(field in prior)) return prior;
+      return Object.fromEntries(Object.entries(prior).filter(([name]) => name !== field));
+    });
+  };
+  const resetDrafts = () => {
+    setDirty([]);
+    setRejected({});
+    setReview((previous) => previous + 1);
+  };
+  const reload = async () => {
+    if (writing.current) return;
+    writing.current = true;
+    setSaving(true);
+    const edit = ++generation.current;
+    const result = await found.refetch();
+    if (generation.current !== edit) return;
+    if (result.isSuccess) {
+      resetDrafts();
+      say("Reloaded the saved choices. Review them before continuing.");
+    } else {
+      setRejected((prior) => ({ ...prior, reload: problemOf(result.error) }));
+    }
+    writing.current = false;
+    setSaving(false);
+  };
   const apply = (choice: SheetChange) => {
     // A blur can submit again before React disables the controls. Each choice
     // must be based on the complete, acknowledged result of the previous one.
-    if (writing.current || preview.isPending) return;
+    if (writing.current || preview.isPending || rejected["basis"]) return;
     writing.current = true;
     const edit = ++generation.current;
-    const query = { queryKey: importQuery(importId).queryKey, exact: true };
+    const field = Object.keys(choice)[0] ?? "step";
     setSaving(true);
-    setChangeProblem(undefined);
     void client.cancelQueries(query);
     const body = Object.keys(choice).length
       ? { ...choice, basis: { sheet: made.sheet, header_row: made.header_row } }
@@ -1593,6 +1653,16 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
         }
         void client.cancelQueries(query);
         client.setQueryData(query.queryKey, next);
+        if (
+          next.sheet !== made.sheet ||
+          (next.header_row !== made.header_row &&
+            (dirty.some((name) => name !== "header_row") ||
+              Object.keys(rejected).some((name) => name !== "header_row")))
+        ) {
+          resetDrafts();
+        } else {
+          clearRejection(field);
+        }
         writing.current = false;
         setSaving(false);
         if (next.sheet !== made.sheet && next.header_row !== made.header_row) {
@@ -1604,10 +1674,22 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
       (error: unknown) => {
         if (edit !== generation.current) return;
         writing.current = false;
-        setChangeProblem(problemOf(error));
+        const problem = problemOf(error);
+        setRejected((prior) => ({ ...prior, [problem.status === 409 ? "basis" : field]: problem }));
         setSaving(false);
       },
     );
+  };
+  // Preview and commit publish complete snapshots too. An intervening edit or
+  // visit can supersede the callback before its response reaches the browser.
+  const view = generation.current;
+  const showSnapshot = (next: SheetImport) => {
+    if (view !== generation.current) {
+      void client.invalidateQueries(query);
+      return;
+    }
+    void client.cancelQueries(query);
+    client.setQueryData(query.queryKey, next);
   };
   const current =
     made.state === "mapping" || made.state === "reading"
@@ -1657,17 +1739,36 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
       ) : null}
       {made.state === "mapping" ? (
         <>
-          {saving ? <p role="status">Saving your choices…</p> : null}
           <fieldset disabled={saving || preview.isPending} aria-label="Import choices">
             {step === "rows" ? (
-              <ChooseRows key={made.sheet} made={made} change={apply} problem={changeProblem} />
+              <ChooseRows
+                key={JSON.stringify([made.sheet, review])}
+                made={made}
+                change={apply}
+                problem={changeProblem}
+                onDirty={(field, changed) => {
+                  if (changed) void client.cancelQueries(query);
+                  setDirty((prior) =>
+                    changed ? [...prior, field] : prior.filter((name) => name !== field),
+                  );
+                }}
+                onReconcile={clearRejection}
+              />
             ) : (
               <>
                 <MapColumns made={made} change={apply} problem={changeProblem} />
-                <NumbersAndDates made={made} change={apply} />
+                <NumbersAndDates made={made} change={apply} problem={changeProblem} />
               </>
             )}
           </fieldset>
+          {changeProblem ? (
+            <>
+              <ProblemAlert problem={rejected["reload"] ?? rejected["basis"] ?? changeProblem} />
+              <Button disabled={saving} onClick={() => void reload()}>
+                Reload saved choices
+              </Button>
+            </>
+          ) : null}
           <div className="actions sheet-actions">
             {step === "columns" ? (
               <Button
@@ -1682,9 +1783,9 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
             {step === "rows" ? (
               <Button
                 variant="primary"
-                disabled={saving}
+                disabled={saving || unresolved}
                 onClick={() => {
-                  if (!writing.current) setStep("columns");
+                  if (!writing.current && !unresolved) setStep("columns");
                 }}
               >
                 Next: columns
@@ -1694,12 +1795,11 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
                 variant="primary"
                 busy={preview.isPending || change.isPending}
                 busyText="Checking…"
-                disabled={!made.can["preview"]}
+                disabled={!made.can["preview"] || unresolved}
                 onClick={() => {
+                  if (writing.current || unresolved) return;
                   preview.mutate(undefined, {
-                    onSuccess: (next) => {
-                      client.setQueryData(importQuery(importId).queryKey, next);
-                    },
+                    onSuccess: showSnapshot,
                   });
                 }}
               >
@@ -1707,6 +1807,7 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
               </Button>
             )}
           </div>
+          {saving ? <p role="status">Saving your choices…</p> : null}
           {preview.error ? <ProblemAlert problem={problemOf(preview.error)} /> : null}
         </>
       ) : null}
@@ -1733,14 +1834,7 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
               Back to the columns
             </Button>
           </div>
-          {made.can["commit"] ? (
-            <CommitImport
-              made={made}
-              onCommitted={(next) => {
-                client.setQueryData(importQuery(importId).queryKey, next);
-              }}
-            />
-          ) : null}
+          {made.can["commit"] ? <CommitImport made={made} onCommitted={showSnapshot} /> : null}
         </>
       ) : null}
       {made.run ? <ImportResult made={made} project={project} /> : null}
