@@ -42,6 +42,17 @@ describe("the packaged WebAssembly parsers", () => {
     expect(readHelm([])).toEqual([]);
   });
 
+  it("reads the fixed-condition temperature and preserves unknown values", async () => {
+    const { meltingTemperature } = await loadParsers(
+      await WebAssembly.compile(await readFile(binary)),
+    );
+    // Same self-complementary example as the application using SantaLucia's 1998 model
+    // (doi:10.1073/pnas.95.4.1460) and its fixed salt and strand concentrations.
+    expect(meltingTemperature("gaattc")).toBe(-20.4);
+    expect(meltingTemperature("N")).toBeNull();
+    expect(meltingTemperature("")).toBeNull();
+  });
+
   it("lets the host load the binary from a URL and retry a failed fetch", async () => {
     const bytes = await readFile(binary);
     const fetchBinary = vi

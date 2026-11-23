@@ -121,6 +121,11 @@
     "./chemical-depiction": {
       "types": "./dist/chemical-depiction.d.ts",
       "default": "./dist/chemical-depiction.js"
+    },
+    "./oligo-temperature": {
+      "@ikisci/source": "./src/oligo-temperature.ts",
+      "types": "./dist/oligo-temperature.d.ts",
+      "default": "./dist/oligo-temperature.js"
     }
   },
   "files": [
@@ -135,12 +140,13 @@
     "style.d.ts",
     "src/structure/residues.ts",
     "LICENSE",
-    "NOTICE"
+    "NOTICE",
+    "generated"
   ],
   "scripts": {
     "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node build-viewers.mjs && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "node ../../../scripts/generate-oligo-temperature.js --check && vitest run"
   },
   "ikiSizeBudgets": {
     "./booking-calendar": 2560,
@@ -150,7 +156,7 @@
     "./box-map.css": 1536,
     "./science-inputs.css": 320,
     "./parsers": 563200,
-    "./sequence": 7168,
+    "./sequence": 12288,
     "./translation": 3072,
     "./oligo-chemistry": 2304,
     "./oligo-duplex": 2176,
@@ -165,7 +171,8 @@
     "./alignment-viewer": 80000,
     "./alignment-compare": 1500,
     "./structure-viewer": 1200000,
-    "./chemical-depiction": 2500000
+    "./chemical-depiction": 2500000,
+    "./oligo-temperature": 7680
   },
   "devDependencies": {
     "@rdkit/rdkit": "2026.9.2",

@@ -170,6 +170,7 @@ interface Exports {
   iki_input: (length: number) => number;
   iki_read: (alphabet: number) => void;
   iki_helm: () => void;
+  iki_melting_temperature: () => void;
   iki_render: () => void;
   iki_evaluate_rules: () => void;
   iki_output: () => number;
@@ -183,6 +184,8 @@ export interface Parsers {
   readFasta: (input: Uint8Array | string, alphabet?: Alphabet | null) => Reading;
   /** Read a batch in order. Each invalid notation gets its own character offset and error. */
   readHelm: (texts: readonly string[]) => HelmReading[];
+  /** Melting temperature in °C under the fixed reference conditions, or null for unknown bases. */
+  meltingTemperature: (bases: string) => number | null;
   /** The module's JSON wire format, for workers that also run CEL templates and rules. */
   requestJson: (operation: JsonOperation, request: string) => string;
 }
@@ -243,6 +246,15 @@ export async function loadParsers(
       if (!response.readings)
         throw new Error(response.error ?? "The HELM parser returned no readings.");
       return response.readings;
+    },
+    meltingTemperature(bases) {
+      const request = encoder.encode(JSON.stringify({ bases }));
+      const response = JSON.parse(exchange(request, wasm.iki_melting_temperature)) as {
+        celsius?: number | null;
+        error?: string;
+      };
+      if (response.celsius === undefined) throw new Error(response.error ?? "Missing temperature.");
+      return response.celsius;
     },
     requestJson,
   };

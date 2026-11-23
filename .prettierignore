@@ -43,3 +43,5 @@ plugins/plasmid/components/plasmid-map.js
 plugins/oligo/components/chemistry.js
 plugins/oligo/components/duplex.js
 plugins/complex/components/composition.js
+# Translated from the checked Rust binary by pnpm generate:temperature.
+web/packages/science/generated/oligo-temperature.js

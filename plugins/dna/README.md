@@ -159,6 +159,13 @@ dNTPs as well), under which the same primer's Tm is some 5 to 6 °C higher, so
 compare it with Tms computed for sodium alone. It's computed only for primers
 of A, C, G and T alone.
 
+A worker loads `data/oligo-measurement.wasm` from this plugin's pinned action
+archive using the Wasmtime wheel in `sequence-tools`. The browser package and the
+server's `iki-spec` module compile the same Rust measurement. The worker needs
+only its archive and hashed Python environment to run this calculation offline.
+From the repository root, regenerate the module with
+`scripts/build-oligo-wasm.sh plugins/dna/data/oligo-measurement.wasm`.
+
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
 LOCUS's molecule type says the strandedness: `ss-DNA` and RNA records

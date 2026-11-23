@@ -52,7 +52,7 @@ The corresponding element tags are `<iki-box-map>`, `<iki-quantity-input>` and `
 
 | Import                        | Data and result                                                                                                                                                                                                                                       |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@ikisci/science/parsers`     | `await loadParsers()` returns readers for UTF-8 FASTA sequences or alignments, and HELM strings. [Inputs, coordinate conventions and results](stories/parsers.md)                                                                                     |
+| `@ikisci/science/parsers`     | `await loadParsers()` returns FASTA and HELM readers and a function that measures a supplied DNA oligo’s melting temperature under fixed conditions. [Inputs, coordinate conventions and results](stories/parsers.md)                                 |
 | `@ikisci/science/sequence`    | Plain DNA, RNA or protein strings, annotated features and per-residue numeric tracks. Functions for complement, GC content, exact motif matching, melting temperature, feature layout and track scales. [Inputs and coordinates](stories/sequence.md) |
 | `@ikisci/science/translation` | Translate a whole frame or an annotated coding feature with one of the NCBI genetic codes. [Coordinates and qualifiers](stories/translation.md)                                                                                                       |
 
@@ -109,6 +109,14 @@ Set `.data` to `{ structures, camera? }`. Each structure has a label, `pdb` or `
 format, and coordinate text or an ArrayBuffer. The Mol* scene supports colours, saved
 cameras, residue selections and multi-structure superposition.
 [Data, methods and events](stories/structure-viewer.md) · [Crambin example](stories/structure-viewer.html)
+
+## Oligo temperature
+
+`@ikisci/science/oligo-temperature` exports `meltingTemperature(bases)`. It returns
+the temperature in °C to one decimal place for a supplied unmodified DNA strand and
+its complement under the DNA record’s fixed conditions, or `null` for unsupported
+input. The call is synchronous and works in browsers and Node. The JavaScript comes
+from the same Rust model the WebAssembly module runs. [Inputs and model](stories/sequence.md)
 
 ## Next.js
 

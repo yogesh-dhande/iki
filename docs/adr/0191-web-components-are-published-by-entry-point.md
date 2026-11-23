@@ -29,6 +29,21 @@ A plugin ships its adapter and renderer in one checked-in, reproducible JavaScri
 bundle. That file goes through the existing digest check and iframe policy. For
 server-rendered HTML the UI package and Django serve the same styles and font files.
 
+### One implementation of a measurement
+
+The temperature reported for an unmodified oligo must agree in an action result, a
+Python check and a browser selection. The fixed-condition calculation and rounding
+live in the Rust source behind `iki-wasm`. The full module exposes it alongside the
+file readers. The DNA action ships a small module compiled from the same source so
+an isolated worker can measure a supplied sequence without a service call.
+
+The selection viewer needs a synchronous result on the page. Its build translates
+that small module to JavaScript, which keeps the page within its existing content
+security policy. Build checks regenerate the artifacts, and tests compare their
+answers with the Python reference, including undefined measurements. The
+public restriction-map functions accept cut positions and paired intervals already
+identified by the caller. Site discovery continues to run in the plasmid action.
+
 ## Consequences
 
 A consumer can try each component with the data in its story and load just the entries

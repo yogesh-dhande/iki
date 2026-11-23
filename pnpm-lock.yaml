@@ -181,6 +181,9 @@ importers:
       axe-core:
         specifier: ^4.14.0
         version: 4.14.0
+      binaryen:
+        specifier: 125.0.0
+        version: 125.0.0
       eslint:
         specifier: ^10.14.0
         version: 10.14.0(supports-color@10.2.2)
@@ -1027,6 +1030,10 @@ packages:
 
   bcp-47@2.1.2:
     resolution: {integrity: sha512-wsv86UuNFuPnVieKLyECTT+CP1WSAHeoIg5P3xu2kA9Z+7fVPoKt7dxzSeEhtJel0AI+NW3fIW3KtTKQKUCngg==}
+
+  binaryen@125.0.0:
+    resolution: {integrity: sha512-X7CUM9ZnwL/Ow++JH5AJKiemc82J7JyeryuPvXQdXBLcL/rqrC5KMUB1mHiORSolietH9sotvaOZlr6HSwPAlw==}
+    hasBin: true
 
   body-parser@2.4.0:
     resolution: {integrity: sha512-Ifk1KcLrxaGt1occQagQNFNNOqRt1LFuehEnHHzB8Z6cRgIxRU1TBaiIsUiCdA+gy5PL7Y1IX31DNKkRmxtXjQ==}
@@ -3478,6 +3485,8 @@ snapshots:
       is-alphabetical: 2.0.1
       is-alphanumerical: 2.0.1
       is-decimal: 2.0.1
+
+  binaryen@125.0.0: {}
 
   body-parser@2.4.0(supports-color@10.2.2):
     dependencies:

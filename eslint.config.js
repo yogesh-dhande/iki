@@ -10,6 +10,8 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/coverage/**",
+      // Binaryen's output; its Rust source and typed adapter are checked separately.
+      "web/packages/science/generated/oligo-temperature.js",
       "**/node_modules/**",
       "worker/target/**",
       ".venv/**",

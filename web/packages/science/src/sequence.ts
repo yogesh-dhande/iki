@@ -465,62 +465,7 @@ export function gcContent(bases: string): number | null {
   return Math.round((10_000 * gc) / known) / 100;
 }
 
-/** SantaLucia's unified nearest-neighbour ΔH (kcal/mol) and ΔS (cal/K/mol), for each pair
- * of neighbours 5′→3′ on one strand (PNAS 95, 1460; 1998, table 2). */
-const NEIGHBOURS: Record<string, [number, number]> = {
-  AA: [-7.9, -22.2],
-  AT: [-7.2, -20.4],
-  TA: [-7.2, -21.3],
-  CA: [-8.5, -22.7],
-  GT: [-8.4, -22.4],
-  CT: [-7.8, -21.0],
-  GA: [-8.2, -22.2],
-  CG: [-10.6, -27.2],
-  GC: [-9.8, -24.4],
-  GG: [-8.0, -19.9],
-};
-/** Initiation, by the base pair at each end. */
-const INITIATION: Record<string, [number, number]> = {
-  G: [0.1, -2.8],
-  C: [0.1, -2.8],
-  A: [2.3, 4.1],
-  T: [2.3, 4.1],
-};
-const SYMMETRY: [number, number] = [0, -1.4];
-const GAS_CONSTANT = 1.987; // cal/K/mol
-/** 50 mM Na+, sodium alone: no Mg2+ or dNTPs. */
-const SODIUM = 0.05;
-/** SantaLucia's CT, all the strands together (mol/L): 25 nM each of a strand and its
- * complement, or 50 nM of one that pairs with itself. */
-const STRANDS = 50e-9;
-
-/** The melting temperature (°C, to one place) of `bases` with their complement, as the DNA
- * plugin's primers have it: SantaLucia's unified nearest-neighbour parameters (1998) with
- * his salt correction, at 50 mM Na+ alone and 50 nM of strands in all (his equation 3).
- * Null for fewer than two bases, or any but A, C, G and T. */
-export function meltingTemperature(bases: string): number | null {
-  const upper = bases.toUpperCase();
-  if (upper.length < 2 || !/^[ACGT]+$/.test(upper)) return null;
-  const first = INITIATION[upper[0] ?? ""] ?? [0, 0];
-  const last = INITIATION[upper.at(-1) ?? ""] ?? [0, 0];
-  let enthalpy = first[0] + last[0];
-  let entropy = first[1] + last[1];
-  for (let i = 0; i < upper.length - 1; i++) {
-    const pair = upper.slice(i, i + 2);
-    const [dh, ds] = NEIGHBOURS[pair] ?? NEIGHBOURS[reverseComplement(pair)] ?? [0, 0];
-    enthalpy += dh;
-    entropy += ds;
-  }
-  let strands = STRANDS / 4;
-  if (upper === reverseComplement(upper)) {
-    enthalpy += SYMMETRY[0];
-    entropy += SYMMETRY[1];
-    strands = STRANDS;
-  }
-  entropy += 0.368 * (upper.length - 1) * Math.log(SODIUM);
-  const kelvin = (1000 * enthalpy) / (entropy + GAS_CONSTANT * Math.log(strands));
-  return Math.round((kelvin - 273.15) * 10) / 10;
-}
+export { meltingTemperature } from "./oligo-temperature.js";
 
 /** The longest stretch a selection's Tm is given for: the longest primer the DNA plugin
  * takes. A nearest-neighbour Tm is a two-state model of an oligo melting from its duplex;

@@ -18,7 +18,7 @@ from typing import Any
 
 import wasmtime
 
-__all__ = ["FUEL", "WASM", "UnavailableError", "call"]
+__all__ = ["FUEL", "WASM", "UnavailableError", "call", "melting_temperature"]
 
 #: Where the module is: built and copied here by scripts/build-wasm.sh, and by the image.
 WASM = Path(__file__).with_name("iki_wasm.wasm")
@@ -26,7 +26,13 @@ WASM = Path(__file__).with_name("iki_wasm.wasm")
 #: length (a list of 450 numbers) takes about 70 million.
 FUEL = 200_000_000
 #: The exports a call can name.
-EXPORTS = ("iki_check", "iki_check_rules", "iki_evaluate_rules", "iki_helm")
+EXPORTS = (
+    "iki_check",
+    "iki_check_rules",
+    "iki_evaluate_rules",
+    "iki_helm",
+    "iki_melting_temperature",
+)
 
 
 class UnavailableError(RuntimeError):
@@ -99,6 +105,9 @@ def call(export: str, request: dict[str, object], fuel: int) -> dict[str, Any]:
     if export not in EXPORTS:
         raise ValueError(f"iki-wasm has no export {export} to call.")
     payload = json.dumps(request).encode()
+    # iki_input bounds its allocation to MAX_BYTES (iki-wasm/src/lib.rs).
+    if len(payload) > 64 * 1024 * 1024:
+        raise UnavailableError("The JSON request exceeds the module’s 64 MiB input limit.")
     instance: _Instance | None = getattr(_local, "instance", None)
     if instance is None:
         instance = _local.instance = _Instance()
@@ -112,3 +121,16 @@ def call(export: str, request: dict[str, object], fuel: int) -> dict[str, Any]:
     if "error" in found:
         raise UnavailableError(f"iki-wasm refused the request: {found['error']}")
     return found
+
+
+def melting_temperature(bases: str) -> float | None:
+    """A supplied unmodified DNA oligo's fixed-condition melting temperature in °C.
+
+    Uses the shared SantaLucia (1998) measurement with 50 mM sodium and 50 nM
+    total strand concentration. Ambiguous bases or fewer than two bases give None.
+    """
+    if not bases.isascii() or len(bases) < 2:
+        return None
+    answer = call("iki_melting_temperature", {"bases": bases}, FUEL * (1 + len(bases) // 1000))
+    celsius = answer["celsius"]
+    return float(celsius) if celsius is not None else None

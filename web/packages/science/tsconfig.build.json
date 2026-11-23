@@ -25,7 +25,8 @@
     "src/alignment-compare.ts",
     "src/alignment-viewer.tsx",
     "src/structure-viewer.ts",
-    "src/chemical-depiction.ts"
+    "src/chemical-depiction.ts",
+    "src/oligo-temperature.ts"
   ],
   "exclude": ["src/**/*.test.ts"]
 }

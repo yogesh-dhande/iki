@@ -5,25 +5,29 @@ import hashlib
 import json
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from iki_spec import schemas
+from iki_cli import workers
+from iki_spec import schemas, wasm
 
 SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "dna" / "scripts" / "sequences.py"
 
 
-def run(tmp_path: Path, kind: str, name: str, bases: list[str]) -> dict[str, Any]:
+def run(
+    tmp_path: Path, kind: str, name: str, bases: list[str], *, script: Path = SCRIPT
+) -> dict[str, Any]:
     entities = [
         {"id": f"00000000-0000-0000-0000-{i:012d}", "hrid": f"X-{i}", "values": {"bases": b}}
         for i, b in enumerate(bases)
     ]
     (tmp_path / "input.json").write_text(json.dumps({"inputs": {name: entities}}))
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPT), kind],
+        [sys.executable, "-I", str(script), kind],
         env={"IKI_INPUT": str(tmp_path / "input.json"), "IKI_OUTPUT": str(tmp_path / "out.json")},
         capture_output=True,
         text=True,
@@ -72,6 +76,23 @@ def test_primers_with_ambiguous_bases_get_no_melting_temperature(tmp_path: Path)
     (found,) = run(tmp_path, "primers", "primer", ["ACGTNACGTACGTACGT"]).values()
     assert "melting_temperature" not in found
     assert found["gc_content"] == 50.0
+
+
+def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
+    """Run isolated Python on the same two files a worker gets from its pinned plugin."""
+    packed = tmp_path / "dna.tar.gz"
+    workers.bundle(SCRIPT.parents[1], packed)
+    unpacked = tmp_path / "action"
+    with tarfile.open(packed, "r:gz") as archive:
+        for path in ("scripts/sequences.py", "data/oligo-measurement.wasm"):
+            archive.extract(path, unpacked, filter="data")
+
+    # The B-DNA dodecamer (PDB 1BNA), an ambiguous oligo, and a one-base record.
+    bases = ["cgcgaattcgcg", "NN", "A"]
+    found = run(tmp_path, "primers", "primer", bases, script=unpacked / "scripts/sequences.py")
+    for index, strand in enumerate(bases):
+        assert found[str(index)].get("melting_temperature") == wasm.melting_temperature(strand)
+    assert isinstance(wasm.melting_temperature(bases[0]), float)
 
 
 # --- Importing files -----------------------------------------------------------------------------
