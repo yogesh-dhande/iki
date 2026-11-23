@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Environment
+name: polymer-tools
+label: Polymer tools
+description: Python 3.12 with RDKit for the SMILES fragments in supported BigSMILES expressions.
+tiers: [backend, self_hosted]
+resources: { cpu: 0.25, memory: 512Mi }
+python: { version: "3.12", requirements: requirements.txt }
