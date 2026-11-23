@@ -296,7 +296,7 @@ importers:
   web/packages/science:
     devDependencies:
       jsdom:
-        specifier: ^31.0.0
+        specifier: ^31.0.1
         version: 31.0.1(@noble/hashes@2.4.0)
 
   web/packages/sdk:
@@ -312,7 +312,7 @@ importers:
   web/packages/ui:
     devDependencies:
       jsdom:
-        specifier: ^31.0.0
+        specifier: ^31.0.1
         version: 31.0.1(@noble/hashes@2.4.0)
 
 packages:

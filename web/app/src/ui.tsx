@@ -10,6 +10,7 @@
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   createContext,
+  createElement,
   useCallback,
   useContext,
   useEffect,
@@ -18,24 +19,18 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type RefObject,
 } from "react";
-import {
-  Button as AriaButton,
-  Dialog,
-  DialogTrigger,
-  Heading,
-  Modal,
-  ModalOverlay,
-  Popover,
-} from "react-aria-components";
+import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
+import { createPortal } from "react-dom";
 import type { Problem } from "@ikisci/sdk";
+import "@ikisci/ui/page-header";
+import type { IkiPageHeader } from "@ikisci/ui/page-header";
 import { buttonState, type ButtonOptions } from "@ikisci/ui/button";
 
 export { buttonClass } from "@ikisci/ui/button";
 
-import { PhoneActions, TopBar, usePhone } from "./page-top";
+import { TopBar, usePhone } from "./page-top";
 
 // --- Buttons ---------------------------------------------------------------------
 
@@ -605,94 +600,29 @@ export function PageHeader({
   about?: ReactNode;
   marker?: ReactNode;
 }) {
-  // On a phone its title comes first, then its actions (page-top.tsx).
   const phone = usePhone();
-  const acts = actions !== undefined && actions !== null && actions !== false;
+  const path = useRouterState({ select: (state) => state.location.pathname });
+  const [header, setHeader] = useState<IkiPageHeader | null>(null);
+  useEffect(() => {
+    if (navigated) header?.heading.focus();
+  }, [path, header]);
   return (
     <>
       <TopBar crumbs={crumbs ?? [title]} weak={!crumbs} actions={phone ? undefined : actions} />
-      <div className="page-heading">
-        {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
-        <div className="page-title-row">
-          {marker}
-          <PageTitle>
-            {title}
-            {badge ? <> {badge}</> : null}
-          </PageTitle>
-          {description || about ? (
-            <Description title={title} about={about}>
-              {description}
-            </Description>
-          ) : null}
-        </div>
-        {phone && acts ? <PhoneActions>{actions}</PhoneActions> : null}
-      </div>
+      {createElement("iki-page-header", { data: { title }, ref: setHeader })}
+      {header && (
+        <>
+          {createPortal(eyebrow, header.areas.eyebrow)}
+          {createPortal(marker, header.areas.marker)}
+          {createPortal(badge ? <> {badge}</> : null, header.areas.badge)}
+          {createPortal(description, header.areas.description)}
+          {createPortal(description, header.areas.fullDescription)}
+          {createPortal(about, header.areas.about)}
+          {phone && createPortal(actions, header.areas.actions)}
+        </>
+      )}
     </>
   );
-}
-
-/** A page's line about itself, beside its title; whole, with `about`, in a toggletip. */
-function Description({
-  title,
-  about,
-  children,
-}: {
-  title: string;
-  about: ReactNode;
-  children: ReactNode;
-}) {
-  const line = useRef<HTMLParagraphElement>(null);
-  const cut = useCutShort(line, children);
-  return (
-    <div className="page-description">
-      {children ? (
-        <p className="page-description-text" ref={line}>
-          {children}
-        </p>
-      ) : null}
-      {cut || about ? (
-        <DialogTrigger>
-          <AriaButton className="page-about" aria-label={`About ${title}`}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M12 11v5" />
-              <path d="M12 7.5v.01" />
-            </svg>
-          </AriaButton>
-          <Popover className="page-about-popover" placement="bottom start">
-            <Dialog className="page-about-dialog" aria-label={`About ${title}`}>
-              {children ? <p>{children}</p> : null}
-              {about}
-            </Dialog>
-          </Popover>
-        </DialogTrigger>
-      ) : null}
-    </div>
-  );
-}
-
-/** Whether an element's one line of `text` is cut short, as it is drawn now. */
-function useCutShort(ref: RefObject<HTMLElement | null>, text: ReactNode): boolean {
-  const [cut, setCut] = useState(false);
-  // Measured again when its text changes, as well as its width.
-  useEffect(() => {
-    const el = ref.current;
-    if (el) setCut(el.scrollWidth > el.clientWidth + 1);
-  }, [ref, text]);
-  useEffect(() => {
-    const el = ref.current;
-    // jsdom, which the tests run in, lays nothing out.
-    if (!el || typeof ResizeObserver !== "function") return;
-    const measure = () => {
-      setCut(el.scrollWidth > el.clientWidth + 1);
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [ref]);
-  return cut;
 }
 
 export function Badge({ children, muted = false }: { children: ReactNode; muted?: boolean }) {

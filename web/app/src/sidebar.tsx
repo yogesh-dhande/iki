@@ -7,9 +7,17 @@
  */
 
 import { unwrap } from "@ikisci/sdk";
+import "@ikisci/ui/sidebar";
+import type {
+  NavigationDetail,
+  SidebarData,
+  SidebarLink,
+  SidebarToggleDetail,
+} from "@ikisci/ui/sidebar";
+
 import { queryOptions, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useMatch, useNavigate } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { createElement, useEffect, useId, useRef, useState } from "react";
 
 import navigation from "../../../server/src/iki_server/web/navigation.json";
 import { iki, projectPagesQuery, projectQuery, unreadQuery, type Me } from "./api";
@@ -19,8 +27,7 @@ import { entityQuery, typeDisplayName } from "./entities";
 import { countsQuery } from "./lists";
 import { swatchOf } from "./project-color";
 import { openSearch } from "./search";
-import { TypeDot } from "./type-color";
-import { TypeName } from "./ui";
+import { typeSwatch } from "./type-color";
 
 /** An item of the sidebar's, as navigation.json lists it (see iki_server.web.navigation). */
 export interface NavItem {
@@ -61,16 +68,6 @@ export const ENTITIES_COOKIE = "iki_entities";
 export function entitiesOpen(pathname: string, left: string | undefined): boolean {
   if (left === "open" || left === "closed") return left === "open";
   return pathname.startsWith(SPEC.entities.all.href);
-}
-
-/** Scrolls a list so the item in it is in view, if it isn't: itself, not the page. */
-export function reveal(list: HTMLElement, item: HTMLElement): void {
-  const box = list.getBoundingClientRect();
-  const at = item.getBoundingClientRect();
-  // A row's height of room around it, so it isn't flush against the edge.
-  const room = at.height;
-  if (at.top < box.top) list.scrollTop -= box.top - at.top + room;
-  else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom + room;
 }
 
 export function Icon({ name }: { name: IconName }) {
@@ -171,45 +168,6 @@ export const savedViewsQuery = queryOptions({
 const myProjects = (): ReturnType<typeof projectPagesQuery> =>
   projectPagesQuery({ member: true, archived: false });
 
-function NavLink({
-  link,
-  current,
-  className = "nav-item",
-  children,
-  ...rest
-}: {
-  link: Shown;
-  current: boolean;
-  className?: string;
-  children: ReactNode;
-  "aria-label"?: string;
-  title?: string;
-}) {
-  const navigate = useNavigate();
-  // An anchor, not the router's Link: the sidebar says which is current, and the router's
-  // would also call Admin current on the page it opens, beside the page's own item.
-  return (
-    <a
-      href={link.href}
-      className={className}
-      aria-current={current ? "page" : undefined}
-      {...rest}
-      onClick={
-        link.app
-          ? (event) => {
-              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
-              if (event.altKey) return;
-              event.preventDefault();
-              void navigate({ to: link.href });
-            }
-          : undefined
-      }
-    >
-      {children}
-    </a>
-  );
-}
-
 export function Sidebar({ me, pathname }: { me: Me; pathname: string }) {
   // On a narrow screen it's a drawer, as the admin area's is.
   const { open, show, dismiss, opener, closer, panel, backdrop, panelProps } = useDrawer(
@@ -291,9 +249,7 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
   const unread = useQuery(unreadQuery).data ?? 0;
   const [left, setLeft] = useState(() => readCookie(ENTITIES_COOKIE));
   const open = entitiesOpen(pathname, left);
-  const navRef = useRef<HTMLElement>(null);
-  // As the server's sidebar names it: there's one sidebar on a page.
-  const entitiesId = "nav-entities";
+  const navigate = useNavigate();
   // How many of each type they can read, across their projects, as All entities counts
   // them: where counting would be slow, each type that can have records, uncounted.
   const counts = useQuery({ ...countsQuery(), meta: { background: true } });
@@ -373,160 +329,85 @@ function MainNavigation({ me, pathname }: { me: Me; pathname: string }) {
       ...SPEC.account.map((item) => shown(item)),
       ...(newProject ? [newProject] : []),
     ]);
-  const icon = (link: Shown) => (link.icon ? <Icon name={link.icon} /> : null);
-  // Its current item in view, where the list scrolls: on load, as what's above it arrives
-  // (types, saved views, projects), and as the reader moves on.
-  const above = [types.length, saved.length, mine.length].join();
-  useEffect(() => {
-    const list = navRef.current;
-    const item = list?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (list && item) reveal(list, item);
-  }, [current, open, above]);
-
-  return (
-    <nav className="sidebar-nav" aria-label="Main" ref={navRef}>
-      {top.map((link) => {
-        const badge = link.badge === "unread" && unread ? unread : 0;
-        return (
-          <NavLink key={link.key} link={link} current={current === link.key}>
-            {icon(link)}
-            <span className="nav-label">{link.label}</span>
-            {/* Named by what it shows, "Inbox 3", then "unread": a flex row draws none of the
-                spaces between them, but a screen reader reads them. */}
-            {badge ? (
-              <>
-                {" "}
-                <span className="nav-badge">{badge > 99 ? "99+" : String(badge)}</span>{" "}
-                <span className="visually-hidden">unread</span>
-              </>
-            ) : null}
-          </NavLink>
-        );
-      })}
-      <div className="nav-gap" />
-      <button
-        className="nav-item nav-toggle"
-        type="button"
-        aria-expanded={open}
-        aria-controls={entitiesId}
-        onClick={() => {
-          const now = open ? "closed" : "open";
-          writeCookie(ENTITIES_COOKIE, now);
-          setLeft(now);
-        }}
-      >
-        <Icon name={SPEC.entities.icon} />
-        <span className="nav-label">{SPEC.entities.label}</span>
-        <Icon name="chevron" />
-      </button>
-      <div className="nav-sub" id={entitiesId} hidden={!open}>
-        <NavLink link={allEntities} current={current === allEntities.key}>
-          <span className="nav-label">{allEntities.label}</span>
-          {counts.data?.total != null ? <Count n={counts.data.total} /> : null}
-        </NavLink>
-        {types.map((link) => (
-          <NavLink key={link.key} link={link} current={current === link.key}>
-            <TypeDot type={link.type} />
-            <span className="nav-label">
-              <TypeName shown={link} />
-            </span>
-            {link.count !== null ? <Count n={link.count} /> : null}
-          </NavLink>
-        ))}
-      </div>
-      {work.map((link) => (
-        <NavLink key={link.key} link={link} current={current === link.key}>
-          {icon(link)}
-          <span className="nav-label">{link.label}</span>
-        </NavLink>
-      ))}
-      {saved.length ? (
-        <Group label={navigation.saved.label}>
-          {saved.map((s) => (
-            <NavLink
-              key={s.id}
-              link={shown({ label: s.name, href: `${SPEC.saved.href}${s.id}/`, app: true })}
-              current={false}
-            >
-              <Icon name="saved" />
-              <span className="nav-label">{s.name}</span>
-            </NavLink>
-          ))}
-        </Group>
-      ) : null}
-      <Group
-        label={SPEC.projects.label}
-        action={
-          newProject ? (
-            <NavLink
-              link={newProject}
-              current={current === newProject.key}
-              className="nav-add"
-              title={newProject.label}
-            >
-              <Icon name="plus" />
-              <span className="visually-hidden">{newProject.label}</span>
-            </NavLink>
-          ) : null
-        }
-      >
-        {mine.map((link) => (
-          <NavLink key={link.key} link={link} current={current === link.key}>
-            <span className="swatch swatch-large" data-swatch={link.swatch} aria-hidden="true" />
-            <span className="nav-label">{link.label}</span>
-          </NavLink>
-        ))}
-        <NavLink
-          link={allProjects}
-          current={current === allProjects.key}
-          className="nav-item nav-quiet"
-        >
-          {icon(allProjects)}
-          <span className="nav-label">{allProjects.label}</span>
-        </NavLink>
-      </Group>
-      <Group label={SPEC.organization.label}>
-        {organization.map((link) => (
-          <NavLink key={link.key} link={link} current={current === link.key}>
-            {icon(link)}
-            <span className="nav-label">{link.label}</span>
-          </NavLink>
-        ))}
-      </Group>
-    </nav>
-  );
-}
-
-/** How many: after a space, which a flex row doesn't draw but a screen reader reads. */
-function Count({ n }: { n: number }) {
-  return (
-    <>
-      {" "}
-      <span className="nav-count">{n.toLocaleString()}</span>
-    </>
-  );
-}
-
-function Group({
-  label,
-  action,
-  children,
-}: {
-  label: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  // Named by aria-label, not aria-labelledby: Playwright's Firefox crashes working out the
-  // name a page's element takes from another where a plugin's frame is (see test_browser).
-  return (
-    <div className="nav-group" role="group" aria-label={label}>
-      <div className="nav-heading">
-        <span aria-hidden="true">{label}</span>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
+  const routed = new Set<string>();
+  function item(link: Shown): SidebarLink {
+    if (link.app) routed.add(link.href);
+    return {
+      href: link.href,
+      label: link.label,
+      current: current === link.key,
+      icon: link.icon ? navigation.icons[link.icon] : undefined,
+    };
+  }
+  const data: SidebarData = {
+    label: "Main",
+    sections: [
+      {
+        links: top.map((link) => ({
+          ...item(link),
+          badge:
+            link.badge === "unread" && unread
+              ? { text: unread > 99 ? "99+" : String(unread), description: "unread" }
+              : undefined,
+        })),
+      },
+      {
+        label: SPEC.entities.label,
+        gap: true,
+        disclosure: { id: "nav-entities", open, icon: navigation.icons[SPEC.entities.icon] },
+        links: [
+          { ...item(allEntities), count: counts.data?.total },
+          ...types.map((link) => ({
+            ...item(link),
+            qualifier: link.plugin,
+            count: link.count,
+            mark: { shape: "dot" as const, swatch: typeSwatch(link.type) },
+          })),
+        ],
+      },
+      { links: work.map(item) },
+      ...(saved.length
+        ? [
+            {
+              label: SPEC.saved.label,
+              links: saved.map((view) => ({
+                ...item(
+                  shown({ label: view.name, href: `${SPEC.saved.href}${view.id}/`, app: true }),
+                ),
+                icon: navigation.icons.saved,
+              })),
+            },
+          ]
+        : []),
+      {
+        label: SPEC.projects.label,
+        action: newProject ? { ...item(newProject), icon: navigation.icons.plus } : undefined,
+        links: [
+          ...mine.map((link) => ({
+            ...item(link),
+            mark: { shape: "square" as const, swatch: link.swatch },
+          })),
+          { ...item(allProjects), quiet: true },
+        ],
+      },
+      { label: SPEC.organization.label, links: organization.map(item) },
+    ],
+  };
+  return createElement("iki-sidebar", {
+    data,
+    "oniki-navigate": (event: CustomEvent<NavigationDetail>) => {
+      const { href } = event.detail;
+      if (routed.has(href)) {
+        event.preventDefault();
+        void navigate({ to: href });
+      }
+    },
+    "oniki-toggle": (event: CustomEvent<SidebarToggleDetail>) => {
+      const value = event.detail.open ? "open" : "closed";
+      writeCookie(ENTITIES_COOKIE, value);
+      setLeft(value);
+    },
+  });
 }
 
 function csrfToken(): string {

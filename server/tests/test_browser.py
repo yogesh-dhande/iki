@@ -3544,6 +3544,37 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     assert_clean(page)
 
 
+def test_pressing_the_new_project_icon_while_saved_views_arrive(open_as: Any) -> None:
+    page = open_as("team_member", "/")
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    sidebar = page.locator("iki-sidebar")
+    add = sidebar.get_by_role("link", name="New project", exact=True)
+    # Capture the native down target on the link: its icon has a separate hit-tested path.
+    add.evaluate("""link => link.addEventListener("pointerdown", event => {
+        window.pressedNewProjectPath = event.target.matches("svg path");
+    }, {once: true, capture: true})""")
+    add.locator("svg path").hover()
+    page.mouse.down()
+    assert page.evaluate("window.pressedNewProjectPath") is True
+    # The empty saved-views result refreshes the sidebar without moving the plus.
+    before = sidebar.evaluate_handle("sidebar => sidebar.data")
+    assert len(deferred) == 1
+    with page.expect_response(saved_views) as response:
+        deferred[0].continue_()
+    assert response.value.json() == []
+    page.wait_for_function(
+        "before => document.querySelector('iki-sidebar').data !== before", arg=before
+    )
+    page.mouse.up()
+    page.wait_for_url("**/projects/new/")
+    page.get_by_role("textbox", name="Project name").wait_for()
+
+
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()

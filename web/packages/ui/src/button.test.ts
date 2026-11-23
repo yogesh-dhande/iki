@@ -21,8 +21,10 @@ describe("iki-button", () => {
     expect(button?.getAttribute("aria-label")).toBe("Save changes");
     expect(button?.getAttribute("aria-describedby")).toBe("reason");
     button?.focus();
+    const label = button?.firstChild;
 
     element.data = { ...element.data, busy: true, busyText: "Saving" };
+    expect(button?.firstChild).toBe(label);
     expect(button?.textContent).toBe("Saving");
     expect(button?.hasAttribute("aria-label")).toBe(false);
     expect(button?.getAttribute("aria-busy")).toBe("true");

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sidebar · Iki UI</title>
+    <link rel="stylesheet" href="../dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/fonts.css" />
+    <link rel="stylesheet" href="../dist/sidebar.css" />
+    <style>
+      html {
+        font: 81.25%/1.45 var(--font);
+        color: var(--text);
+        background: var(--bg);
+      }
+      main {
+        max-width: 35rem;
+        padding: 1rem;
+      }
+      iki-sidebar {
+        max-width: var(--sidebar-width);
+        padding-block: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sidebar</h1>
+      <iki-sidebar></iki-sidebar>
+      <p role="status"></p>
+    </main>
+    <script type="module">
+      import "../dist/sidebar.js";
+      const sidebar = document.querySelector("iki-sidebar");
+      sidebar.data = {
+        label: "Library",
+        sections: [
+          { links: [{ label: "Overview", href: "#overview", current: true }] },
+          {
+            label: "Guides",
+            disclosure: { id: "guides", open: false },
+            links: [
+              { label: "Importing data", href: "#import" },
+              { label: "Review", href: "#review" },
+            ],
+          },
+        ],
+      };
+      sidebar.addEventListener("iki-navigate", (event) => {
+        event.preventDefault();
+        document.querySelector('[role="status"]').textContent = "Selected " + event.detail.href;
+      });
+    </script>
+  </body>
+</html>
