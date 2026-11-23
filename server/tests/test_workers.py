@@ -24,6 +24,7 @@ from test_api_entities import api_as
 from test_runs import launch, protein
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import catalog, queue, workers
 from iki_server.runs.models import ActionRun, Job, JobLog, JobState, Worker
@@ -346,12 +347,14 @@ def test_a_worker_leases_a_queued_job_with_what_it_needs(world: World) -> None:
     job = leased.json()
     assert not list(schemas.check("run-input", job))
     assert job["run"]["hrid"] == run["hrid"]
+    assert job["run"]["requested_by"] == str(world.users["editor"].pk)
     assert job["run"]["attempt"] == 1
     assert job["command"][0] == "python"
     assert job["environment"] == "acme/protein.protein-tools"
     assert job["params"] == run["params"]
     (entity,) = job["inputs"]["protein"]
     assert entity["hrid"] == run["inputs"][0]["hrid"]
+    assert entity["entry_id"] == str(Entity.objects.get(pk=entity["id"]).entry_id)
     assert entity["revision"] == 1
     assert entity["values"]["sequence"].startswith("MKV")
     assert job["job"]["resources"]["cpu"] == 0.5  # protein-tools asks for half a CPU
