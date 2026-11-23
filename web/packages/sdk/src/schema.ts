@@ -5873,6 +5873,20 @@ export interface components {
              */
             tabs: string[];
         };
+        /** AppliedMappingOut */
+        AppliedMappingOut: {
+            /**
+             * Columns
+             * @description Mapped columns, including the column index, header and how each was read.
+             */
+            columns: {
+                [key: string]: unknown;
+            }[];
+            /** Header Row */
+            header_row: number;
+            locale: components["schemas"]["SheetLocaleOut"];
+            template: components["schemas"]["SavedMappingMatch"] | null;
+        };
         /** AppliedStarterOut */
         AppliedStarterOut: {
             /**
@@ -16439,6 +16453,8 @@ export interface components {
         };
         /** SpreadsheetImportOut */
         SpreadsheetImportOut: {
+            /** @description The exact mapping confirmed at commit, kept on the import. */
+            applied_mapping?: components["schemas"]["AppliedMappingOut"] | null;
             /** Can */
             can: {
                 [key: string]: boolean;
@@ -16477,7 +16493,7 @@ export interface components {
             /** Last Row */
             last_row: number | null;
             locale: components["schemas"]["SheetLocaleOut"];
-            /** @description The saved mapping it was mapped by. */
+            /** @description The saved mapping it was mapped by, pinned on committed imports. */
             mapping: components["schemas"]["SavedMappingMatch"] | null;
             /**
              * Mappings
