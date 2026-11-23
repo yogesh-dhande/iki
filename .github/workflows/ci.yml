@@ -228,11 +228,11 @@ jobs:
         if: matrix.kind == 'worker'
         working-directory: worker
         run: cargo build --locked -p iki-worker
-      - name: Build the web app (with iki-wasm)
+      - name: Build the web app (with iki-wasm) and the package stories
         if: matrix.kind == 'browser'
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @ikisci/app build
+          pnpm --filter @ikisci/app --filter @ikisci/science --filter @ikisci/ui build
       # The browsers' system packages, kept between runs: Ubuntu's mirrors are
       # sometimes too slow from the runners to download them in time.
       # A stalled cache service once held this step for the job's whole timeout: give

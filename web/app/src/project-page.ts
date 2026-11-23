@@ -7,7 +7,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
-import { ENTITIES, personName, type Entity, type EntityType } from "./entities";
+import { searchEntities, ENTITIES, personName, type Entity, type EntityType } from "./entities";
 import { sentBy, sentTo } from "./requests";
 
 export type ProjectChange = Schemas["ProjectChangeOut"];
@@ -35,15 +35,13 @@ export function latestRequestsQuery(
     queryFn: async (): Promise<Entity[]> => {
       const latest = async (where: Schemas["Condition"]) =>
         unwrap(
-          await iki.POST("/api/v1/entities/search", {
-            body: {
-              project: projectId,
-              exact_type: false,
-              archived: false,
-              limit: LATEST_REQUESTS,
-              where,
-              sort: { field: "updated_at", descending: true },
-            },
+          await searchEntities({
+            project: projectId,
+            exact_type: false,
+            archived: false,
+            limit: LATEST_REQUESTS,
+            where,
+            sort: { field: "updated_at", descending: true },
           }),
         ).items;
       const found = await Promise.all([

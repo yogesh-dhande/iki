@@ -56,7 +56,12 @@ print(f"Runtime architecture: {machine}, UID {os.getuid()}, psycopg C")
 
 artifact = Path("/server-wasm")
 installed = files("iki_spec")
-for name in ("iki_wasm.wasm", "dna-annotation.wasm", "rust-standard-library.html"):
+for name in (
+    "iki_wasm.wasm",
+    "dna-annotation.wasm",
+    "oligo-measurement.wasm",
+    "rust-standard-library.html",
+):
     assert installed.joinpath(name).read_bytes() == (artifact / name).read_bytes(), name
 
 native = Path("/opt/iki/wasm")

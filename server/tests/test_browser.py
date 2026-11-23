@@ -1289,6 +1289,92 @@ def test_a_projects_automation_and_tabs_fit_any_screen(
     page.context.close()
 
 
+@pytest.mark.parametrize("press", ["across", "after"])
+def test_a_projects_tabs_stay_put_as_their_counts_and_tabs_arrive(
+    open_as: Any, world: World, press: str
+) -> None:
+    """A tab is where it's first drawn. The Entities count and the installed types (which
+    say whether there's a Requests tab) are held back, then answered, while Runs is pressed
+    on a phone: "across" presses it as soon as it can be pressed, and lets go after they
+    arrive; "after" clicks, once they have, where Runs was first drawn. Either opens Runs.
+    It didn't: drawn before them, Runs moved right as they arrived, so a press that began
+    on it ended on Entities, and Firefox clicked their row instead, which opens nothing;
+    and a click where it had been opened Entities or Requests."""
+    from iki_server.entities import requests
+
+    # A service: it has a Requests tab, which it knows of once the types are answered.
+    requests.set_intake(
+        world.project,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    page: Page = open_as("admin", f"/projects/{world.project.slug}/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    held: list[Route] = []
+    counts = re.compile(rf"/api/v1/entities/counts\?project={world.project.id}$")
+    types = re.compile(r"/api/v1/entity-types$")
+    page.route(counts, lambda route: held.append(route))
+    page.route(types, lambda route: held.append(route))
+    page.reload()
+    deadline = time.monotonic() + 10
+    while len(held) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(held) == 2, [r.request.url for r in held]
+
+    def answer_them() -> None:
+        for route in held:
+            route.continue_()
+        page.unroute(counts)
+        page.unroute(types)
+
+    tabs = page.get_by_role("navigation", name="Project")
+    runs = tabs.get_by_role("link", name="Runs", exact=True)
+    page.evaluate(NEXT_FRAMES)
+    # What's in the tabs' place while they're held: as tall as the tabs, where they'll be.
+    holding = page.locator(".tabs.project-tabs:visible").bounding_box()
+    # Where Runs can first be pressed: now, if the tabs can be pressed before they're known.
+    early = runs.is_visible()
+    if not early:
+        answer_them()
+    runs.wait_for()
+    first = runs.bounding_box()
+    assert first
+    x, y = first["x"] + first["width"] / 2, first["y"] + first["height"] / 2
+
+    def answered() -> None:
+        tabs.get_by_role("link", name=re.compile(r"^Entities \d")).wait_for()
+        tabs.get_by_role("link", name=re.compile(r"^Requests\b")).wait_for()
+        page.evaluate(NEXT_FRAMES)
+
+    if press == "across":
+        page.mouse.move(x, y)
+        page.mouse.down()
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.up()
+    else:
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.click(x, y)
+    try:
+        page.wait_for_url(re.compile(r"/runs/$"), timeout=5000)
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(
+            f"Pressed Runs at {(x, y)}, drawn at {first}, then at {settled}. " + what_happened(page)
+        ) from error
+    assert settled == first
+    assert holding == tabs.bounding_box()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.context.close()
+
+
 def test_entities_from_the_grid_to_their_audit_trail(open_as: Any, world: World) -> None:
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
@@ -3544,6 +3630,37 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     assert_clean(page)
 
 
+def test_pressing_the_new_project_icon_while_saved_views_arrive(open_as: Any) -> None:
+    page = open_as("team_member", "/")
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    sidebar = page.locator("iki-sidebar")
+    add = sidebar.get_by_role("link", name="New project", exact=True)
+    # Capture the native down target on the link: its icon has a separate hit-tested path.
+    add.evaluate("""link => link.addEventListener("pointerdown", event => {
+        window.pressedNewProjectPath = event.target.matches("svg path");
+    }, {once: true, capture: true})""")
+    add.locator("svg path").hover()
+    page.mouse.down()
+    assert page.evaluate("window.pressedNewProjectPath") is True
+    # The empty saved-views result refreshes the sidebar without moving the plus.
+    before = sidebar.evaluate_handle("sidebar => sidebar.data")
+    assert len(deferred) == 1
+    with page.expect_response(saved_views) as response:
+        deferred[0].continue_()
+    assert response.value.json() == []
+    page.wait_for_function(
+        "before => document.querySelector('iki-sidebar').data !== before", arg=before
+    )
+    page.mouse.up()
+    page.wait_for_url("**/projects/new/")
+    page.get_by_role("textbox", name="Project name").wait_for()
+
+
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()
@@ -4620,14 +4737,23 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
-    script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet, react_aria = (
-        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    script = page.locator('script[type=module][src^="/static/app/assets/main-"]').get_attribute(
+        "src"
     )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
-    assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
-    for url in (script, stylesheet, react_aria):
+
+    assets = [script]
+    styles = set()
+    for link in page.locator("link[rel=stylesheet]").all():
+        href = link.get_attribute("href")
+        assert href
+        name = re.fullmatch(r"/static/iki/([\w-]+)\.[0-9a-f]{12}\.css", href)
+        assert name, href
+        styles.add(name[1])
+        assets.append(href)
+    assert {"iki", "react-aria", "tokens", "fonts", "button"} <= styles
+
+    for url in assets:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url

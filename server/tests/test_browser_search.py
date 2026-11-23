@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -21,6 +21,7 @@ from test_browser import (  # noqa: F401 - fixtures
 
 from iki_server.entities import services as entities
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.searches.models import SavedSearch
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -104,6 +105,74 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
     assert "/projects/" not in page.url
     assert_clean(page)
+
+
+@pytest.mark.parametrize("focus_link", [False, True], ids=["disclosure", "child-link"])
+def test_open_sidebar_section_keeps_focus_when_saved_views_arrive(
+    open_as: Any, world: World, focus_link: bool
+) -> None:
+    saved = SavedSearch.objects.create(
+        project=world.project, name="My recent work", query={}, created_by=world.users["admin"]
+    )
+    page = open_as("admin", "/projects/")
+    nav = page.get_by_role("navigation", name="Main")
+    saved_link = nav.get_by_role("link", name=saved.name)
+    saved_link.wait_for()
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    section = nav.get_by_role("button", name="Entities")
+    section.focus()
+    page.keyboard.press("Enter")
+    expect(section).to_have_attribute("aria-expanded", "true")
+    child = nav.get_by_role("link", name="All entities")
+    expect(child).to_be_visible()
+    chevron = section.locator("svg:last-child path")
+    original_chevron = chevron.evaluate_handle("path => path")
+    focused = child if focus_link else section
+    focused.focus()
+    expect(focused).to_be_focused()
+
+    assert len(deferred) == 1
+    deferred[0].continue_()
+    expect(saved_link).to_be_visible()
+    expect(section).to_have_attribute("aria-expanded", "true")
+    expect(child).to_be_visible()
+    expect(focused).to_be_focused()
+    assert chevron.evaluate("(path, original) => path === original", original_chevron)
+    assert_clean(page)
+
+
+def test_escape_restores_the_sidebar_link_after_its_saved_views_arrive(
+    open_as: Any, world: World
+) -> None:
+    saved = SavedSearch.objects.create(
+        project=world.project, name="My recent work", query={}, created_by=world.users["admin"]
+    )
+    page = open_as("admin", "/projects/")
+    saved_link = page.locator("#sidebar").get_by_text(saved.name, exact=True)
+    saved_link.wait_for()
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    # Hold the real saved-views response until focus is inside the palette.
+    with page.expect_request(saved_views):
+        page.reload()
+    opener = page.get_by_role("link", name="All projects", exact=True)
+    opener.focus()
+    dialog = open_palette(page)
+    expect(dialog.get_by_role("combobox")).to_be_focused()
+
+    assert len(deferred) == 1
+    deferred[0].continue_()
+    saved_link.wait_for(state="attached")
+    expect(dialog.get_by_role("combobox")).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
 
 
 # What the palette's parts measure, as the reader sees them: the input row, the first

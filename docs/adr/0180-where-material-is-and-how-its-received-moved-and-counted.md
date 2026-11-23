@@ -195,14 +195,25 @@ and counting pages, typing in an editable field belongs to that field. With
 focus elsewhere, at least four characters form a scan if the gaps between
 them, including the final Enter or Tab, are at most 50 ms, with one gap
 allowed up to 250 ms. This accommodates a brief scheduling or rendering
-stall while excluding a person's steadily slower typing. Two consecutive
-characters within 50 ms identify a possible scan. From then until its
-terminator, a longer pause or a second stall rejects the whole code. Iki
-consumes the terminator either way so it cannot activate the focused
-control. For an unreadable scan the scan box asks the person to try again
-or type the code. On a tablet, the camera reads codes where
-the browser has `BarcodeDetector`; elsewhere, Iki says so and offers the
-code typed.
+stall while excluding a person's steadily slower typing. The gap budget
+applies from the first character. A gap longer than 250 ms or a second
+gap over 50 ms invalidates the whole sequence through its terminator.
+Otherwise a stalled label such as `XRC001` could be accepted as `RC001`.
+
+Two consecutive characters within 50 ms identify a possible scan. Once that
+happens, Iki consumes Enter or Tab even when an earlier gap invalidated the
+code. When the timing broke before that fast pair, the scan box explains
+that a key arrived before the rest of the scan and asks for a rescan.
+There is no idle timeout that starts a new code. With focus outside
+editable controls, a stray character followed by a scanner burst can cost
+one retry even minutes later. This prevents the suffix of a label from
+matching a different tube. Enter or Tab ends the attempt. Typing in an
+editable control, composing text, or using a Ctrl, Alt or Meta shortcut
+also clears the listener’s buffer. Steadily slow typing keeps its ordinary
+keyboard behavior.
+
+On a tablet, the camera reads codes where the browser has `BarcodeDetector`.
+Elsewhere, Iki offers the typed code.
 
 **A type can require a scan before a draw or a move.** `storage.confirm:
 [draw, move]`: the code scanned is sent with the change, Iki checks it names

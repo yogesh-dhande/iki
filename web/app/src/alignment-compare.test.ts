@@ -53,11 +53,12 @@ describe("compared", () => {
   });
 
   it("compares ambiguity codes as the sets they stand for, the same either way round", () => {
-    // IUBMB: N is any base; R is A or G, Y is C or T.
+    // NC-IUB table 1: N is any base, R is A or G, Y is C or T.
+    // https://iubmb.qmul.ac.uk/misc/naseq.html
     expect(call("A", "N", "nucleotide")).toBe("same");
     expect(call("N", "A", "nucleotide")).toBe("unresolved");
     expect(call("Y", "R", "nucleotide")).toBe("differs");
-    // IUPAC-IUB: B is D or N.
+    // IUPAC–IUB 3AA-21: B is D or N. https://iupac.qmul.ac.uk/AminoAcid/A2021.html
     expect(call("D", "B", "protein")).toBe("same");
     expect(call("B", "D", "protein")).toBe("unresolved");
     expect(call("B", "A", "protein")).toBe("differs");

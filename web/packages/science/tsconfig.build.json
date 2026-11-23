@@ -1,0 +1,32 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src/booking-calendar.ts",
+    "src/box-map.ts",
+    "src/quantity-input.ts",
+    "src/sequence-input.ts",
+    "src/parsers.ts",
+    "src/sequence.ts",
+    "src/translation.ts",
+    "src/oligo-chemistry.ts",
+    "src/oligo-duplex.ts",
+    "src/complex-composition.ts",
+    "src/composition-mass.ts",
+    "src/molecular-properties.ts",
+    "src/open-reading-frames.ts",
+    "src/restriction-map.ts",
+    "src/plasmid-map.ts",
+    "src/plasmid-thumbnail.ts",
+    "src/sequence-viewer.tsx",
+    "src/alignment-compare.ts",
+    "src/alignment-viewer.tsx",
+    "src/structure-viewer.ts",
+    "src/chemical-depiction.ts",
+    "src/oligo-temperature.ts"
+  ],
+  "exclude": ["src/**/*.test.ts"]
+}

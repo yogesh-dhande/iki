@@ -5,11 +5,12 @@ request's tubes with one of each outcome; labels' print preview and ZPL; and rec
 box by scan. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
 import re
+from itertools import pairwise
 from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Request, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -193,9 +194,9 @@ def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) ->
     page.context.close()
 
 
-def sent_to_a_core(world: World, n: int) -> dict[str, Any]:
+def sent_to_a_core(world: World, n: int | tuple[str, ...]) -> dict[str, Any]:
     """A core facility serving the world's project, with an analyst to receive; an assay
-    request sent to it with `n` tubes; and an empty box of the core's to put them in."""
+    request sent to it with the given tubes; and an empty box of the core's to put them in."""
     core = Project.objects.create(team=world.team, name="Protein Core", description="Assays")
     tech = User.objects.create_user("tech@example.com", "Tech")
     world.users["tech"] = tech
@@ -206,17 +207,18 @@ def sent_to_a_core(world: World, n: int) -> dict[str, Any]:
         core, types=[ASK], from_registry=True, sources=[], by=world.users["org_admin"]
     )
     editor = world.users["editor"]
+    barcodes = (f"RC{i:03}" for i in range(n)) if isinstance(n, int) else n
     tubes = [
         ref(
             entities.create(
                 editor,
                 TUBE,
                 world.project,
-                {"barcode": f"RC{i:03}"},
+                {"barcode": code},
                 amount={"value": 50, "unit": "uL"},
             )
         )
-        for i in range(n)
+        for code in barcodes
     ]
     ask = ref(
         entities.create(
@@ -236,6 +238,95 @@ def outcome(page: Page, code: str, name: str) -> None:
     line.get_by_role("group", name=re.compile("outcome$")).get_by_role(
         "button", name=name, exact=True
     ).click()
+
+
+@pytest.mark.parametrize("prefix_gap", [250, 251, 350, 5000])
+def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(
+    open_as: Any, world: World, prefix_gap: int
+) -> None:
+    sent = sent_to_a_core(world, ("XRC000", "RC000"))
+    ask = sent["ask"]
+    page = open_as("tech", f"/storage/receive/{ask['hrid']}/")
+    page.get_by_role("button", name="Start receiving").click()
+    checklist = page.get_by_role("list", name="Checklist")
+    full, suffix = [
+        checklist.get_by_role("listitem", name=tube["hrid"], exact=True).get_by_role(
+            "button", name=re.compile(r"\bMatched$")
+        )
+        for tube in sent["tubes"]
+    ]
+    suffix.focus()
+    expect(suffix).to_be_focused()
+    receipt = Receipt.objects.get(request_id=ask["id"])
+    receipt_path = f"/api/v1/receipts/{receipt.pk}"
+    scan_path = f"{receipt_path}/scan"
+    submitted: list[object] = []
+
+    def record_scan(request: Request) -> None:
+        if request.method == "POST" and request.url.endswith(scan_path):
+            submitted.append(request.post_data_json)
+
+    def read_outcomes() -> dict[str, str | None]:
+        response = page.request.get(receipt_path)
+        assert response.ok, response.status
+        body = response.json()
+        assert body["status"] == "open" and body["completed_at"] is None
+        outcomes = {line["code"]: line["outcome"] for line in body["lines"]}
+        assert outcomes == dict(receipt.lines.values_list("code", "outcome"))
+        return outcomes
+
+    def scan_with_prefix_gap(code: str, gap_ms: int) -> None:
+        # Keep the browser's genuine key events and native button activation. Only the
+        # intervals seen by the detector are fixed, so runner load cannot add a second stall.
+        keys = [*code, "Enter"]
+        seen = page.evaluate_handle(
+            """({keys, gap}) => {
+                const seen = [];
+                let at = Math.ceil(performance.now());
+                function stamp(event) {
+                    if (event.key !== keys[seen.length]) return;
+                    at += seen.length === 1 ? gap : 5;
+                    Object.defineProperty(event, "timeStamp", {value: at});
+                    seen.push([event.isTrusted ? event.key : null, event.timeStamp]);
+                    if (event.key === "Enter") window.removeEventListener("keydown", stamp, true);
+                }
+                window.addEventListener("keydown", stamp, true);
+                return seen;
+            }""",
+            {"keys": keys, "gap": gap_ms},
+        )
+        page.keyboard.type(code[0])
+        page.wait_for_timeout(gap_ms)
+        scan_label(page, code[1:])
+        events = seen.json_value()
+        assert [key for key, _ in events] == keys
+        intervals = [b[1] - a[1] for a, b in pairwise(events)]
+        assert intervals == [gap_ms] + [5] * (len(keys) - 2)
+        seen.dispose()
+
+    page.on("request", record_scan)
+    scan_with_prefix_gap("XRC000", prefix_gap)
+    retry = page.get_by_role("alert").filter(has_text="Scan again or type the code.")
+    matched = checklist.get_by_role("button", name=re.compile(r"\bMatched$"), pressed=True)
+    retry.or_(matched).first.wait_for()
+    first_requests = submitted.copy()
+    after_gap = read_outcomes()
+    message = retry.inner_text() if retry.is_visible() else None
+    if prefix_gap > 250:
+        scan_with_prefix_gap("XRC000", 5)
+    expect(full).to_have_attribute("aria-pressed", "true")
+    expect(retry).to_be_hidden()
+    final = read_outcomes()
+    expected = {"XRC000": "matched", "RC000": None}
+    if prefix_gap == 250:
+        assert first_requests == [{"code": "XRC000"}] and after_gap == expected
+        assert message is None
+    else:
+        assert first_requests == [] and after_gap == {"XRC000": None, "RC000": None}
+        assert message == "A key arrived before the rest of the scan. Scan again or type the code."
+    assert submitted == [{"code": "XRC000"}] and final == expected
+    expect(suffix).to_have_attribute("aria-pressed", "false")
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

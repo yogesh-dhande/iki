@@ -12,20 +12,27 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "pnpm -r --parallel run typecheck",
-    "test": "pnpm -r run test",
-    "build": "pnpm -r run build"
+    "test": "node scripts/bundle-plugin-components.mjs --check && pnpm -r run test",
+    "build": "pnpm -r run build",
+    "bundle:plugins": "node scripts/bundle-plugin-components.mjs",
+    "generate:temperature": "node scripts/generate-oligo-temperature.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@ikisci/component": "workspace:*",
+    "@ikisci/science": "workspace:*",
     "@types/node": "^24.10.0",
     "axe-core": "^4.14.0",
+    "binaryen": "125.0.0",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.0",
     "prettier": "^3.10.1",
+    "rolldown": "1.2.18",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2",
+    "vite": "^8.3.8",
     "vitest": "^5.1.0"
   }
 }

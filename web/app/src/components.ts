@@ -9,6 +9,7 @@ import { queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
 import type { EntityType } from "./entities";
+import { pageReadSignal } from "./page-reads";
 
 export type PluginComponent = Schemas["ComponentOut"];
 export type ComponentSlot = PluginComponent["slots"][number];
@@ -35,7 +36,8 @@ export interface PlaceInfo {
 /** The installed components: they change only when the deployment does. */
 export const componentsQuery = queryOptions({
   queryKey: ["components"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/components")),
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/components", { signal: pageReadSignal(signal) })),
   staleTime: 10 * 60_000,
 });
 

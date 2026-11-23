@@ -13,6 +13,7 @@ VERIFY = Path(__file__).resolve().parents[2] / "verify-server-wasm.sh"
 PINS = {
     "iki_wasm.wasm": "server/iki_wasm.wasm.sha256",
     "dna-annotation.wasm": "plugins/plasmid/data/dna-annotation.wasm.sha256",
+    "oligo-measurement.wasm": "plugins/dna/data/oligo-measurement.sha256",
 }
 TARGETS = {"amd64": ("x86_64", 62), "arm64": ("aarch64", 183)}
 
@@ -59,20 +60,43 @@ def payload(tmp_path: Path) -> tuple[Path, Path]:
     return script, artifact
 
 
-def verified(payload: tuple[Path, Path]) -> subprocess.CompletedProcess[str]:
+def verified(payload: tuple[Path, Path], *options: str) -> subprocess.CompletedProcess[str]:
     script, artifact = payload
     return subprocess.run(  # noqa: S603 - runs the repository's verifier with fixture paths
-        ["/bin/sh", str(script), str(artifact)], capture_output=True, check=False, text=True
+        ["/bin/sh", str(script), *options, str(artifact)],
+        capture_output=True,
+        check=False,
+        text=True,
     )
 
 
-def test_verifies_both_modules(payload: tuple[Path, Path]) -> None:
+def test_verifies_all_modules(payload: tuple[Path, Path]) -> None:
     result = verified(payload)
     assert result.returncode == 0, result.stderr
     for name in PINS:
         assert name in result.stdout
     for arch in TARGETS:
         assert f"{arch} precompiled module" in result.stdout
+
+
+def test_dev_cli_can_stage_just_the_portable_files(payload: tuple[Path, Path]) -> None:
+    _, artifact = payload
+    for arch in TARGETS:
+        shutil.rmtree(artifact / arch)
+    result = verified(payload, "--portable-only")
+    assert result.returncode == 0, result.stderr
+    for name in PINS:
+        assert name in result.stdout
+    assert "precompiled" not in result.stdout
+
+
+@pytest.mark.parametrize("arch", TARGETS)
+def test_image_requires_each_native_target(payload: tuple[Path, Path], arch: str) -> None:
+    _, artifact = payload
+    shutil.rmtree(artifact / arch)
+    result = verified(payload)
+    assert result.returncode != 0
+    assert str(artifact / arch / "iki_wasm.cwasm") in result.stderr
 
 
 @pytest.mark.parametrize("name", PINS)
@@ -91,12 +115,16 @@ def test_verification_names_the_bad_module_and_both_digests(
     assert name in result.stderr and expected in result.stderr and actual in result.stderr
 
 
-def test_fails_before_using_an_incomplete_payload(payload: tuple[Path, Path]) -> None:
+@pytest.mark.parametrize("name", [*PINS, "rust-standard-library.html"])
+@pytest.mark.parametrize("options", [(), ("--portable-only",)])
+def test_fails_before_using_an_incomplete_payload(
+    payload: tuple[Path, Path], name: str, options: tuple[str, ...]
+) -> None:
     _, artifact = payload
-    (artifact / "rust-standard-library.html").unlink()
-    result = verified(payload)
+    (artifact / name).unlink()
+    result = verified(payload, *options)
     assert result.returncode != 0
-    assert "rust-standard-library.html" in result.stderr
+    assert name in result.stderr
 
 
 @pytest.mark.parametrize("arch", TARGETS)
