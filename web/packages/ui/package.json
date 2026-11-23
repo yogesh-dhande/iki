@@ -1,0 +1,78 @@
+{
+  "name": "@ikisci/ui",
+  "version": "0.1.0-dev.0",
+  "description": "Iki design tokens, Inter and accessible interface components.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yogesh-dhande/iki.git",
+    "directory": "web/packages/ui"
+  },
+  "type": "module",
+  "exports": {
+    "./button": {
+      "@ikisci/source": "./src/button.ts",
+      "types": "./dist/button.d.ts",
+      "default": "./dist/button.js"
+    },
+    "./tokens.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/tokens.css"
+    },
+    "./button.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/button.css"
+    },
+    "./fonts.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/fonts.css"
+    },
+    "./page-header": {
+      "@ikisci/source": "./src/page-header.ts",
+      "types": "./dist/page-header.d.ts",
+      "default": "./dist/page-header.js"
+    },
+    "./page-header.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/page-header.css"
+    },
+    "./sidebar": {
+      "@ikisci/source": "./src/sidebar.ts",
+      "types": "./dist/sidebar.d.ts",
+      "default": "./dist/sidebar.js"
+    },
+    "./sidebar.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/sidebar.css"
+    }
+  },
+  "files": [
+    "dist",
+    "stories",
+    "src/button.ts",
+    "style.d.ts",
+    "LICENSE",
+    "NOTICE",
+    "src/page-header.ts",
+    "src/sidebar.ts",
+    "src/navigation.ts"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node copy-assets.js && node ../../../scripts/check-web-package-size.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "ikiSizeBudgets": {
+    "./button": 1024,
+    "./tokens.css": 1280,
+    "./button.css": 800,
+    "./fonts.css": 156000,
+    "./page-header": 2560,
+    "./page-header.css": 1400,
+    "./sidebar": 2048,
+    "./sidebar.css": 2600
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.1"
+  }
+}

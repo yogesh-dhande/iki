@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Quantity input</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/science-inputs.css" />
+    <style>
+      body {
+        margin: 1rem;
+        color: var(--text);
+        background: var(--bg);
+        font-family: var(--font);
+      }
+      output {
+        display: block;
+        margin-block: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Quantity input</h1>
+      <label for="volume">Example volume</label>
+      <iki-quantity-input></iki-quantity-input>
+      <output></output>
+    </main>
+    <script type="module">
+      import "../dist/quantity-input.js";
+      const field = document.querySelector("iki-quantity-input");
+      field.data = {
+        label: "Example volume",
+        inputId: "volume",
+        referenceUnit: "mL",
+        units: [
+          { code: "mL", symbol: "mL" },
+          { code: "uL", symbol: "μL" },
+        ],
+        value: { number: "", unit: "mL", other: "" },
+      };
+      field.addEventListener("value-change", ({ detail }) => {
+        document.querySelector("output").textContent =
+          `${detail.number} ${detail.unit === "__other" ? detail.other : detail.unit}`.trim();
+      });
+    </script>
+  </body>
+</html>

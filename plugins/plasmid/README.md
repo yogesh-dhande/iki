@@ -172,7 +172,7 @@ Biopython and Wasmtime). Wasmtime runs the Rust matcher for `annotate_dna_sequen
 1.88 as their software, so what their runs make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
 
-The plugin pins the matcher in `data/dna-annotation.sha256`. When building a
+The plugin pins the matcher in `data/dna-annotation.wasm.sha256`. When building a
 deployment, Iki verifies the installed `iki-spec` module against this digest and
 adds it to the worker image and downloadable plugin archive as
 `data/dna-annotation.wasm`. The archive includes the Rust standard library notice.
