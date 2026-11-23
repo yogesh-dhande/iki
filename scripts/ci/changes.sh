@@ -20,16 +20,13 @@ is_docs() {
   esac
 }
 
-is_server_input() {
-  # Include the input directories, workspace manifests, shared build scripts and
-  # workflow pins. A Dockerfile can take a new file from any of these directories.
+needs_server_image() {
+  # Skip only paths known to be independent of the server image. New build
+  # inputs run the gate without requiring a matching change to this script.
   case "$1" in
-    server/* | cli/* | spec/* | codegen/* | sdk/python/* | web/* | worker/* | scripts/*) return 0 ;;
-    .github/workflows/* | .github/actions/* | .github/dependabot.yml) return 0 ;;
-    .dockerignore | .grype.yaml | .node-version | .python-version | LICENSE | NOTICE) return 0 ;;
-    plugins/plasmid/data/*.sha256) return 0 ;;
-    pyproject.toml | uv.lock | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | tsconfig.base.json) return 0 ;;
-    *) return 1 ;;
+    docs/* | README.md | CODE_OF_CONDUCT.md | CONTRIBUTING.md | SECURITY.md) return 1 ;;
+    deploy/dev/sso.py) return 1 ;;
+    *) return 0 ;;
   esac
 }
 
@@ -55,7 +52,7 @@ changed_inputs() {
   server_image=false
   while IFS= read -r -d '' file; do
     if ! is_docs "$file"; then code=true; fi
-    if is_server_input "$file"; then server_image=true; fi
+    if needs_server_image "$file"; then server_image=true; fi
   done < "$changed_paths"
 }
 
