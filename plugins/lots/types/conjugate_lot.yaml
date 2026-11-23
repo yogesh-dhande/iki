@@ -1,38 +1,33 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
-#
-# Until a plugin registers conjugates, a conjugate lot names any entity: the conjugate
-# if it's registered as something, or the antibody it's made from. A conjugate plugin
-# narrows `conjugate` to its types (ADR 0162).
 apiVersion: iki/v1
 kind: EntityType
 name: ConjugateLot
 label: Conjugate lot
 label_plural: Conjugate lots
 extends: BiologicLot
-schema_version: 1
+schema_version: 2
 description: >-
-  A lot of an antibody–drug conjugate, or another protein conjugate: its average
-  drug-to-antibody ratio (DAR) from the share of each drug load, by HIC or by LC-MS of
-  the intact conjugate or of its reduced chains, its unconjugated antibody and free
-  drug, and its concentration by A280 with its own ε280, which its payload adds to.
+  Physical material of a registered conjugate, with its measured concentration.
+  An antibody–drug conjugate lot can record its drug load distribution, average
+  drug-to-antibody ratio (DAR), unconjugated antibody and free drug.
 hrid: { prefix: CJLOT }
-# How much of it is left (ADR 0139): kept by protein mass, drawn by volume at its
+# How much of it is left (ADR 0139): kept by conjugate mass, drawn by volume at its
 # concentration, so 5 mg of a 2 mg/mL lot is 2.5 mL; only its conjugate's, so a transfer into it
 # takes only another lot of the same conjugate.
 amount:
   unit: mg
   label: Amount
-  description: How much protein is left.
+  description: How much conjugate material is left.
   concentration: concentration
   material: conjugate
 fields:
   conjugate:
     type: ref
-    to: iki/core.Entity
+    to: iki/conjugate.Conjugate
     label: Lot of
     required: true
     immutable: true
-    description: The conjugate it's a lot of.
+    description: The registered conjugate this lot contains.
   dar_method:
     type: enum
     label: DAR by
@@ -84,9 +79,9 @@ fields:
     description: >-
       Its average number of drugs per antibody: worked out from its drug load
       distribution when that's recorded, the mean of each load weighted by its share,
-      and for reduced chains each chain's mean times the copies of it its conjugate has
-      (two of each in an IgG, one in a Fab), which a complex of them says. Otherwise,
-      or by UV/Vis whatever its distribution, as measured.
+      and for reduced chains each chain's mean times the copies in the registered
+      antibody carrier (two of each in an IgG, one in a Fab). For UV/Vis or a lot
+      without a distribution, enter the measured ratio.
   distribution_dar:
     type: float
     label: DAR from its distribution

@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.1.0
+version: 0.2.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
@@ -15,6 +15,9 @@ license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/lots
 dependencies:
+  iki/conjugate:
+    types:
+      Conjugate: ">=1"
   iki/protein:
     types:
       Protein: ">=3"

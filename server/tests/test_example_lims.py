@@ -22,7 +22,19 @@ from iki_spec.validate import load_plugin
 PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
 PLUGIN = PLUGINS / "example_lims"
 #: What it depends on, directly or through iki/lots.
-DEPENDENCIES = [PLUGINS / p for p in ("protein", "dna", "lots", "oligo", "plasmid")]
+DEPENDENCIES = [
+    PLUGINS / p
+    for p in (
+        "protein",
+        "dna",
+        "lots",
+        "oligo",
+        "plasmid",
+        "conjugate",
+        "antibody",
+        "small_molecule",
+    )
+]
 SCRIPTS = PLUGIN / "scripts"
 HOST = "lims.acme.example"
 TOKEN = "lims-test-token"

@@ -35,7 +35,17 @@ FIRST_PARTY = {
     PLUGINS / "oligo": (),
     PLUGINS / "plasmid": (PLUGINS / "dna",),
     PLUGINS / "complex": (PLUGINS / "dna", PLUGINS / "protein"),
+    PLUGINS / "conjugate": (
+        PLUGINS / "dna",
+        PLUGINS / "protein",
+        PLUGINS / "antibody",
+        PLUGINS / "oligo",
+        PLUGINS / "small_molecule",
+    ),
     PLUGINS / "lots": (
+        PLUGINS / "conjugate",
+        PLUGINS / "antibody",
+        PLUGINS / "small_molecule",
         PLUGINS / "dna",
         PLUGINS / "protein",
         PLUGINS / "oligo",
@@ -101,6 +111,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         PLUGINS / "oligo",
         PLUGINS / "plasmid",
         PLUGINS / "complex",
+        PLUGINS / "conjugate",
         PLUGINS / "lots",
         TEMPLATE,
         "--output",
@@ -358,6 +369,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["refused"] == {"components": ["can't change once it's set."]}
     for app in (
         "iki__lots",
+        "iki__conjugate",
         "iki__plasmid",
         "iki__complex",
         "iki__oligo",
@@ -374,7 +386,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
         "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
         "OR tablename LIKE 'oligo%%' OR tablename LIKE 'plasmid%%' "
-        "OR tablename LIKE 'complex%%' "
+        "OR tablename LIKE 'complex%%' OR tablename LIKE 'iki\\_\\_conjugate%%' "
         "OR tablename LIKE 'iki\\_\\_lots%%')",
     )
     assert left == [(0,)]
