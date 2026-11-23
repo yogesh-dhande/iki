@@ -35,10 +35,11 @@ const STATES: Record<Export["state"], string> = {
 function exportsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "bundles"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/bundles", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ).items,
     // Until each is written, look again every few seconds.
@@ -50,16 +51,19 @@ function exportsQuery(projectId: string) {
 function collectionsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["entities", "collections", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await searchEntities({
-          project: projectId,
-          type: "iki/core.Collection",
-          exact_type: true,
-          archived: false,
-          limit: 100,
-          sort: { field: "updated_at", descending: true },
-        }),
+        await searchEntities(
+          {
+            project: projectId,
+            type: "iki/core.Collection",
+            exact_type: true,
+            archived: false,
+            limit: 100,
+            sort: { field: "updated_at", descending: true },
+          },
+          signal,
+        ),
       ).items,
   });
 }

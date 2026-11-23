@@ -187,9 +187,12 @@ export function SavedSearches({ project, search }: { project: Project; search: E
 function savedSearchQuery(id: string) {
   return queryOptions({
     queryKey: [...SAVED_SEARCHES, "one", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/saved-searches/{saved_id}", { params: { path: { saved_id: id } } }),
+        await iki.GET("/api/v1/saved-searches/{saved_id}", {
+          params: { path: { saved_id: id } },
+          signal,
+        }),
       ),
   });
 }
@@ -197,9 +200,12 @@ function savedSearchQuery(id: string) {
 function projectByIdQuery(id: string) {
   return queryOptions({
     queryKey: ["projects", "by-id", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } }),
+        await iki.GET("/api/v1/projects/{project_id}", {
+          params: { path: { project_id: id } },
+          signal,
+        }),
       ),
   });
 }

@@ -101,10 +101,11 @@ export function older(shown: SheetImport | undefined, next: SheetImport): boolea
 export function importQuery(id: string) {
   return queryOptions({
     queryKey: [SPREADSHEETS, id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}", {
           params: { path: { import_id: id } },
+          signal,
         }),
       ),
     refetchInterval: (query) => (busy(query.state.data?.state) ? 1000 : false),
@@ -121,7 +122,7 @@ export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
   return infiniteQueryOptions({
     queryKey: [SPREADSHEETS, made.id, "rows", made.state, made.updated_at, outcome ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}/rows", {
           params: {
@@ -132,6 +133,7 @@ export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,

@@ -4575,6 +4575,50 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     page.context.close()
 
 
+def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world: World) -> None:
+    """A page's reads stop once a navigation away begins, not only at pagehide: WebKit
+    refuses a fetch the departing document starts in between, and raised an access-control
+    error for it. Here the starters arrive just after the Admin heads elsewhere, and the
+    card they draw would ask for every project."""
+    page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
+    _starter_api(page)
+    card = page.get_by_role("region", name="Dose-response plate assay")
+    card.wait_for()
+    every_project = re.compile(r"/api/v1/projects\?limit=100$")
+    starters = re.compile(r"/api/v1/starters\?project=")
+    elsewhere = re.compile(r"/account/apps/$")
+    held: dict[str, Route] = {}
+
+    def hold(name: str) -> Any:
+        return lambda route: held.__setitem__(name, route)
+
+    # The starters wait for the test, ahead of the answers _starter_api gives.
+    page.route(starters, hold("starters"))
+    with page.expect_request(starters):
+        page.reload()
+    assert not card.is_visible()
+    asked: list[str] = []
+    page.on("request", lambda r: asked.append(r.url) if every_project.search(r.url) else None)
+
+    # The next page waits too, so the old one stays while the starters come.
+    page.route(elsewhere, hold("elsewhere"))
+    with page.expect_request(elsewhere):
+        page.evaluate("setTimeout(() => location.assign('/account/apps/'))")
+    # Chromium keeps the old page's loads until the next page arrives, so it draws the card
+    # from the starters and its effects start the card's reads. Firefox and WebKit cut the
+    # old page's loads off as the navigation begins, and a query would try one again after a
+    # second's wait: WebKit reports each read begun meanwhile.
+    with contextlib.suppress(Exception):
+        held["starters"].fallback()
+    page.wait_for_timeout(2500)
+    held["elsewhere"].continue_()
+    page.wait_for_url(elsewhere)
+    shown(page)
+    assert asked == []
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
     """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
     state's control says so in the guard's words, and won't set it."""
