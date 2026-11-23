@@ -4,13 +4,24 @@
  */
 
 import { ApiError } from "@ikisci/sdk";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { queryClient, useApiMutation } from "./api";
+import {
+  chooseWatch,
+  iki,
+  projectPagesQuery,
+  queryClient,
+  rolesQuery,
+  useApiMutation,
+  watchQuery,
+} from "./api";
+import { entitiesQuery } from "./entities";
+import { intakeQuery, ownsRequestsQuery, queuedQuery, sentToQuery } from "./requests";
+import { answer, calls } from "./test-server";
 
 function Starter({
   run,
@@ -90,5 +101,167 @@ describe("useApiMutation", () => {
       expect(onError).toHaveBeenCalledTimes(1);
     });
     expect((onError.mock.calls[0]?.[0] as ApiError).problem.detail).toBe("Already decided.");
+  });
+});
+
+describe("queries belonging to the current page", () => {
+  function transition(name: "pagehide" | "pageshow") {
+    window.dispatchEvent(new PageTransitionEvent(name, { persisted: true }));
+  }
+
+  it("waits for a restored page before starting its dependent reads, and still sends a chosen write", async () => {
+    const watch = "/api/v1/entities/TUB-1/watch";
+    const search = "/api/v1/entities/search";
+    const intake = "/api/v1/projects/p/intake";
+    const sentTo = "/api/v1/projects/p/sent-to";
+    const projects = "/api/v1/projects";
+    answer(`GET ${watch}`, { mode: "watching" });
+    answer(`PUT ${watch}`, { mode: "watching" });
+    answer(`GET ${intake}`, { types: [] });
+    answer(`GET ${sentTo}`, []);
+    answer(`POST ${search}`, { items: [] });
+    answer(`GET ${projects}`, { items: [] });
+    transition("pagehide");
+    const reads = Promise.all([
+      queryClient.query(watchQuery("TUB-1")),
+      queryClient.query(intakeQuery("p")),
+      queryClient.query(queuedQuery("p")),
+      queryClient.query(sentToQuery("p")),
+      queryClient.query(ownsRequestsQuery("p", ["Request"])),
+      queryClient.infiniteQuery(projectPagesQuery({})),
+    ]);
+    try {
+      await chooseWatch("TUB-1", "watching");
+      expect(calls("PUT", watch)).toHaveLength(1);
+      expect(calls("GET")).toEqual([]);
+      expect(calls("POST")).toEqual([]);
+    } finally {
+      transition("pageshow");
+    }
+    await reads;
+    expect(
+      calls("GET")
+        .map((request) => request.path)
+        .sort(),
+    ).toEqual([watch, intake, sentTo, projects].sort());
+    expect(calls("POST", search)).toHaveLength(2);
+  });
+
+  it("aborts an outstanding watch read and finishes it once the same document returns", async () => {
+    const watch = "/api/v1/entities/TUB-1/watch";
+    const first = later<Request>();
+    answer(`GET ${watch}`, { mode: "watching" });
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementationOnce((input, init) => {
+      const request = new Request(input, init);
+      first.resolve(request);
+      return new Promise((_resolve, reject) => {
+        request.signal.addEventListener("abort", () => {
+          reject(request.signal.reason as Error);
+        });
+      });
+    });
+    try {
+      const result = queryClient.query(watchQuery("TUB-1"));
+      const pending = await first.promise;
+      transition("pagehide");
+      try {
+        expect(pending.signal.aborted).toBe(true);
+        expect(transport).toHaveBeenCalledTimes(1);
+      } finally {
+        transition("pageshow");
+      }
+      await expect(result).resolves.toMatchObject({ mode: "watching" });
+      expect(transport).toHaveBeenCalledTimes(2);
+    } finally {
+      transport.mockRestore();
+    }
+  });
+
+  it("leaves a genuine live failure visible even if navigation follows", async () => {
+    const failure = new TypeError("Failed to fetch");
+    const response = later<Response>();
+    const sent = later<boolean>();
+    const transport = vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => {
+      sent.resolve(true);
+      return response.promise;
+    });
+    try {
+      const result = queryClient.query({ ...watchQuery("TUB-1"), retry: false });
+      await sent.promise;
+      response.reject(failure);
+      transition("pagehide");
+      try {
+        await expect(result).rejects.toBe(failure);
+      } finally {
+        transition("pageshow");
+      }
+      expect(transport).toHaveBeenCalledTimes(1);
+    } finally {
+      transport.mockRestore();
+    }
+  });
+
+  it.each([
+    {
+      method: "GET",
+      path: "/api/v1/project-roles",
+      response: [],
+      read: () => queryClient.query(rolesQuery),
+    },
+    {
+      method: "POST",
+      path: "/api/v1/entities/search",
+      response: { items: [] },
+      read: () => queryClient.infiniteQuery(entitiesQuery({})),
+    },
+  ])(
+    "stops a $method read if the document left during SDK middleware",
+    async ({ method, path, response, read }) => {
+      const entered = later<boolean>();
+      const release = later<boolean>();
+      answer(`${method} ${path}`, response);
+      const middleware: Parameters<typeof iki.use>[0] = {
+        async onRequest({ request }) {
+          if (new URL(request.url).pathname === path) {
+            entered.resolve(true);
+            await release.promise;
+          }
+          return request;
+        },
+      };
+      iki.use(middleware);
+      try {
+        const result = read();
+        await entered.promise;
+        transition("pagehide");
+        try {
+          release.resolve(true);
+          answer("PUT /api/v1/entities/TUB-1/watch", { mode: "watching" });
+          await chooseWatch("TUB-1", "watching");
+          expect(calls(method, path)).toHaveLength(0);
+        } finally {
+          transition("pageshow");
+        }
+        await result;
+        expect(calls(method, path)).toHaveLength(1);
+      } finally {
+        iki.eject(middleware);
+      }
+    },
+  );
+
+  it("drops a deferred read if its last observer has gone before restoration", async () => {
+    transition("pagehide");
+    try {
+      const observer = new QueryObserver(queryClient, watchQuery("TUB-1"));
+      const unsubscribe = observer.subscribe(() => undefined);
+      unsubscribe();
+    } finally {
+      transition("pageshow");
+    }
+    const current = "/api/v1/entities/TUB-2/watch";
+    answer(`GET ${current}`, { mode: "default" });
+    await queryClient.query(watchQuery("TUB-2"));
+    expect(calls("GET").map((request) => request.path)).toEqual([current]);
   });
 });

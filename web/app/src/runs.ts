@@ -9,6 +9,7 @@ import { infiniteQueryOptions, queryOptions, useQueryClient } from "@tanstack/re
 import { useEffect, useRef } from "react";
 
 import { iki, isSignedOut, markSignedOut } from "./api";
+import { searchEntities } from "./entities";
 import { HIDDEN_GRACE_MS, REFUSED_RETRY_MS } from "./events";
 
 export type Run = Schemas["RunOut"];
@@ -114,14 +115,12 @@ async function searchHrids(hrids: string[], project?: string): Promise<Schemas["
   let cursor: string | undefined;
   do {
     const page = unwrap(
-      await iki.POST("/api/v1/entities/search", {
-        body: {
-          where: { field: "hrid", op: "in", value: hrids },
-          ...(project ? { project } : {}),
-          exact_type: false,
-          limit: 100,
-          ...(cursor ? { cursor } : {}),
-        },
+      await searchEntities({
+        where: { field: "hrid", op: "in", value: hrids },
+        ...(project ? { project } : {}),
+        exact_type: false,
+        limit: 100,
+        ...(cursor ? { cursor } : {}),
       }),
     );
     found.push(...page.items);

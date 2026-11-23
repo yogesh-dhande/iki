@@ -12,8 +12,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
-import type { Entity } from "./entities";
+import { searchEntities, type Entity } from "./entities";
 
 export const VIEW_TYPE = "iki/core.View";
 /** How many entities a view shows at most (`targets`' `max_items`). */
@@ -288,20 +287,18 @@ export const savedViewsQuery = (entity: Entity, viewer: ViewerName) => {
       let cursor = pageParam;
       do {
         const found = unwrap(
-          await iki.POST("/api/v1/entities/search", {
-            body: {
-              type: VIEW_TYPE,
-              where: {
-                all: [
-                  { field: "targets", op: "has", value: target },
-                  { field: "viewers", op: "has", value: viewer },
-                ],
-              },
-              sort: { field: "created_at", descending: true },
-              limit: SAVED_VIEWS_PAGE,
-              exact_type: true,
-              ...(cursor ? { cursor } : {}),
+          await searchEntities({
+            type: VIEW_TYPE,
+            where: {
+              all: [
+                { field: "targets", op: "has", value: target },
+                { field: "viewers", op: "has", value: viewer },
+              ],
             },
+            sort: { field: "created_at", descending: true },
+            limit: SAVED_VIEWS_PAGE,
+            exact_type: true,
+            ...(cursor ? { cursor } : {}),
           }),
         );
         for (const view of found.items) {

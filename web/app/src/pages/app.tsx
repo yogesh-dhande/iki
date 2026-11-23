@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { iki, problemOf } from "../api";
+import { problemOf } from "../api";
 import {
   conditionTemplates,
   entityValue,
@@ -33,6 +33,7 @@ import {
   type PluginComponent,
 } from "../components";
 import {
+  searchEntities,
   ENTITIES,
   entityQuery,
   inSentence,
@@ -291,7 +292,7 @@ function EntitiesPanel({
   };
   const found = useQuery({
     queryKey: [...ENTITIES, "app", app.id, panel.id, body],
-    queryFn: async () => unwrap(await iki.POST("/api/v1/entities/search", { body })),
+    queryFn: async () => unwrap(await searchEntities(body)),
     retry: false,
     enabled: !entities.where || where !== undefined,
   });
