@@ -49,3 +49,4 @@ verify() {
 verify iki_wasm.wasm server/iki_wasm.wasm.sha256
 verify dna-annotation.wasm plugins/plasmid/data/dna-annotation.wasm.sha256
 required_file "$artifact/rust-standard-library.html"
+python3 "$root/scripts/verify-server-aot.py" "$artifact"

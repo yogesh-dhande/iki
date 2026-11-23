@@ -34,7 +34,7 @@ environment=(
 
 # Verify the installed payload and native dependency using the shipped interpreter.
 "${run[@]}" --rm -i --entrypoint python \
-  --mount "type=bind,source=$artifacts,target=/server-wasm,readonly" "$image" - "$machine" <<'PY'
+  --mount "type=bind,source=$artifacts,target=/server-wasm,readonly" "$image" - "$machine" "${platform#linux/}" <<'PY'
 import gzip
 import json
 import os
@@ -42,8 +42,11 @@ import platform
 import sys
 from importlib.resources import files
 from pathlib import Path
+from unittest.mock import patch
 
 import psycopg
+import wasmtime
+from iki_spec import rules
 
 machine = platform.machine()
 assert machine == sys.argv[1], f"expected {sys.argv[1]}, runtime reports {machine}"
@@ -55,6 +58,21 @@ artifact = Path("/server-wasm")
 installed = files("iki_spec")
 for name in ("iki_wasm.wasm", "dna-annotation.wasm", "rust-standard-library.html"):
     assert installed.joinpath(name).read_bytes() == (artifact / name).read_bytes(), name
+
+native = Path("/opt/iki/wasm")
+for name in ("iki_wasm.cwasm", "iki_wasm.json"):
+    path = native / name
+    assert path.read_bytes() == (artifact / sys.argv[2] / name).read_bytes(), path
+    assert path.stat().st_uid == 0 and not os.access(path, os.W_OK), path
+assert not os.access(native, os.W_OK), native
+with patch.object(wasmtime.Module, "from_file", side_effect=AssertionError("unexpected raw Wasm compile")):
+    allowed, refused = rules.evaluate(
+        {"purpose": {"type": "string"}},
+        [('purpose == "routine"', rules.CONDITION)],
+        [{"purpose": "routine"}, {"purpose": "qa_sampling"}],
+    )
+    assert allowed[0].value is True and refused[0].value is False, (allowed, refused)
+print(f"Native Wasmtime artifact executed both guard outcomes on {machine}")
 
 static = Path("/opt/iki/static")
 assert json.loads((static / "staticfiles.json").read_bytes())["paths"]

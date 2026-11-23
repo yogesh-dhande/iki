@@ -96,6 +96,7 @@ custom_build(
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh',
         'scripts/build-dna-annotation-wasm.sh', 'scripts/verify-server-wasm.sh',
+        'scripts/build-server-aot.sh', 'scripts/verify-server-aot.py',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
