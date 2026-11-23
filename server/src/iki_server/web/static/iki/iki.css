@@ -667,6 +667,50 @@ input:focus-visible {
   border-bottom-color: currentcolor;
 }
 
+/* A row of tabs isn't drawn until it's worked out: which tabs there are, and their counts
+   (TabStrip). */
+.tabs[hidden] {
+  display: none;
+}
+
+/* In its place till then, as tall as it is: a quiet bar for each tab, and nothing to
+   press. Only if it takes a moment, so a quick answer doesn't flash it. */
+.tabs-settling {
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.tab-settling {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: calc(36rem / 13);
+  margin-bottom: -1px;
+  padding: 0 calc(10rem / 13);
+  border-bottom: 2px solid transparent;
+}
+
+.tab-settling > span {
+  display: block;
+  height: calc(10rem / 13);
+  border-radius: calc(5rem / 13);
+  background: var(--surface-3);
+  animation: tab-settling-in 150ms ease-out 300ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-settling > span {
+    animation-duration: 0s;
+  }
+}
+
+@keyframes tab-settling-in {
+  from {
+    opacity: 0;
+  }
+}
+
 .messages {
   margin-bottom: 1.25rem;
 }
@@ -3581,47 +3625,9 @@ input[type="file"]::file-selector-button {
   border-bottom-color: var(--text);
 }
 
-/* Not drawn until they're worked out: which there are, and their counts. */
-.tabs.project-tabs[hidden] {
-  display: none;
-}
-
-/* In their place till then, as tall as they are: a quiet bar for each, and nothing to
-   press. Only if it takes a moment, so a quick answer doesn't flash it. */
-.tabs-settling {
-  overflow: hidden;
-  pointer-events: none;
-  user-select: none;
-}
-
-.tab-settling {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
+.project-tabs .tab-settling {
   min-height: 36px;
-  margin-bottom: -1px;
   padding: 0 10px;
-  border-bottom: 2px solid transparent;
-}
-
-.tab-settling > span {
-  display: block;
-  height: 10px;
-  border-radius: 5px;
-  background: var(--surface-3);
-  animation: tab-settling-in 150ms ease-out 300ms both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tab-settling > span {
-    animation-duration: 0s;
-  }
-}
-
-@keyframes tab-settling-in {
-  from {
-    opacity: 0;
-  }
 }
 
 .tab-count {
