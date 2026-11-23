@@ -1539,6 +1539,7 @@ export function SpreadsheetImportPage() {
 function SpreadsheetImportEditor({ importId }: { importId: string }) {
   const project = useProject();
   const generation = useRef(0);
+  const writing = useRef(false);
   const [saving, setSaving] = useState(false);
   const [changeProblem, setChangeProblem] = useState<ReturnType<typeof problemOf>>();
   const found = useQuery({ ...importQuery(importId), enabled: !saving });
@@ -1570,12 +1571,19 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
   }
   const type = types.find((t) => t.name === made.type);
   const apply = (choice: SheetChange) => {
+    // A blur can submit again before React disables the controls. Each choice
+    // must be based on the complete, acknowledged result of the previous one.
+    if (writing.current || preview.isPending) return;
+    writing.current = true;
     const edit = ++generation.current;
     const query = { queryKey: importQuery(importId).queryKey, exact: true };
     setSaving(true);
     setChangeProblem(undefined);
     void client.cancelQueries(query);
-    void change.mutateAsync(choice).then(
+    const body = Object.keys(choice).length
+      ? { ...choice, basis: { sheet: made.sheet, header_row: made.header_row } }
+      : choice;
+    void change.mutateAsync(body).then(
       (next) => {
         if (edit !== generation.current) {
           // Another edit or visit owns this screen. Read the persisted result,
@@ -1585,10 +1593,17 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
         }
         void client.cancelQueries(query);
         client.setQueryData(query.queryKey, next);
+        writing.current = false;
         setSaving(false);
+        if (next.sheet !== made.sheet && next.header_row !== made.header_row) {
+          say(
+            `Switched to ${next.sheet}. The header row changed from ${String(made.header_row)} to ${String(next.header_row)}.`,
+          );
+        }
       },
       (error: unknown) => {
         if (edit !== generation.current) return;
+        writing.current = false;
         setChangeProblem(problemOf(error));
         setSaving(false);
       },
@@ -1615,6 +1630,7 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
           made.can["discard"] ? (
             <Button
               variant="quiet"
+              disabled={saving || preview.isPending}
               onClick={() => {
                 setDiscarding(true);
               }}
@@ -1641,17 +1657,21 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
       ) : null}
       {made.state === "mapping" ? (
         <>
-          {step === "rows" ? (
-            <ChooseRows made={made} change={apply} problem={changeProblem} />
-          ) : (
-            <>
-              <MapColumns made={made} change={apply} problem={changeProblem} />
-              <NumbersAndDates made={made} change={apply} />
-            </>
-          )}
+          {saving ? <p role="status">Saving your choices…</p> : null}
+          <fieldset disabled={saving || preview.isPending} aria-label="Import choices">
+            {step === "rows" ? (
+              <ChooseRows key={made.sheet} made={made} change={apply} problem={changeProblem} />
+            ) : (
+              <>
+                <MapColumns made={made} change={apply} problem={changeProblem} />
+                <NumbersAndDates made={made} change={apply} />
+              </>
+            )}
+          </fieldset>
           <div className="actions sheet-actions">
             {step === "columns" ? (
               <Button
+                disabled={saving || preview.isPending}
                 onClick={() => {
                   back("rows");
                 }}
@@ -1662,8 +1682,9 @@ function SpreadsheetImportEditor({ importId }: { importId: string }) {
             {step === "rows" ? (
               <Button
                 variant="primary"
+                disabled={saving}
                 onClick={() => {
-                  setStep("columns");
+                  if (!writing.current) setStep("columns");
                 }}
               >
                 Next: columns

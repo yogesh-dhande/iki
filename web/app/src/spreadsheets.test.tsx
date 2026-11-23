@@ -353,6 +353,37 @@ describe("where an import starts", () => {
 });
 
 describe("an import's steps", () => {
+  it("waits for a sheet switch before accepting choices relative to its header", async () => {
+    onImport(sheet({ header_row: 3, first_row: 4 }));
+    let finishSwitch!: (snapshot: SheetImport) => void;
+    const pending = new Promise<SheetImport>((resolve) => {
+      finishSwitch = resolve;
+    });
+    answer(`PATCH ${BASE}`, () => pending);
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Sheet" }), "Notes");
+    expect(screen.getByRole("spinbutton", { name: "Header row" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next: columns" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([
+      { sheet: "Notes", basis: { sheet: "Kinases", header_row: 3 } },
+    ]);
+    await act(async () => {
+      finishSwitch(sheet({ sheet: "Notes" }));
+      await pending;
+    });
+    expect(await screen.findByText(/Switched to Notes.*from 3 to 1/)).toBeVisible();
+    const first = screen.getByRole("spinbutton", { name: "First row" });
+    answer(`PATCH ${BASE}`, sheet({ sheet: "Notes", first_row: 1, header_row: 0 }));
+    const header = screen.getByRole("spinbutton", { name: "Header row" });
+    await user.clear(header);
+    await user.type(header, "0{Enter}");
+    await waitFor(() => expect(first).toHaveValue(1));
+    expect(nthCall(1).body).toEqual({ header_row: 0, basis: { sheet: "Notes", header_row: 1 } });
+  });
+
   it("keeps an acknowledged header when an older refresh arrives", async () => {
     const initial = sheet();
     const newer = sheet({ header_row: 3, first_row: 4 });
@@ -438,7 +469,9 @@ describe("an import's steps", () => {
     await user.clear(box);
     await user.type(box, "4{Enter}");
     await waitFor(() => {
-      expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([{ skip: [[4, 4]] }]);
+      expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([
+        { skip: [[4, 4]], basis: { sheet: "Kinases", header_row: 1 } },
+      ]);
     });
   });
 
@@ -489,7 +522,10 @@ describe("an import's steps", () => {
     await user.click(screen.getByRole("radio", { name: "A decimal point: 1,234.5" }));
     await waitFor(() => {
       expect(calls("PATCH", BASE).map((c) => c.body)).toEqual([
-        { locale: { decimal: "point", dates: null, serial_dates: false } },
+        {
+          locale: { decimal: "point", dates: null, serial_dates: false },
+          basis: { sheet: "Kinases", header_row: 1 },
+        },
       ]);
     });
   });
