@@ -1,4 +1,12 @@
-import { arrange, icon, NavigationItems, navigationLink, part, type Retain } from "./navigation.js";
+import {
+  arrange,
+  icon,
+  NavigationItems,
+  navigationLink,
+  part,
+  setText,
+  type Retain,
+} from "./navigation.js";
 
 export type { NavigationDetail } from "./navigation.js";
 
@@ -44,6 +52,15 @@ export function reveal(list: HTMLElement, item: HTMLElement): void {
   else if (at.bottom > box.bottom) list.scrollTop += at.bottom - box.bottom + room;
 }
 
+/** Preserve the separating space in a control's visible and accessible name. */
+function suffix(className: string) {
+  const nodes = [new Text(" "), part("span", className)] as const;
+  return (text: string) => {
+    setText(nodes[1], text);
+    return nodes;
+  };
+}
+
 export class IkiSidebar extends HTMLElement {
   readonly #items = new NavigationItems();
   readonly #nav = part("nav", "sidebar-nav");
@@ -70,32 +87,38 @@ export class IkiSidebar extends HTMLElement {
     headingAction = false,
   ): HTMLAnchorElement {
     const key = [headingAction ? "action" : "link", scope, data.href];
-    const link = retain(key, () => navigationLink(this, data.href));
-    link.replaceChildren();
+    const { link, graphic, mark, label, qualifier, count, badge, description } = retain(
+      key,
+      () => ({
+        link: navigationLink(this, data.href),
+        graphic: icon([]),
+        mark: part("span", ""),
+        label: part("span", headingAction ? "visually-hidden" : "nav-label"),
+        qualifier: suffix("type-plugin"),
+        count: suffix("nav-count"),
+        badge: suffix("nav-badge"),
+        description: suffix("visually-hidden"),
+      }),
+    );
     link.className = headingAction ? "nav-add" : data.quiet ? "nav-item nav-quiet" : "nav-item";
-    if (data.current) link.setAttribute("aria-current", "page");
-    else link.removeAttribute("aria-current");
+    link.ariaCurrent = data.current ? "page" : null;
     if (headingAction) link.title = data.label;
-    if (data.icon) link.append(icon(data.icon));
+
+    const children: Node[] = data.icon ? [icon(data.icon, graphic)] : [];
     if (data.mark) {
-      const mark = part("span", data.mark.shape === "dot" ? "type-dot" : "swatch swatch-large");
-      mark.setAttribute("aria-hidden", "true");
+      mark.className = data.mark.shape === "dot" ? "type-dot" : "swatch swatch-large";
+      mark.ariaHidden = "true";
       mark.dataset["swatch"] = String(data.mark.swatch);
-      link.append(mark);
+      children.push(mark);
     }
-    const label = part("span", headingAction ? "visually-hidden" : "nav-label", data.label);
-    if (data.qualifier) label.append(" ", part("span", "type-plugin", data.qualifier));
-    link.append(label);
-    if (data.count != null)
-      link.append(" ", part("span", "nav-count", data.count.toLocaleString()));
+    const name = setText(label, data.label);
+    arrange(label, data.qualifier ? [name, ...qualifier(data.qualifier)] : [name]);
+    children.push(label);
+    if (data.count != null) children.push(...count(data.count.toLocaleString()));
     if (data.badge) {
-      link.append(
-        " ",
-        part("span", "nav-badge", data.badge.text),
-        " ",
-        part("span", "visually-hidden", data.badge.description),
-      );
+      children.push(...badge(data.badge.text), ...description(data.badge.description));
     }
+    arrange(link, children);
     return link;
   }
 
@@ -107,7 +130,7 @@ export class IkiSidebar extends HTMLElement {
     if (!label) return [...nodes, ...links];
     if (disclosure) {
       const { id } = disclosure;
-      const { button, items, show } = retain(["disclosure", id], () => {
+      const { button, items, show, graphic, name, arrow } = retain(["disclosure", id], () => {
         const button = part("button", "nav-item nav-toggle");
         button.type = "button";
         button.setAttribute("aria-controls", id);
@@ -115,7 +138,7 @@ export class IkiSidebar extends HTMLElement {
         items.id = id;
         const show = (open: boolean) => {
           items.hidden = !open;
-          button.setAttribute("aria-expanded", String(open));
+          button.ariaExpanded = String(open);
         };
         button.addEventListener("click", () => {
           const open = items.hidden === true;
@@ -128,22 +151,31 @@ export class IkiSidebar extends HTMLElement {
             }),
           );
         });
-        return { button, items, show };
+        return {
+          button,
+          items,
+          show,
+          graphic: icon([]),
+          name: part("span", "nav-label"),
+          arrow: icon(["m9 6 6 6-6 6"]),
+        };
       });
-      button.replaceChildren();
-      if (disclosure.icon) button.append(icon(disclosure.icon));
-      button.append(part("span", "nav-label", label), icon(["m9 6 6 6-6 6"]));
+      setText(name, label);
+      arrange(
+        button,
+        disclosure.icon ? [icon(disclosure.icon, graphic), name, arrow] : [name, arrow],
+      );
       show(disclosure.open);
       arrange(items, links);
       return [...nodes, button, items];
     }
     const { group, heading, text } = retain(["group", label], () => {
       const group = part("div", "nav-group");
-      group.setAttribute("role", "group");
-      group.setAttribute("aria-label", label);
+      group.role = "group";
+      group.ariaLabel = label;
       const heading = part("div", "nav-heading");
       const text = part("span", "", label);
-      text.setAttribute("aria-hidden", "true");
+      text.ariaHidden = "true";
       return { group, heading, text };
     });
     arrange(
@@ -155,7 +187,7 @@ export class IkiSidebar extends HTMLElement {
   }
 
   #render(): void {
-    this.#nav.setAttribute("aria-label", this.#data.label);
+    this.#nav.ariaLabel = this.#data.label;
     const retain = this.#items.next();
     arrange(
       this.#nav,

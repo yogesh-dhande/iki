@@ -1,4 +1,12 @@
-import { arrange, icon, NavigationItems, navigationLink, part, place } from "./navigation.js";
+import {
+  arrange,
+  icon,
+  NavigationItems,
+  navigationLink,
+  part,
+  place,
+  setText,
+} from "./navigation.js";
 
 export type { NavigationDetail } from "./navigation.js";
 
@@ -188,7 +196,7 @@ export class IkiPageHeader extends HTMLElement {
     const retain = this.#items.next();
     if (about) {
       const link = retain(["about", about.href], () => navigationLink(this, about.href));
-      link.textContent = about.label;
+      setText(link, about.label);
       arrange(this.#aboutLink, [link]);
     } else arrange(this.#aboutLink, []);
     if (ancestors) {
@@ -199,10 +207,10 @@ export class IkiPageHeader extends HTMLElement {
           item.append(link);
           return { item, link };
         });
-        link.textContent = ancestor.label;
+        setText(link, ancestor.label);
         return item;
       });
-      this.#current.textContent = title;
+      setText(this.#current, title);
       arrange(this.#trail, [...trail, this.#current]);
       if (this.#crumbs.parentNode !== this.#bar) this.#bar.prepend(this.#crumbs);
     } else this.#crumbs.remove();
@@ -221,7 +229,7 @@ export class IkiPageHeader extends HTMLElement {
         };
         return control;
       });
-      button.textContent = label;
+      setText(button, label);
       return button;
     });
     arrange(this.#actionBar, buttons);
