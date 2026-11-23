@@ -1725,6 +1725,7 @@ def lims() -> None:
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
     bookings(alice, project)
     signatures(alice, project, first)
+    stability_study(alice, project)
     plate_assay(alice, project)
     reagent_stock(alice, project)
     dose_response_starters(alice, project)
@@ -3891,6 +3892,154 @@ def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]
     if not expected.issubset(found) or not values.get("library_annotated_with"):
         fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
     ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
+
+
+def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Generate a study pull, draw its stored material and sign a trended measurement."""
+    prefix = "iki/stability."
+    give_lab_roles(alice, project, prefix + "coordinator", prefix + "reviewer", "iki/lots.qa")
+    token = secrets.token_hex(4)
+    # PubChem CID 2244 identifies aspirin. Its lot, report and test results here are synthetic.
+    material = created(
+        alice,
+        project,
+        "iki/small_molecule.Compound",
+        {
+            "name": "Aspirin",
+            "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+            "inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+        },
+    )
+    lot = created(
+        alice,
+        project,
+        "iki/lots.GenericLot",
+        {"lot_number": f"Stability demo {token}", "of": entry_of(material)},
+    )
+    box = created(
+        alice, project, LIMS_TYPE + "Box", {"name": "Stability study", "rows": 1, "columns": 1}
+    )
+    tube = created(
+        alice,
+        project,
+        LIMS_TYPE + "Tube",
+        {"barcode": f"DEMO-STABILITY-{token}", "lot": lot["id"]},
+        amount={"value": "100", "unit": "uL"},
+    )
+    moved(alice, [(tube, box, "A1")], "Store study tube at its assigned position.")
+    # ICH Q1A(R2) §2.1.7.1 general-case conditions:
+    # https://database.ich.org/sites/default/files/Q1A%28R2%29%20Step4.pdf
+    study = created(
+        alice,
+        project,
+        prefix + "Study",
+        {
+            "name": "Aspirin stability demonstration",
+            "material": entry_of(material),
+            "lot": lot["id"],
+            "protocol": "Synthetic practice study",
+            "protocol_revision": "1",
+            "owner": api_call(alice, "GET", "/me").json()["id"],
+            "starts_on": datetime.now(UTC).date().isoformat(),
+            "conditions": [
+                {
+                    "code": "long_term",
+                    "label": "Long term",
+                    "temperature": 25,
+                    "temperature_tolerance": 2,
+                    "humidity": 60,
+                    "humidity_tolerance": 5,
+                }
+            ],
+            "time_points": [{"month": 0, "days_before": 0, "days_after": 1}],
+            "assignments": [
+                {"condition": "long_term", "month": 0, "tube": tube["id"], "volume_ul": 12}
+            ],
+            "tests": [{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
+        },
+    )
+
+    def visible(component: str) -> list[dict[str, Any]]:
+        answer = api_call(
+            alice, "POST", f"/components/{prefix}{component}/entities", {"entity": study["id"]}
+        )
+        if answer.status_code != 200:
+            fail(f"{component} answered HTTP {answer.status_code}: {answer.text}")
+        found: list[dict[str, Any]] = answer.json()["items"]
+        return found
+
+    launch(alice, project, prefix + "schedule_pulls", {"study": study["id"]})
+    [pull] = visible("pull_schedule")
+    if (pull["values"]["status"], pull["values"]["tube"]) != ("scheduled", tube["id"]):
+        fail(f"the study did not schedule its stored tube: {pull}")
+    path = f"/entities/{tube['id']}/amount/draw"
+    draw = {
+        "amount": {"value": 12, "unit": "uL"},
+        "purpose": "qa_sampling",
+        "used_in": pull["id"],
+        "confirm": tube["values"]["barcode"],
+    }
+    drawn = api_call(alice, "POST", path, draw)
+    if drawn.status_code != 200:
+        fail(f"drawing study material answered HTTP {drawn.status_code}: {drawn.text}")
+    movement = drawn.json()["movement"]
+    if (
+        movement["source"] != lot["id"]
+        or movement["used_in"] != pull["id"]
+        or drawn.json()["amount"]["value"] != "88"
+        or api_call(alice, "POST", path, draw).status_code != 422
+    ):
+        fail(f"the ledger did not record exactly one draw for the pull: {drawn.json()}")
+    path = f"/entities/{pull['id']}"
+    etag = api_call(alice, "GET", path).headers["ETag"]
+    changed = api_call(
+        alice,
+        "PATCH",
+        path,
+        {"values": {"pulled_on": movement["created_at"][:10]}},
+        {"If-Match": etag},
+    )
+    if changed.status_code != 200:
+        fail(f"recording the pull date answered HTTP {changed.status_code}: {changed.text}")
+    done = api_call(
+        alice,
+        "POST",
+        path + "/states/status",
+        {"state": "pulled"},
+        {"If-Match": changed.headers["ETag"]},
+    )
+    if done.status_code != 200:
+        fail(f"reconciling the pull answered HTTP {done.status_code}: {done.text}")
+    report = upload(
+        alice, project, "synthetic-stability-report.csv", b"test,peak area\ndemo,1.25\n", "text/csv"
+    )
+    launch(
+        alice,
+        project,
+        prefix + "record_measurement",
+        {"pull": pull["id"]},
+        {"test": "Demo peak area", "value": 1.25, "report": report},
+    )
+    if visible("measurement_trend"):
+        fail("the study trended a draft measurement")
+    response = api_call(
+        alice,
+        "POST",
+        "/entities/search",
+        {
+            "project": project["id"],
+            "type": prefix + "Measurement",
+            "where": {"field": "pull", "op": "eq", "value": pull["id"]},
+        },
+    )
+    if response.status_code != 200:
+        fail(f"looking up the measurement returned HTTP {response.status_code}: {response.text}")
+    [measurement] = response.json()["items"]
+    witness = signing(alice, measurement, "signed", "alice", field="review")
+    [point] = visible("measurement_trend")
+    if witness["status"] != "signed" or point["values"]["value"] != 1.25:
+        fail(f"the signed stability measurement was not trended: {point}")
+    ok(f"{study['hrid']} scheduled and drew its stored tube, then trended its signed result")
 
 
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:

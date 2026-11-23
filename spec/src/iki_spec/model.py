@@ -851,6 +851,20 @@ class StockCatalogue:
 
 
 @dataclass(frozen=True)
+class DrawTarget:
+    """A record intended to receive one matched draw while it awaits material."""
+
+    from_field: str
+    source: str
+    state_field: str
+    state: str
+    by: tuple[str, ...]
+    ready: str
+    amount: str
+    stored: bool = False
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -893,6 +907,8 @@ class EntityType:
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
     draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: An optional one-draw ledger target, such as a scheduled stability pull.
+    draw_target: DrawTarget | None = None
     #: Where its records are kept, and what they keep (ADR 0180): its own or a parent's.
     storage: Storage | None = None
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
@@ -1607,6 +1623,7 @@ _DATACLASSES = (
     StockCatalogue,
     StockOrders,
     StockLots,
+    DrawTarget,
     Grid,
     Storage,
     Field,
@@ -1662,7 +1679,15 @@ def plugin_to_dict(plugin: Plugin) -> dict[str, Any]:
 
 def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-shaped values
     if isinstance(value, _DATACLASSES):
-        return {f.name: _to_json(getattr(value, f.name)) for f in fields(value)}
+        return {
+            f.name: _to_json(getattr(value, f.name))
+            for f in fields(value)
+            if not (
+                f.name == "draw_target"
+                and isinstance(value, EntityType)
+                and value.draw_target is None
+            )
+        }
     if isinstance(value, dict):
         return {k: _to_json(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -1716,6 +1741,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "draw_purposes": {
                             n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
                         },
+                        "draw_target": (
+                            DrawTarget(**{**target, "by": tuple(target["by"])})
+                            if (target := v.get("draw_target"))
+                            else None
+                        ),
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}

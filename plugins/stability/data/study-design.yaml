@@ -1,0 +1,22 @@
+# Public storage conditions and frequency from ICH Q1A(R2) §§2.1.6–2.1.7.1.
+# https://database.ich.org/sites/default/files/Q1A%28R2%29%20Step4.pdf
+# The following three time points are a partial illustration. Choose the full
+# schedule, assigned tubes, material, tests and pull windows in the lab protocol.
+conditions:
+  - code: long_term
+    label: Long term
+    temperature: 25
+    temperature_tolerance: 2
+    humidity: 60
+    humidity_tolerance: 5
+  - code: accelerated
+    label: Accelerated
+    temperature: 40
+    temperature_tolerance: 2
+    humidity: 75
+    humidity_tolerance: 5
+# Example scheduling windows only. These are synthetic lab policy values.
+time_points:
+  - { month: 0, days_before: 0, days_after: 0 }
+  - { month: 3, days_before: 2, days_after: 2 }
+  - { month: 6, days_before: 2, days_after: 2 }

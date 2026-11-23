@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: pull_schedule
+label: Schedule
+module: ./components/pull-schedule.js
+element: stability-pull-schedule
+entities:
+  type: Pull
+  fields:
+    [
+      study,
+      condition,
+      condition_label,
+      month,
+      opens_on,
+      due_on,
+      closes_on,
+      status,
+      tube,
+      volume_ul,
+      pulled_on,
+      window_note,
+    ]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: Study
+    search:
+      where: { field: study, op: eq, value: "{{ entity }}" }
+      sort: due_on
+events: { run: { actions: [schedule_pulls] } }

@@ -48,6 +48,7 @@ from iki_spec.model import (
     Action,
     Amount,
     Component,
+    DrawTarget,
     EntityType,
     Environment,
     Export,
@@ -765,6 +766,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             n: tuple(lab_role_name(role, plugin) for role in policy["by"])
             for n, policy in (body.get("draw_purposes") or {}).items()
         },
+        draw_target=_draw_target(body.get("draw_target"), plugin),
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
             for n, x in (body.get("notifications") or {}).items()
@@ -793,6 +795,21 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             for name, body_refines in (body.get("refines") or {}).items()
             if isinstance(body_refines, dict)
         },
+    )
+
+
+def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
+    if data is None:
+        return None
+    return DrawTarget(
+        from_field=data["from"],
+        source=data["source"],
+        state_field=data["state"]["field"],
+        state=data["state"]["is"],
+        by=tuple(lab_role_name(role, plugin) for role in data["by"]),
+        ready=data["ready"],
+        amount=data["amount"],
+        stored=data.get("stored", False),
     )
 
 
@@ -1368,6 +1385,8 @@ class _Semantics:
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
         self.stock_catalogue(entity_type, source)
+        if entity_type.draw_target is not None:
+            self.draw_target(entity_type.draw_target, source, names)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
 
@@ -1514,6 +1533,40 @@ class _Semantics:
                 source,
                 ("draws_received",) if entity_type.draws_received else ("name",),
             )
+
+    def draw_target(self, target: DrawTarget, source: Document, fields: dict[str, Field]) -> None:
+        """A target opts in using an assigned container and amount, both fixed at creation."""
+        for key, name, kind in (
+            ("from", target.from_field, "ref"),
+            ("source", target.source, "ref"),
+            ("amount", target.amount, "quantity"),
+        ):
+            field = fields.get(name)
+            if field is None or field.type != kind or not field.immutable or not field.required:
+                self.add(
+                    "invalid-draw-target",
+                    f"`{name}` must be a required, immutable {kind} field.",
+                    source,
+                    ("draw_target", key),
+                )
+        field = fields.get(target.state_field)
+        if field is None or field.type != "state" or target.state not in field.live_states:
+            self.add(
+                "invalid-draw-target",
+                "Name a live state of the draw target.",
+                source,
+                ("draw_target", "state"),
+            )
+        prepared = fields.get(target.ready)
+        if prepared is None or not prepared.computed:
+            self.add(
+                "invalid-draw-target",
+                f"`{target.ready}` must be a computed field set when preparing the record.",
+                source,
+                ("draw_target", "ready"),
+            )
+        for index, role in enumerate(target.by):
+            self.lab_role(role, source, ("draw_target", "by", index))
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 
