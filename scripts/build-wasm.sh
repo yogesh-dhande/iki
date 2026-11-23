@@ -20,7 +20,15 @@ if ! command -v rustup >/dev/null 2>&1; then
 fi
 
 cd "$root/worker"
-cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
+if [ "${1:-}" = --package-notices ]; then
+  report=$(mktemp)
+  trap 'rm -f "$report"' EXIT
+  cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
+    --message-format=json-render-diagnostics > "$report"
+  node "$root/scripts/write-wasm-notices.mjs" < "$report"
+else
+  cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release
+fi
 mkdir -p "$root/web/app/wasm" "$root/web/packages/science/wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/packages/science/wasm/iki_wasm.wasm"
 cp target/wasm32-unknown-unknown/release/iki_wasm.wasm "$root/web/app/wasm/iki_wasm.wasm"

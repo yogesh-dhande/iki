@@ -144,7 +144,7 @@
     "generated"
   ],
   "scripts": {
-    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node build-viewers.mjs && node ../../../scripts/check-web-package-size.js",
+    "build": "../../../scripts/build-wasm.sh --package-notices && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node build-viewers.mjs && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node ../../../scripts/generate-oligo-temperature.js --check && vitest run"
   },

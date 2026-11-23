@@ -159,3 +159,9 @@ From the repository root run `pnpm install --frozen-lockfile`, then
 `/science/stories/booking-calendar.html`. The package build checks each public entry
 against its gzip byte limit. The release workflow sets both package versions from the
 Iki release tag.
+
+The npm tarball includes the Rust parser's crate notices in
+`dist/licenses/rust-wasm.txt`. The same directory contains the standard library
+notices for the parser and standalone oligo measurement, the Binaryen license
+and the chemical depiction licenses. Mol*'s bundled dependency notices are in
+`dist/structure-viewer.LICENSE.md`.
