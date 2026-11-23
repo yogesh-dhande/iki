@@ -89,6 +89,17 @@ def test_molstar_scene_and_replacement(
             }""")
                 == {}
             )
+            # An empty Mol* viewport puts the project logo back in the tab order.
+            viewer.get_by_role("button", name="State Tree").click()
+            viewer.get_by_role("button", name="Remove All").click()
+            viewer.get_by_role("button", name="State Tree").click()
+            logo = viewer.get_by_role("link", name="Mol* project website", exact=True)
+            expect(logo).to_be_visible()
+            expect(logo).to_have_attribute("href", "https://molstar.org")
+            assert logo.evaluate("link => link.tabIndex") == 0
+            logo.focus()
+            expect(logo).to_be_focused()
+            assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
             viewer.evaluate("e => { e.data = null; }")
             expect(viewer.locator("canvas")).to_have_count(0)
         assert not errors, errors

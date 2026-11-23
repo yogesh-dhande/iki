@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/polymer
+version: 0.1.0
+title: Synthetic polymers
+description: >-
+  Register polymer designs by their BigSMILES and structural specifications,
+  link their precursor monomers to registered compounds and inspect the
+  repeat units and end-group options encoded in their notation.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/polymer
+dependencies:
+  iki/small_molecule: { types: { Compound: ">=1" } }

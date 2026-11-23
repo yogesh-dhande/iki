@@ -52,6 +52,7 @@ import {
   type Match,
   type Values,
 } from "./sequence.js";
+import { viewerThemeUrl } from "./viewer-theme.js";
 import {
   FRAME_CODES,
   FRAMES,
@@ -1476,6 +1477,7 @@ export class SequenceViewerElement extends ReactElement {
     return (
       this.value && (
         <>
+          <link rel="stylesheet" href={viewerThemeUrl} />
           <link
             rel="stylesheet"
             href={new URL("./sequence-viewer.css?no-inline", import.meta.url).href}

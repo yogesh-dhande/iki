@@ -17,7 +17,7 @@ kind: EntityType
 name: Plasmid
 label: Plasmid
 label_plural: Plasmids
-schema_version: 3
+schema_version: 4
 description: >-
   A plasmid or vector, by the DNA sequence that is it, circular or linear. Two plasmids of
   the same sequence are the same plasmid, so registering one again finds its registry
@@ -344,6 +344,13 @@ fields:
     values: [in_house, addgene, vendor, collaborator, other]
     indexed: true
     description: Where this project's plasmid came from.
+  source_assembly:
+    type: ref
+    to: Assembly
+    label: Source assembly
+    description: >-
+      The assembly that produced this project’s material. Its record names the backbone,
+      inserts, method and observed product. Leave this empty when the route is unknown.
   addgene_id:
     type: string
     max_length: 7
@@ -402,6 +409,12 @@ fields:
 # Kept at every save, however a record is written: by an action, through the API, by a
 # bulk import or in a bundle (ADR 0127).
 rules:
+  source_assembly_product:
+    label: The source assembly produced this plasmid’s sequence
+    when: record.source_assembly != null
+    check: record.source_assembly.product != null && record.source_assembly.product == record.sequence.id
+    message: Select an assembly whose recorded product is this plasmid’s DNA sequence.
+    fields: [source_assembly]
   topology_is_the_sequences:
     label: A plasmid's topology is its sequence's
     description: >-

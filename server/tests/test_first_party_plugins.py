@@ -9,51 +9,28 @@ import uuid
 from pathlib import Path
 
 import pytest
+import yaml
+from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, TEMPLATE, build_order, withs
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
 from iki_spec import rules
 from iki_spec.identity import Kind, identity_hash
+from iki_spec.naming import app_label
 from iki_spec.validate import load_plugin
-
-ROOT = Path(__file__).resolve().parents[2]
-PLUGINS = ROOT / "plugins"
-TEMPLATE = ROOT / "plugin-template"
-#: Each plugin (a directory) and the plugins it depends on.
-FIRST_PARTY = {
-    PLUGINS / "dna": (),
-    PLUGINS / "protein": (PLUGINS / "dna",),
-    PLUGINS / "antibody": (PLUGINS / "dna", PLUGINS / "protein"),
-    PLUGINS / "small_molecule": (),
-    PLUGINS / "oligo": (),
-    PLUGINS / "plasmid": (PLUGINS / "dna",),
-    PLUGINS / "complex": (PLUGINS / "dna", PLUGINS / "protein"),
-    PLUGINS / "conjugate": (
-        PLUGINS / "dna",
-        PLUGINS / "protein",
-        PLUGINS / "antibody",
-        PLUGINS / "oligo",
-        PLUGINS / "small_molecule",
-    ),
-    PLUGINS / "lots": (
-        PLUGINS / "conjugate",
-        PLUGINS / "antibody",
-        PLUGINS / "small_molecule",
-        PLUGINS / "dna",
-        PLUGINS / "protein",
-        PLUGINS / "oligo",
-        PLUGINS / "plasmid",
-    ),
-    PLUGINS / "plate_assays": tuple(
-        PLUGINS / name for name in ("dna", "protein", "oligo", "plasmid", "lots", "example_lims")
-    ),
-    TEMPLATE: (PLUGINS / "dna",),
-}
 
 __all__ = ["database"]
 
 
-def withs(dependencies: tuple[Path, ...]) -> list[str]:
-    return [arg for d in dependencies for arg in ("--with", str(d))]
+def test_first_party_fixtures_include_declared_dependencies_in_build_order() -> None:
+    manifests = [*PLUGINS.glob("*/plugin.yaml"), TEMPLATE / "plugin.yaml"]
+    assert set(FIRST_PARTY) == {manifest.parent for manifest in manifests}
+    for plugin, dependencies in FIRST_PARTY.items():
+        seen = {"iki/core"}
+        for path in (*dependencies, plugin):
+            manifest = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))
+            assert set(manifest.get("dependencies", {})) <= seen, path
+            assert manifest["name"] not in seen, path
+            seen.add(manifest["name"])
 
 
 @pytest.mark.parametrize("plugin", FIRST_PARTY, ids=lambda p: p.name)
@@ -69,7 +46,8 @@ def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
 
 
 def test_the_reviewer_is_independent_of_post_build_edits() -> None:
-    loaded = load_plugin(PLUGINS / "plasmid", dependencies=[PLUGINS / "dna"])
+    plugin = PLUGINS / "plasmid"
+    loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
     assert loaded.plugin is not None
     assembly = loaded.plugin.types["iki/plasmid.Assembly"]
     status = assembly.fields["status"]
@@ -88,23 +66,8 @@ def test_the_reviewer_is_independent_of_post_build_edits() -> None:
 
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
-    built = iki(
-        "plugin",
-        "build",
-        PLUGINS / "dna",
-        PLUGINS / "protein",
-        PLUGINS / "antibody",
-        PLUGINS / "small_molecule",
-        PLUGINS / "oligo",
-        PLUGINS / "plasmid",
-        PLUGINS / "complex",
-        PLUGINS / "conjugate",
-        PLUGINS / "lots",
-        TEMPLATE,
-        "--output",
-        out,
-        cwd=ROOT,
-    )
+    plugins = build_order(PLUGINS / "lots", PLUGINS / "complex", TEMPLATE)
+    built = iki("plugin", "build", *plugins, "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -354,29 +317,17 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["part_of"] == ["iki/antibody.Antibody", "iki/complex.ProteinComplex"]
     # Its parts are its identity: another chain is another antibody.
     assert result["refused"] == {"components": ["can't change once it's set."]}
-    for app in (
-        "iki__lots",
-        "iki__conjugate",
-        "iki__plasmid",
-        "iki__complex",
-        "iki__oligo",
-        "iki__small_molecule",
-        "iki__antibody",
-        "acme__example",
-        "iki__protein",
-        "iki__dna",
-    ):
+    # Reverse each app in this deployment after its dependents.
+    apps = [
+        app_label(yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))["name"])
+        for path in plugins
+        if any((path / "migrations").glob("0*.py"))
+    ]
+    for app in reversed(apps):
         migrate(out, database, app, "zero")
-    left = query(
-        database,
-        "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND "
-        "(tablename LIKE 'dna%%' OR tablename LIKE 'example%%' OR tablename LIKE 'protein%%' "
-        "OR tablename LIKE 'antibody%%' OR tablename LIKE 'small_molecule%%' "
-        "OR tablename LIKE 'oligo%%' OR tablename LIKE 'plasmid%%' "
-        "OR tablename LIKE 'complex%%' OR tablename LIKE 'iki\\_\\_conjugate%%' "
-        "OR tablename LIKE 'iki\\_\\_lots%%')",
-    )
-    assert left == [(0,)]
+    tables = query(database, "SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+    prefixes = tuple(f"{app}_" for app in apps)
+    assert not [name for (name,) in tables if name.startswith(prefixes)]
 
 
 def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
@@ -388,7 +339,7 @@ def test_a_plasmid_is_found_from_any_origin_and_on_either_strand(
     feature's parts too. A single-stranded circle with the same bases is another
     molecule."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", PLUGINS / "dna", "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLUGINS / "dna"), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -509,7 +460,7 @@ def test_a_linear_plasmid_is_one_molecule_from_either_strand_and_not_from_anothe
     its sequence doesn't have is refused by the type's rule.
     """
     out = tmp_path / "build"
-    built = iki("plugin", "build", PLUGINS / "dna", PLUGINS / "plasmid", "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLUGINS / "plasmid"), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -638,7 +589,7 @@ def test_one_molecule_in_several_databases_records_keeps_each_projects_accession
     registry entry, and registering the second is refused nowhere: each project's record
     keeps the accession it gave."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", PLUGINS / "dna", PLUGINS / "protein", "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLUGINS / "protein"), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -722,7 +673,7 @@ def test_an_oligonucleotide_is_its_canonical_helm(tmp_path: Path, database: str)
     bases finds both, and Sequence's searches find them. A duplex is its strands by role,
     in either order."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", PLUGINS / "oligo", "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLUGINS / "oligo"), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)

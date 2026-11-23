@@ -412,6 +412,20 @@ export class StructureViewer extends HTMLElement {
     const root = createRoot(target);
     let plugin: PluginContext | undefined;
     const abort = new AbortController();
+    // Mol* mounts a fresh background-image link whenever the viewport becomes empty.
+    const logos = new MutationObserver(() => {
+      target
+        .querySelector("a.msp-logo:not([aria-label])")
+        ?.setAttribute("aria-label", "Mol* project website");
+    });
+    logos.observe(target, { childList: true, subtree: true });
+    abort.signal.addEventListener(
+      "abort",
+      () => {
+        logos.disconnect();
+      },
+      { once: true },
+    );
     try {
       plugin = await createPlugin(target, (component) => {
         root.render(component);

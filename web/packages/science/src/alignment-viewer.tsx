@@ -11,6 +11,7 @@ import {
   type MouseEvent,
 } from "react";
 import { ReactElement } from "./react-element.js";
+import { viewerThemeUrl } from "./viewer-theme.js";
 import {
   colourOf,
   isGap,
@@ -377,6 +378,7 @@ function AlignmentGrid({
 
   return (
     <>
+      <link rel="stylesheet" href={viewerThemeUrl} />
       <link
         rel="stylesheet"
         href={new URL("./alignment-viewer.css?no-inline", import.meta.url).href}

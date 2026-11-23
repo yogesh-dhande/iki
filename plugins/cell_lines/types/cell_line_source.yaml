@@ -1,0 +1,20 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CellLineSource
+label: Cell line catalogue source
+schema_version: 1
+description: A supplier catalogue entry for a parental line.
+hrid: { prefix: CLS }
+identity: [supplier, catalogue_id]
+fields:
+  supplier: { type: string, required: true, immutable: true, max_length: 128, indexed: true }
+  catalogue_id: { type: string, required: true, immutable: true, max_length: 128, indexed: true }
+  line:
+    type: ref
+    to: ParentalLine
+    registry: fact
+    required: true
+    immutable: true
+    description: The Cellosaurus entry identified by this supplier's catalogue number.
+display:
+  title: "{{ supplier }} {{ catalogue_id }}"

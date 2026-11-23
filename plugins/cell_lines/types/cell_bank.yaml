@@ -1,0 +1,44 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CellBank
+label: Cell bank
+schema_version: 1
+sample: true
+description: A banking event for one line at a known passage.
+hrid: { prefix: CBK }
+fields:
+  name: { type: string, required: true, max_length: 160, indexed: true }
+  kind: { type: enum, required: true, immutable: true, values: [master, working] }
+  line: { type: ref, required: true, immutable: true, to: [ParentalLine, EngineeredLine] }
+  banked_on: { type: date, required: true, immutable: true, indexed: true }
+  passage_number: { type: int, required: true, immutable: true, min: 0 }
+  catalogue_source:
+    type: ref
+    to: CellLineSource
+    immutable: true
+    description: The supplier entry for a master bank made from catalogue material.
+  source_bank: { type: ref, immutable: true, to: CellBank, label: Source master bank }
+rules:
+  catalogue_matches_master:
+    when: record.catalogue_source != null
+    check: record.kind == "master" && record.catalogue_source.line == record.line.id
+    message: Select a catalogue source for the parental line of this master bank.
+    fields: [catalogue_source, line]
+  bank_source:
+    check: '(record.kind == "master") == (record.source_bank == null)'
+    message: A working bank needs its master bank. A master bank has no source bank.
+    fields: [source_bank]
+  same_line:
+    when: record.source_bank != null
+    check: record.source_bank.kind == "master" && record.source_bank.line == record.line.id
+    message: Choose a master bank of this cell line.
+    fields: [source_bank, line]
+  bank_order:
+    when: record.source_bank != null
+    check: >-
+      record.banked_on >= record.source_bank.banked_on &&
+      record.passage_number >= record.source_bank.passage_number
+    message: The working bank's date and passage must follow or equal its master bank's.
+    fields: [banked_on, passage_number]
+display:
+  title: "{{ name }}"
