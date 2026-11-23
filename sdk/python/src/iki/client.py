@@ -690,16 +690,22 @@ class Entities(_Part):
         amount: Quantity,
         *,
         purpose: DrawPurpose = "routine",
+        used_in: str | None = None,
+        confirm: str = "",
         reason: str = "",
     ) -> AmountMovedOut:
         """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
         QA sampling requires a role the type designates in the source record's project.
         Give the amount in its own unit or one that converts to it. A recorded
         concentration also permits a mass to be drawn by volume or vice versa.
-        The server checks the record is eligible for this purpose and has enough left."""
-        return self._move(
-            ref, "draw", {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
-        )
+        ``used_in`` identifies the receiving experiment or analysis by ID or HRID.
+        Supply the barcode or HRID in ``confirm`` when the source type requires a scan."""
+        body: dict[str, Any] = {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
+        if used_in is not None:
+            body["used_in"] = used_in
+        if confirm:
+            body["confirm"] = confirm
+        return self._move(ref, "draw", body)
 
     def transfer(self, ref: str, to: str, amount: Quantity, *, reason: str = "") -> AmountMovedOut:
         """Moves some of it to the record ``to`` (an ID or HRID): pooled, or topped up."""

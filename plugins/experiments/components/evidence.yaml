@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: evidence
+label: Evidence
+description: The notebook and protocol versions, material used and captured results for this experiment.
+module: ./components/evidence.js
+element: experiment-evidence
+slots: [{ slot: entity.tab, type: Experiment }]
+events: { run: { actions: [capture_results] } }
