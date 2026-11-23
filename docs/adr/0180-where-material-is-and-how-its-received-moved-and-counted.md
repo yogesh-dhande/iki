@@ -133,6 +133,28 @@ moves it to another position, in the same change. Handing it to someone else
 while it's out is a movement of its own. A person's checked-out records are
 on their storage page.
 
+### How a receiving or counting observation is recorded
+
+The receipt or count line holds its current state. Its append-only observation
+history records what a person saw, who recorded it and when. A correction points
+to the preceding event for that line and kind of observation. It records both
+values and the operator’s reason for changing the earlier observation. The
+condition note and the correction reason have separate meanings.
+
+As with a movement, one transaction verifies the reviewed state, appends the
+event, advances the current row and writes an audit entry referring to the same
+event and operation. A first observation can proceed independently of observations
+on other lines. A correction must identify the affected line and the version
+reviewed. Handoff changes, cancellation and completion apply to the whole plan
+and use its revision. One command can record changes to several observations
+under the same operation ID.
+
+The history uses a stable line ID that survives a retraction. A reader can
+inspect it on open and closed receipts and counts. Access follows the parent,
+and a linked code is visible only while its record is readable. Existing rows
+can supply known values for the first recorded change. An unknown earlier actor,
+time or scan stays unknown.
+
 ### Receiving is a request's receipt
 
 **A request type says which of what it sends is received.** `request:

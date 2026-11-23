@@ -12249,6 +12249,168 @@
         "title": "NotificationRecordOut",
         "type": "object"
       },
+      "ObservationEventOut": {
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "outcome",
+              "handoff",
+              "scan",
+              "resolution",
+              "status"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The original line, including after its removal.",
+            "title": "Line Id"
+          },
+          "operation": {
+            "format": "uuid",
+            "title": "Operation",
+            "type": "string"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The prior observation of this kind on this line.",
+            "title": "Previous"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Id"
+          },
+          "reconciliation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Id"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "receipt_id",
+          "reconciliation_id",
+          "line_id",
+          "before",
+          "after",
+          "actor",
+          "created_at",
+          "operation",
+          "revision",
+          "previous",
+          "reason"
+        ],
+        "title": "ObservationEventOut",
+        "type": "object"
+      },
+      "ObservationEventsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationEventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ObservationEventsOut",
+        "type": "object"
+      },
       "OccupantOut": {
         "properties": {
           "code": {
@@ -40240,6 +40402,97 @@
         ]
       }
     },
+    "/api/v1/receipts/{receipt_id}/history": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_receipt_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A receipt's observation history",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
       "delete": {
         "description": "An extra line scanned by mistake, while the receipt is open.",
@@ -40532,6 +40785,97 @@
           }
         ],
         "summary": "Complete a reconciliation",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/history": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_reconciliation_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A reconciliation's observation history",
         "tags": [
           "storage"
         ]

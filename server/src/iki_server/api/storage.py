@@ -44,6 +44,7 @@ from iki_server.storage import services as storage
 from iki_server.storage.grids import Shape
 from iki_server.storage.models import (
     Event,
+    ObservationEvent,
     Place,
     Receipt,
     ReceiptStatus,
@@ -695,6 +696,77 @@ def list_checked_out(request: HttpRequest, custodian: UUID | None = None) -> lis
     ]
 
 
+# --- Observation history ------------------------------------------------------------------------
+
+
+class ObservationEventOut(Schema):
+    id: UUID
+    kind: Literal["outcome", "handoff", "scan", "resolution", "status"]
+    receipt_id: UUID | None
+    reconciliation_id: UUID | None
+    line_id: UUID | None = Field(description="The original line, including after its removal.")
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    actor: UserOut
+    created_at: datetime
+    operation: UUID
+    revision: int = Field(ge=1)
+    previous: UUID | None = Field(description="The prior observation of this kind on this line.")
+    reason: str
+
+
+class ObservationEventsOut(Page[ObservationEventOut]):
+    pass
+
+
+def _observation_history(
+    me: User, parent: Receipt | Reconciliation, line_id: UUID | None, params: PageParams
+) -> dict[str, Any]:
+    events = parent.observations.select_related("actor")
+    if line_id is not None:
+        events = events.filter(line_id=line_id)
+    result = page(events, params, newest_first=True)
+    items: list[ObservationEvent] = result["items"]
+    # Look up the historical links on this page. The working line may have been changed
+    # or deleted, and the two sides of an amendment may refer to different records.
+    ids = {
+        UUID(snapshot["entity_id"])
+        for event in items
+        for snapshot in (event.before, event.after)
+        if snapshot and snapshot.get("entity_id") is not None
+    }
+    readable = {str(pk) for pk, ref in _refs(me, ids).items() if not ref["purged"]}
+
+    def snapshot_out(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+        if snapshot is None:
+            return None
+        public = snapshot.copy()
+        entity_id = public.pop("entity_id", None)
+        if entity_id is not None and entity_id not in readable and "code" in public:
+            public["code"] = ""
+        return public
+
+    result["items"] = [
+        {
+            "id": e.pk,
+            "kind": e.kind,
+            "receipt_id": e.receipt_id,
+            "reconciliation_id": e.reconciliation_id,
+            "line_id": e.line_id,
+            "before": snapshot_out(e.before),
+            "after": snapshot_out(e.after),
+            "actor": e.actor,
+            "created_at": e.created_at,
+            "operation": e.operation,
+            "revision": e.revision,
+            "previous": e.previous_id,
+            "reason": e.reason,
+        }
+        for e in items
+    ]
+    return result
+
+
 # --- Receipts -----------------------------------------------------------------------------------
 
 
@@ -840,6 +912,19 @@ def start_receipt(request: HttpRequest, ref: str) -> Status[dict[str, Any]]:
 def get_receipt(request: HttpRequest, receipt_id: UUID) -> dict[str, Any]:
     me = caller(request)
     return _receipt_out(me, _receipt(me, receipt_id))
+
+
+@router.get(
+    "/receipts/{receipt_id}/history",
+    response=ObservationEventsOut,
+    summary="A receipt's observation history",
+)
+def receipt_history(
+    request: HttpRequest, receipt_id: UUID, params: Query[PageParams], line_id: UUID | None = None
+) -> dict[str, Any]:
+    """Newest first. Supply a line ID to follow its observations, even after it was removed."""
+    me = caller(request)
+    return _observation_history(me, _receipt(me, receipt_id), line_id, params)
 
 
 class ReceiptIn(Schema):
@@ -1097,6 +1182,22 @@ def start_reconciliation(request: HttpRequest, ref: str) -> Status[dict[str, Any
 def get_reconciliation(request: HttpRequest, reconciliation_id: UUID) -> dict[str, Any]:
     me = caller(request)
     return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+
+
+@router.get(
+    "/reconciliations/{reconciliation_id}/history",
+    response=ObservationEventsOut,
+    summary="A reconciliation's observation history",
+)
+def reconciliation_history(
+    request: HttpRequest,
+    reconciliation_id: UUID,
+    params: Query[PageParams],
+    line_id: UUID | None = None,
+) -> dict[str, Any]:
+    """Newest first. Supply a line ID to follow its observations, even after it was removed."""
+    me = caller(request)
+    return _observation_history(me, _reconciliation(me, reconciliation_id), line_id, params)
 
 
 class ScanIn(Schema):

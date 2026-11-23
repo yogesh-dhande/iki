@@ -3297,6 +3297,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A receipt's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_receipt_history"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
         parameters: {
             query?: never;
@@ -3387,6 +3407,26 @@ export interface paths {
          *     that needs review or a change in the container's recorded contents returns 422.
          */
         post: operations["iki_server_api_storage_complete_reconciliation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reconciliations/{reconciliation_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A reconciliation's observation history
+         * @description Newest first. Supply a line ID to follow its observations, even after it was removed.
+         */
+        get: operations["iki_server_api_storage_reconciliation_history"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -11152,6 +11192,66 @@ export interface components {
             id: string;
             /** Type */
             type: string;
+        };
+        /** ObservationEventOut */
+        ObservationEventOut: {
+            actor: components["schemas"]["UserOut"];
+            /** After */
+            after: {
+                [key: string]: unknown;
+            } | null;
+            /** Before */
+            before: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outcome" | "handoff" | "scan" | "resolution" | "status";
+            /**
+             * Line Id
+             * @description The original line, including after its removal.
+             */
+            line_id: string | null;
+            /**
+             * Operation
+             * Format: uuid
+             */
+            operation: string;
+            /**
+             * Previous
+             * @description The prior observation of this kind on this line.
+             */
+            previous: string | null;
+            /** Reason */
+            reason: string;
+            /** Receipt Id */
+            receipt_id: string | null;
+            /** Reconciliation Id */
+            reconciliation_id: string | null;
+            /** Revision */
+            revision: number;
+        };
+        /** ObservationEventsOut */
+        ObservationEventsOut: {
+            /** Items */
+            items: components["schemas"]["ObservationEventOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
         };
         /** OccupantOut */
         OccupantOut: {
@@ -23242,6 +23342,34 @@ export interface operations {
             };
         };
     };
+    iki_server_api_storage_receipt_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
+                };
+            };
+        };
+    };
     iki_server_api_storage_drop_line: {
         parameters: {
             query?: never;
@@ -23384,6 +23512,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReconciliationOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_reconciliation_history: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                line_id?: string | null;
+            };
+            header?: never;
+            path: {
+                reconciliation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationEventsOut"];
                 };
             };
         };

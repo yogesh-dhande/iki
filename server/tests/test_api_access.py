@@ -1290,6 +1290,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("POST", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(403)),
     ("GET", "/receipts/{receipt_id}", receipt("/receipts/{receipt}"), readers(200)),
     (
+        "GET",
+        "/receipts/{receipt_id}/history",
+        receipt("/receipts/{receipt}/history"),
+        readers(200),
+    ),
+    (
         "PATCH",
         "/receipts/{receipt_id}",
         receipt("/receipts/{receipt}", {"handed_over_by": "Courier"}),
@@ -1337,6 +1343,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "GET",
         "/reconciliations/{reconciliation_id}",
         reconciliation("/reconciliations/{reconciliation}"),
+        readers(200),
+    ),
+    (
+        "GET",
+        "/reconciliations/{reconciliation_id}/history",
+        reconciliation("/reconciliations/{reconciliation}/history"),
         readers(200),
     ),
     (
