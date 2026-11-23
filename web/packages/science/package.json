@@ -37,6 +37,56 @@
     "./science-inputs.css": {
       "types": "./style.d.ts",
       "default": "./dist/science-inputs.css"
+    },
+    "./parsers": {
+      "@ikisci/source": "./src/parsers.ts",
+      "types": "./dist/parsers.d.ts",
+      "default": "./dist/parsers.js"
+    },
+    "./sequence": {
+      "@ikisci/source": "./src/sequence.ts",
+      "types": "./dist/sequence.d.ts",
+      "default": "./dist/sequence.js"
+    },
+    "./translation": {
+      "@ikisci/source": "./src/translation.ts",
+      "types": "./dist/translation.d.ts",
+      "default": "./dist/translation.js"
+    },
+    "./oligo-chemistry": {
+      "@ikisci/source": "./src/oligo-chemistry.ts",
+      "types": "./dist/oligo-chemistry.d.ts",
+      "default": "./dist/oligo-chemistry.js"
+    },
+    "./oligo-duplex": {
+      "@ikisci/source": "./src/oligo-duplex.ts",
+      "types": "./dist/oligo-duplex.d.ts",
+      "default": "./dist/oligo-duplex.js"
+    },
+    "./complex-composition": {
+      "@ikisci/source": "./src/complex-composition.ts",
+      "types": "./dist/complex-composition.d.ts",
+      "default": "./dist/complex-composition.js"
+    },
+    "./composition-mass": {
+      "@ikisci/source": "./src/composition-mass.ts",
+      "types": "./dist/composition-mass.d.ts",
+      "default": "./dist/composition-mass.js"
+    },
+    "./molecular-properties": {
+      "@ikisci/source": "./src/molecular-properties.ts",
+      "types": "./dist/molecular-properties.d.ts",
+      "default": "./dist/molecular-properties.js"
+    },
+    "./open-reading-frames": {
+      "@ikisci/source": "./src/open-reading-frames.ts",
+      "types": "./dist/open-reading-frames.d.ts",
+      "default": "./dist/open-reading-frames.js"
+    },
+    "./restriction-map": {
+      "@ikisci/source": "./src/restriction-map.ts",
+      "types": "./dist/restriction-map.d.ts",
+      "default": "./dist/restriction-map.js"
     }
   },
   "files": [
@@ -45,11 +95,12 @@
     "LICENSE",
     "NOTICE",
     "src/*.ts",
+    "wasm/iki_wasm.wasm",
     "!src/*.test.ts",
     "style.d.ts"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && cp ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/check-web-package-size.js",
+    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -59,7 +110,17 @@
     "./quantity-input": 1536,
     "./sequence-input": 1024,
     "./box-map.css": 1536,
-    "./science-inputs.css": 320
+    "./science-inputs.css": 320,
+    "./parsers": 563200,
+    "./sequence": 7168,
+    "./translation": 3072,
+    "./oligo-chemistry": 2304,
+    "./oligo-duplex": 2176,
+    "./complex-composition": 3328,
+    "./composition-mass": 768,
+    "./molecular-properties": 3072,
+    "./open-reading-frames": 2304,
+    "./restriction-map": 832
   },
   "devDependencies": {
     "jsdom": "^31.0.0"

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Duplex pairing</title>
+    <style>
+      body {
+        max-width: 58rem;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        font:
+          1rem/1.5 system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Duplex pairing</h1>
+      <p>
+        The two strands of the B-DNA dodecamer in
+        <a href="https://www.rcsb.org/structure/1BNA">PDB 1BNA</a>.
+      </p>
+      <iki-oligo-duplex></iki-oligo-duplex>
+    </main>
+    <script type="module">
+      import "../dist/oligo-duplex.js";
+      const viewer = document.querySelector("iki-oligo-duplex");
+
+      const strand = "CGCGAATTCGCG";
+      viewer.data = {
+        sense: strand,
+        antisense: strand,
+        pairs: [...strand].map((_, index) => ({
+          sense: index + 1,
+          antisense: strand.length - index,
+          paired: true,
+        })),
+      };
+    </script>
+  </body>
+</html>

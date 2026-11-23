@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Human insulin</title>
+    <style>
+      body {
+        max-width: 58rem;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        font:
+          1rem/1.5 system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Human insulin</h1>
+      <p>
+        The mature A and B chains and their three disulfide bonds.
+        <a href="https://www.uniprot.org/uniprotkb/P01308/entry">UniProt P01308</a>.
+      </p>
+      <iki-complex-composition></iki-complex-composition>
+    </main>
+    <script type="module">
+      import "../dist/complex-composition.js";
+      const viewer = document.querySelector("iki-complex-composition");
+
+      viewer.data = {
+        parts: [
+          { name: "Insulin A chain", role: "A" },
+          { name: "Insulin B chain", role: "B" },
+        ],
+        chainCount: 2,
+        bondMap: "complete",
+        partDisulfides: 0,
+        partBondsComplete: true,
+        reduced: {
+          formula: "C257H389N65O77S6",
+          average: 5813.62,
+          monoisotopic: 5809.6846,
+          extinctionCoefficient: 5960,
+        },
+        bonds: [
+          {
+            kind: "disulfide",
+            from: { part: "Insulin A chain", residue: 6 },
+            to: { part: "Insulin A chain", residue: 11 },
+          },
+          {
+            kind: "disulfide",
+            from: { part: "Insulin A chain", residue: 7 },
+            to: { part: "Insulin B chain", residue: 7 },
+          },
+          {
+            kind: "disulfide",
+            from: { part: "Insulin A chain", residue: 20 },
+            to: { part: "Insulin B chain", residue: 19 },
+          },
+        ],
+      };
+    </script>
+  </body>
+</html>

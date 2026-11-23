@@ -48,7 +48,7 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY web web
 # The header's navigation, which the server's pages render too (iki_server.web.navigation).
 COPY server/src/iki_server/web/navigation.json server/src/iki_server/web/
-COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm web/app/wasm/
+COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm web/packages/science/wasm/
 # Writes server/src/iki_server/web/static/app and, for the structure viewer's frame, viewers.
 # The parsers are built above, so this builds the rest (`build` would build them too).
 RUN pnpm --filter @ikisci/app build:web \

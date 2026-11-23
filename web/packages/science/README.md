@@ -48,6 +48,38 @@ and [runnable story](stories/booking-calendar.html).
 
 The corresponding element tags are `<iki-box-map>`, `<iki-quantity-input>` and `<iki-sequence-input>`. Assign the data as a JavaScript property. Load `@ikisci/ui/tokens.css` and `@ikisci/science/box-map.css` to style the box map. The editors share `@ikisci/science/science-inputs.css`.
 
+## Scientific functions
+
+| Import                        | Data and result                                                                                                                                                                                                                                       |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@ikisci/science/parsers`     | `await loadParsers()` returns readers for UTF-8 FASTA sequences or alignments, and HELM strings. [Inputs, coordinate conventions and results](stories/parsers.md)                                                                                     |
+| `@ikisci/science/sequence`    | Plain DNA, RNA or protein strings, annotated features and per-residue numeric tracks. Functions for complement, GC content, exact motif matching, melting temperature, feature layout and track scales. [Inputs and coordinates](stories/sequence.md) |
+| `@ikisci/science/translation` | Translate a whole frame or an annotated coding feature with one of the NCBI genetic codes. [Coordinates and qualifiers](stories/translation.md)                                                                                                       |
+
+## Oligonucleotide and complex views
+
+| Entry                                 | Element data and interaction                                                                                                                                                                                                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@ikisci/science/oligo-chemistry`     | `<iki-oligo-chemistry>` takes a `nucleotides` array ordered 5′ to 3′ and optional `ends`. Each position can describe a base, sugar, linker and modifications. [Contract](stories/oligo-chemistry.md) · [Story](stories/oligo-chemistry.html)                                          |
+| `@ikisci/science/oligo-duplex`        | `<iki-oligo-duplex>` takes the `sense` and `antisense` strings, both 5′ to 3′, and `pairs` with 1-based antiparallel coordinates. [Contract](stories/oligo-duplex.md) · [Story](stories/oligo-duplex.html)                                                                            |
+| `@ikisci/science/complex-composition` | `<iki-complex-composition>` takes named `parts`, optional residue-to-residue `bonds` and a `reduced` formula, masses and ε280. Activating its optional compute button emits `compute-request`. [Contract](stories/complex-composition.md) · [Story](stories/complex-composition.html) |
+
+Assign these objects to the element's `.data` property. A user opening or closing the
+positions, strands or bonds disclosure emits a bubbling `details-change` event with
+`{ section, open }`. The `@ikisci/science/composition-mass` entry independently
+exports `withDisulfides`, `absorbanceAtOneGramPerLitre` and `formulaAtoms`.
+[Mass, extinction and absorbance units](stories/complex-composition.md#masses-and-absorbance)
+
+## Molecular calculations
+
+These subpaths run without a browser or a server.
+
+| Entry under `@ikisci/science/`                            | Data and results                                                                                                                                                                   |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`molecular-properties`](stories/molecular-properties.md) | Neutral formula, peptide or DNA sequence to average and monoisotopic masses in u. Peptide composition and strand chemistry give ε280 or ε260 in L/(mol·cm).                        |
+| [`open-reading-frames`](stories/open-reading-frames.md)   | An IUPAC nucleotide sequence, NCBI table and topology to annotated complete ORFs on both strands, including the translated residues.                                               |
+| [`restriction-map`](stories/restriction-map.md)           | Molecule length, topology and existing cut positions to fragment lengths and coordinates. A recorded paired interval can project a primer's 3′-relative offset onto the reference. |
+
 ## Next.js
 
 Create the element inside a Client Component. Import the browser module in an

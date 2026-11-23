@@ -95,6 +95,16 @@ def test_standalone_story(
             page.get_by_role("button", name="Guides").press("Enter")
             page.get_by_role("link", name="Importing data").click()
             expect(page.get_by_role("status")).to_have_text("Selected #import")
+        elif component == "oligo-chemistry":
+            page.get_by_text("Each position", exact=True).press("Enter")
+            expect(page.get_by_role("rowheader", name="12", exact=True)).to_be_visible()
+        elif component == "oligo-duplex":
+            expect(page.get_by_text("sense 1–12, antisense 1–12")).to_be_visible()
+            page.get_by_text("Strand details", exact=True).press("Enter")
+            expect(page.get_by_text("sense 1–12, antisense 1–12")).to_be_hidden()
+        elif component == "complex-composition":
+            page.get_by_text("Its 3 bonds", exact=True).press("Enter")
+            expect(page.get_by_text("Insulin B chain, copy 1, residue 19")).to_be_visible()
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(

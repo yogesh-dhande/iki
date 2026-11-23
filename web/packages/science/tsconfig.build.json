@@ -8,7 +8,17 @@
     "src/booking-calendar.ts",
     "src/box-map.ts",
     "src/quantity-input.ts",
-    "src/sequence-input.ts"
+    "src/sequence-input.ts",
+    "src/parsers.ts",
+    "src/sequence.ts",
+    "src/translation.ts",
+    "src/oligo-chemistry.ts",
+    "src/oligo-duplex.ts",
+    "src/complex-composition.ts",
+    "src/composition-mass.ts",
+    "src/molecular-properties.ts",
+    "src/open-reading-frames.ts",
+    "src/restriction-map.ts"
   ],
   "exclude": ["src/**/*.test.ts"]
 }

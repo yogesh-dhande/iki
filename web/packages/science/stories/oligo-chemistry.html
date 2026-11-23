@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Oligonucleotide chemistry</title>
+    <style>
+      body {
+        max-width: 58rem;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        font:
+          1rem/1.5 system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Oligonucleotide chemistry</h1>
+      <p>
+        One strand of the B-DNA dodecamer in
+        <a href="https://www.rcsb.org/structure/1BNA">PDB 1BNA</a>.
+      </p>
+      <iki-oligo-chemistry></iki-oligo-chemistry>
+    </main>
+    <script type="module">
+      import "../dist/oligo-chemistry.js";
+      const viewer = document.querySelector("iki-oligo-chemistry");
+
+      const bases = "CGCGAATTCGCG";
+      const names = { A: "Adenine", C: "Cytosine", G: "Guanine", T: "Thymine" };
+      viewer.data = {
+        nucleotides: [...bases].map((base, index) => ({
+          position: index + 1,
+          base,
+          nucleobase: { symbol: base, name: names[base] },
+          sugar: { symbol: "dR", name: "2′-Deoxyribose" },
+          linker: index < bases.length - 1 ? { symbol: "P", name: "Phosphate" } : null,
+        })),
+      };
+    </script>
+  </body>
+</html>
