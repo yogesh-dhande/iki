@@ -13,7 +13,7 @@ from uuid import UUID
 
 import pytest
 from org_world import World
-from playwright.sync_api import Locator, Page, Route, expect
+from playwright.sync_api import Locator, Page, Request, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -255,3 +255,38 @@ def test_project_stock_and_outstanding_deliveries(
     assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
     assert_clean(page, axe_in_firefox=False)
     page.context.close()
+
+
+@pytest.mark.parametrize(
+    ("principal", "message"),
+    [
+        ("org_admin", "Only project members can see its stock."),
+        ("outsider", "There’s nothing here, or you don’t have access to it."),
+    ],
+)
+def test_direct_stock_url_without_project_read(
+    open_as: Any, world: World, principal: str, message: str
+) -> None:
+    page: Page = open_as(principal, "/projects/")
+    stock_requests: list[str] = []
+    stock_path = f"/api/v1/projects/{world.project.pk}/stock"
+
+    def observe(request: Request) -> None:
+        path = urlsplit(request.url).path
+        if request.method == "GET" and (path == stock_path or path.startswith(stock_path + "/")):
+            stock_requests.append(request.url)
+
+    shell = page.request.get("/projects/")
+    assert shell.status == 200
+    page.on("request", observe)
+    response = page.goto(f"/projects/{world.project.slug}/stock/")
+    assert response is not None and response.status == 200
+    # Compare the actual documents before React renders. Django masks the CSRF token per request.
+    csrf = re.compile(rb'(?<=<meta name="csrf-token" content=")[A-Za-z0-9]{64}(?=">)')
+    assert csrf.sub(b"", response.body()) == csrf.sub(b"", shell.body())
+    expect(page.get_by_text(message, exact=True)).to_be_visible()
+    if principal == "outsider":
+        expect(page.get_by_text(world.project.name, exact=True)).to_have_count(0)
+    expect(page.get_by_role("table", name="Catalogue stock")).to_have_count(0)
+    expect(page.get_by_role("table", name="Open orders")).to_have_count(0)
+    assert stock_requests == []
