@@ -725,7 +725,8 @@ fields:
   and `of` its reference to the type, which names the record each was
   split from (`amount-aliquots`). Each aliquot depends on what it was
   split from, and a record transferred into depends on what was moved into
-  it: edges of the graph (`aliquot`, `transfer`), walked as references are.
+  it. A draw with `used_in` links the receiving record to the stock it used.
+  Lineage walks can follow or filter these edges as `aliquot`, `transfer`, or `used`.
 - `material` names a required, immutable reference of the type to what its
   amount is of, such as a lot's molecule (`amount-material`). A transfer
   into one of its records takes only material of that entity, from a record
