@@ -909,6 +909,16 @@ class Export:
 
 
 @dataclass(frozen=True)
+class ReportExport:
+    """A JSON report issued by a signed state change."""
+
+    export: str
+    report: str
+    review: str
+    issued: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Extension:
     plugin: str
     extends_type: str  # qualified
@@ -929,16 +939,6 @@ class Extension:
 
 #: Where actions run, from a machine a team registered to a virtual machine Iki starts.
 TIERS = ("self_hosted", "backend", "container", "vm")
-
-
-@dataclass(frozen=True)
-class ReportExport:
-    """A JSON report issued by a signed state change."""
-
-    export: str
-    report: str
-    review: str
-    issued: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1641,7 +1641,7 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
                         # ...or exports.
-                        "exports": tuple(Export(**x) for x in v.get("exports") or ()),
+                        "exports": tuple(_export(x) for x in v.get("exports") or ()),
                         # ...or rules.
                         "rules": {n: _rule(r) for n, r in (v.get("rules") or {}).items()},
                         # ...or notifications.

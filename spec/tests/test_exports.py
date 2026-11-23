@@ -1,5 +1,6 @@
 """Exports: the files Iki writes of a type's records, configured by naming its fields."""
 
+import json
 import textwrap
 from pathlib import Path
 
@@ -157,7 +158,7 @@ def test_a_signed_report_names_a_json_field_and_a_locking_signed_state(tmp_path:
     assert plugin.types["acme/lab.SignedReport"].exports == (
         ReportExport("signed_report", "report", "review", ("issued",)),
     )
-    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(plugin)))) == plugin
     for old, bad, code in (
         ("type: json", "type: int", "export-field"),
         ("review: review", "review: report", "export-field"),
