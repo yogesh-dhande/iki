@@ -111,26 +111,32 @@ CI require browsers. A gate failure lists each unexpected pytest skip. When a
 new capability or opt-in suite warrants a skip, record its exact reason and
 the tests it applies to in `scripts/ci/pytest_gate_skips.py`.
 
-When a shared Playwright browser test fails, CI keeps its context traces in the
-`browser-failures-<python>-<shard>` artifact for three days. A local
-`make check-python` or `make check` that reaches pytest writes
-`build/browser-failures.tar.gz`. Each trace identifies the worker and test in
+When a shared Playwright browser test fails, CI keeps its context traces for
+three days in `browser-failures-<run_id>-<run_attempt>-<python>-<shard>`.
+A local `make check-python` or `make check` that reaches pytest prints its run
+and attempt IDs. A failure leaves `build/browser-failures/<run>/traces.tar.gz`.
+Each trace identifies the execution attempt, worker, test, and test attempt in
 its path. Extract the archive and open a trace with
 `uv run playwright show-trace path/to/trace.zip`. The traces come from
 disposable test contexts and can contain test cookies, visible data, and
 request and response bodies. Keep them with the test run.
 
-For the test VM, run the following from the worktree root. It collects traces
-across the entire gate and fetches the archive back to the same local path.
+For the test VM, run this command from the worktree root. Invoke it again for
+each rerun. It allocates a fresh run ID before submission and asks the VM runner
+to fetch that exact archive.
 
 ```sh
-rm -f build/browser-failures.tar.gz
-VM_RUN_FETCH=build/browser-failures.tar.gz ~/.local/share/iki-test-vm/bin/vm-run.sh \
-  scripts/ci/with-browser-traces.sh bash -c 'pnpm install --frozen-lockfile && make -k check'
+scripts/ci/with-browser-traces.sh --vm ~/.local/share/iki-test-vm/bin/vm-run.sh \
+  bash -c 'pnpm install --frozen-lockfile && make -k check'
 ```
 
-The archive is empty when a completed gate produced no failing browser traces.
-If the VM loses the run or the transfer fails, the local file is absent.
+Every VM replay within a submission has its own attempt directory. The returned
+archive includes all failed browser attempts from that run, even when the last
+attempt passed. Its `collected-attempt.txt` identifies the last collected
+attempt, exit code, and whether it produced traces. The client compares it
+with the VM's `started-attempt.txt` and reports an interrupted collection or a
+missing transfer. It discards a receipt that contained no failures. Earlier
+archives stay under their original run IDs.
 For a focused `uv run pytest`, set `IKI_BROWSER_ARTIFACTS` to a fresh directory
 to keep the individual trace files there, or use the wrapper to get an archive.
 

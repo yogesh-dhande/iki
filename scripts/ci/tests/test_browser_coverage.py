@@ -65,7 +65,8 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
         '#!/bin/sh\nprintf "UV %s [%s] gate=%s\\n" "$*" "${IKI_SKIP_BROWSER_TESTS:-}" "$IKI_GATE"\n'
         'if [ "$1 $2" = "run pytest" ] && [ -n "${SIMULATE_BROWSER_FAILURE:-}" ]; then\n'
         '  mkdir -p "$IKI_BROWSER_ARTIFACTS/gw1/test_name"\n'
-        '  echo trace > "$IKI_BROWSER_ARTIFACTS/gw1/test_name/context-1-trace.zip"\n'
+        '  echo "$SIMULATE_BROWSER_FAILURE" > '
+        '"$IKI_BROWSER_ARTIFACTS/gw1/test_name/context-1-trace.zip"\n'
         "  exit 17\n"
         "fi\n"
     )
@@ -80,22 +81,27 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
         args.append("IKI_SKIP_BROWSER_TESTS=1")
     else:
         env["IKI_SKIP_BROWSER_TESTS"] = "1"
-    failed = subprocess.run(  # noqa: S603 - fixed make recipe
-        args,
-        cwd=tmp_path,
-        env={**env, "SIMULATE_BROWSER_FAILURE": "1"},
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
-    assert failed.returncode != 0, failed.stdout
-    bundle = tmp_path / "build/browser-failures.tar.gz"
-    with tarfile.open(bundle) as archive:
-        traces = [member for member in archive if member.isfile()]
-        assert len(traces) == 1 and traces[0].name == "./gw1/test_name/context-1-trace.zip"
-        contents = archive.extractfile(traces[0])
-        assert contents is not None and contents.read() == b"trace\n"
+    artifacts = tmp_path / "build/browser-failures"
+    bundles: dict[Path, bytes] = {}
+    for label in ("first", "second"):
+        failed = subprocess.run(  # noqa: S603 - fixed make recipe
+            args,
+            cwd=tmp_path,
+            env={**env, "SIMULATE_BROWSER_FAILURE": label},
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        assert failed.returncode != 0, failed.stdout
+        (bundle,) = set(artifacts.glob("run-*/traces.tar.gz")) - bundles.keys()
+        bundles[bundle] = bundle.read_bytes()
+        with tarfile.open(bundle) as archive:
+            (trace,) = [entry for entry in archive if entry.name.endswith(".zip")]
+            assert trace.name.startswith("./attempt-")
+            assert trace.name.endswith("/gw1/test_name/context-1-trace.zip")
+            contents = archive.extractfile(trace)
+            assert contents is not None and contents.read() == f"{label}\n".encode()
     run = subprocess.run(  # noqa: S603 - fixed make recipe
         args, cwd=tmp_path, env=env, capture_output=True, text=True, check=True, timeout=10
     )
@@ -104,5 +110,4 @@ def test_make_check_python_requires_browsers(tmp_path: Path, command_line: bool)
     assert any("check_test_prerequisites.py wasm" in line for line in recorded)
     assert any("check_test_prerequisites.py web" in line for line in recorded)
     assert "UV run pytest [] gate=1" in recorded, recorded
-    with tarfile.open(bundle) as archive:
-        assert not any(member.isfile() for member in archive)
+    assert {path: path.read_bytes() for path in artifacts.glob("run-*/traces.tar.gz")} == bundles
