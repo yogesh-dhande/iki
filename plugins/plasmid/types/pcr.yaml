@@ -57,7 +57,7 @@ fields:
     type: quantity
     unit: Cel
     computed: true
-    label: Forward primer Tm
+    label: Forward primer Tm (50 mM Na⁺)
     description: >-
       The forward primer's melting temperature where it binds: of the bases that annealed,
       against the template's own bases, so a mismatch lowers it. `tm_method` says how.
@@ -65,7 +65,7 @@ fields:
     type: quantity
     unit: Cel
     computed: true
-    label: Reverse primer Tm
+    label: Reverse primer Tm (50 mM Na⁺)
     description: The reverse primer's, the same way.
   primer_dimer_free_energy:
     type: quantity

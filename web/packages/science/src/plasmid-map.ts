@@ -639,7 +639,7 @@ function siteTable(
         element("th", { scope: "col" }, "Annealed"),
         element("th", { scope: "col" }, "5\u2032 tail"),
         element("th", { scope: "col" }, "Pairing"),
-        element("th", { scope: "col" }, "Tm"),
+        element("th", { scope: "col" }, "Tm (50 mM Na⁺)"),
       ),
     ),
     element("tbody", {}, ...rows),
