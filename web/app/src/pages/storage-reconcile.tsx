@@ -31,7 +31,9 @@ import {
   changesSince,
   FINDINGS,
   historyKey,
+  IDENTITY_BASES,
   indexOf,
+  isScanConflict,
   needsResolving,
   positionLabel,
   reconciliationQuery,
@@ -39,6 +41,7 @@ import {
   resolutionsFor,
   resolveCountLine,
   scanCount,
+  scanRefusal,
   STORAGE,
   stepName,
   type ObservationEvent,
@@ -47,8 +50,10 @@ import {
   type ReconciliationLine,
   type Resolution,
   type Reviewed,
+  type ScanCandidate,
+  type ScanMode,
 } from "../storage";
-import { ScanBar } from "../storage-ui";
+import { IkiIdEntry, ScanBar, ScanChooser, ScanRefusedNote } from "../storage-ui";
 import {
   Button,
   CheckboxField,
@@ -251,7 +256,7 @@ function evidenceText(line: ReconciliationLine): string {
   return line.ref?.hrid ?? (code === "" ? "a record you can’t open" : code);
 }
 
-/** Who scanned it, and when, if that's known. */
+/** Who scanned it, and when, if that's known; and how it identified the tube. */
 function ScannedBy({ line }: { line: ReconciliationLine }) {
   const seen = line.observation;
   if (!seen?.scanned_by) return null;
@@ -264,6 +269,7 @@ function ScannedBy({ line }: { line: ReconciliationLine }) {
           <UtcTime value={seen.scanned_at} />
         </>
       ) : null}
+      {seen.identity_basis ? `, identified ${IDENTITY_BASES[seen.identity_basis]}` : null}
     </>
   );
 }
@@ -273,19 +279,42 @@ type Asking = {
   seen: number;
   changes: ObservationEvent[] | null;
 } & (
-  | {
+  | ({
       do: "scan";
       at: string;
       code: string | null;
       /** The lines a refusal said this scan replaces: exactly those are reviewed. */
       required: string[] | null;
-    }
+    } & How)
   | { do: "resolve"; line: string; resolution: Resolution | null; note: string }
   | { do: "cancel" }
 );
 
+/** A newer version of what's recorded: not a scan that can't identify a tube, also a 409. */
+/** How a scan identifies its tube: by its label (the default), or a typed Iki ID; and the
+ * tube chosen for a label several readable tubes share. */
+interface How {
+  mode?: ScanMode | undefined;
+  choice?: ScanCandidate | undefined;
+}
+
+/** A position's scan, as sent: its mode and choice only when they say something. */
+function scanItem(at: string, code: string | null, how: How): Schemas["ScanIn"] {
+  return {
+    position: at,
+    code,
+    ...(how.mode && how.mode !== "label" ? { mode: how.mode } : {}),
+    ...(how.choice ? { choice: how.choice.id } : {}),
+  };
+}
+
+/** A count's scan that needs more: a choice among readable tubes, or another way. */
+type Unidentified =
+  | { kind: "ambiguous"; at: string; code: string; candidates: ScanCandidate[] }
+  | { kind: "refused" };
+
 function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409;
+  return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
 }
 
 /** The line IDs a refused count change named, if it named them. */
@@ -366,6 +395,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const [acknowledgedMissing, setAcknowledgedMissing] = useState<string | null>(null);
   const missingRest = unchecked.length > 0 && acknowledgedMissing === uncheckedKey;
   const [asking, setAsking] = useState<Asking | null>(null);
+  const [unidentified, setUnidentified] = useState<Unidentified | null>(null);
   const [lineStale, setLineStale] = useState<{ line: string; changes: ObservationEvent[] } | null>(
     null,
   );
@@ -472,14 +502,23 @@ function ReconcileView({ r }: { r: Reconciliation }) {
     setCursor(Math.min(Math.max(i, 0) + 1, order.length - 1));
   };
   /** A scan: sent straight away if it's fresh or the same again; else asked about first. */
-  const record = (code: string | null) => {
+  const record = (code: string | null, how: How = {}) => {
     if (!here || writing.current) return;
     const at = here.label;
     const count = current();
+    setUnidentified(null);
     const replaced = supersededBy(count, at, code);
     if (replaced.length && !identical(replaced, code)) {
       scan.reset();
-      setAsking({ do: "scan", at, code, required: null, seen: count.plan_revision, changes: null });
+      setAsking({
+        do: "scan",
+        at,
+        code,
+        ...how,
+        required: null,
+        seen: count.plan_revision,
+        changes: null,
+      });
       return;
     }
     const reviewed = replaced.map(({ line }) => ({
@@ -489,11 +528,22 @@ function ReconcileView({ r }: { r: Reconciliation }) {
     void saveChange(
       () =>
         scan.mutateAsync({
-          scans: [{ position: at, code }],
+          scans: [scanItem(at, code, how)],
           ...(reviewed.length ? { reviewed_lines: reviewed } : {}),
         }),
       scanned(at, code),
       (error) => {
+        // A label several tubes share, or one that can't be used here: nothing was recorded.
+        const refusal = scanRefusal(problemOf(error));
+        if (refusal && code !== null) {
+          setHeard("");
+          setUnidentified(
+            refusal.kind === "ambiguous"
+              ? { kind: "ambiguous", at, code, candidates: refusal.candidates }
+              : refusal,
+          );
+          return;
+        }
         if (!isStale(error)) {
           setHeard(problemOf(error).detail);
           return;
@@ -504,7 +554,15 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         void refetch(count.plan_revision, required ?? reviewed.map((x) => x.line_id)).then(
           ({ fresh, changes }) => {
             scan.reset();
-            setAsking({ do: "scan", at, code, required, seen: fresh.plan_revision, changes });
+            setAsking({
+              do: "scan",
+              at,
+              code,
+              ...how,
+              required,
+              seen: fresh.plan_revision,
+              changes,
+            });
           },
         );
       },
@@ -579,7 +637,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         void saveChange(
           () =>
             scan.mutateAsync({
-              scans: [{ position: at, code }],
+              scans: [scanItem(at, code, asking)],
               ...(reviewed.length ? { reviewed_lines: reviewed } : {}),
               reason,
             }),
@@ -666,7 +724,29 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                 busy={scan.isPending}
                 disabled={locked || !!asking}
                 onScan={(code) => {
-                  record(code);
+                  record(code.trim());
+                }}
+              />
+              {unidentified?.kind === "refused" ? <ScanRefusedNote /> : null}
+              {unidentified?.kind === "ambiguous" && unidentified.at === here?.label ? (
+                <ScanChooser
+                  code={unidentified.code}
+                  candidates={unidentified.candidates}
+                  busy={locked}
+                  onChoose={(choice) => {
+                    record(unidentified.code, { choice });
+                  }}
+                  onCancel={() => {
+                    setUnidentified(null);
+                    setHeard(`Nothing was recorded at ${unidentified.at}.`);
+                  }}
+                />
+              ) : null}
+              <IkiIdEntry
+                open={unidentified !== null}
+                disabled={locked || !!asking}
+                onEnter={(hrid) => {
+                  record(hrid.trim(), { mode: "iki_id" });
                 }}
               />
               <div className="actions">
@@ -923,6 +1003,10 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                 : cancel.error
           }
           onConfirm={confirm}
+          onChoose={(choice) => {
+            scan.reset();
+            if (asking.do === "scan") setAsking({ ...asking, choice });
+          }}
           onClose={() => {
             setAsking(null);
           }}
@@ -940,6 +1024,7 @@ function CountDialog({
   busy,
   problem,
   onConfirm,
+  onChoose,
   onClose,
 }: {
   r: Reconciliation;
@@ -948,9 +1033,12 @@ function CountDialog({
   busy: boolean;
   problem: unknown;
   onConfirm: (reason: string) => void;
+  /** The tube chosen for a label several share, kept with the reason being typed. */
+  onChoose: (choice: ScanCandidate) => void;
   onClose: () => void;
 }) {
   const shownProblem = problem ? problemOf(problem) : undefined;
+  const refusal = scanRefusal(shownProblem);
   const common = { busy, problem: shownProblem, onConfirm, onClose };
   switch (asking.do) {
     case "scan": {
@@ -971,7 +1059,20 @@ function CountDialog({
           }
           title={`Replace what’s recorded at ${at}?`}
           confirmLabel="Record the new scan"
+          confirmDisabled={refusal !== null && !asking.choice}
         >
+          {refusal?.kind === "refused" ? <ScanRefusedNote /> : null}
+          {refusal?.kind === "ambiguous" && code !== null ? (
+            <ScanChooser
+              code={code}
+              candidates={refusal.candidates}
+              busy={busy}
+              onChoose={onChoose}
+            />
+          ) : null}
+          {asking.choice ? (
+            <p className="muted">Recorded as {asking.choice.hrid}, chosen for this label.</p>
+          ) : null}
           <ul className="observation-changes">
             {replaced.map(({ line, here }) => (
               <li key={line.id}>

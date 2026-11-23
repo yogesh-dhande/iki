@@ -400,6 +400,7 @@ it("sends a fresh scan in one step, and the same scan again as reviewed evidence
       line_id: "line-000001",
       position: "A1",
       code: "LAB-000001",
+      identity_basis: "label",
       scanned_by: ADA,
       scanned_at: "2026-01-12T09:10:00Z",
     },
@@ -603,4 +604,72 @@ it("lists confirmed move and placement destinations and blocks completion during
   const remaining = finish.getByRole("list", { name: "Planned destinations" });
   expect(within(remaining).getAllByRole("listitem")).toHaveLength(1);
   expect(remaining).toHaveTextContent("TUB-000002 → BOX-000001, A2");
+});
+
+it("asks which tube a shared label is, apart from a conflict with what someone recorded", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const second = tube(2, { expected: "A2", finding: "unchecked" });
+  const { user } = await openInventory(first, second);
+  const candidates = [first, second].map((line, i) => ({
+    id: line.entity ?? "",
+    hrid: line.ref?.hrid ?? "",
+    title: line.ref?.title ?? "",
+    type: "acme/lims.Tube",
+    owner_project: { id: `project-${String(i)}`, name: i ? "Supplier" : "Kinase screen" },
+    box: { id: "box", hrid: "BOX-000001", title: "Retains" },
+    position: line.expected,
+  }));
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { choice?: string }[] };
+    if (!body.scans[0]?.choice)
+      return problem(
+        409,
+        "scan_ambiguous",
+        "More than one readable record matches this scan. Choose the intended record.",
+        undefined,
+        { candidates, index: 0 },
+      );
+    return inventory(2, { ...first, found: "A4", finding: "wrong_slot" }, second);
+  });
+  await user.click(screen.getByRole("gridcell", { name: /^A4,/ }));
+  await user.type(screen.getByRole("textbox", { name: "What’s in A4" }), "VENDOR-9{Enter}");
+  const chooser = await screen.findByRole("region", {
+    name: "“VENDOR-9” matches more than one tube",
+  });
+  // Not a stale count: nothing is read again, and no reason is asked for.
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText(/changed while you were/)).toBeNull();
+  expect(calls("GET", api)).toHaveLength(1);
+  await user.click(within(chooser).getByRole("button", { name: /^TUB-000001/ }));
+  await waitFor(() => {
+    expect(calls("POST", `${api}/scans`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/scans`).map((c) => c.body)).toEqual([
+    { scans: [{ position: "A4", code: "VENDOR-9" }] },
+    { scans: [{ position: "A4", code: "VENDOR-9", choice: first.entity }] },
+  ]);
+});
+
+it("says only that a count scan can’t identify a tube, and takes a typed Iki ID", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const { user } = await openInventory(first);
+  const refused =
+    "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { mode?: string }[] };
+    if (body.scans[0]?.mode !== "iki_id") return problem(409, "scan_unavailable", refused);
+    return inventory(2, { ...first, found: "A1", finding: "matched" });
+  });
+  await user.click(screen.getByRole("gridcell", { name: /^A1,/ }));
+  await user.type(screen.getByRole("textbox", { name: "What’s in A1" }), "VENDOR-9{Enter}");
+  expect(await screen.findByText(refused)).toBeVisible();
+  expect(screen.queryByText(/more than one/)).toBeNull();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000001{Enter}");
+  await waitFor(() => {
+    expect(calls("POST", `${api}/scans`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/scans`).at(-1)?.body).toEqual({
+    scans: [{ position: "A1", code: "TUB-000001", mode: "iki_id" }],
+  });
 });

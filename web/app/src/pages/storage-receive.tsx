@@ -27,6 +27,7 @@ import {
 } from "../observations";
 import {
   affectedLines,
+  isScanConflict,
   cancelReceipt,
   checkReceiptLine,
   completeReceipt,
@@ -34,19 +35,24 @@ import {
   describeReceipt,
   freeSlots,
   historyKey,
+  ikiCode,
   OUTCOMES,
   readReceipt,
   receiptsQuery,
   removeReceiptLine,
+  resolveScan,
   restoreReceiptLine,
   scanReceipt,
+  scanRefusal,
   STORAGE,
   stepName,
   type Outcome,
+  type ScanCandidate,
+  type ScanMode,
   type Receipt,
   type ReceiptLine,
 } from "../storage";
-import { ScanBar } from "../storage-ui";
+import { IkiIdEntry, ScanBar, ScanChooser, ScanRefusedNote } from "../storage-ui";
 import { UtcTime } from "./revision-text";
 import {
   Button,
@@ -283,8 +289,9 @@ interface Asking {
   changes: StaleItem[] | null;
 }
 
+/** A newer version of what's recorded: not a scan that can't identify a tube, also a 409. */
 function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409;
+  return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
 }
 
 /**
@@ -383,7 +390,68 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     update(fresh);
     return { fresh, changes: changedSince(shown, fresh, affectedLines(problemOf(error))) };
   };
-  const scan = useApiMutation(async (code: string) => scanReceipt(id, code), []);
+  // What the scanner sent, kept exactly while a choice is made: the history records it.
+  const scan = useApiMutation(
+    async ({ code, mode, choice }: { code: string; mode?: ScanMode; choice?: string }) =>
+      scanReceipt(id, code, { ...(mode ? { mode } : {}), ...(choice ? { choice } : {}) }),
+    [],
+  );
+  // A scan that needs more: a choice among readable tubes, or another way to identify it.
+  const [choosing, setChoosing] = useState<{ code: string; candidates: ScanCandidate[] } | null>(
+    null,
+  );
+  const [refused, setRefused] = useState(false);
+  const scanned = (sent: { code: string; mode?: ScanMode; choice?: string }) => {
+    setChoosing(null);
+    setRefused(false);
+    const { code } = sent;
+    scan.mutate(sent, {
+      onSuccess: (done) => {
+        update(done.receipt);
+        setLastLine(done.line);
+        setRestorable(done.found === "removed" ? done.line : null);
+        const line = [...done.receipt.lines, ...done.receipt.removed_lines].find(
+          (l) => l.id === done.line,
+        );
+        const name = line ? lineName(line) : code.trim();
+        switch (done.found) {
+          case "matched":
+            setHeard(`${name}: matched.`);
+            break;
+          case "again":
+            setHeard(
+              line?.checked_by
+                ? `${name} is already checked: ${outcomeLabel(line.outcome).toLowerCase()}, by ${personName(line.checked_by)}. Nothing changed.`
+                : `${name} is already checked. Nothing changed.`,
+            );
+            break;
+          case "removed":
+            setHeard(
+              `${name} was removed from this checklist earlier. Nothing changed: restore it if it’s part of this delivery.`,
+            );
+            break;
+          case "extra":
+            setHeard(`${name} wasn’t expected: added as extra. Say what it is in its note.`);
+            break;
+          case "ambiguous_extra":
+            setHeard(
+              `${code.trim()} wasn’t expected: added as extra, not linked to a record, because more than one tube you can read has this label. Say what it is in its note.`,
+            );
+        }
+      },
+      onError: (error) => {
+        setRestorable(null);
+        const refusal = scanRefusal(problemOf(error));
+        if (refusal?.kind === "ambiguous") {
+          setHeard("");
+          setChoosing({ code, candidates: refusal.candidates });
+        } else if (refusal) {
+          setHeard("");
+          setRefused(true);
+        } else setHeard(problemOf(error).detail);
+      },
+    });
+  };
   const check = useApiMutation(
     async ({ line, outcome, note }: { line: string; outcome: Outcome; note: string }) =>
       checkReceiptLine(id, line, {
@@ -453,6 +521,27 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
       },
     );
   };
+  // The box typed or scanned, by its barcode, ID or Iki label; shown by its ID once found.
+  const [boxFound, setBoxFound] = useState<
+    | { kind: "ambiguous"; code: string; candidates: ScanCandidate[] }
+    | { kind: "refused" }
+    | { kind: "none"; code: string }
+    | null
+  >(null);
+  const findBox = useApiMutation(async (code: string) => {
+    setBoxFound(null);
+    try {
+      const found = await resolveScan({ scope: "destination", code });
+      const only = found.status === "one" ? found.candidates[0] : undefined;
+      if (only) setBoxShown(only.id);
+      else if (found.status === "ambiguous")
+        setBoxFound({ kind: "ambiguous", code, candidates: found.candidates });
+      else setBoxFound({ kind: "none", code });
+    } catch (error) {
+      if (scanRefusal(problemOf(error))) setBoxFound({ kind: "refused" });
+      throw error;
+    }
+  }, []);
   const container = useQuery({ ...containerQuery(boxShown || "-"), enabled: !!boxShown });
   const putting = receipt.lines.filter(
     (l) => l.outcome && RECEIVED.includes(l.outcome) && l.entity,
@@ -484,7 +573,8 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
                 .filter((l) => plan[l.id])
                 .map((l) => ({
                   line: l.id,
-                  to: container.data.id,
+                  // The box shown, by its unique Iki code: what's put away is what was seen.
+                  to: ikiCode(container.data.id),
                   position: plan[l.id] ?? null,
                 }))
             : [],
@@ -527,42 +617,29 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           // Never busy: the next tube can be scanned before the last one's answer is back.
           disabled={!!asking}
           onScan={(code) => {
-            scan.mutate(code, {
-              onSuccess: (done) => {
-                update(done.receipt);
-                setLastLine(done.line);
-                setRestorable(done.found === "removed" ? done.line : null);
-                const line = [...done.receipt.lines, ...done.receipt.removed_lines].find(
-                  (l) => l.id === done.line,
-                );
-                const name = line ? lineName(line) : code;
-                switch (done.found) {
-                  case "matched":
-                    setHeard(`${name}: matched.`);
-                    break;
-                  case "again":
-                    setHeard(
-                      line?.checked_by
-                        ? `${name} is already checked: ${outcomeLabel(line.outcome).toLowerCase()}, by ${personName(line.checked_by)}. Nothing changed.`
-                        : `${name} is already checked. Nothing changed.`,
-                    );
-                    break;
-                  case "removed":
-                    setHeard(
-                      `${name} was removed from this checklist earlier. Nothing changed: restore it if it’s part of this delivery.`,
-                    );
-                    break;
-                  case "extra":
-                    setHeard(
-                      `${code} wasn’t expected: added as extra. Say what it is in its note.`,
-                    );
-                }
-              },
-              onError: (error) => {
-                setRestorable(null);
-                setHeard(problemOf(error).detail);
-              },
-            });
+            scanned({ code });
+          }}
+        />
+        {refused ? <ScanRefusedNote /> : null}
+        {choosing ? (
+          <ScanChooser
+            code={choosing.code}
+            candidates={choosing.candidates}
+            busy={scan.isPending}
+            onChoose={(c) => {
+              scanned({ code: choosing.code, choice: c.id });
+            }}
+            onCancel={() => {
+              setChoosing(null);
+              setHeard("Nothing was recorded for that scan.");
+            }}
+          />
+        ) : null}
+        <IkiIdEntry
+          open={refused}
+          disabled={!!asking}
+          onEnter={(hrid) => {
+            scanned({ code: hrid, mode: "iki_id" });
           }}
         />
         <p className="scan-heard" role="status" aria-live="polite">
@@ -716,7 +793,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           onSubmit={(e) => {
             e.preventDefault();
             setWhere({});
-            setBoxShown(box.trim());
+            findBox.mutate(box);
           }}
         >
           <TextField
@@ -724,15 +801,43 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             value={box}
             onChange={setBox}
             optional
-            maxLength={64}
-            help="Scan or type the box they go in, such as BOX-000014; each goes in its next free position."
+            maxLength={200}
+            help="Scan or type the box they go in: its barcode or ID, such as BOX-000014. Each goes in its next free position."
           />
           <div className="actions">
-            <Button type="submit" disabled={!box.trim()}>
+            <Button
+              type="submit"
+              disabled={!box.trim()}
+              busy={findBox.isPending}
+              busyText="Finding…"
+            >
               Show its free positions
             </Button>
           </div>
         </form>
+        {boxFound?.kind === "refused" ? <ScanRefusedNote /> : null}
+        {boxFound?.kind === "none" ? (
+          <div className="alert alert-warning" role="alert">
+            <p>No box you can read has the code “{boxFound.code.trim()}”.</p>
+          </div>
+        ) : null}
+        {boxFound?.kind === "ambiguous" ? (
+          <ScanChooser
+            code={boxFound.code}
+            candidates={boxFound.candidates}
+            noun="box"
+            onChoose={(c) => {
+              setBoxFound(null);
+              setBoxShown(c.id);
+            }}
+            onCancel={() => {
+              setBoxFound(null);
+            }}
+          />
+        ) : null}
+        {findBox.error && !scanRefusal(problemOf(findBox.error)) ? (
+          <ProblemAlert problem={problemOf(findBox.error)} />
+        ) : null}
         {container.error ? <ProblemAlert problem={problemOf(container.error)} /> : null}
         {container.data && !shape ? (
           <div className="alert alert-warning" role="note">

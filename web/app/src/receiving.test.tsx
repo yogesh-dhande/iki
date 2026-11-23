@@ -501,3 +501,143 @@ it("removes an extra and cancels a receipt only with a reason", async () => {
     reason: "Sent to the wrong core",
   });
 });
+
+// --- Which tube a scan identifies -------------------------------------------------------------
+
+const CORE = { id: "00000000-0000-7000-8000-0000000000c1", name: "Protein Core" };
+const LAB = { id: "00000000-0000-7000-8000-0000000000c2", name: "Kinase screen" };
+
+function candidate(number: number, project: typeof CORE, position: string) {
+  const serial = String(number).padStart(6, "0");
+  return {
+    id: `tube-${serial}`,
+    hrid: `TUB-${serial}`,
+    title: `Lysate ${String(number)}`,
+    type: "acme/lims.Tube",
+    owner_project: project,
+    box: { id: "box-1", hrid: "BOX-000003", title: "Incoming" },
+    position,
+  };
+}
+
+it("sends what the scanner sent, untrimmed, and again with the tube chosen for it", async () => {
+  const first = tube(1, { code: "SHARED" });
+  const second = tube(2, { code: "SHARED" });
+  const { user } = await openReceipt(receipt(1, [first, second]));
+  answer(`POST ${api}/scan`, (call: { body: unknown }) => {
+    const body = call.body as { choice?: string };
+    if (!body.choice)
+      return problem(
+        409,
+        "scan_ambiguous",
+        "More than one readable record matches this scan. Choose the intended record.",
+        undefined,
+        { candidates: [candidate(1, CORE, "A1"), candidate(2, LAB, "A2")] },
+      );
+    return {
+      found: "matched",
+      line: second.id,
+      receipt: receipt(2, [first, { ...second, outcome: "matched", checked_by: ME }]),
+    };
+  });
+  // A scanner's code, with the spaces it sent around it.
+  await user.type(scanBox(), "  SHARED {Enter}");
+  const chooser = await screen.findByRole("region", {
+    name: "“SHARED” matches more than one tube",
+  });
+  const choices = within(chooser).getAllByRole("button", { name: /^TUB-/ });
+  expect(choices.map((c) => c.textContent)).toEqual([
+    "TUB-000001 Lysate 1Protein CoreBOX-000003 Incoming, A1",
+    "TUB-000002 Lysate 2Kinase screenBOX-000003 Incoming, A2",
+  ]);
+  // Nothing was recorded, and nothing is said to be.
+  expect(line("TUB-000002").getByRole("button", { name: "Matched" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await user.click(within(chooser).getByRole("button", { name: /^TUB-000002/ }));
+  expect(await screen.findByText("TUB-000002: matched.")).toBeVisible();
+  expect(calls("POST", `${api}/scan`).map((c) => c.body)).toEqual([
+    { code: "  SHARED " },
+    { code: "  SHARED ", choice: second.entity },
+  ]);
+  expect(screen.queryByRole("region", { name: /matches more than one/ })).toBeNull();
+});
+
+it("says only that a scan can’t identify a tube, and takes its printed Iki ID", async () => {
+  const first = tube(1);
+  const { user } = await openReceipt(receipt(1, [first]));
+  const refused =
+    "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+  answer(`POST ${api}/scan`, (call: { body: unknown }) => {
+    const body = call.body as { mode?: string };
+    if (body.mode !== "iki_id") return problem(409, "scan_unavailable", refused);
+    return {
+      found: "matched",
+      line: first.id,
+      receipt: receipt(2, [{ ...first, outcome: "matched", checked_by: ME }]),
+    };
+  });
+  await user.type(scanBox(), "RC000001{Enter}");
+  expect(await screen.findByText(refused)).toBeVisible();
+  expect(screen.queryByText(/more than one/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /^TUB-/ })).toBeNull();
+  const typed = screen.getByRole("textbox", { name: "Iki ID" });
+  await user.type(typed, "TUB-000001{Enter}");
+  expect(await screen.findByText("TUB-000001: matched.")).toBeVisible();
+  expect(calls("POST", `${api}/scan`).at(-1)?.body).toEqual({
+    code: "TUB-000001",
+    mode: "iki_id",
+  });
+  expect(screen.queryByText(refused)).toBeNull();
+});
+
+it("says why an extra several tubes’ label matches isn’t linked to any of them", async () => {
+  const first = tube(1);
+  const extra = tube(9, { entity: null, ref: null, code: "VENDOR-7", expected: false });
+  const { user } = await openReceipt(receipt(1, [first]));
+  answer(`POST ${api}/scan`, {
+    found: "ambiguous_extra",
+    line: extra.id,
+    receipt: receipt(2, [first, { ...extra, outcome: "extra", checked_by: ME }]),
+  });
+  await user.type(scanBox(), "VENDOR-7{Enter}");
+  expect(
+    await screen.findByText(
+      "VENDOR-7 wasn’t expected: added as extra, not linked to a record, because more than one tube you can read has this label. Say what it is in its note.",
+    ),
+  ).toBeVisible();
+});
+
+it("shows the scanner’s exact text in the history, and how it identified the tube", async () => {
+  const first = tube(1, { outcome: "matched", checked_by: ME });
+  const { user } = await openReceipt(receipt(2, [first]));
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        line_id: first.id,
+        actor: ME,
+        before: { outcome: null, note: "", code: "RC000001" },
+        after: {
+          outcome: "matched",
+          note: "",
+          code: "RC000001",
+          scan: { code: " RC000001 ", identity_basis: "vendor", scope: "receipt", chosen: true },
+        },
+      }),
+    ]),
+  );
+  await user.click(line("TUB-000001").getByRole("button", { name: "History of TUB-000001" }));
+  const history = within(
+    await screen.findByRole("list", { name: "History of TUB-000001, newest first" }),
+  );
+  const [recorded] = history.getAllByRole("listitem");
+  expect(recorded).toHaveTextContent(
+    "Scanned RC000001 · identified by its vendor barcode on this checklist · chosen by the receiver",
+  );
+  // Exactly as sent: its spaces too.
+  expect(recorded?.querySelector(".scan-raw")?.textContent).toBe(" RC000001 ");
+  // Its evidence isn't said again as a field.
+  expect(recorded).not.toHaveTextContent("scan {");
+});

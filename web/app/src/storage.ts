@@ -206,12 +206,20 @@ export interface Correction {
   reason: string;
 }
 
-/** A scan: no version, so two people scanning different tubes don't wait on each other. */
-export async function scanReceipt(receipt: string, code: string): Promise<ReceiptScan> {
+/**
+ * A scan: no version, so two people scanning different tubes don't wait on each other.
+ * `code` is what the scanner sent, as it sent it: the history keeps it exactly. A choice
+ * names the tube the receiver picked for it, and the server checks the pair again.
+ */
+export async function scanReceipt(
+  receipt: string,
+  code: string,
+  how: { mode?: ScanMode; choice?: string } = {},
+): Promise<ReceiptScan> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/scan", {
       params: { path: { receipt_id: receipt } },
-      body: { code },
+      body: { code, ...how },
     }),
   );
 }
@@ -345,6 +353,91 @@ export async function cancelCount(
 export async function scanFor(code: string): Promise<ScanMatch[]> {
   return unwrap(await iki.GET("/api/v1/storage/scan", { params: { query: { code } } })).items;
 }
+
+// --- Which tube a scan identifies ---------------------------------------------------------------
+
+export type ScanMode = Schemas["ScanMode"];
+export type ScanCandidate = Schemas["ScanCandidateOut"];
+export type ScanResolved = Schemas["ScanResolveOut"];
+/** What confirms a record is the one in hand: a scanned label, or its printed Iki ID typed. */
+export type Proof = string | Schemas["IkiIdConfirmationIn"];
+
+/**
+ * What Iki says when a scan can't be used here: a tube the person can't read is involved,
+ * whether or not it matched. It says nothing about how many matched, or which.
+ */
+export const SCAN_REFUSED =
+  "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+
+/** The unique code an Iki label carries: “IKI:” and the record's UUID, in 32 hex digits. */
+export function ikiCode(id: string): string {
+  return `IKI:${id.replaceAll("-", "").toUpperCase()}`;
+}
+
+/** An Iki ID typed from a tube's label: matched only against Iki IDs, not vendor barcodes. */
+export function ikiId(hrid: string): Schemas["IkiIdConfirmationIn"] {
+  return { code: hrid.trim(), mode: "iki_id" };
+}
+
+/** What a scan identifies where it's used: one record, several to choose from, or none. */
+export async function resolveScan(scan: Schemas["ScanResolveIn"]): Promise<ScanResolved> {
+  return unwrap(await iki.POST("/api/v1/storage/scan/resolve", { body: scan }));
+}
+
+/** Why a scan wasn't used: it can't identify a tube here, or it matches several readable. */
+export type ScanRefusal =
+  { kind: "refused" } | { kind: "ambiguous"; candidates: ScanCandidate[]; index: number | null };
+
+/**
+ * A refusal about the scan itself, apart from a conflict with what someone else recorded:
+ * those name `affected_lines`, and mean the person reviews what's recorded now.
+ */
+export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
+  if (!problem) return null;
+  if (problem.code === "scan_unavailable") return { kind: "refused" };
+  if (problem.code === "scan_ambiguous") {
+    const candidates = problem.candidates ?? [];
+    // Without its candidates, a choice can't be offered: it's said as a refusal.
+    return candidates.length
+      ? { kind: "ambiguous", candidates, index: problem.index ?? null }
+      : { kind: "refused" };
+  }
+  return null;
+}
+
+/** Whether a 409 is about the scan, not about a newer version of what's recorded. */
+export function isScanConflict(problem: Problem | undefined): boolean {
+  return problem?.code === "scan_unavailable" || problem?.code === "scan_ambiguous";
+}
+
+/** Where a candidate is: “BOX-000014 Kinase retains, A2”, or that it isn't in a box. */
+export function candidatePlace(c: ScanCandidate): string {
+  if (!c.box) return c.position ? `At ${c.position}` : "Not in a box you can open";
+  const box =
+    c.box.title && c.box.title !== c.box.hrid ? `${c.box.hrid} ${c.box.title}` : c.box.hrid;
+  return c.position ? `${box}, ${c.position}` : box;
+}
+
+/** How a count's scan identified its tube. */
+export const IDENTITY_BASES: Record<Schemas["IdentityBasis"], string> = {
+  record_link: "by its Iki label or record link",
+  iki_id: "by its Iki ID, typed",
+  position: "by its label at its recorded position",
+  choice: "by the tube chosen for its label",
+  label: "by its label",
+};
+
+/** How a receipt's scan identified its tube, as its history keeps it. */
+export const RECEIPT_BASES: Record<string, string> = {
+  record_code: "identified by its Iki label",
+  record_link: "identified by an Iki record link",
+  iki_id: "identified by its Iki ID, typed",
+  vendor: "identified by its vendor barcode",
+  hrid: "identified by its Iki ID",
+  hrid_and_vendor: "identified by its Iki ID and vendor barcode",
+  unmatched: "matched no record",
+  ambiguous: "left unlinked: more than one readable record has this label",
+};
 
 // --- Positions ----------------------------------------------------------------------------------
 

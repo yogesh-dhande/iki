@@ -13,7 +13,9 @@ import { personName } from "./entities";
 import { UtcTime } from "./pages/revision-text";
 import {
   historyQuery,
+  IDENTITY_BASES,
   OUTCOMES,
+  RECEIPT_BASES,
   REASON_MAX,
   RESOLUTIONS,
   type ObservationEvent,
@@ -67,6 +69,8 @@ const UNSAID = new Set([
   "input_unknown",
   "finding",
   "expected",
+  // A receipt scan's evidence, said on a line of its own.
+  "scan",
 ]);
 
 /**
@@ -132,6 +136,10 @@ export function factText(kind: ObservationEvent["kind"], snapshot: Snapshot): st
       case "removed":
         if (value === true) parts.push("removed from the checklist");
         break;
+      case "identity_basis":
+        if (typeof value === "string" && Object.hasOwn(IDENTITY_BASES, value))
+          parts.push(`identified ${IDENTITY_BASES[value as keyof typeof IDENTITY_BASES]}`);
+        break;
       default:
         if (value !== null && value !== "")
           parts.push(`${key.replaceAll("_", " ")} ${text(value)}`);
@@ -166,6 +174,45 @@ export function eventTitle(event: Pick<ObservationEvent, "kind" | "before" | "af
   return `${name} changed`;
 }
 
+/** A receipt scan's evidence, as the server keeps it with the observation. */
+interface ScanEvidence {
+  code: string;
+  identity_basis?: string;
+  scope?: string;
+  chosen?: boolean;
+}
+
+function evidenceOf(snapshot: Snapshot): ScanEvidence | null {
+  const scan = snapshot?.["scan"];
+  if (!scan || typeof scan !== "object") return null;
+  const found = scan as Record<string, unknown>;
+  return typeof found["code"] === "string" ? (found as unknown as ScanEvidence) : null;
+}
+
+/**
+ * What a scan read, exactly as the scanner sent it, and how it identified the tube: “Scanned
+ * “RC001” · its vendor barcode · on this checklist”. Only what the server returns is said;
+ * a manual or earlier observation has none.
+ */
+function ScanFacts({ scan, earlier = false }: { scan: ScanEvidence; earlier?: boolean }) {
+  const basis = scan.identity_basis ? RECEIPT_BASES[scan.identity_basis] : undefined;
+  const where =
+    scan.scope === "receipt"
+      ? "on this checklist"
+      : scan.scope === "inventory"
+        ? "among the records you can read"
+        : undefined;
+  return (
+    <p className="observation-scan">
+      {earlier ? "Its earlier scan read " : "Scanned "}
+      <code className="scan-raw">{scan.code}</code>
+      {basis ? ` · ${basis}` : null}
+      {where ? ` ${where}` : null}
+      {scan.chosen ? " · chosen by the receiver" : null}
+    </p>
+  );
+}
+
 /** Before and after, or just what was recorded. */
 function Change({ event }: { event: ObservationEvent }) {
   if (event.kind === "status") return null;
@@ -180,6 +227,14 @@ function Change({ event }: { event: ObservationEvent }) {
       <span className="diff-after">{event.after ? after : "nothing"}</span>
     </p>
   );
+}
+
+/** The scan an observation records, or that its correction replaced. */
+function evidence(event: ObservationEvent): ReactNode {
+  const after = evidenceOf(event.after);
+  if (after) return <ScanFacts scan={after} />;
+  const before = evidenceOf(event.before);
+  return before ? <ScanFacts scan={before} earlier /> : null;
 }
 
 // --- History ------------------------------------------------------------------------------------
@@ -225,6 +280,7 @@ export function ObservationHistory({
                     {about ? <span className="storage-code"> · {about}</span> : null}
                   </p>
                   <Change event={event} />
+                  {evidence(event)}
                   <p className="trail-meta">
                     <UtcTime value={event.created_at} /> · {personName(event.actor)}
                   </p>

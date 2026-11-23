@@ -11,7 +11,8 @@ import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures"
 import { answer, calls, page, problem, respond } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a501";
-const DRAW = `POST /api/v1/entities/${SAMPLE_ID}/amount/draw`;
+const DRAW_PATH = `/api/v1/entities/${SAMPLE_ID}/amount/draw`;
+const DRAW = `POST ${DRAW_PATH}`;
 const SPLIT = `POST /api/v1/entities/${SAMPLE_ID}/aliquots`;
 
 const LABEL = field({
@@ -261,6 +262,49 @@ describe("a record's amount", () => {
       reason: "",
       used_in: experiment.id,
       confirm: "S-1",
+    });
+  });
+
+  it("confirms a draw by the Iki ID printed on the tube, for a label it shares", async () => {
+    const tube: Schemas["EntityTypeOut"] = {
+      ...SAMPLE,
+      storage: { holds: [], grid: null, barcode: "label", label: null, confirm: ["draw"] },
+    };
+    onSample();
+    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
+      path: [],
+      hidden: false,
+      stored: false,
+      position: null,
+      custodian: null,
+      custody_since: null,
+    });
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location/events`, page([]));
+    const refused =
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+    answer(
+      DRAW,
+      problem(422, "validation_failed", "Some fields are invalid.", [
+        { pointer: "#/confirm", detail: refused },
+      ]),
+    );
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Volume" });
+    await user.click(within(card).getByRole("button", { name: "Draw" }));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "How much" }), "5");
+    await user.type(within(dialog).getByRole("textbox", { name: "Scan its label" }), "SHARED-1");
+    await user.click(within(dialog).getByRole("button", { name: "Draw" }));
+    expect(await within(dialog).findByText(refused)).toBeInTheDocument();
+    expect(calls("POST", DRAW_PATH).at(-1)?.body).toMatchObject({ confirm: "SHARED-1" });
+    await user.click(within(dialog).getByRole("radio", { name: /^Type its printed Iki ID/ }));
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "SMP-000001");
+    answer(DRAW, respond(200, { amount: amount("245"), movement: movement("drawn", "-5", "245") }));
+    await user.click(within(dialog).getByRole("button", { name: "Draw" }));
+    expect(await screen.findByText("SMP-000001 has 245 uL now.")).toBeInTheDocument();
+    expect(calls("POST", DRAW_PATH).at(-1)?.body).toMatchObject({
+      confirm: { code: "SMP-000001", mode: "iki_id" },
     });
   });
 
