@@ -26,6 +26,7 @@ here, why and when, and each imported entity's page links to it.
 
 from __future__ import annotations
 
+import datetime as dt
 import tempfile
 import uuid
 from collections import Counter
@@ -44,7 +45,7 @@ from iki_server.accounts.models import SERVICE_ACCOUNT_DOMAIN, Kind, User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Agent
 from iki_server.bundles import reading
-from iki_server.bundles.imports import _current, _Planner, _typed
+from iki_server.bundles.imports import _current, _Planner, _typed, check_archive
 from iki_server.bundles.models import (
     BundleImport,
     EntityPlan,
@@ -52,6 +53,7 @@ from iki_server.bundles.models import (
     ImportPerson,
     ImportState,
 )
+from iki_server.bundles.review import ReviewedPlan
 from iki_server.entities import breaches, hrids, registry, requests, states
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
@@ -104,7 +106,11 @@ CHANGED = (
 )
 
 
-def apply(by: User, made: BundleImport, reason: str) -> BundleImport:
+class StalePlan(Refused):
+    """The request names an earlier version of this import's plan."""
+
+
+def apply(by: User, made: BundleImport, reason: str, *, planned_at: dt.datetime) -> BundleImport:
     """Confirms the plan: a task applies it, whole."""
     if not can(by, Action.PROJECT_IMPORT, made.project):
         raise Refused(
@@ -117,6 +123,8 @@ def apply(by: User, made: BundleImport, reason: str) -> BundleImport:
         locked = BundleImport.objects.select_for_update().get(pk=made.pk)
         if locked.state not in (ImportState.PLANNED, ImportState.FAILED):
             raise Refused(f"It's {locked.get_state_display().lower()}: there's no plan to apply.")
+        if locked.planned_at != planned_at:
+            raise StalePlan("The plan changed. Review the current plan before applying it.")
         if not locked.plan.get("applicable"):
             raise Refused("Resolve what keeps it from being applied first, then import it again.")
         locked.state = ImportState.APPLYING
@@ -124,14 +132,16 @@ def apply(by: User, made: BundleImport, reason: str) -> BundleImport:
         locked.reason = reason
         locked.error = ""
         locked.save(update_fields=["state", "applied_by", "reason", "error"])
-        apply_import.enqueue(str(locked.pk))
+        apply_import.enqueue(str(locked.pk), planned_at.isoformat())
     return locked
 
 
 @task()
-def apply_import(import_id: str) -> str:
+def apply_import(import_id: str, planned_at: str | None = None) -> str:
     made = BundleImport.objects.select_related("project__team", "applied_by").get(pk=import_id)
-    if made.state != ImportState.APPLYING:
+    if made.state != ImportState.APPLYING or (
+        planned_at is not None and dt.datetime.fromisoformat(planned_at) != made.planned_at
+    ):
         return made.state
     with tempfile.TemporaryDirectory(prefix="iki-import-") as tmp:
         path = Path(tmp) / "bundle.tar.gz"
@@ -140,6 +150,7 @@ def apply_import(import_id: str) -> str:
             bundle = reading.read(
                 path, settings.IKI_BUNDLE_TRUSTED_KEYS, limit=settings.IKI_BUNDLE_MAX_BYTES
             )
+            check_archive(made, bundle)
             if bundle.trusted_as is None:
                 raise reading.BundleError(
                     f"This deployment no longer trusts {bundle.source}'s key, so nothing was "
@@ -165,37 +176,65 @@ def _said(error: Exception) -> str:
 
 
 def _failed(made: BundleImport, message: str) -> str:
-    BundleImport.objects.filter(pk=made.pk).update(state=ImportState.FAILED, error=message)
-    audit.record(
-        "bundle.import_failed",
-        actor=made.applied_by,
-        target=made,
-        project=made.project,
-        data={"import": str(made.pk), "sha256": made.sha256, "why": message},
-    )
+    with transaction.atomic():
+        changed = BundleImport.objects.filter(
+            pk=made.pk, state=ImportState.APPLYING, planned_at=made.planned_at
+        ).update(state=ImportState.FAILED, error=message)
+        if not changed:
+            return BundleImport.objects.get(pk=made.pk).state
+        audit.record(
+            "bundle.import_failed",
+            actor=made.applied_by,
+            target=made,
+            project=made.project,
+            data={"import": str(made.pk), "sha256": made.sha256, "why": message},
+        )
     return ImportState.FAILED
 
 
 def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
     with transaction.atomic(), quietly():
-        locked = BundleImport.objects.select_for_update().get(pk=made.pk)
-        locked.project = made.project
-        locked.applied_by = made.applied_by
+        # Project registry changes take the project row lock. Use its current registry
+        # through the entire replan and write, even if it moved during the download.
+        locked = (
+            BundleImport.objects.select_related("project__team", "applied_by")
+            .select_for_update(of=("self", "project"))
+            .get(pk=made.pk)
+        )
+        if locked.state != ImportState.APPLYING or locked.planned_at != made.planned_at:
+            return locked.state
         for type_name in sorted({t for p in bundle.manifest["plugins"] for t in p["types"]}):
             entity_type = registry.types().get(type_name)
             if entity_type is not None and not entity_type.abstract:
                 identity_lock(entity_type, registry_of(locked.project), shared=False)
+        confirmed = ReviewedPlan.read(locked)
         ImportEntity.objects.filter(bundle_import=locked).delete()
         ImportPerson.objects.filter(bundle_import=locked).delete()
-        confirmed = locked.plan
-        plan = _Planner(locked, bundle).plan()
-        locked.plan = plan
-        if not plan["applicable"] or plan["counts"] != confirmed.get("counts"):
-            # What was confirmed isn't what it would do now.
+        locked.plan = _Planner(locked, bundle).plan()
+        difference = confirmed.difference(ReviewedPlan.read(locked))
+        if difference or not locked.plan["applicable"]:
             locked.state = ImportState.PLANNED
-            locked.planned_at = timezone.now()
-            locked.error = CHANGED
+            now = timezone.now()
+            if locked.planned_at is not None:
+                now = max(now, locked.planned_at + dt.timedelta(microseconds=1))
+            locked.planned_at = now
+            locked.error = f"{CHANGED} {difference}".strip()
             locked.save()
+            audit.record(
+                "bundle.import_planned",
+                actor=locked.applied_by,
+                target=locked,
+                project=locked.project,
+                data={
+                    "import": str(locked.pk),
+                    "bundle": str(locked.bundle_id),
+                    "sha256": locked.sha256,
+                    "why": locked.error,
+                    "reviewed_at": made.planned_at.isoformat() if made.planned_at else None,
+                    "planned_at": now.isoformat(),
+                    **locked.plan["counts"],
+                },
+            )
             return locked.state
         written = _Writer(locked, bundle, tmp).write()
         locked.state = ImportState.APPLIED
@@ -214,7 +253,10 @@ def _apply(made: BundleImport, bundle: reading.Bundle, tmp: Path) -> str:
             actor=locked.applied_by,
             target=locked,
             project=locked.project,
-            data=data,
+            data={
+                **data,
+                "planned_at": locked.planned_at.isoformat() if locked.planned_at else None,
+            },
         )
         from iki_server.webhooks import events
         from iki_server.webhooks.services import emit
@@ -254,6 +296,7 @@ class _Writer:
                 bundle_import=self.made, action__in=[EntityPlan.NEW, EntityPlan.UPDATE]
             )
         }
+        self._reserve_hrids(planned)
         self._entries(planned)
         for line in self.bundle.lines("entities.ndjson"):
             row = planned.get(line["id"])
@@ -287,6 +330,26 @@ class _Writer:
             "breaking": self.counts["breaking"],
             "held": self.counts["held"],
         }
+
+    def _reserve_hrids(self, planned: dict[str, ImportEntity]) -> None:
+        """Move each sequence past all the numbers the plan keeps before allocating any."""
+        highest: dict[str, int] = {}
+
+        def note(prefix: str | None, hrid: str) -> None:
+            head, _, digits = hrid.rpartition("-")
+            if head == prefix and digits.isdigit():
+                highest[head] = max(highest.get(head, 0), int(digits))
+
+        types = registry.types()
+        for row in planned.values():
+            # A record of an existing entry already has its entry's local number.
+            if row.action == EntityPlan.NEW and (row.registers or row.entry_id is None):
+                note(types[row.type].hrid_prefix, row.hrid_here)
+        for run in self.made.plan["members"]["runs"].values():
+            if run["action"] == "keep_hrid":
+                note(HRID_PREFIX, run["label"])
+        for prefix, number in sorted(highest.items()):
+            self._keep(prefix, f"{prefix}-{number}")
 
     # Who --------------------------------------------------------------------------------
 
@@ -327,18 +390,25 @@ class _Writer:
 
     def _files(self) -> None:
         lines = list(self.bundle.lines("files.ndjson"))
-        here = set(
-            File.objects.filter(pk__in=[f["id"] for f in lines]).values_list("pk", flat=True)
-        )
-        new = [f for f in lines if uuid.UUID(f["id"]) not in here]
-        self._store(new)
+        decisions = self.made.plan["members"]["files"]
+        new = [f for f in lines if decisions[f["id"]]["action"] == "new"]
+        self._store([f for f in new if decisions[f["id"]]["storage"] == "store"])
+        blobs: dict[str, uuid.UUID] = {}
         for f in new:
+            decision = decisions[f["id"]]
+            if decision["storage"] == "reuse_blob":
+                blob_id = uuid.UUID(decision["blob"])
+            elif decision["storage"] == "share_blob":
+                blob_id = blobs[decision["source_file"]]
+            else:
+                blob_id = self._new_blob(f).pk
+            blobs[f["id"]] = blob_id
             # When its data was acquired, and how that was known, as the deployment it came
             # from had it (ADR 0177).
             when = f.get("acquired") or {}
             File.objects.create(
                 id=f["id"],
-                blob=self._blob(f),
+                blob_id=blob_id,
                 name=f["name"],
                 media_type=f["media_type"],
                 project=self.made.project,
@@ -352,21 +422,8 @@ class _Writer:
             self.counts["files"] += 1
 
     def _store(self, files: list[dict[str, Any]]) -> None:
-        """Stores the bytes of the files whose bytes aren't here, in one pass over the
-        bundle, each checked against its SHA-256 before it's stored. A file's bytes are here
-        if a blob of them is, or storage has them; or they're registered (ADR 0055), where
-        the first file of that SHA-256 in the bundle says they are."""
-        first: dict[str, dict[str, Any]] = {}
-        for f in files:
-            first.setdefault(f["sha256"], f)
-        known = set(Blob.objects.filter(sha256__in=first).values_list("sha256", flat=True))
-        wanted = {
-            sha256
-            for sha256, f in first.items()
-            if sha256 not in known
-            and not f["registered"]
-            and not storage.exists(storage.blob_key(sha256))
-        }
+        """Store the reviewed new blobs in one archive pass, checking each SHA-256."""
+        wanted = {f["sha256"] for f in files if not storage.exists(storage.blob_key(f["sha256"]))}
         for sha256, chunks in self.bundle.blobs(wanted):
             local = self.tmp / sha256
             try:
@@ -377,10 +434,8 @@ class _Writer:
             finally:
                 local.unlink(missing_ok=True)
 
-    def _blob(self, f: dict[str, Any]) -> Blob:
-        found = Blob.objects.filter(sha256=f["sha256"]).first()
-        if found is not None:
-            return found
+    @staticmethod
+    def _new_blob(f: dict[str, Any]) -> Blob:
         registered = f["registered"]
         if registered:
             return Blob.objects.create(
@@ -844,10 +899,11 @@ class _Writer:
     def _run(self, line: dict[str, Any]) -> None:
         """A run, as the record of what made or changed the entities: its attempts, logs and
         output, what it read and made, and what it was tied to there that didn't come."""
-        if ActionRun.objects.filter(pk=line["id"]).exists():
+        action = self.made.plan["members"]["runs"][line["id"]]["action"]
+        if action == "skip":
             return
         hrid = line["hrid"]
-        if ActionRun.objects.filter(hrid=hrid).exists():
+        if action == "renumber":
             hrid = run_services._next_hrid()
         else:
             self._keep(HRID_PREFIX, hrid)
