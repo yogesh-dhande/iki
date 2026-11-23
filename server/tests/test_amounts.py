@@ -22,7 +22,7 @@ from iki_server.accounts.models import User
 from iki_server.amounts import services
 from iki_server.amounts.models import Amount, Movement
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import states
+from iki_server.entities import registry, states
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
@@ -738,6 +738,45 @@ def test_what_its_unit_cant_hold_exactly_isnt_moved(world: World) -> None:
         "#/amount": f"is 0.0000000000000001 mg, which at {dilute['hrid']}'s concentration is "
         "less than the 0.000000000001 uL its amount is kept to."
     }
+
+
+def test_whole_units_are_enforced_after_conversion_on_every_ledger_operation(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Use a whole-uL type and a normal mL lot to check conversions in both directions.
+    # CountStockLot uses the same declaration for indivisible consumables.
+    types = registry.types()
+    item_type = types[SAMPLE]
+    assert item_type.amount is not None
+    monkeypatch.setitem(
+        types, SAMPLE, replace(item_type, amount=replace(item_type.amount, whole_units=True))
+    )
+    api = api_as(world)
+    half = {"value": "0.0005", "unit": "mL"}
+    refused = create(api, world.project, {"label": "fraction"}, SAMPLE, amount=half)
+    assert "whole units" in errors(refused)["#/amount"]
+    assert not Entity.objects.filter(type=SAMPLE).exists()
+    record = sample(world, "whole", {"value": "0.002", "unit": "mL"})
+    lot = create(api, world.project, {"label": "continuous"}, "acme/protein.Lot", amount=half)
+    assert lot.status_code == 201, lot.content
+    path = f"/entities/{record['id']}"
+    lot_path = f"/entities/{lot.json()['id']}"
+    counted = {"If-Balance-Revision": record["amount"]["updated_at"]}
+    for url, payload, headers in [
+        (f"{path}/amount/draw", {"amount": half}, {}),
+        (f"{path}/amount/adjust", {"amount": half, "reason": "Recount"}, counted),
+        (f"{path}/amount/transfer", {"amount": half, "to": lot.json()["id"]}, {}),
+        (f"{lot_path}/amount/transfer", {"amount": half, "to": record["id"]}, {}),
+        (f"{path}/aliquots", {"count": 2, "each": half}, {}),
+    ]:
+        assert "whole units" in errors(api.post(url, payload, headers=headers))["#/amount"]
+    assert api.get(f"{path}/amount").json()["value"] == "2"
+    assert api.get(f"{lot_path}/amount").json()["value"] == "0.0005"
+    assert Movement.objects.count() == 2
+    assert Entity.objects.filter(type=SAMPLE).count() == 1
+    accepted = api.post(f"{path}/amount/draw", {"amount": {"value": "0.001", "unit": "mL"}})
+    assert accepted.status_code == 200, accepted.content
+    assert accepted.json()["amount"]["value"] == "1"
 
 
 def test_the_ledger_keeps_what_was_asked_for_exactly(world: World) -> None:

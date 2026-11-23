@@ -52,13 +52,14 @@ export function movementsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "movements", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/amount/movements", {
           params: {
             path: { ref },
             query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,

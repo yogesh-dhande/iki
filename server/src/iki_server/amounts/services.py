@@ -163,6 +163,12 @@ def held(entity: Entity, values: Mapping[str, Any] | None = None) -> str | None:
     return None
 
 
+def _whole_units(entity: Entity, wanted: AmountSpec, value: Fraction | Decimal) -> None:
+    """Check indivisible quantities in their ledger unit, before any decimal rounding."""
+    if wanted.whole_units and Fraction(value).denominator != 1:
+        raise Wrong({"amount": [f"{entity.hrid} requires whole units of {wanted.unit}."]})
+
+
 def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = None) -> Decimal:
     """``given`` in ``entity``'s amount's unit: converted, or through its concentration."""
     wanted = spec(entity.type)
@@ -170,7 +176,9 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
     target, source = units.parse(wanted.unit), units.parse(given.unit)
     exact = Fraction(given.value)
     if source.is_commensurable(target):
-        return _exactly(entity, wanted.unit, exact * source.factor / target.factor, given)
+        converted = exact * source.factor / target.factor
+        _whole_units(entity, wanted, converted)
+        return _exactly(entity, wanted.unit, converted, given)
     if wanted.concentration is not None:
         if values is None:
             from iki_server.entities import services
@@ -193,6 +201,7 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
             elif units.parse(f"({given.unit})/({f.unit})").is_commensurable(target):
                 through = exact * source.factor / concentration / target.factor
             if through is not None:
+                _whole_units(entity, wanted, through)
                 value = _rounded(through)
                 if value == 0 and exact > 0:
                     raise Wrong(
@@ -419,6 +428,7 @@ def transfer(
                 }
             )
         moved = Fraction(out) * here.factor / there.factor
+        _whole_units(target, wanted, moved)
         into = _rounded(moved)
         if Fraction(into) != moved:
             raise Wrong(
@@ -756,6 +766,9 @@ def _change(
     confirmed: str = "",
 ) -> Movement:
     amount.value = _EXACT.add(amount.value, change)
+    wanted = spec(entity.type)
+    assert wanted is not None  # noqa: S101 - only records with an amount get here
+    _whole_units(entity, wanted, amount.value)
     # The timestamp is also the balance revision. Advance it even if two writes get the
     # same clock reading, the clock moves backwards, or the numeric balance is unchanged.
     Amount.objects.filter(pk=amount.pk).update(

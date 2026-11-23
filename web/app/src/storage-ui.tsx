@@ -12,7 +12,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { fieldErrors, iki, meQuery, problemOf, useApiMutation } from "./api";
 import { ENTITIES, typesQuery } from "./entities";
 import { PersonPicker } from "./entity-inputs";
-import { cameraUnavailable, makeDetector, useScanner } from "./scan";
+import { cameraUnavailable, makeDetector, useScanner, type ScanRejection } from "./scan";
 import {
   containerQuery,
   indexOf,
@@ -46,18 +46,18 @@ export function ScanBar({
 }) {
   const id = useId();
   const [text, setText] = useState("");
-  const [unread, setUnread] = useState(false);
+  const [unread, setUnread] = useState<ScanRejection | null>(null);
   const [camera, setCamera] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const take = (code: string) => {
-    setUnread(false);
+    setUnread(null);
     const trimmed = code.trim();
     if (!trimmed) return;
     onScan(trimmed);
   };
-  useScanner((code) => {
-    if (code === null) setUnread(true);
-    else take(code);
+  useScanner((result) => {
+    if (result.kind === "rejected") setUnread(result.reason);
+    else take(result.code);
   }, !disabled && !camera);
   const submit = (event: SyntheticEvent) => {
     event.preventDefault();
@@ -103,7 +103,10 @@ export function ScanBar({
       </div>
       {unread && (
         <p className="field-error" role="alert">
-          Couldn’t read the scan. Scan again or type the code.
+          {unread === "early-key"
+            ? "A key arrived before the rest of the scan."
+            : "Couldn’t read the scan."}{" "}
+          Scan again or type the code.
         </p>
       )}
       {camera ? (
