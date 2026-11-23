@@ -12,7 +12,7 @@ SCRIPT = Path(__file__).with_suffix(".js")
 
 def install(context: BrowserContext, records: list[dict[str, Any]]) -> None:
     def record(source: dict[str, Any], hit: dict[str, Any]) -> None:
-        # The document may be gone by teardown; keep the URL from pointerdown.
+        # Keep the URL from pointerdown in case the document is gone by teardown.
         hit["page"] = hit["url"] if source["frame"].parent_frame is None else source["page"].url
         records.append(hit)
 
@@ -39,11 +39,11 @@ def finish(request: pytest.FixtureRequest, engine: str, records: list[dict[str, 
         )
         return
     if mode != "fail":
-        pytest.fail(f"Unknown IKI_CLICK_STABILITY mode {mode!r}; use report or fail", pytrace=False)
+        pytest.fail(f"Set IKI_CLICK_STABILITY to report or fail (got {mode!r})", pytrace=False)
     if not records:
         return
 
-    lines = [f"Click stability ({engine}):"]
+    lines = [f"Click stability ({engine})"]
     for hit in records:
         down, up = hit["down"], hit["up"]
         reason = "different press and release targets" if hit["mismatched"] else "moving target"
