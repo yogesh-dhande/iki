@@ -1,0 +1,37 @@
+apiVersion: iki/v1
+kind: EntityType
+name: AssayResult
+abstract: true
+schema_version: 1
+label: Assay result
+description: A four-parameter logistic fit of the selected sample's committed readings.
+fields:
+  read: { type: ref, to: PlateRead, required: true, immutable: true }
+  sample: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  measurements:
+    { type: list, items: { type: ref, to: WellMeasurement }, max_items: 384, computed: true }
+  points:
+    type: json
+    computed: true
+    description: Measured points including the pinned reading revision, dose, response and any exclusion with its author and reason.
+  channel: { type: string, computed: true, max_length: 100 }
+  response_unit: { type: enum, computed: true, values: [AU] }
+  concentration_unit: { type: enum, values: [nM, uM, mM, M], computed: true }
+  endpoint_kind: { type: enum, values: [IC50, EC50], computed: true }
+  endpoint_value: { type: float, computed: true }
+  ci_low: { type: float, computed: true, label: Lower 95% confidence limit }
+  ci_high: { type: float, computed: true, label: Upper 95% confidence limit }
+  ci_method: { type: string, computed: true, max_length: 200 }
+  bottom: { type: float, computed: true }
+  top: { type: float, computed: true }
+  hill_slope: { type: float, computed: true }
+  normalization: { type: string, computed: true, max_length: 100 }
+  fit_version: { type: string, computed: true, max_length: 100 }
+  fit_reason: { type: text, computed: true }
+  fit_status: { type: enum, computed: true, values: [fitted, unreportable] }
+  qualifier:
+    { type: enum, computed: true, values: [within_range, above_range, below_range, unavailable] }
+  point_count: { type: int, computed: true, min: 0 }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true }
+  notes: { type: text, description: Interpretation and review notes. }
+display: { title: "{{ endpoint_kind or hrid }} · {{ fit_status or 'recorded' }}" }

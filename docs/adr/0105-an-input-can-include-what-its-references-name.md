@@ -47,6 +47,8 @@ form as the inputs, with any files their values hold:
 
 A reference that's empty is an empty list, and a list of references is its
 entities in order.
+A registered record in the input also carries its `entry_id`, so the command
+can match references that hold the registry entry ID (ADR 0115).
 
 They're read as the inputs are:
 

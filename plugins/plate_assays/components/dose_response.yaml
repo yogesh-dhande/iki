@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: dose_response
+label: Curve
+description: Fitted response and the individual readings used to review the endpoint.
+module: ./components/dose-response.js
+element: assay-dose-response
+slots: [{ slot: entity.tab, type: AssayResult }]

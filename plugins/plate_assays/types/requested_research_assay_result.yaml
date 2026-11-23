@@ -1,0 +1,10 @@
+apiVersion: iki/v1
+kind: EntityType
+name: RequestedResearchAssayResult
+label: Requested Research assay result
+extends: ResearchAssayResult
+schema_version: 1
+hrid: { prefix: RSF }
+result: { of: request, released: { field: review, states: [signed] } }
+fields:
+  request: { type: ref, to: iki/example_lims.AnalysisRequest, required: true, immutable: true }
