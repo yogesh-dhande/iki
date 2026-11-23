@@ -1,0 +1,58 @@
+apiVersion: iki/v1
+kind: EntityType
+name: AssayPlate
+label: Assay plate
+schema_version: 1
+hrid: { prefix: APL }
+description: The reader export and the samples, dilution series and controls assigned to its wells.
+fields:
+  name: { type: string, required: true, max_length: 200 }
+  size: { type: enum, values: [plate_96, plate_384], required: true }
+  reader_file:
+    type: file
+    media_types: [text/csv, text/plain, application/vnd.ms-excel]
+    max_size: 1MiB
+    description: A single BMG MARS raw absorbance block exported as CSV in OD with a decimal point.
+  request:
+    type: ref
+    to: iki/example_lims.AnalysisRequest
+    description: The analytical request these measurements will answer, when the plate is run for a requester.
+  assignments:
+    type: list
+    label: Well assignments
+    max_items: 384
+    items:
+      type: row
+      fields:
+        well: { type: string, required: true, max_length: 4 }
+        sample: { type: ref, to: iki/core.Entity }
+        control: { type: string, max_length: 100 }
+        replicate: { type: int, min: 1, max: 384, default: 1, required: true }
+        concentration: { type: float, min: 0 }
+        concentration_unit: { type: enum, values: [nM, uM, mM, M] }
+  preview:
+    {
+      type: json,
+      computed: true,
+      description: The well join and its problems for this layout and reader file.,
+    }
+  committed:
+    {
+      type: bool,
+      computed: true,
+      description: The reader run has created the measurements for this plate.,
+    }
+display: { title: "{{ name }}" }
+rules:
+  committed_source:
+    label: A committed plate retains its layout and reader file
+    when: record.committed == true
+    check: >-
+      record.preview != null &&
+      record.reader_file == record.preview.source.reader_file &&
+      record.size == record.preview.source.size &&
+      record.assignments == record.preview.source.assignments &&
+      (record.request == null ? record.preview.source.request == null :
+       record.request.id == record.preview.source.request)
+    fields: [size, reader_file, assignments, request]
+    message: The measurements for this layout have been committed. Start a new plate for a corrected layout or reader file.

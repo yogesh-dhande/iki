@@ -222,6 +222,7 @@ def documents(
             {
                 "id": str(entity.pk),
                 "hrid": entity.hrid,
+                **({"entry_id": str(entity.entry_id)} if entity.entry_id is not None else {}),
                 "type": entity.type,
                 "schema_version": types[entity.type].schema_version,
                 "revision": row.revision,

@@ -415,7 +415,7 @@ def _known(what: str, names: Mapping[str, Any]) -> str:
 
 
 def _id(kind: int, n: int) -> str:
-    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files."""
+    """A fixed UUID: kind 1 for the run, 2 the project, 3 entities, 4 files, 5 people."""
     return str(uuid.UUID(f"00000000-0000-7000-8{kind:03d}-{n:012d}"))
 
 
@@ -501,6 +501,7 @@ def run_input(
             "hrid": "RUN-000001",
             "attempt": 1,
             "seed": SEED,
+            **({"requested_by": _id(5, 1)} if not pack else {}),
             "action": action.qualified_name,
             "plugin": {"name": plugin.name, "version": plugin.version, "sha": None},
             "project": _id(2, 1),
