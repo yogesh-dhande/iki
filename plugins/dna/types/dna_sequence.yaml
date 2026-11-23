@@ -5,7 +5,7 @@ name: DNASequence
 label: DNA sequence
 label_plural: DNA sequences
 extends: iki/core.Sequence
-schema_version: 3
+schema_version: 4
 description: >-
   A DNA sequence: a plasmid, a gene, a construct, a genome. Two with the same
   bases, topology and strandedness are the same sequence, so registering one
@@ -141,6 +141,37 @@ fields:
             type: object
             maxProperties: 50
             additionalProperties: { type: string, maxLength: 10000 }
+  library_features:
+    type: json
+    computed: true
+    description: >-
+      Exact matches to the routine cloning-vector library, with their coordinates,
+      strand and source record. An empty list records a completed search with no hits.
+    schema:
+      type: array
+      maxItems: 5000
+      items:
+        type: object
+        additionalProperties: false
+        required: [type, name, start, end, strand, qualifiers]
+        properties:
+          type: { type: string, minLength: 1, maxLength: 64 }
+          name: { type: string, minLength: 1, maxLength: 200 }
+          start: { type: integer, minimum: 1 }
+          end:
+            type: integer
+            minimum: 1
+            description: Before start, it wraps the origin of a circular sequence.
+          strand: { enum: [forward, reverse, none] }
+          qualifiers:
+            type: object
+            maxProperties: 20
+            additionalProperties: { type: string, maxLength: 1000 }
+  library_annotated_with:
+    type: string
+    max_length: 200
+    computed: true
+    description: The name and version of the library that produced the record's library features.
 display:
   title: "{{ name or accession or hrid }}"
   # A tab with its bases, and its features as a track along them.

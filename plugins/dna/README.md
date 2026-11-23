@@ -22,6 +22,11 @@ them.
     as its origin.
   - Its features are kept as GenBank lists them: type, location, strand and
     qualifiers.
+  - The plasmid plugin's **Annotate from feature library** action adds
+    exact matches to the DNA sequence's **Sequence** tab. Each hit shows its
+    location, strand, and source accession. The sequence record keeps the
+    library version alongside the hits and retains the imported features.
+    [ADR 0206](../../docs/adr/0206-dna-sequence-annotation-records-library-matches-and-provenance.md)
   - Its length and GC content are computed by the plugin's
     `compute_composition` action, which a trigger runs once, when it's
     registered.
@@ -31,6 +36,28 @@ them.
   temperature are computed by `primer_properties`, which a trigger runs
   when it's registered, and are its entry's.
 
+- **`iki/dna.CodonOptimization`** (`OPT-000001`): a design that rewrites a
+  coding region in a host's own codons, keeping the protein exactly
+  ([ADR 0203](../../docs/adr/0203-a-codon-optimization-is-a-design-and-its-product-is-a-registered-sequence.md)).
+  It names the template and the region of it that codes, which strand, the
+  host whose codon usage is used, how codons are chosen, and the restriction
+  sites and motifs to keep out. It has no identity: the same protein is
+  optimized differently for different hosts and constraints, and which design
+  a lab ordered is the lab's record. `optimize_codons` works it out, registers
+  the product as a `DNASequence` derived from the design, and records how far
+  it moved: the codon adaptation index and GC content before and after, every
+  codon that changed, and any constraint it could not meet.
+  - Its **Codons** tab draws the design codon by codon: a strip with one mark per
+    codon, as tall as the host's relative adaptiveness for the codon now written
+    there and marked apart where the design rewrote it, with the index and GC
+    content before and after and the reference set the index is against; then
+    every codon rewritten, with the host's relative adaptiveness for the codon
+    that went and the one that came, and anything no synonymous codon could
+    avoid, placed. Nothing is told by colour alone: the strip is said in words
+    and everything is in the tables. Until the run has been, the tab names the
+    action that works the design out and offers it where the person viewing it
+    may run it
+    ([ADR 0170](../../docs/adr/0170-a-component-can-offer-its-plugins-actions-on-its-entity.md)).
 - **`iki/dna.Mutagenesis`** (`MUT-000001`): changes stated against a sequence
   and made to it, with the primers that make them
   ([ADR 0204](../../docs/adr/0204-a-mutagenesis-states-its-changes-in-hgvs-and-registers-the-mutant-and-its-primers.md)).
@@ -82,6 +109,18 @@ and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as mad
 
 - **`compute_composition`**: a DNA sequence's length and GC content, for
   many at once.
+- **`optimize_codons`**: rewrites a `CodonOptimization`'s coding region in its
+  host's codons and registers the result. The codons are chosen from the host's
+  codon usage (`highest_usage`, `usage_matched` or `harmonized`) and then
+  repaired until nothing breaks a constraint: no codon the host hardly uses, GC
+  content within a band overall and in a window, no long run of one base, no
+  repeat, no hairpin, none of the named restriction sites or motifs, and none of
+  the host's own motifs that would be read inside a gene. The run translates the
+  template and the product and registers nothing if the two proteins differ;
+  where a stretch has no synonymous choice that meets every constraint, the
+  design is registered with each one placed and named. The nine hosts' codon
+  usage tables are in `data/`, counted from RefSeq assemblies
+  ([`data/README.md`](data/README.md) says from which).
 - **`apply_mutagenesis`**: makes a `Mutagenesis`'s changes and designs the
   primers that make them. Each change is HGVS's name for it on a genomic
   reference -- `g.1234C>T`, `g.1240_1242del`, `g.1250_1251insGGATCC`,
@@ -407,7 +446,8 @@ Its environment's packages are pinned, with their hashes, in
 `requirements.txt`, compiled from `requirements.in` as it says. Pin the same
 releases in the repository's dev dependencies, where
 `server/tests/test_dna_reads.py` runs `align_reads`,
-`server/tests/test_dna_alignment.py` `align_pair` and `align_multiple`, and
+`server/tests/test_dna_alignment.py` `align_pair` and `align_multiple`,
+`server/tests/test_dna_codon_optimization.py` `optimize_codons`, and
 `server/tests/test_consensus.py` `consensus` (whose script the protein plugin
 ships too, the same file, as that test checks): `make check-deps` checks they
 match, and that each is at least 3 days old.

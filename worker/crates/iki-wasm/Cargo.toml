@@ -15,6 +15,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+aho-corasick.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # Apps' expressions (ADR 0090) and rules (step 58): Google's Common Expression Language,
