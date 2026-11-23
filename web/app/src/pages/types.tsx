@@ -3,13 +3,16 @@
  * each type's fields, units and rules.
  */
 
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
 import { stateLabel, typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
+import { problemOf } from "../api";
+import { typeFlowQuery } from "../flow";
+import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
-import { Badge, PageHeader } from "../ui";
+import { Badge, PageHeader, ProblemAlert } from "../ui";
 
 /** Where a field of a type with an identity is kept (ADR 0115). */
 const KEPT: Record<"identity" | "derived" | "fact" | "record", { badge: string; help: string }> = {
@@ -223,6 +226,7 @@ export function TypeDetail() {
           </p>
         ) : null}
       </section>
+      <TypeFlows name={type.name} />
       <section aria-labelledby="fields-title">
         <h2 className="section-title" id="fields-title">
           Fields
@@ -283,6 +287,43 @@ export function TypeDetail() {
         <TypeNotifications notifications={type.notifications} type={type} types={types} />
       ) : null}
     </>
+  );
+}
+
+/** How its records move between the states of each state field (ADR 0199): a diagram,
+ * and the same in words, with what its guards say. */
+function TypeFlows({ name }: { name: string }) {
+  // Fetched beside the type, not before it: the rest of its page doesn't wait for it, and
+  // isn't lost if it can't be read.
+  const { data: flow, error } = useQuery(typeFlowQuery(name));
+  const roles = useRoleLabels();
+  if (error) {
+    return (
+      <section aria-labelledby="flow-title">
+        <h2 className="section-title" id="flow-title">
+          How records move
+        </h2>
+        <ProblemAlert problem={problemOf(error)} />
+      </section>
+    );
+  }
+  if (!flow?.fields.length) return null;
+  return (
+    <section aria-labelledby="flow-title">
+      <h2 className="section-title" id="flow-title">
+        How records move
+      </h2>
+      <p className="muted">
+        Each state field’s states, who moves a record into each and what they sign, and where an
+        edit returns it. Choose a state to follow its arrows.
+      </p>
+      {flow.fields.map((field) => (
+        <div className="card flow-card" key={field.name}>
+          <h3 className="flow-card-title">{field.label}</h3>
+          <FlowDiagram flow={field} roles={roles} />
+        </div>
+      ))}
+    </section>
   );
 }
 

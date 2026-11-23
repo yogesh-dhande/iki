@@ -1,5 +1,6 @@
 """`iki plugin test` (ADR 0093), with a stand-in for iki-worker that answers as a test says."""
 
+import hashlib
 import json
 import shutil
 import sys
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from iki_cli import workers
 from iki_cli.main import main
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
@@ -23,6 +25,11 @@ with open(os.environ["FAKE_SEEN"], "a") as seen:
 answers = json.load(open(os.environ["FAKE_ANSWERS"]))
 key = next(iter(given["inputs"].get("protein") or [{}]), {}).get("values", {}).get("sequence")
 answer = answers[key or given["params"].get("accession") or given["run"]["action"]]
+if "annotation_digest" in answer:
+    import hashlib
+    directory = sys.argv[sys.argv.index("--plugin") + 1]
+    with open(os.path.join(directory, "data", "dna-annotation.wasm"), "rb") as module:
+        assert hashlib.sha256(module.read()).hexdigest() == answer["annotation_digest"]
 sys.stderr.write(answer.get("log", ""))
 if "creates_file" in answer:
     # As iki-worker run --local describes a file the command wrote: in its own directory,
@@ -99,6 +106,124 @@ expect:
 
 def run(plugin: Path, *args: str) -> int:
     return main(["plugin", "test", str(plugin), "--with", str(PLUGINS / "dna"), *args])
+
+
+@pytest.fixture
+def first_party(tmp_path: Path) -> Path:
+    for marker in ("scripts/first_party_trees.py", "spec/src/iki_spec/first_party_trees.json"):
+        path = tmp_path / marker
+        path.parent.mkdir(parents=True)
+        path.touch()
+    return tmp_path / "plugins"
+
+
+def manifest(path: Path, name: str, *dependencies: str) -> Path:
+    path.mkdir(parents=True)
+    (path / "plugin.yaml").write_text(
+        json.dumps(
+            {
+                "apiVersion": "iki/v1",
+                "kind": "Plugin",
+                "name": name,
+                "version": "1.0.0",
+                "dependencies": {dependency: {} for dependency in dependencies},
+            }
+        )
+    )
+    return path
+
+
+def test_first_party_test_from_plugin_directory_finds_transitive_dependencies(
+    first_party: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest(first_party / "dna", "iki/dna")
+    manifest(first_party / "protein", "iki/protein", "iki/dna")
+    plugin = manifest(first_party / "lots", "iki/lots", "iki/protein")
+    monkeypatch.chdir(plugin)
+    assert main(["plugin", "test"]) == 0
+    assert "iki/lots has no action tests" in capsys.readouterr().out
+
+
+def test_first_party_test_keeps_explicit_overrides_and_fixture_only_dependencies(
+    first_party: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest(first_party / "dna", "iki/dna")
+    manifest(first_party / "protein", "iki/protein", "legacy/missing")
+    plugin = manifest(first_party / "lots", "iki/lots", "iki/protein")
+    pinned = manifest(tmp_path / "pinned", "iki/protein", "iki/dna")
+    fixture_plugin = manifest(tmp_path / "fixture", "lab/fixture", "lab/standards")
+    standards = manifest(tmp_path / "standards", "lab/standards")
+
+    run_test = ["plugin", "test", str(plugin), "--with", str(pinned), "--with", str(fixture_plugin)]
+    assert main(run_test) == 1
+    assert "lab/fixture needs the lab/standards plugin" in capsys.readouterr().err
+    assert main([*run_test, "--with", str(standards)]) == 0
+    assert "iki/lots has no action tests" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("in_checkout", [True, False])
+def test_third_party_and_off_tree_plugins_keep_explicit_dependencies(
+    first_party: Path, tmp_path: Path, in_checkout: bool, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugins = first_party if in_checkout else tmp_path / "other" / "plugins"
+    base = manifest(plugins / "dna", "iki/dna")
+    name = "lab/assays" if in_checkout else "iki/lots"
+    plugin = manifest(plugins / "lots", name, "iki/dna")
+    args = ["plugin", "test", str(plugin)]
+    assert main(args) == 1
+    assert "give it with --with" in capsys.readouterr().err
+    assert main([*args, "--with", str(base)]) == 0
+
+
+def test_first_party_dependency_cycle_is_a_cli_error(
+    first_party: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    plugin = manifest(first_party / "protein", "iki/protein", "iki/dna")
+    manifest(first_party / "dna", "iki/dna", "iki/protein")
+    assert main(["plugin", "test", str(plugin)]) == 1
+    assert "cycle" in capsys.readouterr().err.lower()
+
+
+def test_only_selected_annotation_tests_need_the_installed_module(
+    plugin: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = manifest(plugin.parent / "plasmid", "iki/plasmid")
+    for folder in ("actions", "environments", "data", "tests"):
+        (source / folder).mkdir()
+    (source / "requirements.txt").touch()
+    shutil.copyfile(
+        PLUGINS / "protein" / "environments" / "protein-tools.yaml",
+        source / "environments" / "protein-tools.yaml",
+    )
+    for action in ("annotate_dna_sequence", "register_plasmid"):
+        (source / "actions" / f"{action}.yaml").write_text(
+            f"apiVersion: iki/v1\nkind: Action\nname: {action}\n"
+            "runs_on: { tier: backend, environment: protein-tools }\ncommand: [echo, ok]\n"
+            "artifacts: { keep: [report.txt] }\n"
+        )
+        (source / "tests" / f"{action}.yaml").write_text(
+            f"apiVersion: iki/v1\nkind: ActionTest\nname: {action}\naction: {action}\n"
+            "expect:\n  output: { kind: RunOutput }\n"
+        )
+    installed = plugin.parent / "iki-spec"
+    installed.mkdir()
+    module = installed / "dna-annotation.wasm"
+    module.write_bytes(b"\0asm\x01\0\0\0")
+    (installed / "rust-standard-library.html").write_text("Rust standard library")
+    digest = hashlib.sha256(module.read_bytes()).hexdigest()
+    (source / "data" / "dna-annotation.sha256").write_text(digest + "\n")
+    monkeypatch.setattr(workers, "files", lambda _package: installed)
+    answers: dict[str, dict[str, object]] = {
+        "iki/plasmid.annotate_dna_sequence": {"output": OUTPUT, "annotation_digest": digest},
+        "iki/plasmid.register_plasmid": {"output": OUTPUT},
+    }
+    answer(source, **answers)
+
+    command = ["plugin", "test", str(source), "-k"]
+    assert main([*command, "annotate_dna_sequence"]) == 0
+    assert not (source / "data" / module.name).exists()
+    module.unlink()
+    assert main([*command, "register_plasmid"]) == 0
 
 
 def test_each_test_passes_or_says_why(plugin: Path, capsys: pytest.CaptureFixture[str]) -> None:

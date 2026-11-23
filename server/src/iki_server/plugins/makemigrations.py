@@ -113,6 +113,7 @@ def _uses_trigrams(op: Any) -> bool:  # noqa: ANN401 - a Django operation
 
 
 def _autodetector() -> type:
+    from django.apps import apps
     from django.core.management.base import CommandError
     from django.db import migrations
     from django.db.migrations.autodetector import MigrationAutodetector
@@ -121,6 +122,7 @@ def _autodetector() -> type:
 
     from iki_server.entities.fields import StateField
     from iki_server.plugins.operations import (
+        AddPluginField,
         AppendOnly,
         ConvertUnit,
         RecordRename,
@@ -251,6 +253,12 @@ def _autodetector() -> type:
                 ):
                     retiring += [self._retire(app_label, op), op]
                     continue
+                if isinstance(op, migrations.AddField):
+                    model = apps.get_model(app_label, op.model_name)
+                    if hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_EXTENDS"):
+                        # Live plugin columns can acquire a field or rule guard even in a
+                        # later manifest with no migration (ADR 0127).
+                        op = AddPluginField(op.model_name, op.name, op.field, op.preserve_default)
                 out.append(op)
                 if isinstance(op, migrations.RemoveField) and _is_history(op.model_name):
                     owner = self._describe(app_label, op.model_name, self.from_state)

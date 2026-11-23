@@ -1,0 +1,180 @@
+{
+  "recorded_by": "server/tests/data/record_mutagenesis.py",
+  "plasmid": {
+    "template": "pUC19 (L09137.2), 2,686 bp, circular",
+    "values": {
+      "name": "pUC19 recut",
+      "product_length": 2686,
+      "changes_made": [
+        {
+          "stated": "o.401C>T",
+          "name": "o.401C>T",
+          "kind": "substitution",
+          "start": 401,
+          "end": 401,
+          "difference": 0
+        },
+        {
+          "stated": "o.1000_1005del",
+          "name": "o.1000_1005del",
+          "kind": "deletion",
+          "start": 1000,
+          "end": 1005,
+          "difference": -6
+        },
+        {
+          "stated": "o.1500_1501insGGATCC",
+          "name": "o.1501_1502insGATCCG",
+          "kind": "insertion",
+          "start": 1501,
+          "end": 1500,
+          "difference": 6
+        }
+      ],
+      "primers": [
+        {
+          "change": "o.401C>T",
+          "role": "forward",
+          "bases": "GACGGCCAGTGAATTTGAGCTCGGTACCCGG",
+          "direction": "forward",
+          "length": 31,
+          "matched": 30,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 81.6
+            }
+          ]
+        },
+        {
+          "change": "o.401C>T",
+          "role": "reverse",
+          "bases": "CCGGGTACCGAGCTCAAATTCACTGGCCGTC",
+          "direction": "reverse",
+          "length": 31,
+          "matched": 30,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 81.6
+            }
+          ]
+        },
+        {
+          "change": "o.1000_1005del",
+          "role": "forward",
+          "bases": "CGCTCTCCTGTTCCGCCGCTTACCGGATAC",
+          "direction": "forward",
+          "length": 30,
+          "matched": 30,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 85.0
+            }
+          ]
+        },
+        {
+          "change": "o.1000_1005del",
+          "role": "reverse",
+          "bases": "GTATCCGGTAAGCGGCGGAACAGGAGAGCG",
+          "direction": "reverse",
+          "length": 30,
+          "matched": 30,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 85.0
+            }
+          ]
+        },
+        {
+          "change": "o.1500_1501insGGATCC",
+          "role": "forward",
+          "bases": "CTGACGCTCAGTGGAACGGATCCGAAAACTCACGTTAAGG",
+          "direction": "forward",
+          "length": 40,
+          "matched": 34,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 83.2
+            }
+          ]
+        },
+        {
+          "change": "o.1500_1501insGGATCC",
+          "role": "reverse",
+          "bases": "CCTTAACGTGAGTTTTCGGATCCGTTCCACTGAGCGTCAG",
+          "direction": "reverse",
+          "length": 40,
+          "matched": 34,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 83.2
+            }
+          ]
+        }
+      ],
+      "protein_changes": [],
+      "primers_designed": 6,
+      "designed_with": "overlapping primers (the QuikChange design: Braman, Papworth and Greener, Methods Mol Biol 57:31, 1996); 25-45 bases; the change at least 10 bases from either end; at least 40% GC; at least 78 \u00b0C by the kit manual's formula; each ending in G or C"
+    }
+  },
+  "gene": {
+    "template": "HBB (NM_000518.5), 444 bp, linear",
+    "values": {
+      "name": "HBB sickle",
+      "product_length": 444,
+      "changes_made": [
+        {
+          "stated": "g.20A>T",
+          "name": "g.20A>T",
+          "kind": "substitution",
+          "start": 20,
+          "end": 20,
+          "difference": 0
+        }
+      ],
+      "primers": [
+        {
+          "change": "g.20A>T",
+          "role": "forward",
+          "bases": "GCATCTGACTCCTGTGGAGAAGTCTGCCG",
+          "direction": "forward",
+          "length": 29,
+          "matched": 28,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 78.8
+            }
+          ]
+        },
+        {
+          "change": "g.20A>T",
+          "role": "reverse",
+          "bases": "CGGCAGACTTCTCCACAGGAGTCAGATGC",
+          "direction": "reverse",
+          "length": 29,
+          "matched": 28,
+          "measures": [
+            {
+              "what": "QuikChange Tm",
+              "value": 78.8
+            }
+          ]
+        }
+      ],
+      "protein_changes": [
+        {
+          "effect": "missense",
+          "name": "p.Glu7Val"
+        }
+      ],
+      "primers_designed": 2,
+      "designed_with": "overlapping primers (the QuikChange design: Braman, Papworth and Greener, Methods Mol Biol 57:31, 1996); 25-45 bases; the change at least 10 bases from either end; at least 40% GC; at least 78 \u00b0C by the kit manual's formula; each ending in G or C"
+    }
+  }
+}

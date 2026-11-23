@@ -842,6 +842,8 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
+    draws_received: str | None = None
     #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
@@ -1316,7 +1318,7 @@ ENTITY_EVENTS = ("entity.created", "entity.registered", "entity.state_changed", 
 #: it was derived from.
 RELATED_DIRECTIONS = ("downstream", "upstream")
 #: The kinds of edge a trigger's walk may be narrowed to.
-RELATED_EDGES = ("reference", "run", "file", "aliquot", "transfer")
+RELATED_EDGES = ("reference", "run", "file", "aliquot", "transfer", "used")
 
 
 @dataclass(frozen=True)
@@ -1460,6 +1462,8 @@ class Plugin:
     components: dict[str, Component] = field(default_factory=dict)
     #: Its lab roles, by qualified name (``acme/qms.qa``), as declared.
     roles: dict[str, LabRole] = field(default_factory=dict)
+    #: Installed project starter recipes and their versions (ADR 0198).
+    starters: dict[str, str] = field(default_factory=dict)
     #: The outside APIs its actions call, by name (ADR 0130).
     apis: dict[str, OutsideApi] = field(default_factory=dict)
 

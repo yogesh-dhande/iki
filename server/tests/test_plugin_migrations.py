@@ -720,6 +720,54 @@ def write_sample(lab: Path, *changes: tuple[str, str]) -> None:
     (lab / "types" / "sample.yaml").write_text(text)
 
 
+def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, database: str) -> None:
+    unique_field = "  name: { type: string, max_length: 100, indexed: true, unique: true }"
+    initial = SAMPLE.replace("  name: { type: string, max_length: 100 }", unique_field)
+    manifest = lab / "types" / "sample.yaml"
+    manifest.write_text(initial)
+    made("lab", "--no-input", cwd=lab.parent)
+    manifest.write_text(
+        initial
+        + "  alias: { type: string, max_length: 100, indexed: true, unique: true }\n"
+        + "rules:\n  one_alias_per_name:\n    unique: [alias, name]\n"
+        + "    message: This name and alias are already used.\n"
+    )
+    made("lab", "--no-input", "--name", "alias", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    sync(out, database)
+
+    def guards() -> set[str]:
+        return {
+            name
+            for (name,) in query(
+                database,
+                "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
+                "AND (starts_with(tgname, 'iki_unique__') OR starts_with(tgname, 'iki_rule__'))",
+            )
+        }
+
+    expected = {"iki_unique__name", "iki_unique__alias", "iki_rule__one_alias_per_name"}
+    assert guards() == expected
+    # A local trigger belongs to the deployment. Dropping the column must still fail and
+    # leave Iki's guards intact until the deployment removes that dependency.
+    query(
+        database,
+        "CREATE TRIGGER local_alias_guard BEFORE UPDATE OF alias ON acme__lab_sample "
+        "FOR EACH ROW EXECUTE FUNCTION iki_refuse_history_change()",
+    )
+    refused = django(out, database, "-m", "django", "migrate", "acme__lab", "0001")
+    assert refused.returncode != 0 and "local_alias_guard" in refused.stderr
+    assert guards() == expected
+    query(database, "DROP TRIGGER local_alias_guard ON acme__lab_sample")
+    migrate(out, database, "acme__lab", "0001")
+    assert "alias" not in columns(database, "acme__lab_sample")
+    assert guards() == {"iki_unique__name"}
+    migrate(out, database)
+    sync(out, database)
+    assert guards() == expected
+
+
 def test_changes_keep_history(lab: Path, database: str) -> None:
     made("lab", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")

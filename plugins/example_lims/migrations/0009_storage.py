@@ -158,22 +158,22 @@ class Migration(migrations.Migration):
             name='tubes',
             field=django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='box',
             name='barcode',
             field=models.CharField(db_index=True, max_length=64, null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='box',
             name='columns',
             field=models.BigIntegerField(db_default=9),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='box',
             name='contents',
             field=models.CharField(max_length=200, null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='box',
             name='rows',
             field=models.BigIntegerField(db_default=9),
@@ -198,27 +198,27 @@ class Migration(migrations.Migration):
             name='rows',
             field=models.BigIntegerField(null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='tube',
             name='barcode',
             field=models.CharField(db_index=True, max_length=64, null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='tube',
             name='concentration',
             field=iki_server.entities.fields.QuantityField(null=True, unit='mg/mL'),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='tube',
             name='lot',
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_entities.entity'),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='tube',
             name='name',
             field=models.CharField(max_length=40, null=True),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='tube',
             name='prepared_on',
             field=models.DateField(null=True),

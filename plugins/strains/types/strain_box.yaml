@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StrainBox
+label: Strain stock box
+label_plural: Strain stock boxes
+extends: iki/example_lims.Box
+schema_version: 1
+description: A cryobox for glycerol stocks and tubes, kept in the lab's existing rack.
+hrid: { prefix: SBX }
+storage:
+  holds: [GlycerolStock, iki/example_lims.Tube]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+  barcode: barcode
+  label: "{{ contents }}"
+display:
+  title: "{{ name }}"

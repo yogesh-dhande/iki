@@ -13,6 +13,7 @@ import {
   MAX_FRAME_HEIGHT,
   MAX_SELECTED,
   MIN_FRAME_HEIGHT,
+  pinnedRevisionUrl,
   readMessage,
   type PluginComponent,
 } from "./components";
@@ -257,6 +258,44 @@ describe("an action it offers", () => {
     expect(readMessage(RESIDUES, { type: "run", action: ACTION.name })).toBeNull();
     expect(readMessage(OFFERING, { type: "run", action: "iki/protein.delete_all" })).toBeNull();
     expect(readMessage(OFFERING, { type: "run", action: 7 })).toBeNull();
+  });
+});
+
+describe("historical record links", () => {
+  const record = "00000000-0000-7000-8000-00000000e002";
+  const entry = "00000000-0000-7000-8000-00000000e003";
+  const url = `/api/v1/entities/${record}/revisions/4`;
+
+  it("opens the exact stored record revision of a readable reference", () => {
+    const visible = { purged: false };
+    const pin = { record_id: record, record_revision: 4 };
+    const given = { refs: { [record]: visible }, values: { pins: [pin] } };
+    expect(pinnedRevisionUrl(given, record, 4)).toBe(url);
+    expect(pinnedRevisionUrl(given, record, 5)).toBeNull();
+    expect(pinnedRevisionUrl(given, entry, 4)).toBeNull();
+    expect(pinnedRevisionUrl({ ...given, refs: {} }, record, 4)).toBeNull();
+    expect(
+      pinnedRevisionUrl({ ...given, refs: { [record]: { purged: true } } }, record, 4),
+    ).toBeNull();
+    expect(pinnedRevisionUrl(undefined, record, 4)).toBeNull();
+    const registryPin = {
+      values: { pins: [{ ...pin, entry_id: entry, entry_revision: 7 }] },
+      refs: { [entry]: visible },
+    };
+    expect(pinnedRevisionUrl(registryPin, record, 4)).toBe(url);
+    expect(pinnedRevisionUrl(registryPin, entry, 7)).toBe(`/api/v1/entries/${entry}/revisions/7`);
+    expect(pinnedRevisionUrl(registryPin, entry, 4)).toBeNull();
+  });
+
+  it("rejects invalid revision targets without falling back to a current record", () => {
+    const message = { type: "open", entity: record, revision: 4 };
+    expect(readMessage(RESIDUES, message)).toEqual(message);
+    for (const revision of [0, -1, 2.5, Number.MAX_SAFE_INTEGER + 1, "4", null]) {
+      expect(readMessage(RESIDUES, { ...message, revision })).toBeNull();
+    }
+    for (const entity of ["PRT-000001", "/entities/other/", "https://example.org", null]) {
+      expect(readMessage(RESIDUES, { ...message, entity })).toBeNull();
+    }
   });
 });
 
