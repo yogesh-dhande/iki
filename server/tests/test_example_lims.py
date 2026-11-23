@@ -31,6 +31,7 @@ DEPENDENCIES = [
         "oligo",
         "plasmid",
         "conjugate",
+        "polymer",
         "antibody",
         "small_molecule",
     )

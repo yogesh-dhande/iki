@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.2.0
+version: 0.3.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
@@ -18,6 +18,9 @@ dependencies:
   iki/conjugate:
     types:
       Conjugate: ">=1"
+  iki/polymer:
+    types:
+      Polymer: ">=1"
   iki/protein:
     types:
       Protein: ">=3"

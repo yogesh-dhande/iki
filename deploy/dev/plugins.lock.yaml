@@ -15,6 +15,7 @@ plugins:
   - { name: iki/plasmid, local: ../../plugins/plasmid, state: active }
   - { name: iki/complex, local: ../../plugins/complex, state: active }
   - { name: iki/conjugate, local: ../../plugins/conjugate, state: active }
+  - { name: iki/polymer, local: ../../plugins/polymer, state: active }
   - { name: iki/lots, local: ../../plugins/lots, state: active }
   - { name: iki/plate_assays, local: ../../plugins/plate_assays, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
