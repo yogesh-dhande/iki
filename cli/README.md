@@ -1,7 +1,7 @@
 # iki-cli
 
 The `iki` command-line tool for plugin authors and deployments: the
-`iki plugin` commands `validate`, `build`, `makemigrations` and `test`,
+`iki plugin` commands `validate`, `build`, `makemigrations`, `preflight` and `test`,
 `iki bundle verify`, and `iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
 
 ## `iki plugin validate`
@@ -75,6 +75,28 @@ Iki's rules for history (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migr
 | `--no-input`       | Ask nothing: renames aren't detected, and questions Django needs answered fail. |
 | `--merge`          | Merge migrations that branched, such as after two pull requests.                |
 | `--empty`          | Write an empty migration, to fill in by hand (for data changes).                |
+
+## `iki plugin preflight`
+
+Check a built plugin's manifest against the records in a deployment before
+promoting it there. Run as an Org Admin with access to all projects.
+
+```sh
+iki plugin preflight build/plugins/iki_plugin_iki__dna/manifest.json --url https://iki.example.org --json
+```
+
+Sign in through the Python SDK with
+`iki.login("https://iki.example.org", scopes=["admin"])` or set `IKI_URL`
+and `IKI_TOKEN` with an all-project token with the `admin` scope. The CLI
+groups findings by type, with an affected count and up to five example
+HRIDs for each. SQL checks give exact counts. For checks that require
+a sample, the report names the check and gives the number of records
+examined. A partial sample gives a lower bound for that finding. The
+CLI exits with 0 for a clear report, 1 when the deploy requires
+acknowledgement, and 2 for input, connection or access errors. The API
+accepts the same manifest as the JSON body of
+`POST /api/v1/plugins/{namespace}/{name}/preflight`.
+See the [promotion procedure](../deploy/config-template/README.md#how-a-change-reaches-a-deployment).
 
 ## `iki plugin build`
 

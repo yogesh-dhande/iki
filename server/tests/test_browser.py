@@ -792,6 +792,60 @@ NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_plugin_preflight_shows_and_downloads_the_checked_revision(
+    open_as: Any, world: World, color_scheme: str, tmp_path: Path
+) -> None:
+    import json
+
+    from iki_server.entities import services as entities
+    from iki_server.plugins import baseline
+
+    baseline.keep()  # The last successful deploy, before proposing a new manifest.
+    type_name = "acme/dna.DNASequence"
+    made = entities.create(
+        world.users["editor"],
+        type_name,
+        world.project,
+        {"bases": "ATGCCGT", "topology": "circular", "name": "Reference"},
+    )
+    record = Entity.objects.get(pk=made.entity.pk)
+    example = f"{record.hrid} ({record.pk})"
+    manifest = json.loads((ensure_built() / "iki_plugin_acme__dna" / "manifest.json").read_text())
+    manifest["plugin"]["version"] = "2.0.0"
+    manifest["plugin"]["types"][type_name]["fields"]["topology"]["values"] = ["linear"]
+    page: Page = open_as("org_admin", "/admin/plugins/acme/dna/", color_scheme)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.locator('input[type="file"]').set_input_files(
+        {
+            "name": "manifest.json",
+            "mimeType": "application/json",
+            "buffer": json.dumps(manifest).encode(),
+        }
+    )
+    page.get_by_role("button", name="Run preflight").click()
+    page.get_by_text(example, exact=True).first.wait_for()
+    page.get_by_text("Exactly 1 affected record", exact=False).first.wait_for()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    with page.expect_download() as downloading:
+        page.get_by_role("button", name="Download report (JSON)").click()
+    path = tmp_path / "report.json"
+    downloading.value.save_as(path)
+    report = json.loads(path.read_text())
+    assert report["plugin"] == "acme/dna" and report["version"] == "2.0.0"
+    assert report["blocking"]
+    page.get_by_text(report["candidate_revision"], exact=True).wait_for()
+    page.get_by_text(report["configuration_revision"], exact=True).wait_for()
+    affected = next(t for t in report["types"] if t["type"] == type_name)
+    assert affected["checked"] == affected["total"] == 1
+    assert affected["sampled_checks"] == []
+    assert any(
+        f["count"] == 1 and not f["sampled"] and example in f["examples"]
+        for f in affected["findings"]
+    )
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_the_admin_area_has_a_frame_of_its_own(
     open_as: Any, world: World, color_scheme: str, browser_name: str
 ) -> None:

@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-09
+- Refined by: [0181](0181-check-a-proposed-plugin-against-existing-records.md),
+  on reviewing a proposed plugin against the deployment's records.
 
 ## Context
 

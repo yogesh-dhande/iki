@@ -193,6 +193,19 @@ def test_migrations_run_as_a_pre_upgrade_hook_that_never_retries() -> None:
     assert "IKI_DB_ANALYST_ROLE" not in env
 
 
+def test_migrator_receives_only_the_reviewed_preflight_revisions() -> None:
+    revisions = ["a" * 64, "b" * 64]
+    (job,) = by_kind(manifests({"migrate": {"acknowledgePreflight": revisions}}), "Job")
+    (migrate,) = job["spec"]["template"]["spec"]["containers"]
+    assert migrate["args"] == [
+        "migrate_deployment",
+        "--acknowledge-preflight",
+        revisions[0],
+        "--acknowledge-preflight",
+        revisions[1],
+    ]
+
+
 def test_local_plugins_are_refused_unless_allowed() -> None:
     for _, spec in pod_specs(manifests()):
         for container in [*spec.get("initContainers", []), *spec["containers"]]:

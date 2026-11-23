@@ -7,7 +7,8 @@
 - Refined by:
   [0169](0169-an-action-names-the-settings-it-cant-run-without.md),
   on the settings an action can't run without, which a deployment may leave
-  unset
+  unset, and [0181](0181-check-a-proposed-plugin-against-existing-records.md),
+  on checking a proposed build against the target deployment.
 
 ## Context
 
