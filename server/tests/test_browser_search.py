@@ -107,6 +107,45 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     assert_clean(page)
 
 
+@pytest.mark.parametrize("focus_link", [False, True], ids=["disclosure", "child-link"])
+def test_open_sidebar_section_keeps_focus_when_saved_views_arrive(
+    open_as: Any, world: World, focus_link: bool
+) -> None:
+    saved = SavedSearch.objects.create(
+        project=world.project, name="My recent work", query={}, created_by=world.users["admin"]
+    )
+    page = open_as("admin", "/projects/")
+    nav = page.get_by_role("navigation", name="Main")
+    saved_link = nav.get_by_role("link", name=saved.name)
+    saved_link.wait_for()
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    section = nav.get_by_role("button", name="Entities")
+    section.focus()
+    page.keyboard.press("Enter")
+    expect(section).to_have_attribute("aria-expanded", "true")
+    child = nav.get_by_role("link", name="All entities")
+    expect(child).to_be_visible()
+    chevron = section.locator("svg:last-child path")
+    original_chevron = chevron.evaluate_handle("path => path")
+    focused = child if focus_link else section
+    focused.focus()
+    expect(focused).to_be_focused()
+
+    assert len(deferred) == 1
+    deferred[0].continue_()
+    expect(saved_link).to_be_visible()
+    expect(section).to_have_attribute("aria-expanded", "true")
+    expect(child).to_be_visible()
+    expect(focused).to_be_focused()
+    assert chevron.evaluate("(path, original) => path === original", original_chevron)
+    assert_clean(page)
+
+
 def test_escape_restores_the_sidebar_link_after_its_saved_views_arrive(
     open_as: Any, world: World
 ) -> None:
