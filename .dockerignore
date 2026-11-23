@@ -28,6 +28,8 @@
 !pnpm-workspace.yaml
 !tsconfig.base.json
 !scripts/build-dna-annotation-wasm.sh
+!scripts/verify-server-wasm.sh
+!plugins/plasmid/data/dna-annotation.wasm.sha256
 !web/
 **/node_modules/
 web/**/dist/

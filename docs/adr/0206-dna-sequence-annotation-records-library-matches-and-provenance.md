@@ -45,7 +45,10 @@ downloadable worker archives and worker images.
 `scripts/build-dna-annotation-wasm.sh` builds the module and notice into
 `spec/src/iki_spec`. It uses the Linux x86-64 Rust toolchain for reproducible builds.
 On other hosts it runs the server's pinned Rust image. Its `--check` flag rebuilds
-the module and verifies it against `plugins/plasmid/data/dna-annotation.sha256`.
+the module and verifies it against `plugins/plasmid/data/dna-annotation.wasm.sha256`.
+Published server images for both architectures use the same Linux AMD64 Wasm
+artifact. The image build checks both this module and `iki_wasm.wasm` against
+their source-controlled pins before it packages them.
 The module and library can support a future `@ikisci/science` entry point after the
 shared package lands.
 

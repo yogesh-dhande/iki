@@ -96,9 +96,10 @@ anything changes:
   registered where this deployment may register files from;
 - what the entities' current values refer to outside the bundle is here
   already;
-- HRIDs this deployment has already used are renumbered from its own
-  sequences. The entity keeps its source HRID, and its page says "SMP-12 on
-  staging". Files made there that name it by that HRID, such as an
+- the plan says which records keep their source HRID and which need a new
+  one. A replacement number is drawn from this deployment's sequence when
+  the import writes the record. The entity keeps its source HRID, and its
+  page says "SMP-12 on staging". Files made there that name it by that HRID, such as an
   alignment's rows, still find it: references to it list it as `formerly`.
   An app whose viewer names it by HRID gets a revision of the import's own
   that names it by its new one; the app's own revisions stay as they were.
@@ -108,18 +109,25 @@ file store, with `POST /projects/{id}/imports` and the import's own
 `parts` and `complete`. A task then reads it and writes the plan:
 `GET /imports/{id}` gives where it's from, its counts, types, files and
 what it refers to outside it, and the problems that keep it from being
-applied. `/imports/{id}/entities` and `/people` list each one's fate. An
+applied. `/imports/{id}/entities` and `/people` list each one's fate. Pass
+the plan's `planned_at` on each page to read the decisions from that plan.
+If it has been replaced, fetch the current plan and read its pages again. An
 untrusted or broken bundle is refused, with why. An import that isn't
 applied can be discarded, and its archive is deleted. Planning, refusals
 and discards are in the audit log (`bundle.import_planned`,
 `bundle.import_refused`, `bundle.import_discarded`).
 
-The admin confirms with a reason (`POST /imports/{id}/apply`), and a task
-applies the whole import in one transaction, or nothing of it, as bulk
-imports are (ADR 0056). It holds the types' identity locks and plans again
-first: if what it would do changed since the admin saw the plan, nothing is
-imported, and the new plan is shown to confirm. Imported entities keep
-their IDs, and revisions keep their authors, times, means and reasons.
+The admin sends `reason` and the reviewed plan's `planned_at` to
+`POST /imports/{id}/apply`. Iki accepts confirmation only for that version.
+A task holds the types' identity locks, plans again and applies the whole
+import in one transaction (ADR 0056). If a decision changes, even if the
+counts stay the same, the task saves a new plan and imports nothing. For
+example, a different entity might now need a new HRID, or a source author
+might now match a different person. The admin reviews the new plan and
+confirms it with its own `planned_at`.
+
+Imported entities keep their IDs, and revisions keep their authors, times,
+means and reasons.
 Files' bytes are stored once by SHA-256. HRIDs kept from the source move
 this deployment's sequences past them. Webhooks get one `bundle.imported`
 event with counts, in place of `entity.created` for each. The import is a
