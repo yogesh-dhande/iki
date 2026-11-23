@@ -1,0 +1,124 @@
+# Run with `iki plugin test plugins/plasmid` (ADR 0093).
+# Sequence and reference feature coordinates are from GenBank OL989372.1.
+# https://www.ncbi.nlm.nih.gov/nuccore/OL989372.1
+apiVersion: iki/v1
+kind: ActionTest
+name: annotate_a_vector_fragment
+description: >-
+  The T7 promoter and lac operator interval of pET-28a-ZaTdT12 (OL989372.1
+  bases 4979–5031) is annotated from lowercase bases, alongside an existing annotation.
+action: annotate_dna_sequence
+inputs:
+  sequence:
+    - values:
+        bases: gaaattaatacgactcactataggggaattgtgagcggataacaattcccctc
+        topology: linear
+        strandedness: double
+        features:
+          - { type: misc_feature, name: Recorded fragment, start: 1, end: 53 }
+expect:
+  output:
+    updates:
+      sequence:
+        - values:
+            library_annotated_with: Routine cloning-vector features 1.0
+            library_features:
+              - type: promoter
+                name: T7 promoter
+                start: 6
+                end: 24
+                strand: forward
+                qualifiers:
+                  source: INSDC OL989372.1 4984..5002 (Cloning vector pET-28a-ZaTdT12)
+              - { type: protein_bind, name: lac operator, start: 25, end: 49, strand: forward }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: annotate_the_reverse_strand_of_duplex_dna
+description: The OL989372.1 fragment (bases 4979–5031) registered as its reverse complement.
+action: annotate_dna_sequence
+inputs:
+  sequence:
+    - values:
+        bases: GAGGGGAATTGTTATCCGCTCACAATTCCCCTATAGTGAGTCGTATTAATTTC
+        topology: linear
+        strandedness: double
+expect:
+  output:
+    updates:
+      sequence:
+        - values:
+            library_features:
+              - { type: protein_bind, name: lac operator, start: 5, end: 29, strand: reverse }
+              - { type: promoter, name: T7 promoter, start: 30, end: 48, strand: reverse }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: annotate_only_the_supplied_strand_of_single_stranded_dna
+description: >-
+  The reverse complement of the OL989372.1 fragment registered as single-stranded DNA
+  has no matches. A completed search clears a previously stored library hit.
+action: annotate_dna_sequence
+inputs:
+  sequence:
+    - values:
+        bases: GAGGGGAATTGTTATCCGCTCACAATTCCCCTATAGTGAGTCGTATTAATTTC
+        topology: linear
+        strandedness: single
+        library_features:
+          - type: promoter
+            name: T7 promoter
+            start: 30
+            end: 48
+            strand: reverse
+            qualifiers:
+              source: INSDC OL989372.1 4984..5002 (Cloning vector pET-28a-ZaTdT12)
+expect:
+  output:
+    updates:
+      sequence:
+        - values:
+            library_annotated_with: Routine cloning-vector features 1.0
+            library_features: []
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: annotate_across_the_origin_on_a_circle
+description: >-
+  The OL989372.1 T7 promoter and lac operator region (bases 4984–5027) is
+  rotated to put the first seven promoter bases at the end. The circular form
+  reports the promoter across its origin.
+action: annotate_dna_sequence
+inputs:
+  sequence:
+    - values:
+        bases: ACTCACTATAGGGGAATTGTGAGCGGATAACAATTCCTAATACG
+        topology: circular
+        strandedness: double
+expect:
+  output:
+    updates:
+      sequence:
+        - values:
+            library_features:
+              - { type: protein_bind, name: lac operator, start: 13, end: 37, strand: forward }
+              - { type: promoter, name: T7 promoter, start: 38, end: 12, strand: forward }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: annotate_between_the_ends_of_linear_dna
+description: The same rotated OL989372.1 fragment as a linear sequence has only the lac operator.
+action: annotate_dna_sequence
+inputs:
+  sequence:
+    - values:
+        bases: ACTCACTATAGGGGAATTGTGAGCGGATAACAATTCCTAATACG
+        topology: linear
+        strandedness: double
+expect:
+  output:
+    updates:
+      sequence:
+        - values:
+            library_features:
+              - { type: protein_bind, name: lac operator, start: 13, end: 37, strand: forward }

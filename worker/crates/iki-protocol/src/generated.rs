@@ -20,9 +20,12 @@ pub struct RunInputFile {
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
-    /// For a registered entity, its registry entry ID, which references to this record hold.
+    /// For a registered record, the registry entry it held at the pinned record revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_id: Option<String>,
+    /// When the run pinned a registry entry, the revision of entry_id used for this input's values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_revision: Option<i64>,
     /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
     pub schema_version: i64,
