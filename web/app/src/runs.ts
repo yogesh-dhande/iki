@@ -88,7 +88,7 @@ export function finished(status: RunStatus): boolean {
 /** The actions installed here, for their labels. */
 export const actionsQuery = queryOptions({
   queryKey: ["actions"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/actions")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/actions", { signal })),
   staleTime: 5 * 60_000,
 });
 
@@ -97,8 +97,8 @@ export function actionsTakingQuery(types: string[]) {
   const sorted = [...types].sort();
   return queryOptions({
     queryKey: ["actions", "taking", ...sorted],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/actions", { params: { query: { takes: sorted } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/actions", { params: { query: { takes: sorted } }, signal })),
     staleTime: 5 * 60_000,
   });
 }
@@ -110,18 +110,25 @@ export function actionsTakingQuery(types: string[]) {
 export const MAX_BATCH = 200;
 
 /** Every entity the person can read with one of `hrids`, in `project` if it's given. */
-async function searchHrids(hrids: string[], project?: string): Promise<Schemas["EntityOut"][]> {
+async function searchHrids(
+  hrids: string[],
+  signal: AbortSignal,
+  project?: string,
+): Promise<Schemas["EntityOut"][]> {
   const found: Schemas["EntityOut"][] = [];
   let cursor: string | undefined;
   do {
     const page = unwrap(
-      await searchEntities({
-        where: { field: "hrid", op: "in", value: hrids },
-        ...(project ? { project } : {}),
-        exact_type: false,
-        limit: 100,
-        ...(cursor ? { cursor } : {}),
-      }),
+      await searchEntities(
+        {
+          where: { field: "hrid", op: "in", value: hrids },
+          ...(project ? { project } : {}),
+          exact_type: false,
+          limit: 100,
+          ...(cursor ? { cursor } : {}),
+        },
+        signal,
+      ),
     );
     found.push(...page.items);
     cursor = page.next_cursor ?? undefined;
@@ -133,7 +140,7 @@ async function searchHrids(hrids: string[], project?: string): Promise<Schemas["
 export function entitiesByHridQuery(hrids: string[]) {
   return queryOptions({
     queryKey: ["entities", "by-hrid", ...hrids],
-    queryFn: () => searchHrids(hrids),
+    queryFn: ({ signal }) => searchHrids(hrids, signal),
   });
 }
 
@@ -148,16 +155,16 @@ export function entitiesByHridQuery(hrids: string[]) {
 export function runEntitiesQuery(hrids: string[], projectId: string) {
   return queryOptions({
     queryKey: ["entities", "for-run", projectId, ...hrids],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       // Its own record first, before one another project shares with it.
-      const own = (await searchHrids(hrids, projectId)).sort(
+      const own = (await searchHrids(hrids, signal, projectId)).sort(
         (a, b) =>
           Number(b.owner_project?.id === projectId) - Number(a.owner_project?.id === projectId),
       );
       const here = new Map<string, Schemas["EntityOut"]>();
       for (const e of own) if (!here.has(e.hrid)) here.set(e.hrid, e);
       const rest = hrids.filter((h) => !here.has(h));
-      const elsewhere = rest.length ? await searchHrids(rest) : [];
+      const elsewhere = rest.length ? await searchHrids(rest, signal) : [];
       const holders = new Map<string, number>();
       for (const e of elsewhere) holders.set(e.hrid, (holders.get(e.hrid) ?? 0) + 1);
       const ambiguous = rest.filter((h) => (holders.get(h) ?? 0) > 1);
@@ -202,7 +209,7 @@ export function projectRunsQuery(projectId: string | undefined, status: RunStatu
   return infiniteQueryOptions({
     queryKey: [...RUNS, "list", projectId ?? "all", status ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/runs", {
           params: {
@@ -213,6 +220,7 @@ export function projectRunsQuery(projectId: string | undefined, status: RunStatu
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -222,7 +230,7 @@ export function projectRunsQuery(projectId: string | undefined, status: RunStatu
 /** The workflows installed plugins provide (ADR 0079). */
 export const workflowsQuery = queryOptions({
   queryKey: ["workflows"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/workflows")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/workflows", { signal })),
   staleTime: 5 * 60_000,
 });
 
@@ -230,10 +238,11 @@ export const workflowsQuery = queryOptions({
 export function projectTriggersQuery(projectId: string) {
   return queryOptions({
     queryKey: [...RUNS, "triggers", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/triggers", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ),
   });
@@ -244,7 +253,7 @@ export function triggerFiringsQuery(projectId: string, trigger: string | undefin
   return infiniteQueryOptions({
     queryKey: [...RUNS, "list", "firings", projectId, trigger ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/trigger-firings", {
           params: {
@@ -255,6 +264,7 @@ export function triggerFiringsQuery(projectId: string, trigger: string | undefin
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -266,7 +276,7 @@ export function projectWorkflowRunsQuery(projectId: string, status: WorkflowStat
   return infiniteQueryOptions({
     queryKey: [...RUNS, "list", "workflows", projectId, status ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/workflow-runs", {
           params: {
@@ -277,6 +287,7 @@ export function projectWorkflowRunsQuery(projectId: string, status: WorkflowStat
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -287,7 +298,8 @@ export function projectWorkflowRunsQuery(projectId: string, status: WorkflowStat
 export function runQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "one", ref.toUpperCase()],
-    queryFn: async () => unwrap(await iki.GET("/api/v1/runs/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/runs/{ref}", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -295,8 +307,8 @@ export function runQuery(ref: string) {
 export function batchQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "batch", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/batches/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/batches/{ref}", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -304,8 +316,8 @@ export function batchQuery(ref: string) {
 export function workflowRunQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "workflow", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/workflow-runs/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/workflow-runs/{ref}", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -325,7 +337,7 @@ export function batchRunsQuery(ref: string, status?: RunStatus) {
   return infiniteQueryOptions({
     queryKey: [...RUNS, "list", "batch", ref.toUpperCase(), status ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/runs", {
           params: {
@@ -336,6 +348,7 @@ export function batchRunsQuery(ref: string, status?: RunStatus) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -347,10 +360,11 @@ export function moreEffectsQuery(ref: string, after: string) {
   return infiniteQueryOptions({
     queryKey: [...RUNS, "effects", ref.toUpperCase(), after],
     initialPageParam: after,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/runs/{ref}/effects", {
           params: { path: { ref }, query: { limit: 100, cursor: pageParam } },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -360,8 +374,8 @@ export function moreEffectsQuery(ref: string, after: string) {
 export function attemptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "attempts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/runs/{ref}/attempts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/runs/{ref}/attempts", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -371,8 +385,8 @@ export type Artifact = Schemas["RunArtifactOut"];
 export function artifactsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "artifacts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/runs/{ref}/artifacts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/runs/{ref}/artifacts", { params: { path: { ref } }, signal })),
   });
 }
 

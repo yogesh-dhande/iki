@@ -282,24 +282,27 @@ export const savedViewsQuery = (entity: Entity, viewer: ViewerName) => {
   return infiniteQueryOptions({
     queryKey: ["views", entity.id, viewer],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }): Promise<SavedViewsPage> => {
+    queryFn: async ({ pageParam, signal }): Promise<SavedViewsPage> => {
       const views: SavedView[] = [];
       let cursor = pageParam;
       do {
         const found = unwrap(
-          await searchEntities({
-            type: VIEW_TYPE,
-            where: {
-              all: [
-                { field: "targets", op: "has", value: target },
-                { field: "viewers", op: "has", value: viewer },
-              ],
+          await searchEntities(
+            {
+              type: VIEW_TYPE,
+              where: {
+                all: [
+                  { field: "targets", op: "has", value: target },
+                  { field: "viewers", op: "has", value: viewer },
+                ],
+              },
+              sort: { field: "created_at", descending: true },
+              limit: SAVED_VIEWS_PAGE,
+              exact_type: true,
+              ...(cursor ? { cursor } : {}),
             },
-            sort: { field: "created_at", descending: true },
-            limit: SAVED_VIEWS_PAGE,
-            exact_type: true,
-            ...(cursor ? { cursor } : {}),
-          }),
+            signal,
+          ),
         );
         for (const view of found.items) {
           const targets = viewTargets(view);

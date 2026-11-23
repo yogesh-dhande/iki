@@ -294,7 +294,7 @@ function usePreviewLabels(ids: string[]): PreparedLabel[] {
   const first = ids.slice(0, PREVIEWED);
   const found = useQuery({
     queryKey: ["storage", "label-preview", first.join(",")],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.POST("/api/v1/storage/labels", {
           fetch: fetchPageRead,
@@ -307,6 +307,7 @@ function usePreviewLabels(ids: string[]): PreparedLabel[] {
             copies: 1,
             preview: true,
           },
+          signal,
         }),
       ).labels,
   });

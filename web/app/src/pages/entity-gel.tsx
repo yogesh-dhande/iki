@@ -13,7 +13,6 @@ import { createElement, useId, useMemo, useState } from "react";
 import { Button } from "react-aria-components";
 
 import { ENTITIES, recordSearch, searchEntities, type Entity } from "../entities";
-import { pageReadSignal } from "../page-reads";
 import { Loading, SelectField } from "../ui";
 
 const ASSEMBLY = "iki/plasmid.Assembly";
@@ -102,7 +101,7 @@ function PlasmidGels({ project, sequence }: { project: string; sequence: string 
             limit: 25,
             ...(pageParam ? { cursor: pageParam } : {}),
           },
-          pageReadSignal(signal),
+          signal,
         ),
       ),
     getNextPageParam: (page) => page.next_cursor ?? undefined,
