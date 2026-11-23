@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: compute_new_conjugate
+label: Compute a newly registered conjugate's composition
+on: entity.created
+type: Conjugate
+run: compute_composition
