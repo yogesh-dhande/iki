@@ -12,7 +12,7 @@ the signatures it needs, its guards and where a correction returns it
 [0128](0128-guards-say-when-a-state-may-be-set.md),
 [0179](0179-a-corrected-result-goes-back-for-review.md)). Until now, the only complete
 description was the plugin's YAML. A QA lead choosing between the Research and Regulated QC
-review flows (ADR 0198) should be able
+review flows ([ADR 0198](0198-a-project-applies-a-versioned-assay-starter.md)) should be able
 to see each one without reading that YAML. So should an analyst checking what comes next for
 a record.
 
@@ -25,13 +25,10 @@ the same diagram behind a "How it moves" toggle. There, the record's current sta
 
 **The flow comes from one place.** `GET /api/v1/entity-types/{type}/flow` (ADR 0198) answers
 with each state field's states and the transitions its guards allow. Each transition says
-whether it is conditional. The web app reads the flow only through `typeFlowQuery` in
-`web/app/src/flow.ts`. Until that endpoint is on main, the same module works the flow out from
-the type definition the app already has. It reads each guard's CEL the way iki-wasm's
-`rules/flow.rs` does. It knows only the field and the origin and destination states. A guard
-that settles to false rules an origin out. A guard that needs the record keeps the origin and
-marks the transition conditional. Switching to the endpoint changes that query and nothing
-else.
+whether it is conditional: the server reads the guards knowing only the field and the two
+states, so a guard that needs the record, the person or the history keeps the transition and
+marks it conditional. The web app reads the flow only through `typeFlowQuery` in
+`web/app/src/flow.ts`, and never works it out itself.
 
 **The state shows who sets it and what they sign.** In Iki, `set_by` and `signatures` belong
 to the destination state, so every arrow into a state would carry the same label. The diagram
@@ -66,7 +63,10 @@ until the package foundations are merged.
 
 - A flow can't contradict its plugin. The web app's tests draw the real example_lims, lots
   and plate assays types from `flow-fixtures.json`, and a server test checks that file
-  against what the API serves for those plugins.
+  against what the flow endpoint serves for those plugins.
+- A starter's setup screen (ADR 0198) draws each review flow it offers with the same
+  diagram, from its result type's flow, so an Admin choosing between Research and
+  Regulated QC sees what each asks of people.
 - The diagram doesn't mark conditional transitions differently. Almost every move into a
   signed or locking state depends on the record or on who is acting, so a mark would add
   noise. The guards' messages explain those conditions in words.

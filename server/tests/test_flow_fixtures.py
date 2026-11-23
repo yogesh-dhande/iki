@@ -1,9 +1,9 @@
-"""The real plugins' state fields that the web app's flow diagram tests read
-(web/app/src/flow-fixtures.json) are what Iki serves for them.
+"""The real plugins' flows that the web app's flow diagram tests read
+(web/app/src/flow-fixtures.json) are what Iki serves for them (ADR 0198).
 
 The diagram's tests draw example_lims' analysis results, samples and requests, lots and
-plate assays' results, so their states, roles, signatures and guards are the plugins'
-own, not a hand-copied likeness. When a plugin changes them, regenerate the file:
+plate assays' results, so their states, roles, signatures, guards and transitions are the
+plugins' own, not a hand-copied likeness. When a plugin changes them, regenerate the file:
 
     uv run python server/tests/test_flow_fixtures.py
 """
@@ -27,12 +27,12 @@ DRAWN = {
 
 
 def served() -> dict[str, Any]:
-    """Each drawn type's state fields as the API serves them, and its plugins' lab roles'
+    """Each drawn type's flow as the API serves it, and its plugins' lab roles'
     labels, by role."""
     from test_example_lims import DEPENDENCIES as LIMS
     from test_first_party_plugins import FIRST_PARTY, PLUGINS
 
-    from iki_server.api.entities import _state_out
+    from iki_server.api.entities import _flow_field
     from iki_spec.validate import load_plugin
 
     types: list[dict[str, Any]] = []
@@ -52,13 +52,8 @@ def served() -> dict[str, Any]:
                     "type": spec.qualified_name,
                     "label": spec.label,
                     "fields": [
-                        {
-                            "name": field_name,
-                            "label": field.label,
-                            "initial": field.initial,
-                            "states": [_state_out(st) for st in field.states.values()],
-                        }
-                        for field_name, field in spec.fields.items()
+                        _flow_field(field)
+                        for field in spec.fields.values()
                         if field.type == "state" and not field.removed
                     ],
                 }
