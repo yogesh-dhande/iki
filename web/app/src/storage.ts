@@ -3,7 +3,7 @@
  * where a record is, its location history, receipts and reconciliations.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
@@ -17,11 +17,19 @@ export type Step = Schemas["StepOut"];
 export type LocationEvent = Schemas["EventOut"];
 export type Place = Schemas["PlaceOut"];
 export type ScanMatch = Schemas["ScanMatchOut"];
+export type Outcome = "matched" | "missing" | "extra" | "damaged" | "rejected";
+export type ObservationEvent = Schemas["ObservationEventOut"];
+export type User = Schemas["UserOut"];
+
 export type Receipt = Schemas["ReceiptOut"];
 export type ReceiptLine = Schemas["ReceiptLineOut"];
-export type Outcome = "matched" | "missing" | "extra" | "damaged" | "rejected";
-export type Reconciliation = Schemas["ReconciliationOut"];
+export type ReceiptScan = Schemas["ReceiptScanOut"];
+export type ReceiptCheck = Schemas["CheckedReceiptOut"];
+
 export type ReconciliationLine = Schemas["ReconciliationLineOut"];
+export type Reconciliation = Schemas["ReconciliationOut"];
+/** A scan in a count: which event, on which physical line, saw what where, by whom, when. */
+export type CountObservation = Schemas["CountScanEvidenceOut"];
 export type Finding = ReconciliationLine["finding"];
 export type Resolution = "moved" | "removed" | "placed" | "kept";
 export type LabelSize = Schemas["LabelSizeOut"];
@@ -124,11 +132,214 @@ export function reconciliationQuery(id: string) {
 export function receiptQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipt", id],
-    queryFn: async () =>
-      unwrap(
-        await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
-      ),
+    queryFn: async () => readReceipt(id),
   });
+}
+
+export async function readReceipt(id: string): Promise<Receipt> {
+  return unwrap(
+    await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
+  );
+}
+
+// --- Observation history (ADR 0180) -------------------------------------------------------------
+
+/** Whose history: a receipt's, or a count's. */
+export type Observed = "receipts" | "reconciliations";
+
+async function historyPage(
+  parent: Observed,
+  id: string,
+  query: { line_id?: string; cursor?: string; limit?: number },
+) {
+  return parent === "receipts"
+    ? unwrap(
+        await iki.GET("/api/v1/receipts/{receipt_id}/history", {
+          params: { path: { receipt_id: id }, query },
+        }),
+      )
+    : unwrap(
+        await iki.GET("/api/v1/reconciliations/{reconciliation_id}/history", {
+          params: { path: { reconciliation_id: id }, query },
+        }),
+      );
+}
+
+/** Where a parent's history queries are, to read again after a change. */
+export function historyKey(parent: Observed, id: string) {
+  return [...STORAGE, "history", parent, id] as const;
+}
+
+/** Who recorded what, and each correction: newest first, a page at a time; or one line's. */
+export function historyQuery(parent: Observed, id: string, line?: string) {
+  return infiniteQueryOptions({
+    queryKey: [...historyKey(parent, id), line ?? "all"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) =>
+      historyPage(parent, id, {
+        limit: 20,
+        ...(line ? { line_id: line } : {}),
+        ...(pageParam ? { cursor: pageParam } : {}),
+      }),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+/** What changed after the plan revision someone saw: the newest page's later events. */
+export async function changesSince(
+  parent: Observed,
+  id: string,
+  revision: number,
+): Promise<ObservationEvent[]> {
+  const latest = await historyPage(parent, id, { limit: 50 });
+  return latest.items.filter((e) => e.revision > revision);
+}
+
+// --- Recording and correcting observations -------------------------------------------------------
+
+/** A correction's reason: 1–2,000 characters once trimmed. */
+export const REASON_MAX = 2000;
+
+/** What a correction carries: the line version the person reviewed, and why. */
+export interface Correction {
+  line_revision: number;
+  reason: string;
+}
+
+/** A scan: no version, so two people scanning different tubes don't wait on each other. */
+export async function scanReceipt(receipt: string, code: string): Promise<ReceiptScan> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/scan", {
+      params: { path: { receipt_id: receipt } },
+      body: { code },
+    }),
+  );
+}
+
+/**
+ * A line's outcome and condition note. The first is sent as it is; a change to what was
+ * recorded carries the version seen and why. A first one may answer that someone else had
+ * already checked it: theirs stands.
+ */
+export async function checkReceiptLine(
+  receipt: string,
+  line: string,
+  check: Schemas["ReceiptLineIn"],
+): Promise<ReceiptCheck> {
+  return unwrap(
+    await iki.PATCH("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: check,
+    }),
+  );
+}
+
+export async function removeReceiptLine(
+  receipt: string,
+  line: string,
+  correction: Correction,
+): Promise<Receipt> {
+  return unwrap(
+    await iki.DELETE("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: correction,
+    }),
+  );
+}
+
+export async function restoreReceiptLine(
+  receipt: string,
+  line: string,
+  correction: Correction,
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/lines/{line_id}/restore", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: correction,
+    }),
+  );
+}
+
+export async function describeReceipt(
+  receipt: string,
+  handoff: Schemas["ReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.PATCH("/api/v1/receipts/{receipt_id}", {
+      params: { path: { receipt_id: receipt } },
+      body: handoff,
+    }),
+  );
+}
+
+export async function cancelReceipt(
+  receipt: string,
+  cancel: Schemas["CancelReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/cancel", {
+      params: { path: { receipt_id: receipt } },
+      body: cancel,
+    }),
+  );
+}
+
+export async function completeReceipt(
+  receipt: string,
+  approval: Schemas["CompleteReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/complete", {
+      params: { path: { receipt_id: receipt } },
+      body: approval,
+    }),
+  );
+}
+
+export type Reviewed = Schemas["ReviewedCountLine"];
+
+/** The lines a refused count change names: the ones to review, at their versions now. */
+export function affectedLines(problem: Problem | undefined): Reviewed[] | null {
+  const lines = (problem as (Problem & { affected_lines?: unknown }) | undefined)?.affected_lines;
+  return Array.isArray(lines) ? (lines as Reviewed[]) : null;
+}
+
+/**
+ * A count's scans. A fresh observation is sent as it is; one that replaces what's recorded
+ * names each line it supersedes, at the version seen, and, if it changes it, why.
+ */
+export async function scanCount(count: string, scans: Schemas["ScansIn"]): Promise<Reconciliation> {
+  return unwrap(
+    await iki.POST("/api/v1/reconciliations/{reconciliation_id}/scans", {
+      params: { path: { reconciliation_id: count } },
+      body: scans,
+    }),
+  );
+}
+
+export async function resolveCountLine(
+  count: string,
+  line: string,
+  decision: Schemas["ResolveIn"],
+): Promise<Reconciliation> {
+  return unwrap(
+    await iki.PATCH("/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}", {
+      params: { path: { reconciliation_id: count, line_id: line } },
+      body: decision,
+    }),
+  );
+}
+
+export async function cancelCount(
+  count: string,
+  cancel: Schemas["CancelReconciliationIn"],
+): Promise<Reconciliation> {
+  return unwrap(
+    await iki.POST("/api/v1/reconciliations/{reconciliation_id}/cancel", {
+      params: { path: { reconciliation_id: count } },
+      body: cancel,
+    }),
+  );
 }
 
 /** The records a scanned code names, among those its reader can read. */

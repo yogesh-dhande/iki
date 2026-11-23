@@ -2,7 +2,10 @@
 """Storage (ADR 0180) in real browsers: from a freezer to a box's map and round it by
 keyboard; a bulk move; a keyboard-mode scanner's code found wherever focus is; receiving a
 request's tubes with one of each outcome; labels' print preview and ZPL; and reconciling a
-box by scan. Each passes axe in both themes and fits a phone and a tablet either way up."""
+box by scan. Correcting what someone recorded at either asks why, keeps both in the history,
+and shows what changed when someone else changed it first; first observations stay one step,
+and two people scanning one receipt are both recorded. Each passes axe in both themes and fits
+a phone and a tablet either way up."""
 
 import re
 from itertools import pairwise
@@ -10,7 +13,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, Request, expect
+from playwright.sync_api import APIResponse, Page, Request, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -31,8 +34,16 @@ from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
+from iki_server.storage import receipts
 from iki_server.storage import services as storage
-from iki_server.storage.models import Event, Place, Receipt, ReceiptStatus, Reconciliation
+from iki_server.storage.models import (
+    Event,
+    ObservationEvent,
+    Place,
+    Receipt,
+    ReceiptStatus,
+    Reconciliation,
+)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -230,7 +241,25 @@ def sent_to_a_core(world: World, n: int | tuple[str, ...]) -> dict[str, Any]:
     )
     requests.submit(editor, Entity.objects.get(pk=ask["id"]), core, expected_revision=1)
     incoming = ref(entities.create(tech, BOX, core, {"name": "Incoming", "rows": 2, "columns": 2}))
-    return {"ask": ask, "tubes": tubes, "incoming": incoming}
+    return {"ask": ask, "tubes": tubes, "incoming": incoming, "core": core}
+
+
+def another_receiver(world: World, core: Project, principal: str, name: str) -> User:
+    """A second analyst at the core's bench."""
+    user = User.objects.create_user(f"{principal}@example.com", name)
+    world.users[principal] = user
+    grant = ProjectMembership.objects.create(project=core, user=user, role=ProjectRole.EDITOR)
+    LabRoleGrant.objects.create(membership=grant, role=ANALYST)
+    permissions.forget(user)
+    return user
+
+
+def why(page: Page, reason: str, confirm: str) -> None:
+    """Says why in the dialog that asks, and confirms it."""
+    dialog = page.get_by_role("dialog")
+    dialog.get_by_role("textbox", name=re.compile("^Why are you")).fill(reason)
+    dialog.get_by_role("button", name=confirm).click()
+    expect(dialog).to_have_count(0)
 
 
 def outcome(page: Page, code: str, name: str) -> None:
@@ -353,6 +382,11 @@ def test_receiving_a_requests_tubes_with_one_of_each_outcome(
     extra = checklist.get_by_role("listitem").filter(has_text="UNLABELLED-7")
     extra.get_by_role("textbox", name=re.compile("^Note on")).fill("No label, no paperwork")
     extra.get_by_role("button", name="Save note").click()
+    # The scan recorded it as extra: its note changes that line, so it's asked why.
+    why(page, "Say what it is", "Save the change")
+    expect(extra.get_by_role("textbox", name=re.compile("^Note on"))).to_have_value(
+        "No label, no paperwork"
+    )
 
     # Damaged and rejected need a note first.
     outcome(page, "RC001", "Damaged")
@@ -520,8 +554,10 @@ def test_rescanning_a_resolved_destination_requires_a_new_decision(
     expect(planned).to_have_text(f"{tube['hrid']} → {box['hrid']}, A3")
     assert where(tube) == (box["hrid"], 1, 2)
 
-    # The previously approved move no longer describes what was found.
+    # The previously approved move no longer describes what was found. The scan replaces
+    # the tube's at A3, so it's asked why.
     page.get_by_role("button", name="A3 is empty").click()
+    why(page, "Rescanned: A3 is empty", "Record the new scan")
     expect(finding).to_contain_text("Missing")
     expect(complete).to_be_disabled()
     expect(planned).to_have_count(0)
@@ -537,6 +573,8 @@ def test_rescanning_a_resolved_destination_requires_a_new_decision(
     choice.select_option(label="Leave the record as it is")
     finding.get_by_role("textbox", name=re.compile("^Note")).fill(reason)
     finding.get_by_role("button", name="Resolve").click()
+    # It replaces the earlier, now stale, decision.
+    why(page, "The move no longer applies", "Save the decision")
     complete.click()
     expect(page.get_by_role("heading", level=2, name="Completed")).to_be_visible()
     reconciliation = Reconciliation.objects.get(container_id=box["id"])
@@ -564,6 +602,9 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
         scan = tab.get_by_role("textbox", name=f"What’s in {slot}")
         scan.fill("REVIEW42")
         scan.press("Enter")
+        # Seen elsewhere before, the tube's scan replaces that one, and asks why.
+        if slot != "A3":
+            why(tab, f"Found it at {slot}", "Record the new scan")
         line = (
             tab.get_by_role("region", name="To resolve")
             .get_by_role("listitem")
@@ -575,6 +616,8 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
             lambda response: response.request.method == "PATCH" and "/lines/" in response.url
         ) as saved:
             line.get_by_role("button", name="Resolve").click()
+            if slot != "A3":
+                why(tab, "It was moved during the count", "Save the decision")
         expect(line.get_by_text(re.compile("^Move it to where it was found:"))).to_be_visible()
         snapshot = saved.value.json()
         assert isinstance(snapshot, dict)
@@ -612,7 +655,8 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
     assert reconciliation.lines.get(entity_id=tube["id"]).resolved_by_id == world.users["editor"].pk
 
     expect(complete).to_be_hidden()
-    expect(approval.get_by_role("alert")).to_contain_text("Review the latest count")
+    expect(approval.get_by_role("alert")).to_contain_text("The count changed while you were")
+    expect(approval).to_contain_text("Review the latest count")
     destinations = approval.get_by_role("list", name="Planned destinations")
     expect(destinations).to_be_hidden()
     review = approval.get_by_role("button", name="Review latest count")
@@ -647,3 +691,243 @@ def test_completing_the_count_requires_the_plan_reviewed_in_this_tab(
     assert audit.get().data["plan_revision"] == latest["plan_revision"]
     second.context.close()
     first.context.close()
+
+
+# --- Correcting what was recorded ------------------------------------------------------------
+
+
+def start_receiving(open_as: Any, sent: dict[str, Any], who: str = "tech", **kw: Any) -> Page:
+    page: Page = open_as(who, f"/storage/receive/{sent['ask']['hrid']}/", **kw)
+    start = page.get_by_role("button", name="Start receiving")
+    checklist = page.get_by_role("list", name="Checklist")
+    start.or_(checklist).first.wait_for()
+    if start.is_visible():
+        start.click()
+    expect(checklist.get_by_role("listitem")).to_have_count(len(sent["tubes"]))
+    return page
+
+
+def scan_in(page: Page, code: str) -> None:
+    scan = page.get_by_role("textbox", name="Scan each tube")
+    scan.fill(code)
+    scan.press("Enter")
+
+
+def receipt_line(page: Page, tube: dict[str, Any]) -> Any:
+    return page.get_by_role("list", name="Checklist").get_by_role(
+        "listitem", name=tube["hrid"], exact=True
+    )
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_correcting_a_receipt_line_asks_why_and_shows_it_in_its_history(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    sent = sent_to_a_core(world, 2)
+    tube = sent["tubes"][0]
+    page = start_receiving(open_as, sent, color_scheme=color_scheme)
+
+    # A scan is one step: matched, and nothing asked.
+    scan_in(page, "RC000")
+    line = receipt_line(page, tube)
+    matched = line.get_by_role("button", name="Matched", exact=True)
+    expect(matched).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_role("status").filter(has_text="matched")).to_be_visible()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+
+    # Changing what was recorded asks why, separately from the condition note.
+    line.get_by_role("button", name="Damaged", exact=True).click()
+    dialog = page.get_by_role("dialog", name=f"Change {tube['hrid']} to damaged?")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("textbox", name=re.compile("^Condition note")).fill("Cap cracked")
+    save = dialog.get_by_role("button", name="Save the change")
+    save.click()
+    expect(dialog.get_by_role("alert")).to_have_text("Say why you’re making this change.")
+    reason = dialog.get_by_role("textbox", name="Why are you changing this?")
+    expect(reason).to_be_focused()
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    assert receipt.lines.get(code="RC000").outcome == "matched"
+    checked(page)
+    reason.fill("Looked again under the lamp")
+    save.click()
+    expect(dialog).to_have_count(0)
+    expect(line.get_by_role("button", name="Damaged", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    saved = receipt.lines.get(code="RC000")
+    assert (saved.outcome, saved.note) == ("damaged", "Cap cracked")
+
+    line.get_by_role("button", name=f"History of {tube['hrid']}").click()
+    history = page.get_by_role("list", name=f"History of {tube['hrid']}, newest first")
+    corrected, recorded = history.get_by_role("listitem").all()
+    expect(corrected).to_contain_text("Outcome changed")
+    expect(corrected).to_contain_text("Matched")
+    expect(corrected).to_contain_text("Damaged · note “Cap cracked”")
+    expect(corrected).to_contain_text("· Tech")
+    expect(corrected).to_contain_text("“Looked again under the lamp”")
+    expect(recorded).to_contain_text("Outcome recorded")
+    events = ObservationEvent.objects.filter(receipt=receipt, line_id=saved.pk).order_by("revision")
+    first, second = events
+    assert (first.actor_id, first.reason, first.before) == (world.users["tech"].pk, "", None)
+    assert (second.actor_id, second.reason) == (
+        world.users["tech"].pk,
+        "Looked again under the lamp",
+    )
+    assert second.previous_id == first.pk
+    checked(page)
+    fits(page)
+    page.context.close()
+
+
+def test_two_people_scanning_different_tubes_on_one_receipt_are_both_recorded(
+    open_as: Any, world: World
+) -> None:
+    sent = sent_to_a_core(world, 2)
+    another_receiver(world, sent["core"], "tech2", "Tech Two")
+    first = start_receiving(open_as, sent)
+    second = start_receiving(open_as, sent, "tech2")
+    held: list[tuple[Route, APIResponse]] = []
+
+    def answer_later(route: Route) -> None:
+        # The server records the first scan now; its answer reaches the page later.
+        held.append((route, route.fetch()))
+
+    first.route("**/api/v1/receipts/*/scan", answer_later)
+    scan_in(first, "RC000")
+    for _ in range(100):
+        if held:
+            break
+        first.wait_for_timeout(50)
+    assert held, "The first scan never reached the server."
+    scan_in(second, "RC001")
+    expect(second.get_by_role("status")).to_contain_text("matched")
+    route, response = held[0]
+    route.fulfill(response=response)
+    first.unroute("**/api/v1/receipts/*/scan")
+    expect(first.get_by_role("status")).to_contain_text("matched")
+
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    lines = {x.code: (x.outcome, x.checked_by_id) for x in receipt.lines.all()}
+    assert lines == {
+        "RC000": ("matched", world.users["tech"].pk),
+        "RC001": ("matched", world.users["tech2"].pk),
+    }
+    # Each page shows both: the later answer never takes the other's back.
+    for page in (first, second):
+        page.reload()
+        for tube in sent["tubes"]:
+            expect(
+                receipt_line(page, tube).get_by_role("button", name="Matched", exact=True)
+            ).to_have_attribute("aria-pressed", "true")
+        expect(page.get_by_role("dialog")).to_have_count(0)
+    second.context.close()
+    first.context.close()
+
+
+def test_a_correction_refused_as_stale_shows_who_changed_it_and_keeps_the_reason(
+    open_as: Any, world: World
+) -> None:
+    sent = sent_to_a_core(world, 1)
+    colleague = another_receiver(world, sent["core"], "tech2", "Tech Two")
+    tube = sent["tubes"][0]
+    page = start_receiving(open_as, sent)
+    scan_in(page, "RC000")
+    line = receipt_line(page, tube)
+    expect(line.get_by_role("button", name="Matched", exact=True)).to_have_attribute(
+        "aria-pressed", "true"
+    )
+    line.get_by_role("button", name="Missing", exact=True).click()
+    dialog = page.get_by_role("dialog")
+    reason = dialog.get_by_role("textbox", name="Why are you changing this?")
+    reason.fill("Not in the box after all")
+
+    # Meanwhile, a colleague records it as damaged.
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    working = receipt.lines.get(code="RC000")
+    receipts.check(
+        colleague,
+        receipt,
+        working.pk,
+        "damaged",
+        "Cap cracked",
+        line_revision=working.line_revision,
+        reason="The cap is cracked",
+    )
+    with page.expect_response("**/lines/*") as refused:
+        dialog.get_by_role("button", name="Save the change").click()
+    assert refused.value.status == 409
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_contain_text(f"{tube['hrid']} changed while you were looking at it")
+    expect(alert).to_contain_text("Outcome changed by Tech Two")
+    expect(alert).to_contain_text("“The cap is cracked”")
+    expect(dialog).to_contain_text("Damaged")
+    expect(reason).to_have_value("Not in the box after all")
+    working.refresh_from_db()
+    assert (working.outcome, working.note) == ("damaged", "Cap cracked")
+    checked(page)
+
+    # Sent again only when the person, having seen it, asks.
+    with page.expect_response("**/lines/*") as accepted:
+        dialog.get_by_role("button", name="Save the change").click()
+    assert accepted.value.status == 200
+    expect(dialog).to_have_count(0)
+    working.refresh_from_db()
+    assert working.outcome == "missing"
+    latest = ObservationEvent.objects.filter(line_id=working.pk).order_by("-revision").first()
+    assert latest is not None
+    assert (latest.actor_id, latest.reason) == (
+        world.users["tech"].pk,
+        "Not in the box after all",
+    )
+    page.context.close()
+
+
+def test_a_count_scan_replacing_an_empty_position_asks_why_and_shows_it_in_the_history(
+    open_as: Any, world: World
+) -> None:
+    box = make(world, BOX, {"name": "Count box", "rows": 1, "columns": 3})
+    tube = make(world, TUBE, {"barcode": "COUNT42"})
+    put(world, (tube, box, "A1"))
+    page = open_as("admin", f"/storage/{box['hrid']}/")
+    page.get_by_role("button", name="Reconcile by scanning").click()
+    expect(page.get_by_role("heading", level=1, name="Reconcile Count box")).to_be_visible()
+
+    # Fresh observations are one step each.
+    scan = page.get_by_role("textbox", name="What’s in A1")
+    scan.fill("COUNT42")
+    scan.press("Enter")
+    page.get_by_role("button", name="A2 is empty").click()
+    expect(page.get_by_role("textbox", name="What’s in A3")).to_be_visible()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+
+    # Seeing a tube where an empty position was recorded replaces that, and asks why.
+    page.get_by_role("gridcell", name=re.compile(r"^A2, ")).click()
+    expect(page.get_by_text(re.compile(r"^Recorded at A2: Empty, scanned by"))).to_be_visible()
+    scan = page.get_by_role("textbox", name="What’s in A2")
+    scan.fill("STRAY-9")
+    scan.press("Enter")
+    dialog = page.get_by_role("dialog", name="Replace what’s recorded at A2?")
+    expect(dialog.get_by_role("listitem")).to_contain_text("A2: Empty")
+    expect(dialog.get_by_role("listitem")).to_contain_text("STRAY-9")
+    dialog.get_by_role("button", name="Record the new scan").click()
+    expect(dialog.get_by_role("alert")).to_have_text("Say why you’re making this change.")
+    checked(page)
+    why(page, "A tube was hidden behind the rack", "Record the new scan")
+    counts = page.get_by_role("list", name="Found so far")
+    expect(counts).to_contain_text("1 Unexpected")
+
+    page.get_by_text("This count’s history").click()
+    history = page.get_by_role("list", name="History of this count, newest first")
+    newest = history.get_by_role("listitem").first
+    expect(newest).to_contain_text("Scan changed")
+    expect(newest).to_contain_text("Empty at A2")
+    expect(newest).to_contain_text("STRAY-9 at A2")
+    expect(newest).to_contain_text("“A tube was hidden behind the rack”")
+    reconciliation = Reconciliation.objects.get(container_id=box["id"])
+    event = ObservationEvent.objects.filter(
+        reconciliation=reconciliation, reason="A tube was hidden behind the rack"
+    ).get()
+    assert event.actor_id == world.users["admin"].pk and event.kind == "scan"
+    checked(page)
+    fits(page)
+    page.context.close()
