@@ -3,7 +3,7 @@
 CI splits the suite into kinds by the setup a test needs, and each kind into shards that
 run as jobs side by side:
 
-- ``browser``: marked ``built_web_app``. They load the built web app in real browsers.
+- ``browser``: marked ``built_web_app`` or ``browser``. They need Playwright browsers.
 - ``worker``: marked ``worker_e2e``. They run iki-worker, which cargo builds.
 - ``plain``: everything else, which needs Python, Postgres, Docker and iki-wasm (which
   every shard builds: saves evaluate plugins' rules with it).
@@ -67,7 +67,7 @@ class Shard:
 def kind_of(markers: Iterable[str]) -> str:
     """The kind of a test with these markers: the setup its shard needs."""
     names = set(markers)
-    if "built_web_app" in names:
+    if names & {"built_web_app", "browser"}:
         return "browser"
     if "worker_e2e" in names:
         return "worker"

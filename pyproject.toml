@@ -250,6 +250,7 @@ testpaths = [
 ]
 xfail_strict = true
 markers = [
+  "browser: needs Playwright browsers for a synthetic page",
   "built_web_app: loads the web app's real build (run `make web` first) instead of a stand-in",
   "allows_drag: opts a deliberate drag out of the click-stability detector",
   "wasm: runs iki-wasm, which scripts/build-wasm.sh builds (as the web app's build does)",

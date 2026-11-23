@@ -100,12 +100,12 @@ def _watch_browser_click_stability(
 
     def watched_context(**options: Any) -> "BrowserContext":
         context = new_context(**options)
-        install(context, records)
+        install(context, records, monkeypatch)
         return context
 
     monkeypatch.setattr(browser, "new_context", watched_context)
     yield
-    finish(request, browser.browser_type.name, records)
+    finish(request.config.rootpath, request.node.nodeid, browser.browser_type.name, records)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
