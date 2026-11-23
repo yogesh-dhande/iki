@@ -79,6 +79,7 @@ def test_a_run_reads_what_its_inputs_references_name_as_of_launch(world: World) 
     ]
     assert chains[1]["values"]["sequence"] == src["values"]["sequence"]
     assert chains[0]["type"] == "acme/protein.Protein"
+    assert chains[0]["entry_id"] == abl["entry"]["id"]
 
 
 def test_an_input_that_includes_nothing_has_no_included(world: World) -> None:
