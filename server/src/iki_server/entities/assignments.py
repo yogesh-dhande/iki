@@ -39,9 +39,9 @@ from functools import cache, partial
 from typing import Any, cast
 
 from django.core import signing
-from django.db import transaction
 from django.db.models import Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Cast
+from django.db.transaction import atomic
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
@@ -883,7 +883,7 @@ def takeable(
     return out
 
 
-@transaction.atomic
+@atomic
 def take(user: User, entity: Entity, name: str, *, expected_revision: int, reason: str = "") -> Any:  # noqa: ANN401 - a Saved
     """Assigns ``user`` the record in assignment field ``name``, theirs to take as
     :func:`takeable` says: a revision, like any edit. Raises :class:`PermissionDenied`
@@ -990,6 +990,8 @@ def reassign(
     is its record's own revision, audited as part of one reassignment, which tells each
     person once. A record that can't change (you can't edit it, its state locks it, the
     field isn't its, the person can't be named in its project) is skipped, with why."""
+    from django.db import transaction
+
     from iki_server.entities import services
     from iki_server.entities.values import Invalid
     from iki_server.org.services import Refused
