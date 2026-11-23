@@ -113,6 +113,10 @@
     "rules": {
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
     },
+    "draws_received": {
+      "description": "An optional computed JSON field on a record, inherited by its subtypes. Iki appends each material draw into the record here, in the ledger transaction, so reviews sign the quantities and source revisions used.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
     "draw_guards": {
       "description": "Conditions on taking an amount, including transfers and splits. Each subtype also keeps its ancestors' guards. CEL reads record, now, today (midnight UTC), operation (draw, transfer, split) and purpose (routine or qa_sampling).",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"

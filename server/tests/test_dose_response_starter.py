@@ -15,7 +15,7 @@ from api_client import Api
 from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
-from first_party_dependencies import FIRST_PARTY, PLUGINS
+from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
@@ -42,7 +42,7 @@ PREFIX = "iki/plate_assays."
 
 def test_both_flows_deliver_a_signed_fit_from_the_starter(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *FIRST_PARTY[PLUGIN], PLUGIN, "--output", build, cwd=PLUGINS)
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
         '{"review_flow":"research"}'

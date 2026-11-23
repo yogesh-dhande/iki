@@ -65,6 +65,7 @@ REACHABLE = {
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
     ("GET", "/entity-types/{name}/flow"),
+    ("GET", "/starters"),
     ("GET", "/actions"),
     ("GET", "/actions/{name}"),
     ("GET", "/workflows"),
@@ -255,6 +256,22 @@ def test_it_neither_sees_nor_saves_a_search_of_every_project() -> None:
     # Given every project, it does both.
     whole = token_for(person, projects=None)
     assert len(bearer(whole, "GET", "/saved-searches", None).json()) == 2
+
+
+def test_a_project_token_can_read_flow_definitions_and_only_its_projects_starter_choice() -> None:
+    world = build_world()
+    person = everything(world)
+    chosen = elsewhere(world, person)
+    token = token_for(person, projects=[chosen])
+
+    # The schema and installed catalog are the same for the deployment. A current
+    # starter choice belongs to one project and requires read access to that project.
+    flow = bearer(token, "GET", "/entity-types/acme/protein.Batch/flow", None)
+    assert flow.status_code == 200
+    assert flow.json()["fields"][0]["initial"] == "in_testing"
+    assert bearer(token, "GET", "/starters", None).status_code == 200
+    assert bearer(token, "GET", f"/starters?project={chosen.pk}", None).status_code == 200
+    problem(bearer(token, "GET", f"/starters?project={world.project.pk}", None), 404, "not_found")
 
 
 def test_its_person_is_told_only_what_their_roles_allow() -> None:
