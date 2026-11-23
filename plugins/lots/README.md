@@ -68,6 +68,38 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   blocked, including QA samples. The date check applies immediately, even
   before QA changes the disposition.
 
+## Verify a plasmid prep
+
+Open the physical `PlasmidPrep` and its **Verification** tab to find the
+results for that prep. `verified_by` records the method. Each
+`iki/lots.PlasmidVerification` preserves an evidence submission and its
+review history, including discrepancies and inconclusive results.
+
+1. Run `record_plasmid_verification` for the prep. Select an existing alignment
+   of its reads, attach an externally reviewed report, or supply both. Record
+   the observed outcome (`match`, `discrepancy` or `inconclusive`) and any
+   notes needed to interpret it, such as incomplete coverage.
+2. Iki checks that the alignment's reference is the DNA sequence registered
+   for the prep's plasmid. It records which project plasmid record and
+   revision the action read, along with the alignment and its revision or
+   the uploaded file. The reference revision is captured when the verification
+   action launches. The alignment retains its original file and the provenance
+   of the comparison that produced it. These evidence references stay pinned
+   through review.
+3. Assign a Verification reviewer in the project. At deployment, the
+   `iki/lots` setting `verification_flow` selects the review path for new
+   verifications. The record keeps the flow selected at creation.
+
+| Setting              | Signed transitions                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `research` (default) | From Recorded, the assigned reviewer signs off the outcome.                                                                           |
+| `regulated_qc`       | A Verification analyst signs submission, an independent assigned reviewer signs review, and an independent Lot QA signer releases it. |
+
+A correction to the outcome, notes or reviewer returns the result to Recorded
+for a new review. Record new evidence as another verification of the same
+prep. A prep can therefore have several reported observations, each with its
+own reference revision, file and decision.
+
 ## Actions
 
 Each kind with something to work out has an action, run on the backend tier

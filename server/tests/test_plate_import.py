@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 import pytest
 from django.db import connection, transaction
 from django.utils import timezone
-from test_first_party_plugins import FIRST_PARTY, PLUGINS, ROOT
+from first_party_dependencies import PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 from iki_server.accounts.models import User
@@ -31,7 +31,7 @@ PLATES = PLUGINS / "plate_assays"
 
 def test_a_plate_commits_only_the_previewed_revision_once(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *FIRST_PARTY[PLATES], PLATES, "--output", build, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(PLATES), "--output", build, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     # The build fixture supplies the site's setting as a deployment build would.
     (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
