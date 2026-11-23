@@ -40,6 +40,9 @@ WORKDIR /src
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY web/app/package.json web/app/
 COPY web/packages/sdk/package.json web/packages/sdk/
+COPY web/packages/component/package.json web/packages/component/
+COPY web/packages/science/package.json web/packages/science/
+COPY web/packages/ui/package.json web/packages/ui/
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile --filter "@ikisci/app..."
 COPY web web

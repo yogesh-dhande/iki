@@ -1,0 +1,37 @@
+{
+  "name": "@ikisci/science",
+  "version": "0.1.0-dev.0",
+  "description": "Scientific components and functions for web applications.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yogesh-dhande/iki.git",
+    "directory": "web/packages/science"
+  },
+  "type": "module",
+  "exports": {
+    "./booking-calendar": {
+      "@ikisci/source": "./src/booking-calendar.ts",
+      "types": "./dist/booking-calendar.d.ts",
+      "default": "./dist/booking-calendar.js"
+    }
+  },
+  "files": [
+    "dist",
+    "stories",
+    "src/booking-calendar.ts",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node ../../../scripts/check-web-package-size.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "ikiSizeBudgets": {
+    "./booking-calendar": 2560
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0"
+  }
+}

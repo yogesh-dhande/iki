@@ -1,0 +1,110 @@
+/* --- Buttons --------------------------------------------------------------- */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: var(--control-height);
+  padding: 0 calc(10rem / 13);
+  font: inherit;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.button-primary {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.button-primary:hover {
+  color: var(--accent-text);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.button-quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.button-block {
+  width: 100%;
+}
+
+/* Unavailable: nothing to save yet, say. Busy: working on it, with a spinner. */
+.button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.button[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.button[aria-busy="true"]::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button[aria-busy="true"]::before {
+    animation: none;
+  }
+}
+
+.button-danger,
+.button-danger:hover {
+  color: var(--error);
+}
+
+.button-icon {
+  min-width: calc(44rem / 13);
+  padding: calc(8.8rem / 13);
+}
+
+.button-icon svg {
+  width: calc(17.6rem / 13);
+  height: calc(17.6rem / 13);
+  fill: currentColor;
+}
+
+.button[aria-pressed="true"] {
+  color: var(--accent-text);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.button[aria-pressed="true"]:hover {
+  color: var(--accent-text);
+  background: var(--accent-hover);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

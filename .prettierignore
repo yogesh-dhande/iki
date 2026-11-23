@@ -37,3 +37,5 @@ plugins/small_molecule/components/depiction.js
 spec/src/iki_spec/first_party_trees.json
 # Built by plugins/oligo/data/build_monomers.py.
 plugins/oligo/data/monomers.json
+# Single-file component frame produced by pnpm bundle:plugins.
+plugins/example_lims/components/booking-calendar.js

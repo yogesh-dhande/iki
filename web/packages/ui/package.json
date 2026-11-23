@@ -1,0 +1,53 @@
+{
+  "name": "@ikisci/ui",
+  "version": "0.1.0-dev.0",
+  "description": "Iki design tokens, Inter and accessible interface components.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yogesh-dhande/iki.git",
+    "directory": "web/packages/ui"
+  },
+  "type": "module",
+  "exports": {
+    "./button": {
+      "@ikisci/source": "./src/button.ts",
+      "types": "./dist/button.d.ts",
+      "default": "./dist/button.js"
+    },
+    "./tokens.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/tokens.css"
+    },
+    "./button.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/button.css"
+    },
+    "./fonts.css": {
+      "types": "./style.d.ts",
+      "default": "./dist/fonts.css"
+    }
+  },
+  "files": [
+    "dist",
+    "stories",
+    "src/button.ts",
+    "style.d.ts",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node copy-assets.js && node ../../../scripts/check-web-package-size.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "ikiSizeBudgets": {
+    "./button": 1024,
+    "./tokens.css": 1280,
+    "./button.css": 800,
+    "./fonts.css": 156000
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0"
+  }
+}
