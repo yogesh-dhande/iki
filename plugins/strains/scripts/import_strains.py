@@ -103,8 +103,9 @@ def main() -> None:
     except (csv.Error, ValueError) as exc:
         print(f"::error {given['name']}: {exc}", flush=True)
         raise SystemExit(1) from exc
+    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": creates}
     Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"creates": creates}, ensure_ascii=False), encoding="utf-8"
+        json.dumps(output, ensure_ascii=False), encoding="utf-8"
     )
 
 
