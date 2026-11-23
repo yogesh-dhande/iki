@@ -1,0 +1,150 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: CellCheck
+label: Cell bank check
+schema_version: 1
+description: >-
+  An STR authentication or a mycoplasma result for one bank. A thaw can cite
+  the signed check that applied to it, even after the bank has been tested again.
+hrid: { prefix: CCK }
+fields:
+  bank:
+    type: ref
+    to: CellBank
+    required: true
+    immutable: true
+    description: The bank represented by the material tested.
+  kind:
+    type: enum
+    label: Test
+    values: [str_authentication, mycoplasma]
+    required: true
+    immutable: true
+    indexed: true
+  checked_on:
+    type: date
+    label: Test date
+    required: true
+  due_on:
+    type: date
+    label: Next check due
+    required: true
+    description: The repeat date assigned by the lab for this bank and test.
+  method:
+    type: string
+    max_length: 240
+    required: true
+    description: Method or report reference used by the testing laboratory.
+  result:
+    type: enum
+    values: [match, mismatch, positive, negative, inconclusive]
+    required: true
+    indexed: true
+    description: >-
+      For STR, whether the tested profile matches its reference. For mycoplasma,
+      whether the test detected contamination. Either test may be inconclusive.
+  report:
+    type: file
+    media_types: [application/pdf, text/csv, text/plain, image/png, image/jpeg]
+    max_size: 50MiB
+    description: The original testing laboratory report or profile comparison.
+  review:
+    type: state
+    label: Review
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          before_release:
+            check: state.from == "submitted" || state.from == "reviewed"
+            message: A submitted or reviewed check can be returned for correction.
+      signed_off:
+        label: Signed off
+        description: The research signer attests to the recorded result.
+        set_by: [research_signer]
+        locks: true
+        signatures:
+          - meaning: approval
+            statement: I sign off this research check as recorded.
+        guards:
+          research_check:
+            check: state.from == "recorded" && last.review.submitted == null
+            message: Research sign-off is available for a recorded check before a regulated submission.
+      submitted:
+        label: Submitted
+        description: The analyst signed the result for independent review.
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: authorship
+            statement: I recorded this bank check as observed.
+        guards:
+          recorded:
+            check: state.from == "recorded"
+            message: Submit the recorded check for review.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: review
+        guards:
+          submitted:
+            check: state.from == "submitted"
+            message: Review the check after its analyst signs the submission.
+          independent_reviewer:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person
+            message: Someone other than the creator and submitting analyst must review this check.
+          independent_of_edits:
+            check: edits.review.recorded.all(e, e.by != actor.person)
+            message: Someone other than an editor of this check in the current review cycle must review it.
+      released:
+        label: Released by QA
+        description: QA has signed the reviewed result for reporting, whatever the test found.
+        set_by: [qa]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: I release the reviewed bank check as reported.
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release the submitted check after its independent review.
+          independent_of_review:
+            check: last.review.reviewed.by != actor.person
+            message: Someone other than the reviewer must release this check.
+          independent_of_analyst:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person
+            message: Someone other than the creator and submitting analyst must release this check.
+          independent_of_edits:
+            check: edits.review.recorded.all(e, e.by != actor.person)
+            message: Someone other than an editor of this check in the current review cycle must release it.
+due: due_on
+rules:
+  result_for_test:
+    label: Result belongs to the test
+    check: >-
+      record.result == "inconclusive" ||
+      (record.kind == "str_authentication" && record.result in ["match", "mismatch"]) ||
+      (record.kind == "mycoplasma" && record.result in ["positive", "negative"])
+    message: Record match or mismatch for STR, positive or negative for mycoplasma, or inconclusive for either.
+    fields: [result]
+  existing_bank:
+    label: Bank exists on test date
+    check: record.checked_on >= record.bank.banked_on
+    message: The test date must be on or after the date the bank was made.
+    fields: [checked_on]
+  next_check_after_test:
+    label: Repeat date on or after test date
+    check: record.due_on >= record.checked_on
+    message: The next check is due on or after this test.
+    fields: [due_on]
+display:
+  title: "{{ kind }} · {{ result }} ({{ checked_on }})"

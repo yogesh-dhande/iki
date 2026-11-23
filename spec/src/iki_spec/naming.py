@@ -99,6 +99,7 @@ FIRST_PARTY = frozenset(
         "iki/small_molecule",
         "iki/oligo",
         "iki/plasmid",
+        "iki/cell_lines",
         "iki/complex",
         "iki/lots",
         "iki/example_lims",
