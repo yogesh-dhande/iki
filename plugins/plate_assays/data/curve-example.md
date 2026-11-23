@@ -1,0 +1,9 @@
+# Worked example with synthetic readings
+
+The [synthetic MARS export](../tests/data/mars-96-series.csv) contains eight sample wells and two controls. Assign wells A1 through A8 concentrations of 1, 2, 4, 8, 16, 32, 64 and 128 nM, respectively. A9 is the blank and A10 the reference. Select the 484 nm absorbance readout in AU. The two controls remain visible with their original readouts. The eight sample wells enter the fit with equal weights and no normalization or exclusions.
+
+The sample responses were generated from `0.1 + 0.9 / (1 + concentration / 12)` with small deterministic offsets. For this example, choose IC50. The fitted midpoint is **12.07 nM** (within range), with an approximate **95% confidence interval of 10.76–13.53 nM**. The fitted low and high asymptotes are 0.09869 and 1.00010 AU, and the signed Hill slope is −1.00153. All concentrations, absorbances and endpoints in this example are synthetic.
+
+The general response function is `bottom + (top − bottom) / (1 + (midpoint / concentration)^hill_slope)`. A positive slope gives an increasing raw detector signal. The midpoint is the concentration halfway between the two fitted response plateaus. The assay determines whether that midpoint represents an IC50 or an EC50. [Four-parameter log-logistic models, equations 2 and 3](https://doi.org/10.1371/journal.pone.0146021)
+
+The fit estimates all four parameters by unweighted nonlinear least squares. It estimates the residual variance from the included wells, with four degrees of freedom spent on the parameters. It computes a two-sided Student t interval on the natural log of the midpoint and exponentiates the limits. This local approximation assumes independent readings with common response variance. The relative midpoint can fall outside the included concentration range, in which case the result carries an above-range or below-range qualifier. [Estimation and back-transformed intervals](https://doi.org/10.1371/journal.pone.0146021)

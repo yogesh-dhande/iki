@@ -64,7 +64,7 @@ with a letter. The namespace is your lab's or company's.
 
 - The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
   `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex`, `iki/conjugate`, `iki/lots` and `iki/example_lims`. No other plugin may use
+  `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`, `iki/plate_assays` and `iki/example_lims`. No other plugin may use
   it, or a namespace starting with `iki_` (`reserved-namespace`), and a
   lockfile takes an `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
@@ -1934,6 +1934,11 @@ When a worker leases a job, it gets the run input and writes it to
 }
 ```
 
+For a single run, `run.requested_by` identifies its authenticated requester. A job
+that packs several runs omits this field, since each run has its own requester.
+An input record of a registered entity includes its `entry_id`, the ID held
+by references to that entity.
+
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
 with references and files given as IDs. An input that includes references
@@ -2028,7 +2033,12 @@ change what its action declares:
 ```
 
 `updates` are keyed by input name and may set only the declared fields of
-entities given there. `creates` may make only the declared types. Leave out
+entities given there. An update item may set `require_unchanged: true` to
+require the record revision the run read. A later revision rejects the
+entire output, including its creates. Use this when a reviewed preview
+determines what the run will write.
+
+`creates` may make only the declared types. Leave out
 `derived_from` when the inputs the type is derived from hold one entity.
 An imported entity says where it came from in `origin`: a database's record
 (its `version`, an `https` `url`, when it was `retrieved_at`, and the

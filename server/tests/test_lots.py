@@ -12,18 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 from iki_spec import schemas
 from iki_spec.validate import load_plugin
 
-ROOT = Path(__file__).resolve().parents[2]
-PLUGINS = ROOT / "plugins"
 LOTS = PLUGINS / "lots"
-DEPENDENCIES = [
-    PLUGINS / n
-    for n in ("dna", "protein", "oligo", "plasmid", "antibody", "small_molecule", "conjugate")
-]
 #: A concrete type of complex, for a protein lot of one.
 COMPLEX = PLUGINS / "complex"
 #: Inotersen (Tegsedi): a 5-10-5 2′-MOE gapmer, phosphorothioate throughout, every C a
@@ -55,7 +50,7 @@ lots = _lots()
 
 
 def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
-    result = load_plugin(LOTS, dependencies=DEPENDENCIES)
+    result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.problems == []
     assert result.plugin is not None
     types = result.plugin.types
@@ -103,7 +98,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "GenericLot": ["iki/core.Entity"],
         "OligoLot": ["iki/oligo.Oligonucleotide"],
         "PlasmidPrep": ["iki/plasmid.Plasmid"],
-        "PolymerLot": ["iki/core.Entity"],
+        "PolymerLot": ["iki/polymer.Polymer"],
         # A protein, or a complex of them: an antibody, an Fc fusion, a multispecific.
         "ProteinLot": ["iki/protein.Protein", "iki/core.Complex"],
         "ConjugateLot": ["iki/conjugate.Conjugate"],
@@ -131,7 +126,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
 
 
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
-    result = load_plugin(LOTS, dependencies=DEPENDENCIES)
+    result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.plugin is not None
     triggers = result.plugin.triggers.values()
     fired = sorted((t.type.rsplit(".", 1)[1], t.on) for t in triggers)
@@ -467,7 +462,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
     release signed for, on a certificate, by someone other than its maker; and one search
     finding every kind."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", *DEPENDENCIES, COMPLEX, LOTS, "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(LOTS, COMPLEX), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -643,9 +638,29 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         of_carrier = errors(lambda: services.create(
             alice, "iki/lots.ConjugateLot", project, {{"conjugate": str(oligo.entry_id)}},
         ))
-        polymer = errors(lambda: services.create(
+        # Styrene (NIST Chemistry WebBook 100-42-5) and the certified means of SRM 1478:
+        # https://tsapps.nist.gov/srmext/certificates/1478.pdf
+        styrene = services.create(
+            alice, "iki/small_molecule.Compound", project,
+            {{"inchikey": "PPBRXRYQALVLMV-UHFFFAOYSA-N", "smiles": "C=Cc1ccccc1"}},
+        ).entity
+        polystyrene = services.create(
+            alice, "iki/polymer.Polymer", project,
+            {{"bigsmiles": "{{[][<]CC(c1ccccc1)[>][]}}", "architecture": "linear",
+              "sequence_distribution": "homopolymer", "monomers": [str(styrene.entry_id)]}},
+        ).entity
+        srm = services.create(
             alice, "iki/lots.PolymerLot", project,
-            {{"polymer": str(puc.pk), "mn": 38560, "mw": 29184}},
+            {{"polymer": str(polystyrene.entry_id), "catalogue_number": "SRM 1478",
+              "mn": 35800, "mn_method": "membrane_osmometry",
+              "mw": 37400, "mw_method": "sedimentation_equilibrium"}},
+        ).entity
+        wrong_polymer_weights = errors(lambda: services.create(
+            alice, "iki/lots.PolymerLot", project,
+            {{"polymer": str(polystyrene.entry_id), "mn": 38560, "mw": 29184}},
+        ))
+        of_monomer = errors(lambda: services.create(
+            alice, "iki/lots.PolymerLot", project, {{"polymer": str(styrene.entry_id)}},
         ))
         generic = services.create(
             alice, "iki/lots.GenericLot", project, {{"of": str(oligo.pk)}},
@@ -672,7 +687,10 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
                                     (conjugate, reordered, moved, another_ratio)],
             "mismatched_kind": mismatched_kind,
             "of_carrier": of_carrier,
-            "polymer": polymer,
+            "of_polymer": services.current_values_of([srm])[srm.pk]["polymer"]
+                          == polystyrene.entry_id,
+            "wrong_polymer_weights": wrong_polymer_weights,
+            "of_monomer": of_monomer,
             "lots": sorted(e.type for e in everything),
             "hrids": sorted(e.hrid.split("-")[0] for e in everything),
         }}
@@ -709,7 +727,11 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
     assert result["of_carrier"] == {
         "conjugate": ["must refer to a iki/conjugate.Conjugate, not a iki/oligo.Oligonucleotide."]
     }
-    assert result["polymer"] == {
+    assert result["of_polymer"] is True
+    assert result["of_monomer"] == {
+        "polymer": ["must refer to a iki/polymer.Polymer, not a iki/small_molecule.Compound."]
+    }
+    assert result["wrong_polymer_weights"] == {
         "mw": [
             "Its Mw, 29184 g/mol, is below its Mn, 38560 g/mol: a weight average is never "
             "below the number average of the same chains."
@@ -721,9 +743,10 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         "iki/lots.OligoLot",
         "iki/lots.OligoLot",
         "iki/lots.PlasmidPrep",
+        "iki/lots.PolymerLot",
         "iki/lots.ProteinLot",
     ]
-    assert result["hrids"] == ["CJLOT", "GLOT", "OLOT", "OLOT", "PLOT", "PREP"]
+    assert result["hrids"] == ["CJLOT", "GLOT", "OLOT", "OLOT", "PLOT", "PREP", "PYLOT"]
 
 
 def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
@@ -735,7 +758,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
     and a transfer can't change what a lot is: a released one takes only released
     material, and any lot only its own molecule's, as an aliquot is its source's."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", *DEPENDENCIES, COMPLEX, LOTS, "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(LOTS, COMPLEX), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)

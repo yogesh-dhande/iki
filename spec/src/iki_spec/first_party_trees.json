@@ -19,6 +19,10 @@
       "be447ee3b1ead0640f24c8b969e1bb90a308706c",
       "bd3ef7f15f14a6be0439d1728d07857c29f48099"
     ],
+    "iki/cell_lines": [
+      "c2fc6997c75d4dee59205a45bb121b455a3ad47d",
+      "669310dacb04752cb1ccdebab110ff578a8dc7b8"
+    ],
     "iki/complex": [
       "780a4315f60f3e764568272e9b0c9b2f0083cea7",
       "bd4dc174dd767a29f437c616dc795e2765af91eb",
@@ -90,7 +94,9 @@
       "12157c978452e031160e86ed3ed1f7e701f8ac88",
       "626a471638181457ffa25ab9242dcb0bb6f99837",
       "1c60de2b57a98ca77ce1a0558fafd6e979210e12",
-      "bc0f69b24f7b43ed5b58495321a38b6eaa3e4086"
+      "bc0f69b24f7b43ed5b58495321a38b6eaa3e4086",
+      "422d5f9025312c8dc2da736a61cf5dafbb53eb03",
+      "d883baf80692511d563ecde6805dc9156c4569f6"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",
@@ -120,6 +126,13 @@
       "83952cab0cd06ab7afd2982fde0eb7103c58cce6",
       "0e5e8785dce2dc7ce7bab13f3177537792eda2e5",
       "b3127a62cb268a9754edf0a235519b6fb585a864"
+    ],
+    "iki/plate_assays": [
+      "c32078e932aae67d30c25cd770f1a1f5ef8e85f2"
+    ],
+    "iki/polymer": [
+      "cc56225c938a51b2f7fe385320b7216e50a6cb15",
+      "711168c4b7af9d21daec4f7a567f5d285550f6b8"
     ],
     "iki/protein": [
       "25079b3b2f8236772c7b7fc514e00d0d93499027",

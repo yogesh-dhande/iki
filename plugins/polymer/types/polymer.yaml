@@ -1,0 +1,129 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Polymer
+label: Polymer
+label_plural: Polymers
+schema_version: 1
+hrid: { prefix: PLY }
+description: >-
+  A synthetic polymer design with its submitted BigSMILES, architecture,
+  end groups and source monomers. A polymer lot records the molar-mass
+  distribution of the material produced or received.
+identity: [bigsmiles, architecture, sequence_distribution, end_groups, design_detail]
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  bigsmiles:
+    type: text
+    label: BigSMILES
+    required: true
+    immutable: true
+    max_length: 20000
+    description: >-
+      The submitted BigSMILES v1.1 representation of the structural ensemble.
+      Preserve its spelling, connectivity descriptors and end groups. An
+      alternative spelling can register a separate description.
+  architecture:
+    type: enum
+    required: true
+    immutable: true
+    indexed: true
+    values: [linear, branched, star, comb, graft, dendritic, network, cyclic, other, unspecified]
+    description: The topology or arrangement of chains in the registered design.
+  sequence_distribution:
+    type: enum
+    label: Monomer sequence distribution
+    immutable: true
+    indexed: true
+    values: [homopolymer, statistical, random, alternating, block, gradient, other]
+    description: How monomer units are arranged along a chain, when specified.
+  end_groups:
+    type: string
+    immutable: true
+    max_length: 1000
+    description: >-
+      Document known chain ends, their roles or positions and any allowed
+      alternatives. An unspecified end stays empty.
+  design_detail:
+    type: string
+    immutable: true
+    max_length: 1000
+    label: Additional design specification
+    description: >-
+      Distinguishing specifications beyond the notation and fields above,
+      such as tacticity, a target comonomer ratio or block lengths. Measured
+      properties of a batch belong on its polymer lot.
+  monomers:
+    type: list
+    label: Source monomers
+    registry: fact
+    required: true
+    immutable: true
+    min_items: 1
+    max_items: 128
+    items: { type: ref, to: iki/small_molecule.Compound }
+    description: >-
+      Each precursor compound once, including any custom monomers already
+      registered in the lab. Multiple reactants may supply atoms to a single
+      repeat unit. These fixed registry facts identify the reported feedstock.
+  notation_status:
+    type: enum
+    computed: true
+    indexed: true
+    label: BigSMILES inspection
+    values: [checked, unsupported, invalid]
+    description: Whether the inspector checked the submission, encountered unsupported syntax or found an error.
+  notation_note:
+    type: string
+    computed: true
+    max_length: 2000
+    label: Inspection details
+    description: The scope of the check, or the reason inspection could not produce a summary.
+  stochastic_objects:
+    type: int
+    computed: true
+    min: 1
+    label: Stochastic objects
+    description: Number of stochastic objects in a checked representation.
+  repeat_units:
+    type: json
+    computed: true
+    label: Declared repeat units
+    description: Repeat-unit fragments exactly as written, with their one-based stochastic object numbers.
+    schema:
+      type: array
+      maxItems: 1024
+      items:
+        type: object
+        required: [object, fragment]
+        additionalProperties: false
+        properties:
+          object: { type: integer, minimum: 1 }
+          fragment: { type: string, minLength: 1, maxLength: 20000 }
+  implicit_end_groups:
+    type: json
+    computed: true
+    label: Declared implicit end groups
+    description: >-
+      The end-group alternatives declared after semicolons within checked
+      stochastic objects. The submitted notation also preserves explicit
+      groups written outside those objects.
+    schema:
+      type: array
+      maxItems: 1024
+      items:
+        type: object
+        required: [object, fragment]
+        additionalProperties: false
+        properties:
+          object: { type: integer, minimum: 1 }
+          fragment: { type: string, minLength: 1, maxLength: 20000 }
+rules:
+  distinct_monomers:
+    label: Give each source monomer once
+    check: record.monomers.all(m, record.monomers.exists_one(n, n.id == m.id))
+    message: List each precursor compound once in the source monomers.
+    fields: [monomers]
+display:
+  title: "{{ name or hrid }}"

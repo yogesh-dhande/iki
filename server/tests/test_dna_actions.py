@@ -10,10 +10,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 
 from iki_spec import schemas
 
-SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "dna" / "scripts" / "sequences.py"
+DNA = PLUGINS / "dna"
+SCRIPT = DNA / "scripts" / "sequences.py"
 
 
 def run(tmp_path: Path, kind: str, name: str, bases: list[str]) -> dict[str, Any]:
@@ -972,7 +974,7 @@ def test_a_fetch_needs_the_contact_address_before_it_runs() -> None:
     it. The dev cluster sets it, so it can fetch."""
     from iki_spec.validate import check_settings_text, load_plugin
 
-    plugin = load_plugin(SCRIPT.parents[1]).plugin
+    plugin = load_plugin(DNA, dependencies=FIRST_PARTY[DNA]).plugin
     assert plugin is not None
     needing = {a.name for a in plugin.actions.values() if a.requires_settings}
     assert needing == {"fetch_sequences"}

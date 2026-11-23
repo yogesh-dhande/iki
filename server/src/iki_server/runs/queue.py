@@ -564,6 +564,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
         document: dict[str, Any] = {
             "id": str(entity.pk),
             "hrid": entity.hrid,
+            **({"entry_id": str(entity.entry_id)} if entity.entry_id is not None else {}),
             "type": entity.type,
             "schema_version": registry.types()[entity.type].schema_version,
             "revision": row.revision,
@@ -589,6 +590,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
             "id": str(run.pk),
             "hrid": run.hrid,
             "attempt": job.attempt,
+            **({"requested_by": str(run.requested_by_id)} if not members else {}),
             **({"seed": run.seed} if run.seed is not None else {}),
             "action": run.action,
             "plugin": {

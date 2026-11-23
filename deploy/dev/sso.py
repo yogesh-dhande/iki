@@ -1196,6 +1196,7 @@ def actions() -> None:
     compounds(alice, project)
     oligonucleotides(alice, project)
     conjugates(alice, project)
+    polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
 
@@ -1521,6 +1522,7 @@ def lims() -> None:
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
     bookings(alice, project)
     signatures(alice, project, first)
+    plate_assay(alice, project)
 
 
 def signing(
@@ -1569,6 +1571,185 @@ def signing(
     if f"signing={signing_id}" not in response.url:
         fail(f"signing in again came back to {response.url}, not the record's page")
     return api_call(session, "GET", f"/signings/{signing_id}").json()
+
+
+def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Trace a sample's data through passage, thaw, QC and banking back to its catalogue line."""
+    plugin = "iki/cell_lines."
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/cell_lines/tests/data/wi-38.txt"
+    file_id = upload(alice, project, "WI-38.txt", catalogue.read_bytes(), "text/plain")
+    sources = {}
+    parent_ids = set()
+    for supplier, catalogue_id in (("ATCC", "CCL-75"), ("Coriell", "AG06814-J")):
+        imported = launch(
+            alice,
+            project,
+            plugin + "import_parental_line",
+            {},
+            {"file": file_id, "supplier": supplier, "catalogue_id": catalogue_id},
+        )
+        effects = {e["type"]: e["entity"] for e in imported["effects"]}
+        parent = record(alice, effects[plugin + "ParentalLine"])
+        parent_ids.add(parent["id"])
+        source = record(alice, effects[plugin + "CellLineSource"])
+        if (
+            source["values"]["supplier"],
+            source["values"]["catalogue_id"],
+            source["values"]["line"],
+        ) != (supplier, catalogue_id, entry_of(parent)):
+            fail(f"{imported['hrid']} returned unexpected supplier details {source['values']}")
+        sources[supplier] = source
+    if (
+        len(parent_ids) != 1
+        or parent["values"]["cellosaurus_id"] != "CVCL_0579"
+        or parent["values"]["name"] != "WI-38"
+        or sources["ATCC"]["id"] == sources["Coriell"]["id"]
+    ):
+        fail("The two supplier records must identify one WI-38 line")
+    catalogue_graph = api_call(alice, "GET", f"/entities/{parent['id']}/graph?up=0&down=1").json()
+    if not {s["id"] for s in sources.values()} <= {e["id"] for e in catalogue_graph["entities"]}:
+        fail(f"{parent['hrid']}'s catalogue graph lost one of its supplier records")
+    # WI-38's identification is public. All local materials, dates and results here are synthetic.
+    line = created(
+        alice,
+        project,
+        plugin + "EngineeredLine",
+        {
+            "name": "Synthetic reporter clone",
+            "parent": entry_of(parent),
+            "parent_source": entry_of(sources["ATCC"]),
+            "changes": [
+                {"kind": "stable_transfection", "description": "Synthetic reporter marker"}
+            ],
+        },
+    )
+    master = created(
+        alice,
+        project,
+        plugin + "CellBank",
+        {
+            "name": "Synthetic master bank",
+            "kind": "master",
+            "line": line["id"],
+            "banked_on": "2026-01-02",
+            "passage_number": 8,
+        },
+    )
+    bank = created(
+        alice,
+        project,
+        plugin + "CellBank",
+        {
+            "name": "Synthetic working bank",
+            "kind": "working",
+            "line": line["id"],
+            "source_bank": master["id"],
+            "banked_on": "2026-01-06",
+            "passage_number": 9,
+        },
+    )
+    vial = created(
+        alice,
+        project,
+        plugin + "CellVial",
+        {"bank": bank["id"], "barcode": f"SYNTHETIC-{secrets.token_hex(4)}"},
+    )
+    box = created(alice, project, LIMS_TYPE + "Box", {"name": "Synthetic cell bank"})
+    moved(alice, [(vial, box, "A1")], "Synthetic working bank deposit")
+    location = api_call(alice, "GET", f"/entities/{vial['id']}/location").json()
+    if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], "A1")]:
+        fail(f"{vial['hrid']}'s bank deposit has an unexpected location {location}")
+    give_lab_roles(alice, project, plugin + "research_signer")
+    checks = {}
+    for kind, result in (("str_authentication", "match"), ("mycoplasma", "negative")):
+        check = created(
+            alice,
+            project,
+            plugin + "CellCheck",
+            {
+                "bank": bank["id"],
+                "kind": kind,
+                "method": "Synthetic QC report",
+                "result": result,
+                "checked_on": "2026-01-07",
+                "due_on": "2026-02-07",
+            },
+        )
+        signed = signing(alice, check, "signed_off", "alice", field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"Research sign-off for {check['hrid']} returned {signed}")
+        checks[kind] = check["id"]
+    thaw = created(
+        alice,
+        project,
+        plugin + "CellCulture",
+        {
+            "event": "thaw",
+            "event_on": "2026-01-09",
+            "passage_number": 9,
+            "bank": bank["id"],
+            "vial": vial["id"],
+            "str_check": checks["str_authentication"],
+            "mycoplasma_check": checks["mycoplasma"],
+        },
+    )
+    moved(alice, [(vial, None, None)], f"Synthetic thaw recorded as {thaw['hrid']}")
+    passage = created(
+        alice,
+        project,
+        plugin + "CellCulture",
+        {
+            "event": "passage",
+            "event_on": "2026-01-12",
+            "passage_number": 10,
+            "bank": bank["id"],
+            "parent_culture": thaw["id"],
+        },
+    )
+    measurement = upload(
+        alice, project, "synthetic_counts.csv", b"sample,count\nsynthetic,8\n", "text/csv"
+    )
+    sample = created(
+        alice,
+        project,
+        plugin + "CellSample",
+        {
+            "name": "Synthetic sample at passage 10",
+            "collected_on": "2026-01-12",
+            "culture": passage["id"],
+            "data_file": measurement,
+        },
+    )
+    graph = api_call(alice, "GET", f"/entities/{sample['id']}/graph?up=7&down=0").json()
+    ancestors = {entity["id"] for entity in graph["entities"]}
+    expected = {
+        row["id"] for row in (passage, thaw, vial, bank, master, line, parent, sources["ATCC"])
+    }
+    if (
+        not expected.union(checks.values()) <= ancestors
+        or sources["Coriell"]["id"] in ancestors
+        or sample["values"]["data_file"] != measurement
+    ):
+        fail(f"{sample['hrid']} lost its measurement, banking history or signed QC records")
+    thaw_links = {
+        edge["field"]: edge["on"]
+        for edge in graph["edges"]
+        if edge["node"] == thaw["id"] and edge["kind"] == "reference"
+    }
+    for field, kind, result in (
+        ("str_check", "str_authentication", "match"),
+        ("mycoplasma_check", "mycoplasma", "negative"),
+    ):
+        if thaw_links.get(field) != checks[kind]:
+            fail(f"{thaw['hrid']}'s graph omitted the {field} it cited")
+        values = record(alice, thaw_links[field])["values"]
+        if (values["result"], values["due_on"], values["review"]) != (
+            result,
+            "2026-02-07",
+            "signed_off",
+        ):
+            fail(f"{thaw['hrid']}'s {field} link led to unexpected QC details {values}")
+    ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
 
 
 def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
@@ -1654,6 +1835,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
     bench_material(alice, project, core, protein)
+    cell_bank_history(alice, project)
 
 
 def analytical_core(
@@ -2528,6 +2710,72 @@ def conjugates(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{lot['hrid']} links to {conjugate['hrid']}, the adenylated strand at 2530.62 u")
 
 
+def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Register the polystyrene design and the certified measurements of NIST SRM 1478."""
+    # Styrene, PubChem CID 7501: https://pubchem.ncbi.nlm.nih.gov/compound/7501
+    registered = launch(
+        alice,
+        project,
+        "iki/small_molecule.register_compounds",
+        {},
+        {"smiles": "C=Cc1ccccc1 styrene"},
+    )
+    (styrene,) = [
+        e["entity"] for e in registered["effects"] if e["type"] == "iki/small_molecule.Compound"
+    ]
+    precursor = entry_of(record(alice, styrene))
+    # A representative uncapped, head-to-tail polystyrene fragment. The certificate
+    # reports the bulk sample's averages. It does not identify its end groups.
+    formulation = "{[][<]CC(c1ccccc1)[>][]}"
+    polymer = created(
+        alice,
+        project,
+        "iki/polymer.Polymer",
+        {
+            "name": "Polystyrene",
+            "bigsmiles": formulation,
+            "monomers": [precursor],
+            "architecture": "linear",
+            "sequence_distribution": "homopolymer",
+        },
+    )
+    if not polymer.get("entry"):
+        fail(f"{polymer['hrid']} has no registry entry for the polystyrene design")
+    inspection = launch(alice, project, "iki/polymer.inspect_bigsmiles", {"polymer": polymer["id"]})
+    design = record(alice, polymer["id"])["values"]
+    expected = {
+        "bigsmiles": formulation,
+        "monomers": [precursor],
+        "notation_status": "checked",
+        "stochastic_objects": 1,
+        "repeat_units": [{"object": 1, "fragment": "[<]CC(c1ccccc1)[>]"}],
+    }
+    if any(design.get(k) != v for k, v in expected.items()):
+        fail(f"{inspection['hrid']} read {polymer['hrid']} as {design}, expected {expected}")
+    # https://tsapps.nist.gov/srmext/certificates/1478.pdf, July 1992, certified values.
+    lot = created(
+        alice,
+        project,
+        "iki/lots.PolymerLot",
+        {
+            "polymer": polymer["id"],
+            "catalogue_number": "SRM 1478",
+            "supplier": "National Institute of Standards and Technology",
+            "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
+            "mn": 35800,
+            "mn_method": "membrane_osmometry",
+            "mw": 37400,
+            "mw_method": "sedimentation_equilibrium",
+        },
+    )
+    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    measured = record(alice, lot["id"])["values"]
+    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
+    if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
+        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+    ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
+
+
 #: Cloning vector pUC19, 2,686 bp, as INSDC record L09137.2 gives it: the vector most
 #: molecular cloning starts from (Yanisch-Perron, Vieira & Messing, Gene 33:103, 1985).
 PUC19 = (
@@ -2588,6 +2836,124 @@ def give_lab_roles(alice: requests.Session, project: dict[str, Any], *roles: str
     )
     if given.status_code != 200:
         fail(f"giving alice {', '.join(roles)} answered HTTP {given.status_code}")
+
+
+def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import a MARS export, trace an excluded well and sign the synthetic research result."""
+    prefix = "iki/plate_assays."
+    give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer")
+
+    def matching(kind: str, field: str, value: str) -> list[dict[str, Any]]:
+        query = {
+            "project": project["id"],
+            "type": kind,
+            "where": {"field": field, "op": "eq", "value": value},
+            "limit": 100,
+        }
+        response = api_call(alice, "POST", "/entities/search", query)
+        if response.status_code != 200:
+            fail(f"finding {kind} by {field} answered HTTP {response.status_code}: {response.text}")
+        found: list[dict[str, Any]] = response.json()["items"]
+        return found
+
+    sample_name = "Synthetic MARS dilution standard"
+    samples = matching("acme/example.Sample", "name", sample_name)
+    sample = (
+        samples[0]
+        if samples
+        else created(alice, project, "acme/example.Sample", {"name": sample_name, "kind": "other"})
+    )
+    name = "Synthetic MARS endpoint assay"
+    plates = matching(prefix + "AssayPlate", "name", name)
+    if plates:
+        plate = record(alice, plates[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/plate_assays/tests/data/mars-96-series.csv"
+        )
+        source = upload(alice, project, fixture.name, fixture.read_bytes(), "text/csv")
+        assignments = [
+            {
+                "well": f"A{column + 1}",
+                "sample": sample["id"],
+                "concentration": 2**column,
+                "concentration_unit": "nM",
+                "replicate": 1,
+            }
+            for column in range(8)
+        ]
+        assignments.extend(
+            {"well": well, "control": control, "replicate": 1}
+            for well, control in (("A9", "blank"), ("A10", "reference"))
+        )
+        plate = created(
+            alice,
+            project,
+            prefix + "AssayPlate",
+            {"name": name, "size": "plate_96", "assignments": assignments, "reader_file": source},
+        )
+    plate_input = {"plate": plate["id"]}
+    if not plate["values"].get("committed"):
+        launch(alice, project, prefix + "preview_reader", plate_input)
+        preview = record(alice, plate["id"])["values"]["preview"]
+        if preview["issues"] or len(preview["readings"]) != 10:
+            fail(f"{plate['hrid']}: expected eight sample wells and two controls: {preview}")
+        launch(alice, project, prefix + "commit_reader", plate_input)
+    [read] = matching(prefix + "PlateRead", "plate", plate["id"])
+    measurements = matching(prefix + "WellMeasurement", "plate", plate["id"])
+    measured = {m["values"]["well"]: m for m in measurements}
+    if len(measurements) != 10 or set(measured) != {f"A{i}" for i in range(1, 11)}:
+        fail(f"{plate['hrid']} has unexpected measured wells: {list(measured)}")
+    if (
+        set(read["values"]["measurements"]) != {m["id"] for m in measurements}
+        or any(
+            m["values"]["reader_file"] != plate["values"]["reader_file"]
+            or m["values"]["channel"] != "Absorbance 484 nm"
+            for m in measurements
+        )
+        or measured["A9"]["values"]["control"] != "blank"
+        or measured["A10"]["values"]["control"] != "reference"
+    ):
+        fail(f"{read['hrid']} does not match the source file, channel and controls on the plate")
+    results = matching(prefix + "AssayResult", "read", read["id"])
+    reason = "Simulated dispensing error"
+    if not results:
+        launch(
+            alice,
+            project,
+            prefix + "fit_curve",
+            {"read": read["id"], "sample": sample["id"]},
+            {"endpoint_kind": "IC50", "exclusions": f"A4: {reason}"},
+        )
+        results = matching(prefix + "AssayResult", "read", read["id"])
+    [result] = results
+    entity = record(alice, result["id"])
+    values = entity["values"]
+    excluded = [p for p in values["points"] if p.get("exclusion_reason")]
+    if (
+        set(values["measurements"]) != {measured[f"A{i}"]["id"] for i in range(1, 9)}
+        or len(excluded) != 1
+        or excluded[0]["reading"] != measured["A4"]["id"]
+        or excluded[0]["exclusion_reason"] != reason
+        or excluded[0]["excluded_by"] != api_call(alice, "GET", "/me").json()["id"]
+        or values["point_count"] != 7
+        or values["concentration_unit"] != "nM"
+        or values["endpoint_kind"] != "IC50"
+        or values["qualifier"] != "within_range"
+        # This synthetic CSV was generated with a 12 nM midpoint and small residuals.
+        or not 11 < values["endpoint_value"] < 13
+        or not 0 < values["ci_low"] < 12 < values["ci_high"]
+    ):
+        fail(f"{entity['hrid']} has unexpected fit evidence: {values}")
+    if values["review"] == "recorded":
+        signature = signing(alice, entity, "signed", "alice", field="review")
+        if signature["status"] != "signed" or not signature["set"]:
+            fail(f"signing the plate result {entity['hrid']} gave {signature}")
+    proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
+    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        fail(f"{entity['hrid']} has no verifiable research sign-off")
+    ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
 
 
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:

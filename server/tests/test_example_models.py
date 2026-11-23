@@ -15,12 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 from test_outside_apis import PDB, StandIn
 
 from iki_spec import schemas
 from iki_spec.validate import load_plugin
 
-PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
 PLUGIN = PLUGINS / "example_models"
 SCRIPT = PLUGIN / "scripts" / "predict.py"
 HOST = "api.foldcloud.example"
@@ -28,7 +28,7 @@ PROTEIN = "01a1ee10-0000-7000-8000-000000000001"
 
 
 def test_the_plugin_is_valid() -> None:
-    result = load_plugin(PLUGIN, dependencies=[PLUGINS / "protein", PLUGINS / "dna"])
+    result = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
     assert result.problems == []
     assert result.plugin is not None
     (api,) = result.plugin.apis.values()
