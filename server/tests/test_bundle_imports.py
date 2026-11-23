@@ -279,6 +279,53 @@ def test_a_discarded_import_keeps_its_record_and_not_its_archive(
     problem(other.get(f"/imports/{made['id']}"), 404, "not_found")
 
 
+@pytest.mark.parametrize("outcome", ["planned", "discarded", "applied"])
+@pytest.mark.parametrize("readable", [True, False], ids=["valid-archive", "unreadable-archive"])
+def test_a_late_initial_planner_preserves_the_finished_import(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str, readable: bool
+) -> None:
+    from iki_server.bundles import imports
+    from iki_server.bundles.models import ImportPerson
+
+    api = Api(world.browser("admin"))
+    archive = bundle_of(world, tmp_path, lambda: [protein(world, "MKLLLLLL")])
+    plan = imports._plan
+    delayed: list[BundleImport] = []
+
+    def first_worker(made: BundleImport) -> str:
+        # Two workers started with the same PLANNING state. Only one has published yet.
+        delayed.append(BundleImport.objects.get(pk=made.pk))
+        return plan(made)
+
+    with monkeypatch.context() as workers:
+        workers.setattr(imports, "_plan", first_worker)
+        made = upload(api, world.project, archive)
+    (earlier,) = delayed
+    assert earlier.state == "planning" and made["state"] == "planned"
+    if outcome == "discarded":
+        assert api.delete(f"/imports/{made['id']}").status_code == 204
+    elif outcome == "applied":
+        assert applied(api, made)["state"] == "applied"
+
+    def snapshot() -> tuple[Any, ...]:
+        return (
+            BundleImport.objects.values().get(pk=earlier.pk),
+            list(ImportEntity.objects.filter(bundle_import=earlier).order_by("id").values()),
+            list(ImportPerson.objects.filter(bundle_import=earlier).order_by("id").values()),
+            AuditEvent.objects.count(),
+        )
+
+    before = snapshot()
+
+    # The delayed worker has its own local copy even after a discard deletes the object.
+    def downloaded(key: str, path: Path) -> None:
+        path.write_bytes(archive.read_bytes() if readable else b"not a gzip archive")
+
+    monkeypatch.setattr(storage, "download_file", downloaded)
+    assert plan(earlier) == outcome
+    assert snapshot() == before
+
+
 # --- Applying ----------------------------------------------------------------------------
 
 
@@ -286,7 +333,9 @@ PDB = b"HEADER    TRANSFERASE\nATOM      1  N   MET A   1      11.104  13.207   
 
 
 def applied(api: Api, made: dict[str, Any], reason: str = "Moving the kinase work here") -> Any:
-    response = api.post(f"/imports/{made['id']}/apply", {"reason": reason})
+    response = api.post(
+        f"/imports/{made['id']}/apply", {"reason": reason, "planned_at": made["planned_at"]}
+    )
     assert response.status_code == 202, response.content
     assert response.json()["state"] == "applying"
     run_tasks()
@@ -706,6 +755,8 @@ def test_what_changed_since_it_was_planned_stops_it(world: World, tmp_path: Path
     (line,) = registry_lines(path)
     api = Api(world.browser("admin"))
     made = upload(api, world.project, path)
+    reviewed_at = BundleImport.objects.get(pk=made["id"]).planned_at
+    assert reviewed_at is not None and made["planned_at"] == reviewed_at.isoformat()
     taken = protein(world, "MKSLIPPEDIN")
     # Its registry entry's HRID (ADR 0115), which its record has too.
     Entity.objects.filter(pk__in=[taken.pk, taken.entry_id]).update(hrid=line["hrid"])
@@ -713,24 +764,121 @@ def test_what_changed_since_it_was_planned_stops_it(world: World, tmp_path: Path
     assert done["state"] == "planned"
     assert done["error"].startswith("Something here changed since it was planned")
     assert done["plan"]["counts"]["renumbered"] == 1
+    assert done["planned_at"] != made["planned_at"]
     assert not Entity.objects.filter(pk=line["id"]).exists()
+    # An earlier open confirmation still names the plan it showed.
+    stale = api.post(
+        f"/imports/{made['id']}/apply", {"reason": "go", "planned_at": made["planned_at"]}
+    )
+    problem(stale, 409, "stale_plan")
+    assert api.get(f"/imports/{made['id']}").json()["state"] == "planned"
+    for section in ("entities", "people"):
+        url = f"/imports/{made['id']}/{section}"
+        problem(api.get(url, planned_at=made["planned_at"]), 409, "stale_plan")
+        assert api.get(url, planned_at=done["planned_at"]).status_code == 200
     # Applying the new plan imports it.
     assert applied(api, done)["state"] == "applied"
     assert Entity.objects.filter(pk=line["id"]).exists()
+
+
+def test_an_empty_projects_registry_change_requires_approval_of_the_new_hrids(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from iki_server.bundles import applying
+    from iki_server.entities.models import Revision
+    from iki_server.org import registries
+    from iki_server.org.models import Registry
+
+    admin = world.users["admin"]
+    other = registries.create_registry("Partner", "", all_teams=True, teams=(), by=admin)
+
+    def catalog(name: str, registry: Registry) -> Project:
+        project = Project.objects.create(team=world.team, name=name, registry=registry)
+        ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+        return project
+
+    main_catalog = catalog("Main catalog", world.project.registry)
+    partner_catalog = catalog("Partner catalog", other)
+    services.create(admin, "acme/protein.Protein", main_catalog, {"sequence": "MKAAAAAA"})
+    tau_bundle = tmp_path / "partner.tar.gz"
+
+    def source() -> list[Any]:
+        alpha = protein(world, "MKAAAAAA", name="Alpha")
+        tau = protein(world, "MKTTTTTT", name="Tau")
+        # A distinct project record of the same Tau identity preserves the entry's HRID
+        # when it is brought into the partner registry.
+        saved = services.create(
+            admin, "acme/protein.Protein", main_catalog, {"sequence": "MKTTTTTT"}
+        )
+        export.write(
+            main_catalog,
+            [Entity.objects.get(pk=saved.entity.pk)],
+            tau_bundle,
+            by=admin,
+            reason="Register the partner standard",
+            selection="Tau",
+        )
+        return [alpha, tau]
+
+    path = bundle_of(world, tmp_path, source)
+    first, second = sorted(registry_lines(path), key=lambda r: r["hrid"])
+    api = Api(world.browser("admin"))
+    assert applied(api, upload(api, partner_catalog, tau_bundle))["state"] == "applied"
+    made = upload(api, world.project, path)
+
+    def hrids() -> dict[str, str]:
+        return {row["hrid"]: row["hrid_here"] for row in entities_of(api, made)}
+
+    before = {first["hrid"]: first["hrid"], second["hrid"]: ""}
+    after = {first["hrid"]: "", second["hrid"]: second["hrid"]}
+    assert hrids() == before
+    assert made["plan"]["counts"]["new"] == 2
+    assert made["plan"]["counts"]["renumbered"] == 1
+    registries.set_project_registry(world.project, other, by=admin)
+    records, revisions = Entity.objects.count(), Revision.objects.count()
+    written: list[dict[str, str]] = []
+
+    def observe(writer: applying._Writer) -> dict[str, int]:
+        written.append(
+            dict(
+                ImportEntity.objects.filter(bundle_import=writer.made).values_list(
+                    "hrid", "hrid_here"
+                )
+            )
+        )
+        return {}
+
+    with monkeypatch.context() as guard:
+        guard.setattr(applying._Writer, "write", observe)
+        done = applied(api, made)
+    assert hrids() == after
+    assert done["plan"]["counts"] == made["plan"]["counts"]
+    assert not written, f"Approved {before}, but the writer received {written}."
+    assert done["state"] == "planned", done
+    assert f"{first['hrid']} would now be renumbered" in done["error"], done["error"]
+    assert f"{second['hrid']} would now keep its source HRID" in done["error"], done["error"]
+    assert not Entity.objects.filter(owner_project=world.project).exists()
+    assert (Entity.objects.count(), Revision.objects.count()) == (records, revisions)
+    assert not AuditEvent.objects.filter(project=world.project, action="bundle.imported").exists()
+
+    # Confirming the refreshed plan preserves the partner HRID and allocates only Alpha's.
+    assert applied(api, done)["state"] == "applied"
+    alpha_here, tau_here = (Entity.objects.get(pk=row["id"]) for row in (first, second))
+    assert alpha_here.hrid not in before and tau_here.hrid == second["hrid"]
+    assert hrids() == {first["hrid"]: alpha_here.hrid, second["hrid"]: tau_here.hrid}
 
 
 def test_applying_needs_a_reason_and_a_plan_that_can_be(world: World, tmp_path: Path) -> None:
     path = bundle_of(world, tmp_path, lambda: [protein(world, "MKREASON")])
     api = Api(world.browser("admin"))
     made = upload(api, world.project, path)
-    problem(api.post(f"/imports/{made['id']}/apply", {"reason": "  "}), 422, "validation_failed")
+    body = {"reason": "go", "planned_at": made["planned_at"]}
+    url = f"/imports/{made['id']}/apply"
+    problem(api.post(url, {"reason": "go"}), 422, "validation_failed")
+    problem(api.post(url, {**body, "reason": "  "}), 422, "validation_failed")
     BundleImport.objects.filter(pk=made["id"]).update(plan={**made["plan"], "applicable": False})
-    problem(api.post(f"/imports/{made['id']}/apply", {"reason": "go"}), 409, "refused")
-    problem(
-        Api(world.browser("editor")).post(f"/imports/{made['id']}/apply", {"reason": "go"}),
-        404,
-        "not_found",
-    )
+    problem(api.post(url, body), 409, "refused")
+    problem(Api(world.browser("editor")).post(url, body), 404, "not_found")
 
 
 # --- Requests (ADR 0132) ---------------------------------------------------------------------
@@ -775,7 +923,13 @@ def test_an_import_doesnt_change_a_sent_request(world: World, tmp_path: Path) ->
         "Change it here instead.",
     )
     assert made["plan"]["applicable"] is False
-    problem(api.post(f"/imports/{made['id']}/apply", {"reason": "go"}), 409, "refused")
+    problem(
+        api.post(
+            f"/imports/{made['id']}/apply", {"reason": "go", "planned_at": made["planned_at"]}
+        ),
+        409,
+        "refused",
+    )
     assert api.get(f"/entities/{asked.hrid}").json()["values"]["core_notes"] is None
     assert Entity.objects.get(pk=asked.pk).revision == 1
 

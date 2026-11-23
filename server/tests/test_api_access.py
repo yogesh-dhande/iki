@@ -814,7 +814,12 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         tube = _tube(w, into=box)
         started = reconciliations.start(w.users["editor"], box)
         line = started.lines.get(entity=tube)
-        return suffix.format(reconciliation=started.pk, line=line.pk), body
+        payload = (
+            {**body, "plan_revision": started.plan_revision}
+            if suffix.endswith(("/complete", "/lines/{line}"))
+            else body
+        )
+        return suffix.format(reconciliation=started.pk, line=line.pk), payload
 
     return build
 
@@ -1855,7 +1860,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/imports/{import_id}/apply",
-        bundle_import("/apply", {"reason": "Moving the work"}),
+        bundle_import(
+            "/apply", {"reason": "Moving the work", "planned_at": "2026-11-15T10:00:05Z"}
+        ),
         row(404),
     ),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
