@@ -74,3 +74,12 @@ A consumer can try each component with the data in its story and load just the e
 used on a page. Browser-only entries can be loaded after mount in a server-rendered
 application. A change to an element's public contract affects ordinary npm consumers
 as well as Iki's adapters. The release builds both packages from the same tag.
+
+A Firefox test clicked the sidebar’s New project link and remained on Home.
+Investigating the failed test showed that an empty saved-search response could
+redraw the plus icon between pointer-down and pointer-up. The link stayed in place,
+but Firefox lost the click when its original SVG path was removed. Navigation
+components therefore retain each continuing control and its descendants during
+refreshes, updating labels, attributes and paths in place. The browser regression
+holds the pointer on the path while the response arrives, then releases it at the
+same coordinates.

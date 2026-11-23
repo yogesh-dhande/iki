@@ -48,6 +48,7 @@ export function buttonState<T>(options: ButtonOptions, content: T) {
 export class IkiButton extends HTMLElement {
   #data: ButtonData = { text: "" };
   readonly #control = document.createElement("button");
+  readonly #label = this.#control.appendChild(new Text());
 
   get data(): ButtonData {
     return this.#data;
@@ -73,7 +74,7 @@ export class IkiButton extends HTMLElement {
       if (value === undefined) button.removeAttribute(name);
       else button.setAttribute(name, value);
     }
-    button.textContent = content;
+    if (this.#label.data !== content) this.#label.data = content;
     button.onclick = (event) => {
       press(event, () => {
         const activated = this.dispatchEvent(

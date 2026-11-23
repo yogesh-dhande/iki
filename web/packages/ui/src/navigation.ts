@@ -43,18 +43,30 @@ export function part<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
-export function icon(paths: readonly string[]): SVGSVGElement {
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
+/** Update a label without replacing the text node selected by the browser. */
+export function setText(element: Element, value: string): Text {
+  const node = element.firstChild;
+  if (!(node instanceof Text)) return element.insertBefore(new Text(value), node);
+  if (node.data !== value) node.data = value;
+  return node;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** Update path data in place so a pointer held on an icon keeps its target. */
+export function icon(
+  paths: readonly string[],
+  svg = document.createElementNS(SVG_NS, "svg"),
+): SVGSVGElement {
   svg.setAttribute("class", "icon");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
-  for (const d of paths) {
-    const path = document.createElementNS(ns, "path");
-    path.setAttribute("d", d);
-    svg.append(path);
-  }
+  paths.forEach((d, i) => {
+    const path = svg.children[i] ?? svg.appendChild(document.createElementNS(SVG_NS, "path"));
+    if (path.getAttribute("d") !== d) path.setAttribute("d", d);
+  });
+  while (svg.children.length > paths.length) svg.lastElementChild?.remove();
   return svg;
 }
 
@@ -80,30 +92,26 @@ export class NavigationItems {
 }
 
 /** Preserve focus when a breakpoint or new ordering moves a control or one of its ancestors. */
-export function place(
-  parent: HTMLElement,
-  child: HTMLElement,
-  before: Element | null = null,
-): void {
+export function place(parent: HTMLElement, child: Node, before: Node | null = null): void {
   if (child.isConnected && parent.isConnected && typeof parent.moveBefore === "function") {
     parent.moveBefore(child, before);
   } else {
-    const active = child.ownerDocument.activeElement;
+    const active = parent.ownerDocument.activeElement;
     parent.insertBefore(child, before);
     if (active instanceof HTMLElement && child.contains(active))
       active.focus({ preventScroll: true });
   }
 }
 
-/** Update the package-owned element children without detaching controls that are already in place. */
-export function arrange(parent: HTMLElement, children: HTMLElement[]): void {
-  const keep = new Set<Element>(children);
-  for (const child of Array.from(parent.children)) {
+/** Update package-owned children without detaching nodes that are already in place. */
+export function arrange(parent: HTMLElement, children: readonly Node[]): void {
+  const keep = new Set<Node>(children);
+  for (const child of Array.from(parent.childNodes)) {
     if (!keep.has(child)) child.remove();
   }
-  let before = parent.firstElementChild;
+  let before = parent.firstChild;
   for (const child of children) {
-    if (child === before) before = child.nextElementSibling;
+    if (child === before) before = before.nextSibling;
     else place(parent, child, before);
   }
 }
