@@ -6,12 +6,10 @@ from pathlib import Path
 
 import pytest
 
+from iki_spec.first_party_dependencies import dependency_closures
 from iki_spec.model import Approval, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 from iki_spec.workflows import literal
-
-EXAMPLES = Path(__file__).parents[2]
-DNA = EXAMPLES / "plugins" / "dna"
 
 PLUGIN = """\
 apiVersion: iki/v1
@@ -174,7 +172,11 @@ GOOD = flow("""\
 
 
 def test_the_example_workflows_are_valid() -> None:
-    protein = load_plugin(EXAMPLES / "plugins" / "protein", dependencies=[DNA])
+    root = Path(__file__).resolve().parents[2]
+    protein_dir = root / "plugins" / "protein"
+    template_dir = root / "plugin-template"
+    dependencies = dependency_closures(root / "plugins", protein_dir, template_dir)
+    protein = load_plugin(protein_dir, dependencies=dependencies[protein_dir])
     assert protein.problems == []
     assert protein.plugin is not None
     flow_ = protein.plugin.workflows["translate_and_characterize"]
@@ -184,7 +186,7 @@ def test_the_example_workflows_are_valid() -> None:
     created = "$steps.translate.created.iki/protein.Protein"
     assert flow_.steps["properties"].inputs == {"protein": created}
 
-    template = load_plugin(EXAMPLES / "plugin-template", dependencies=[DNA])
+    template = load_plugin(template_dir, dependencies=dependencies[template_dir])
     assert template.problems == []
     assert template.plugin is not None
     assert template.plugin.workflows["store_sample"].order() == ["assign", "decode"]

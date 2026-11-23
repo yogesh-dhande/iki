@@ -1,14 +1,11 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
-#
-# Until a plugin registers synthetic polymers, a polymer lot names any entity. A polymer
-# plugin narrows `polymer` to its types (ADR 0162).
 apiVersion: iki/v1
 kind: EntityType
 name: PolymerLot
 label: Polymer lot
 label_plural: Polymer lots
 extends: Lot
-schema_version: 1
+schema_version: 2
 description: >-
   A lot of a synthetic polymer: one synthesis's chains, whose lengths vary, so it has
   its own molecular weight distribution: its number-average (Mn) and weight-average
@@ -23,11 +20,11 @@ amount:
 fields:
   polymer:
     type: ref
-    to: iki/core.Entity
+    to: iki/polymer.Polymer
     label: Lot of
     required: true
     immutable: true
-    description: The polymer it's a lot of.
+    description: The registered polymer design this lot contains.
   mn:
     type: quantity
     label: Mn

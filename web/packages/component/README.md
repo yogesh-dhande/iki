@@ -23,7 +23,9 @@ Iki sets three properties on the element, each again whenever it changes:
 - `entities`: for a component that declares `entities` in its manifest,
   what fills its place, a page at a time: `items` (each with `id`, `hrid`,
   `title`, `type`, `revision`, `project`, the fields it reads in `values`
-  and the entities they name in `refs`), whether there are `more`, whether
+  and the entities they name in `refs`). For a person named by those
+  fields, `item.people?.[id]?.name` gives their display name. The page also
+  says whether there are `more`, whether
   it's `limited` (it holds as many as its `limit`), whether a page is
   `loading`, an `error` if its search was refused, and the `refinement` in
   force.
@@ -77,7 +79,10 @@ again on its server:
   names only the fields the component reads, and `hrid`, with at most 20
   conditions, 4 levels deep. A sort replaces the place's; text is added only
   when the place has none.
-- `open` opens only an entity the component was given.
+- `open(element, hrid)` opens the page of an entity the component received.
+  `open(element, recordUuid, revision)` opens the historical revision as JSON. The
+  host requires a readable reference and the exact `record_id` and `record_revision` in
+  a stored row. A row for a registry-backed record uses `entry_id` for the reference and can open the corresponding `entry_revision`.
 - Picking entities offers Iki's run page, with those of the declared type
   the person can read. A component writes nothing itself.
 

@@ -15,7 +15,7 @@ finds them all, and each has the measurements its kind needs:
 | `iki/lots.PlasmidPrep`  | `PREP-000001`  | `iki/plasmid.Plasmid`                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
 | `iki/lots.ProteinLot`   | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex` | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
 | `iki/lots.ConjugateLot` | `CJLOT-000001` | `iki/conjugate.Conjugate`                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
-| `iki/lots.PolymerLot`   | `PYLOT-000001` | any entity, until polymers are registered | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
+| `iki/lots.PolymerLot`   | `PYLOT-000001` | `iki/polymer.Polymer`                     | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
 | `iki/lots.GenericLot`   | `GLOT-000001`  | any entity                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
@@ -67,6 +67,38 @@ its method, SEC purity and aggregates, endotoxin and formulation.
   Starting on the expiry date, all draws, transfers out and splits are
   blocked, including QA samples. The date check applies immediately, even
   before QA changes the disposition.
+
+## Verify a plasmid prep
+
+Open the physical `PlasmidPrep` and its **Verification** tab to find the
+results for that prep. `verified_by` records the method. Each
+`iki/lots.PlasmidVerification` preserves an evidence submission and its
+review history, including discrepancies and inconclusive results.
+
+1. Run `record_plasmid_verification` for the prep. Select an existing alignment
+   of its reads, attach an externally reviewed report, or supply both. Record
+   the observed outcome (`match`, `discrepancy` or `inconclusive`) and any
+   notes needed to interpret it, such as incomplete coverage.
+2. Iki checks that the alignment's reference is the DNA sequence registered
+   for the prep's plasmid. It records which project plasmid record and
+   revision the action read, along with the alignment and its revision or
+   the uploaded file. The reference revision is captured when the verification
+   action launches. The alignment retains its original file and the provenance
+   of the comparison that produced it. These evidence references stay pinned
+   through review.
+3. Assign a Verification reviewer in the project. At deployment, the
+   `iki/lots` setting `verification_flow` selects the review path for new
+   verifications. The record keeps the flow selected at creation.
+
+| Setting              | Signed transitions                                                                                                                    |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `research` (default) | From Recorded, the assigned reviewer signs off the outcome.                                                                           |
+| `regulated_qc`       | A Verification analyst signs submission, an independent assigned reviewer signs review, and an independent Lot QA signer releases it. |
+
+A correction to the outcome, notes or reviewer returns the result to Recorded
+for a new review. Record new evidence as another verification of the same
+prep. A prep can therefore have several reported observations, each with its
+own reference revision, file and decision.
 
 ## Actions
 
@@ -178,10 +210,11 @@ measurements; it depends on `iki/lots`. Its
 lots have the same disposition, certificates and QA, and a search of
 `iki/lots.Lot` finds them. The immutable `ConjugateLot.conjugate` points to
 the registered conjugate. Its lot keeps the distribution measured on the
-physical sample. Different lots can report different distributions for the
-same design. The deployment checks existing lot references when upgrading
-(ADR 0136). `PolymerLot.polymer` accepts any entity until polymers have a
-registration type.
+physical sample. The immutable `PolymerLot.polymer` points to the registered
+polymer design. Each batch records its own Mn, Mw and measurement methods.
+Two batches of the same polymer can therefore have different distributions
+and dispersities. The deployment checks existing lot references when
+upgrading (ADR 0136).
 
 ## Licences
 

@@ -77,7 +77,7 @@ def state_fields(type_name: str) -> dict[str, Field]:
     order they're declared. Empty for a type without any."""
     from iki_server.entities.values import shape
 
-    if type_name not in registry.types():
+    if type_name == "iki/core.Entity" or type_name not in registry.types():
         return {}
     form = shape(type_name)
     return {

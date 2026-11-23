@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod annotation;
 pub mod expressions;
 pub mod helm;
 pub mod rules;
@@ -571,12 +572,28 @@ pub mod exports {
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
+    /// Describes which origins a destination's guards rule out, and frees the input.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_state_origins() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::rules::flow::read_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
     /// Reads the HELM strings in the input buffer (see [`super::helm::read_json`]), and
     /// frees it.
     #[unsafe(no_mangle)]
     pub extern "C" fn iki_helm() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::helm::read_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Annotates a DNA sequence from the feature library.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_annotate_dna_sequence() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::annotation::annotate_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

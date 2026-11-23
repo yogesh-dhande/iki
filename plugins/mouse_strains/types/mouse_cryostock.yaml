@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: MouseCryostock
+label: Mouse cryostock
+schema_version: 1
+hrid: { prefix: MCS }
+sample: true
+description: One physical carrier of cryopreserved embryos or sperm from a registered mouse strain.
+storage: { barcode: barcode, confirm: [draw] }
+amount:
+  unit: uL
+  label: Suspension volume
+  description: The measured volume remaining when the lab tracks volume.
+  material: strain
+fields:
+  strain:
+    type: ref
+    to: MouseStrain
+    required: true
+    immutable: true
+    description: The strain from which the material was banked.
+  kind:
+    type: enum
+    values: [embryos, sperm]
+    required: true
+    immutable: true
+    indexed: true
+  banked_on:
+    type: date
+    required: true
+    indexed: true
+    label: Banked on
+  genotype:
+    type: ref
+    to: MouseGenotype
+    description: >-
+      For embryos, a genotype record for those embryos if known.
+      For sperm, the genotype record for the donor.
+  embryos_at_banking:
+    type: int
+    min: 1
+    description: The number of embryos placed in this carrier, when counted at banking.
+  barcode:
+    type: string
+    max_length: 64
+    unique: true
+    indexed: true
+    description: The printed code on the carrier. An unbarcoded carrier can be labelled with its HRID.
+  files:
+    type: list
+    items: { type: file }
+    max_items: 50
+    description: Data acquired from this material and the banking record.
+rules:
+  embryo_count_applies_to_embryos:
+    check: record.kind == "embryos" || record.embryos_at_banking == null
+    message: An embryo count belongs to an embryo stock.
+    fields: [embryos_at_banking]
+  genotype_from_strain:
+    when: record.genotype != null
+    check: record.genotype.strain == record.strain.id
+    message: Select a genotype record for the strain that supplied this stock.
+    fields: [genotype, strain]
+draw_guards:
+  preserve_carrier_provenance:
+    check: operation == "draw"
+    message: Draw the volume used from this banked carrier and link it to the receiving record.
+display:
+  title: "{{ kind }} · {{ barcode or hrid }}"

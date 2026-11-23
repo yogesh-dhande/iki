@@ -42,7 +42,8 @@ annotated from.
   - Its rules hold at every save, however it's written — by an action, through the API,
     by a bulk import or in a bundle
     ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)): a
-    plasmid's sequence is circular; one under a material transfer agreement names the
+    plasmid's sequence is double-stranded and its topology agrees with the sequence;
+    one under a material transfer agreement names the
     agreement; one at BSL-2 or above names its biosafety approval.
   - A plasmid here is **circular or linear**. Most are circles; linear plasmids are real
     — _Kluyveromyces lactis_ carries pGKL1 and pGKL2 (INSDC X01095.1 and X01104.1),
@@ -135,6 +136,25 @@ annotated from.
   were computed under, and `products_found`, which is more than one where the primers don't
   say which molecule they mean.
 
+## Find a vector's history and verification
+
+When a project knows which build supplied its material, set `source_assembly`
+to the project's assembly. The assembly's stated product must be the plasmid's
+registered sequence. Open that assembly for the backbone, inserts and cloning
+method. Leave the field empty for an externally sourced vector with unknown
+build history. The **Graph** also shows the provenance of registered products.
+Several assemblies can produce the same sequence. The plasmid record holds
+the hosts (including bacterial,
+mammalian, yeast and viral), copy number, biosafety level, annotated selection
+markers, replication origins and promoters. Its project record identifies the
+source and MTA.
+
+For the material in a particular tube, open its `iki/lots.PlasmidPrep` and
+the **Verification** tab. Each verification links the evidence and outcome
+to that physical prep and to a revision of the project's plasmid record.
+Opening a recorded result shows the reviewer and its sign-off history.
+[Prep verification in the lots plugin](../lots/README.md#verify-a-plasmid-prep)
+
 ## Lab roles
 
 A project's Admins give these to its members, beside their project role:
@@ -146,11 +166,18 @@ A project's Admins give these to its members, beside their project role:
 
 ## Actions
 
-They run on backend workers, in the `plasmid-tools` environment (Python 3.12 with
-Biopython, which the annotation's alignments and the digests' restriction enzymes use).
+They run on backend workers in the `plasmid-tools` environment (Python 3.12 with
+Biopython and Wasmtime). Wasmtime runs the Rust matcher for `annotate_dna_sequence`.
 `annotate_plasmid`, `assemble`, `check_assembly` and `virtual_digest` list Biopython
 1.88 as their software, so what their runs make is recorded as made with it
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
+
+The plugin pins the matcher in `data/dna-annotation.sha256`. When building a
+deployment, Iki verifies the installed `iki-spec` module against this digest and
+adds it to the worker image and downloadable plugin archive as
+`data/dna-annotation.wasm`. The archive includes the Rust standard library notice.
+In the source checkout, `scripts/build-dna-annotation-wasm.sh` builds both
+resources into `spec/src/iki_spec`. Run it with `--check` to verify the tracked digest.
 
 - **`register_plasmid`**: registers a plasmid from its bases — the double-stranded DNA
   sequence and the plasmid that is it. Its `topology` param is `circular` unless it's set
@@ -163,6 +190,11 @@ Biopython, which the annotation's alignments and the digests' restriction enzyme
   each project's own record, not once per entry, since the annotation is the record's.
   Its `length` and its `topology` are its entry's, so a run fills each only where it's
   still empty.
+- **`annotate_dna_sequence`**: records exact matches from the Routine cloning-vector
+  features library on a DNA sequence. Open the DNA sequence's **Sequence** tab to run
+  the annotation and view the matches, including the library version and original
+  accession. Double-stranded DNA is searched in both directions. Circular sequences
+  can have matches that span the origin.
 - **`assemble`**: works out the molecule a plan makes and registers it — the DNA
   sequence, and the plasmid that is it where the plan closes a circle, both
   `derived_from` the plan — so a map and primers can be had before anything is cloned,
@@ -201,14 +233,10 @@ CMV, SV40 early), terminators, affinity tags (6xHis, V5), the elements a lentivi
 vector is packaged by (the 5′ and 3′ LTRs, the packaging signal, the Rev response
 element, cPPT) and Gateway's attR1 and attR2.
 
-**Every part is the bases of a feature of a public-domain INSDC record**, taken at the
-location that record's own feature table gives, and each part names its record and
-location, so the library can be checked against it. NCBI places no restrictions on the
-use or distribution of GenBank's data; annotation sets whose terms don't allow this were
-left out, SnapGene's common features and Addgene's annotations among them.
-[`data/README.md`](data/README.md) lists every record, says which parts come from it,
-and gives the licence in full. `data/build_features.py` builds the file again from NCBI,
-checking what it writes.
+Each part comes from the location named in a public INSDC record's own feature table.
+[`data/README.md`](data/README.md) lists the sources and their terms.
+`data/build_features.py` regenerates both the plasmid library and the Routine
+cloning-vector features library.
 
 A part is looked for on both strands, and round the origin of a circular plasmid, in two
 steps, as BLAST-based annotators (pLannotate) do: the plasmid's 18-mers are indexed and

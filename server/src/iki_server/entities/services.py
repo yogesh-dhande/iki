@@ -86,6 +86,7 @@ from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
+from iki_server.setup import starter_flows
 from iki_spec.model import EntityType, Field, names_people
 
 __all__ = [
@@ -265,6 +266,8 @@ def create(
         hold_reason=hold_reason,
     )
     with transaction.atomic(), _unique_values():
+        if refused := starter_flows.refused_create(project, [type_name]):
+            raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
             _hold(saved, holding, user, hold_reason, saved.revision.number)
@@ -699,12 +702,15 @@ def prepare(
     kept = _kept(form)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
+    ledger_field = registry.draws_received(type_name)
     for name, value in values.items():
         f = fields.get(name)
         if f is None:
             errors[name] = [f"{type_name} has no field `{name}`."]
         elif name in kept:
             errors[name] = [kept[name]]
+        elif name == ledger_field:
+            errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -780,6 +786,7 @@ def update(
     acting_in: Project | None = None,
     taking: bool = False,
     allow_correction: bool = False,
+    _recording_draw: bool = False,
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -852,6 +859,7 @@ def update(
         )
         new: dict[str, Any] = {}
         for_entry: dict[str, Any] = {}
+        ledger_field = registry.draws_received(locked.type)
         for name, value in values.items():
             f = fields.get(name)
             if f is None:
@@ -862,7 +870,10 @@ def update(
             if name in kept:
                 errors[name] = [kept[name]]
                 continue
-            if f.computed and not by_run:
+            if name == ledger_field and not _recording_draw:
+                errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+                continue
+            if f.computed and not by_run and name != ledger_field:
                 errors[name] = ["is computed: only actions set it."]
                 continue
             if f.type == "state":
@@ -1314,6 +1325,14 @@ def values_at(
     """Every field's value as it was at revision ``number``, from the history tables: a
     record's own as of its revision, and its entry's as :func:`entry_at` says. With
     ``removed``, fields since removed too, as history kept them: null in revisions after."""
+    values, _ = values_and_entry_at(entity, number, entry_revision, removed=removed)
+    return values
+
+
+def values_and_entry_at(
+    entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
+) -> tuple[dict[str, Any], tuple[uuid.UUID, int] | None]:
+    """Read both the record values and the historical entry they were composed from."""
     form = shape(entity.type)
     is_entry = entity.registry_id is not None
     entry = entry_at(entity, number, entry_revision) if form.has_entries else None
@@ -1335,7 +1354,7 @@ def values_at(
         for name, f in part.fields.items():
             if removed or not f.removed:
                 out[name] = history_value(row, f) if row is not None else None
-    return out
+    return out, entry
 
 
 def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:

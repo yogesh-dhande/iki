@@ -1,4 +1,4 @@
-# Run with `iki plugin test plugins/lots --with plugins/dna --with plugins/protein --with plugins/antibody --with plugins/complex --with plugins/oligo --with plugins/plasmid` (ADR 0093).
+# Run all lots fixtures with `iki plugin test plugins/lots --with plugins/complex`.
 apiVersion: iki/v1
 kind: ActionTest
 name: a_complex_of_a_fab_and_its_antigen

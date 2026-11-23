@@ -2,7 +2,27 @@
 
 The `iki` command-line tool for plugin authors and deployments: the
 `iki plugin` commands `validate`, `build`, `makemigrations`, `preflight` and `test`,
-`iki bundle verify`, and `iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
+`iki bundle verify`, `iki deploy build`, and `iki starter` for assay setup.
+
+## `iki starter`
+
+Use `iki starter list --project "$SERVICE"` to see which starter versions and review
+flows are installed and which one the service project uses. Supply the service and
+requesting project UUIDs, and a membership UUID from the service project for each lab
+role. Repeat `--role` to assign a role to more than one member.
+
+```sh
+iki starter preview dose-response --version 1.0.0 --flow regulated_qc \
+  --project "$SERVICE" --requester-project "$REQUESTER" \
+  --role "iki/example_lims.coordinator=$COORDINATOR" \
+  --role "iki/plate_assays.analyst=$ANALYST" \
+  --role "iki/plate_assays.reviewer=$REVIEWER" \
+  --role "iki/plate_assays.qa=$QA"
+```
+
+Run `iki starter apply` with the same arguments to apply that setup. All three
+commands use the SDK's sign-in, or `IKI_URL` and `IKI_TOKEN`. Use `--url` to select
+a deployment and `--json` to print the complete API response.
 
 ## `iki plugin validate`
 
@@ -122,7 +142,7 @@ and checks what it writes: against `run-output/v1`, against what the action
 declares it changes, and against the test's `expect`.
 
 ```console
-$ iki plugin test plugins/protein --with plugins/dna
+$ iki plugin test plugins/protein
 Running 2 test(s) of iki/protein 0.8.0:
   ok      haemoglobin_alpha  (0.3s)
   FAILED  cystines  (0.2s)
@@ -130,6 +150,11 @@ Running 2 test(s) of iki/protein 0.8.0:
           updates.protein[0].values.extinction_coefficient_oxidized: expected 7115, got 6990
 1 passed, 1 failed in 0.5s.
 ```
+
+In the Iki source checkout, the command finds a first-party plugin’s declared
+dependencies under `plugins/`. Use `--with` for additional types used by a
+fixture, or to select an explicit copy of a dependency. When testing a plugin
+outside that tree, supply its dependencies with `--with`.
 
 The commands run on this machine, so install what their environments need
 first. It exits 1 if any test fails, or if a fixture doesn't match the
@@ -163,7 +188,7 @@ index doesn't count. If the migrations changed and the plugin's `version`
 didn't, it says so, and passes.
 
 ```console
-$ iki plugin test plugins/protein --with plugins/dna --upgrade-from origin/main \
+$ iki plugin test plugins/protein --upgrade-from origin/main \
     --database postgres://postgres@localhost:5432/postgres
 …
 Upgrading protein from 3f2a1c9b7e0d (0.7.0) to 0.8.0 on the scratch database

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Trigger
+name: inspect_new_polymer
+label: Inspect a newly registered polymer
+on: entity.created
+type: Polymer
+run: inspect_bigsmiles
