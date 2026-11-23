@@ -9,14 +9,14 @@ for use ([ADR 0162](../../docs/adr/0162-a-lot-is-a-projects-record-of-an-entrys-
 Every kind of lot extends one abstract type, so a search of `iki/lots.Lot`
 finds them all, and each has the measurements its kind needs:
 
-| Type                    | HRID           | Lot of                                      | Amount kept in | What's measured, and worked out                                                                                                                 |
-| ----------------------- | -------------- | ------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `iki/lots.OligoLot`     | `OLOT-000001`  | `iki/oligo.Oligonucleotide`                 | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
-| `iki/lots.PlasmidPrep`  | `PREP-000001`  | `iki/plasmid.Plasmid`                       | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
-| `iki/lots.ProteinLot`   | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex`   | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
-| `iki/lots.ConjugateLot` | `CJLOT-000001` | any entity, until conjugates are registered | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
-| `iki/lots.PolymerLot`   | `PYLOT-000001` | any entity, until polymers are registered   | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
-| `iki/lots.GenericLot`   | `GLOT-000001`  | any entity                                  | mg, by mg/mL   | Concentration and purity                                                                                                                        |
+| Type                    | HRID           | Lot of                                    | Amount kept in | What's measured, and worked out                                                                                                                 |
+| ----------------------- | -------------- | ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `iki/lots.OligoLot`     | `OLOT-000001`  | `iki/oligo.Oligonucleotide`               | nmol, by µM    | Synthesis scale, purification, counterion, purity; yield in OD260 and nmol; mass by ESI-MS against the one its HELM gives                       |
+| `iki/lots.PlasmidPrep`  | `PREP-000001`  | `iki/plasmid.Plasmid`                     | µg, by ng/µL   | Prep scale and method, kit, host strain; concentration from A260; A260/A280, A260/A230, supercoiled share, endotoxin; how it was verified       |
+| `iki/lots.ProteinLot`   | `PLOT-000001`  | `iki/protein.Protein`, `iki/core.Complex` | mg, by mg/mL   | Concentration from A280 and its sequence's ε280; purity and aggregates by SEC; endotoxin; formulation                                           |
+| `iki/lots.ConjugateLot` | `CJLOT-000001` | `iki/conjugate.Conjugate`                 | mg, by mg/mL   | As a protein lot's, with its own measured ε280; DAR from its drug load distribution (HIC, LC-MS, reduced chains), unconjugated share, free drug |
+| `iki/lots.PolymerLot`   | `PYLOT-000001` | any entity, until polymers are registered | mg             | Mn, Mw, Mp, dispersity (Mw/Mn), how each was measured and against which standards                                                               |
+| `iki/lots.GenericLot`   | `GLOT-000001`  | any entity                                | mg, by mg/mL   | Concentration and purity                                                                                                                        |
 
 `iki/lots.BiologicLot` is the abstract parent of the protein and conjugate
 lots: their A280, path length, dilution, ε280, concentration and
@@ -149,9 +149,9 @@ measured.
   measured.
 - **A conjugate's DAR**: each drug load weighted by its species' share of the
   area, of the intact conjugate (by HIC or intact LC-MS); or, of its reduced
-  chains, each chain's mean times the copies of it the conjugate has, which a
-  complex of them, such as an antibody, says: two of each in an IgG, one in a
-  Fab. A conjugate that doesn't say gets no reduced DAR. Shares are taken of
+  chains, each chain's mean times the number of copies in its conjugate's
+  registered antibody carrier. An IgG has two of each chain and a Fab has one.
+  The reduced DAR remains empty until both counts are available. Shares are taken of
   their sum. Its unconjugated share is DAR 0's share of the intact species'
   peak area: the molar share only if each species responds alike at the
   detection wavelength (a payload that absorbs there makes it an estimate). Brentuximab vedotin by HIC (Agilent
@@ -176,11 +176,12 @@ A plugin adds a kind of lot by extending `iki/lots.Lot`, or
 of, its own amount naming that reference as its `material`, and its own
 measurements; it depends on `iki/lots`. Its
 lots have the same disposition, certificates and QA, and a search of
-`iki/lots.Lot` finds them. Once a plugin registers conjugates or polymers,
-`ConjugateLot.conjugate` and `PolymerLot.polymer` narrow from any entity to
-its types, `iki/lots` depending on it, and the deploy checks that the lots
-already recorded fit (ADR 0136). Until then they name the conjugate or
-polymer however it's registered, or the antibody a conjugate is made from.
+`iki/lots.Lot` finds them. The immutable `ConjugateLot.conjugate` points to
+the registered conjugate. Its lot keeps the distribution measured on the
+physical sample. Different lots can report different distributions for the
+same design. The deployment checks existing lot references when upgrading
+(ADR 0136). `PolymerLot.polymer` accepts any entity until polymers have a
+registration type.
 
 ## Licences
 
