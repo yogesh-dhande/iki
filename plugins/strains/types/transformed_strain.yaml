@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: EntityType
+name: TransformedStrain
+label: Transformed strain
+label_plural: Transformed strains
+schema_version: 1
+description: A base strain carrying a particular set of registered plasmids.
+hrid: { prefix: TST }
+identity: [base, plasmids]
+fields:
+  base:
+    type: ref
+    to: BaseStrain
+    required: true
+    immutable: true
+    description: The base strain with its recorded genotype.
+  plasmids:
+    type: list
+    items: { type: ref, to: iki/plasmid.Plasmid }
+    min_items: 1
+    max_items: 32
+    required: true
+    immutable: true
+    description: Each distinct plasmid carried by the strain, in any order.
+  name:
+    type: string
+    max_length: 255
+    indexed: true
+rules:
+  distinct_plasmids:
+    label: Each plasmid occurs once
+    check: record.plasmids.all(p, record.plasmids.exists_one(q, q.id == p.id))
+    message: List each plasmid only once. The strain is identified by its base and the set of plasmids.
+    fields: [plasmids]
+display:
+  title: "{{ name or hrid }}"

@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
     _orm_beside_playwright,
     assert_clean,
@@ -21,6 +21,7 @@ from test_browser import (  # noqa: F401 - fixtures
 
 from iki_server.entities import services as entities
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.searches.models import SavedSearch
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -104,6 +105,35 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
     assert "/projects/" not in page.url
     assert_clean(page)
+
+
+def test_escape_restores_the_sidebar_link_after_its_saved_views_arrive(
+    open_as: Any, world: World
+) -> None:
+    saved = SavedSearch.objects.create(
+        project=world.project, name="My recent work", query={}, created_by=world.users["admin"]
+    )
+    page = open_as("admin", "/projects/")
+    saved_link = page.locator("#sidebar").get_by_text(saved.name, exact=True)
+    saved_link.wait_for()
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    # Hold the real saved-views response until focus is inside the palette.
+    with page.expect_request(saved_views):
+        page.reload()
+    opener = page.get_by_role("link", name="All projects", exact=True)
+    opener.focus()
+    dialog = open_palette(page)
+    expect(dialog.get_by_role("combobox")).to_be_focused()
+
+    assert len(deferred) == 1
+    deferred[0].continue_()
+    saved_link.wait_for(state="attached")
+    expect(dialog.get_by_role("combobox")).to_be_focused()
+    page.keyboard.press("Escape")
+    expect(dialog).to_be_hidden()
+    expect(opener).to_be_focused()
 
 
 # What the palette's parts measure, as the reader sees them: the input row, the first
