@@ -141,7 +141,10 @@ def _prepared_annotation(directory: Path, output: Path) -> Path:
     is verified on every host, including for a local checkout."""
     relative = Path("data/dna-annotation.wasm")
     generated = directory / relative
-    marker = generated.with_suffix(".sha256")
+    marker = generated.with_name(generated.name + ".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Older pinned plugin trees used the marker without the module suffix.
+        marker = generated.with_suffix(".sha256")
     if not marker.exists() and not marker.is_symlink():
         return directory
     notice = generated.with_name("rust-standard-library.html")
@@ -162,9 +165,13 @@ def _prepared_annotation(directory: Path, output: Path) -> Path:
                 f"iki-spec lacks {path.name}. Run scripts/build-dna-annotation-wasm.sh."
             )
         resources[path.name] = installed.read_bytes()
-    digest = hashlib.sha256(resources[generated.name]).hexdigest().encode("ascii")
-    if digest != marker.read_bytes().strip():
-        raise ValueError("The DNA annotation module in iki-spec differs from the pinned digest.")
+    digest = hashlib.sha256(resources[generated.name]).hexdigest()
+    expected = marker.read_bytes().strip()
+    if digest.encode("ascii") != expected:
+        raise ValueError(
+            f"{generated.name} in iki-spec differs from the pinned digest. "
+            f"Expected {expected.decode('ascii', errors='backslashreplace')}, actual {digest}."
+        )
 
     return _stage_resources(directory, output, relative, resources)
 

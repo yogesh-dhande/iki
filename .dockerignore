@@ -29,6 +29,9 @@
 !tsconfig.base.json
 !scripts/build-oligo-wasm.sh
 !scripts/build-dna-annotation-wasm.sh
+!scripts/verify-server-wasm.sh
+!plugins/plasmid/data/dna-annotation.wasm.sha256
+!plugins/dna/data/oligo-measurement.sha256
 !web/
 **/node_modules/
 web/**/dist/

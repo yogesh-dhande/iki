@@ -154,6 +154,29 @@ Iki connects to Postgres as two roles (ADR 0025):
 The container image (`server/Dockerfile`, built from the repo root) runs
 `iki-server serve` as UID 10001.
 
+### Server image Wasm artifacts
+
+Publishing builds all three Wasm modules once on a native Linux AMD64 runner.
+The native AMD64 and ARM64 image jobs use the same exported files and check
+them against their SHA-256 pins in Git before packaging them. The
+pull-request image check uses this build path on both architectures and runs
+the final ARM64 image on an ARM64 runner.
+
+To reproduce the payload on native Linux AMD64, run this from the repository root.
+
+```sh
+docker buildx build --platform linux/amd64 --file server/Dockerfile \
+  --target server-wasm-artifacts --output type=local,dest=build/server-wasm .
+scripts/verify-server-wasm.sh build/server-wasm
+```
+
+When a source or toolchain update changes the output, review the SHA-256 values
+and update the corresponding pins in `server/iki_wasm.wasm.sha256`,
+`plugins/plasmid/data/dna-annotation.wasm.sha256`, and
+`plugins/dna/data/oligo-measurement.sha256`. To build an image from the
+verified payload on either architecture, pass
+`--build-context server-wasm-artifacts=build/server-wasm` to the image build.
+
 ## Configuration
 
 Everything comes from environment variables. Required values have no default,

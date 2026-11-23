@@ -5,9 +5,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 image=$(scripts/build-wasm-image.sh)
-# Verify the exact resource the dev deployment will use, on the release architecture.
-printf '%s  /src/worker/oligo-measurement.wasm\n' "$(<plugins/dna/data/oligo-measurement.sha256)" |
-  docker run --rm -i --network none --platform linux/amd64 "$image" sha256sum --check --strict -
 # The server's and the worker's builds may run it at once: each writes its own copy,
 # then moves it into place.
 container="$(docker create --platform linux/amd64 "$image")"
@@ -18,5 +15,6 @@ for file in target/wasm32-unknown-unknown/release/iki_wasm.wasm oligo-measuremen
   docker cp "$container:/src/worker/$file" - | tar -xO > "$tmp/$name"
   chmod 644 "$tmp/$name"
 done
-# Validate every Docker copy before replacing files from a previous successful build.
+# Verify the staged canonical bytes before replacing any installed resource.
+scripts/verify-server-wasm.sh "$tmp"
 mv "$tmp"/* spec/src/iki_spec/

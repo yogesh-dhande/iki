@@ -3383,8 +3383,8 @@ export interface paths {
         put?: never;
         /**
          * Complete a reconciliation
-         * @description Applies every resolution as one change. Refused (422) if anything moved into or out of
-         *     the container since it started.
+         * @description Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
+         *     that needs review or a change in the container's recorded contents returns 422.
          */
         post: operations["iki_server_api_storage_complete_reconciliation"];
         delete?: never;
@@ -3406,7 +3406,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Resolve a reconciliation's line */
+        /**
+         * Resolve a reconciliation's line
+         * @description Saves or clears a line decision for the reviewed revision. Returns 409 if the
+         *     observations or another decision changed in the meantime.
+         */
         patch: operations["iki_server_api_storage_resolve_line"];
         trace?: never;
     };
@@ -5887,6 +5891,12 @@ export interface components {
         /** ApplyIn */
         ApplyIn: {
             /**
+             * Planned At
+             * Format: date-time
+             * @description The planned_at of the plan being confirmed.
+             */
+            planned_at: string;
+            /**
              * Reason
              * @description Why: the import and the audit log keep it.
              */
@@ -6787,6 +6797,11 @@ export interface components {
              * @default
              */
             note: string;
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
         };
         /** ComponentEntitiesIn */
         ComponentEntitiesIn: {
@@ -9717,6 +9732,11 @@ export interface components {
              * @default 50
              */
             limit: number;
+            /**
+             * Planned At
+             * @description Read this revision of the plan. A newer plan answers 409.
+             */
+            planned_at?: string | null;
         };
         /** ImportFiles */
         ImportFiles: {
@@ -9756,6 +9776,25 @@ export interface components {
              */
             size: number;
         };
+        /** ImportMemberParams */
+        ImportMemberParams: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Planned At
+             * @description Read this revision of the plan. A newer plan answers 409.
+             */
+            planned_at?: string | null;
+        };
         /** ImportOut */
         ImportOut: {
             /** Applied At */
@@ -9784,7 +9823,10 @@ export interface components {
             name: string;
             /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
             plan: components["schemas"]["ImportPlan"] | null;
-            /** Planned At */
+            /**
+             * Planned At
+             * @description Revision of the published plan. Pass this value unchanged when applying it.
+             */
             planned_at: string | null;
             /**
              * Project
@@ -9968,7 +10010,10 @@ export interface components {
             parts: components["schemas"]["PartOut"][];
             /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
             plan: components["schemas"]["ImportPlan"] | null;
-            /** Planned At */
+            /**
+             * Planned At
+             * @description Revision of the published plan. Pass this value unchanged when applying it.
+             */
             planned_at: string | null;
             /**
              * Project
@@ -13029,7 +13074,7 @@ export interface components {
              * Finding
              * @enum {string}
              */
-            finding: "matched" | "missing" | "unexpected" | "wrong_slot" | "unchecked" | "empty" | "checked_out";
+            finding: "matched" | "missing" | "unexpected" | "wrong_slot" | "unchecked" | "empty" | "checked_out" | "no_longer_found";
             /**
              * Found
              * @description Where it was scanned.
@@ -13045,6 +13090,11 @@ export interface components {
             ref: components["schemas"]["RefOut"] | null;
             /** Resolution */
             resolution: ("moved" | "removed" | "placed" | "kept") | null;
+            /**
+             * Resolution Stale
+             * @description The open count's saved decision needs review.
+             */
+            resolution_stale: boolean;
             resolved_by: components["schemas"]["UserOut"] | null;
         };
         /** ReconciliationOut */
@@ -13068,6 +13118,11 @@ export interface components {
             lines: components["schemas"]["ReconciliationLineOut"][];
             /** Note */
             note: string;
+            /**
+             * Plan Revision
+             * @description The version of the count's observations and decisions.
+             */
+            plan_revision: number;
             shape: components["schemas"]["ShapeOut"];
             /**
              * Started At
@@ -13550,6 +13605,11 @@ export interface components {
              * @default
              */
             note: string;
+            /**
+             * Plan Revision
+             * @description The revision of the reconciliation plan being reviewed.
+             */
+            plan_revision: number;
             /**
              * Resolution
              * @description `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
@@ -21695,6 +21755,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Read this revision of the plan. A newer plan answers 409. */
+                planned_at?: string | null;
                 action?: ("new" | "update" | "skip" | "conflict") | null;
             };
             header?: never;
@@ -21749,6 +21811,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Read this revision of the plan. A newer plan answers 409. */
+                planned_at?: string | null;
             };
             header?: never;
             path: {

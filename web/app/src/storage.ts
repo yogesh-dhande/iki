@@ -190,6 +190,7 @@ export const FINDINGS: Record<Finding, string> = {
   unchecked: "Not scanned yet",
   empty: "Empty",
   checked_out: "Checked out",
+  no_longer_found: "No longer found",
 };
 
 export const RESOLUTIONS: Record<Resolution, string> = {

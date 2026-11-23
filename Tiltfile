@@ -96,6 +96,7 @@ custom_build(
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
         'scripts/build-oligo-wasm.sh', 'scripts/build-dna-annotation-wasm.sh',
+        'scripts/verify-server-wasm.sh',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
@@ -123,6 +124,7 @@ custom_build(
         'worker/crates', 'worker/.cargo', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
         'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
         'server/Dockerfile', 'scripts/build-oligo-wasm.sh', 'scripts/build-dna-annotation-wasm.sh',
+        'scripts/verify-server-wasm.sh', 'server/iki_wasm.wasm.sha256',
         # What `iki deploy build --workers` reads and runs.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',
