@@ -21,6 +21,7 @@
     "src/restriction-map.ts",
     "src/plasmid-map.ts",
     "src/plasmid-thumbnail.ts",
+    "src/virtual-gel.ts",
     "src/sequence-viewer.tsx",
     "src/alignment-compare.ts",
     "src/alignment-viewer.tsx",

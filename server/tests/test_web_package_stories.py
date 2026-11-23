@@ -127,6 +127,23 @@ def test_standalone_story(
             expect(page.locator(".alignment-at")).to_contain_text("reference, column 4")
             page.get_by_role("checkbox", name="Select Sample A").check()
             expect(page.locator("output")).to_have_text("Selected: a")
+        elif component == "virtual-gel":
+            chart = page.get_by_role("img", name="Virtual gel band pattern")
+            expect(chart).to_be_visible()
+            mark = chart.get_by_text("1.517 kb", exact=True).bounding_box()
+            band = chart.get_by_title("NEB 100 bp DNA Ladder · 1,517 bp").bounding_box()
+            assert mark is not None and band is not None
+            assert abs(mark["y"] + mark["height"] / 2 - band["y"] - band["height"] / 2) <= 1
+            page.get_by_text("Band details", exact=True).press("Enter")
+            details = page.get_by_role("table", name="Gel band sizes and masses")
+            # NEB reports a combined 500/517 bp band for N3231 and a 10,002 bp
+            # band for N3232. https://www.neb.com/products/n3231-100-bp-dna-ladder
+            # https://www.neb.com/products/n3232-1-kb-dna-ladder
+            expect(details.get_by_role("cell", name="500 / 517", exact=True)).to_be_visible()
+            page.get_by_role("combobox", name="DNA ladder").select_option("neb-1-kb")
+            page.get_by_role("combobox", name="Agarose (%)").select_option("2")
+            expect(page.get_by_text("2% agarose", exact=True)).to_be_visible()
+            expect(details.get_by_role("cell", name="10,002", exact=True)).to_be_visible()
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(
