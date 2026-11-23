@@ -2855,6 +2855,46 @@ fields:
 """
 
 
+def test_a_draw_destination_declares_one_computed_receipt_field(tmp_path: Path) -> None:
+    parent = (
+        TYPE.replace("hrid: { prefix: ASY }", "abstract: true")
+        + """
+draws_received: material_draws
+fields:
+  material_draws: { type: json, computed: true }
+"""
+    )
+    child = """
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Experiment
+schema_version: 1
+extends: Assay
+hrid: { prefix: EXPT }
+"""
+    result = make(tmp_path, parent + child)
+    assert result.problems == []
+    assert result.plugin is not None
+    restored = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
+    assert restored.types["acme/lab.Assay"].draws_received == "material_draws"
+    assert restored.types["acme/lab.Experiment"].extends == "acme/lab.Assay"
+    assert codes(make(tmp_path, parent + child + "draws_received: other\n")) == [
+        "draws-received-field"
+    ]
+    for declaration in (
+        "type: text, computed: true",
+        "type: json",
+        "type: json, computed: true, immutable: true",
+    ):
+        assert "draws-received-field" in codes(
+            make(tmp_path, parent.replace("type: json, computed: true", declaration))
+        )
+    assert "draws-received-field" in codes(
+        make(tmp_path, parent.replace("draws_received: material_draws", "draws_received: missing"))
+    )
+
+
 def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
     """ADR 0139: kept in a unit that adds up, drawn by its concentration, split into
     aliquots of another type, and held in a state."""

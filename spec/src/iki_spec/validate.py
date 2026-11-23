@@ -777,6 +777,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         if isinstance(body.get("result"), dict)
         else None,
         amount=_amount(body.get("amount"), plugin),
+        draws_received=body.get("draws_received"),
         storage=_storage(body.get("storage"), plugin),
         refines={
             name: {
@@ -1354,8 +1355,46 @@ class _Semantics:
         if entity_type.result is not None:
             self.result(entity_type, source, every)
         self.amount(entity_type, source, every)
+        self.draws_received(entity_type, source, every)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
+
+    def draws_received(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """One ledger field is inherited through the type's lineage. Every receipt must
+        be a new value on a project's record that starts empty."""
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        declarations = [t.draws_received for t in lineage if t.draws_received is not None]
+        if not declarations:
+            return
+        name = declarations[0]
+        field = every[name][0] if name in every else None
+        if len(set(declarations)) != 1:
+            self.add(
+                "draws-received-field",
+                "A subtype keeps its parent's material draw field.",
+                source,
+                ("draws_received",),
+            )
+        elif (
+            field is None
+            or field.type != "json"
+            or not field.computed
+            or field.removed
+            or field.immutable
+            or field.required
+            or field.has_default
+            or field.registry is not None
+            or any(name in t.identity for t in lineage)
+        ):
+            self.add(
+                "draws-received-field",
+                f"`{name}` must be an optional computed JSON field on the project's record "
+                "that starts empty and can receive later draws.",
+                source,
+                ("draws_received",) if entity_type.draws_received else ("name",),
+            )
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 

@@ -102,6 +102,14 @@ record that received some, once per pair (ADR 0123). Upstream and downstream
 walks follow them like references, so a recall, or a donor's withdrawn
 consent, reaches everything split or pooled from a sample.
 
+A destination type can declare `draws_received` to include draw evidence in
+its own revision (ADR 0189). The draw appends the ledger movement ID, the
+material record and revision, the normalized amount and unit, and who drew
+it and when. When the draw came from a container, the receipt can also name
+its upstream lot and revision under the receiving project's sharing rules.
+Iki locks the participating records before writing the debit and receipt in
+one transaction. A locked destination refuses the draw.
+
 **A state can hold it.** A state with `holds_amount: true` (a quarantine, a
 rejection, a sample not yet received) refuses draws, transfers out and
 splits while the record is in it. Adjusting still works, because a recount is
