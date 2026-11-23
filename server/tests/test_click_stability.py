@@ -215,10 +215,17 @@ def test_descendant_shift_cannot_establish_a_control_hit_area_change(
         assert records == []
 
 
+@pytest.mark.parametrize("resize_event", [True, False], ids=["event", "viewport-confirmation"])
 def test_viewport_resize_suppresses_a_pre_press_shift(
-    detector_page: tuple[Page, list[dict[str, Any]]], detector_browser: Browser
+    detector_page: tuple[Page, list[dict[str, Any]]],
+    detector_browser: Browser,
+    resize_event: bool,
 ) -> None:
     page, records = detector_page
+    if not resize_event:
+        if detector_browser.browser_type.name != "chromium":
+            pytest.skip("Only Chromium records layout shifts around a test resize")
+        page.evaluate("window.addEventListener('resize', e => e.stopImmediatePropagation(), true)")
     page.set_viewport_size({"width": 700, "height": 700})
     page.evaluate(NEXT_FRAMES)
     page.mouse.click(220, 30)

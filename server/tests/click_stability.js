@@ -18,7 +18,6 @@
   ].join(",");
   const presses = new Map();
   let recent = [];
-  let expectedResize;
   let resizeFrames = [];
 
   function parent(element) {
@@ -112,27 +111,24 @@
 
   if (observer) {
     const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
+    const sameSize = (first, second) =>
+      first.width === second.width && first.height === second.height;
+    let expectedResize;
     window.__ikiMarkTestResize = (requested) => {
       expectedResize = { requested, before: viewport(), at: performance.now() };
     };
-    window.addEventListener("resize", () => {
+
+    function noteResize() {
       if (!expectedResize) return;
-      const at = performance.now();
       const { requested, before, at: requestedAt } = expectedResize;
-      expectedResize = undefined;
       const after = viewport();
-      if (
-        at - requestedAt > lookback ||
-        (before.width === after.width && before.height === after.height) ||
-        (window === window.top &&
-          (after.width !== requested.width || after.height !== requested.height))
-      ) {
-        return;
-      }
+      if (sameSize(before, after) || (window === window.top && !sameSize(requested, after))) return;
+      expectedResize = undefined;
+      const at = performance.now();
       const frame = { resize: { at, requestedAt, requested, before, after }, until: Infinity };
       resizeFrames = resizeFrames.filter(({ until }) => until >= at - lookback);
       resizeFrames.push(frame);
-      // The resize event is delivered before callbacks for the first affected frame.
+      // Leave both affected frames inside the window.
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           window.requestAnimationFrame(() => {
@@ -140,7 +136,22 @@
           });
         });
       });
-    });
+    }
+
+    window.addEventListener("resize", noteResize);
+    window.__ikiFinishTestResize = () => {
+      noteResize();
+      const request = expectedResize;
+      if (!request) return;
+      // A frame whose dimensions stayed the same must not tag a later app-driven resize.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (expectedResize !== request) return;
+          noteResize();
+          expectedResize = undefined;
+        });
+      });
+    };
   }
 
   function inRect({ x, y }, rect) {
@@ -156,8 +167,10 @@
     return shifts.map(({ entry, source, node }) => {
       const at = entry.startTime;
       const phase = at < press.down.at ? "pre-press" : "in-press";
+      // Use the validated request's start because a shift may precede the resize event.
       const testResize =
-        resizeFrames.findLast(({ resize, until }) => resize.at <= at && at < until)?.resize ?? null;
+        resizeFrames.findLast(({ resize, until }) => resize.requestedAt <= at && at < until)
+          ?.resize ?? null;
       // Chromium supplies viewport-clipped rectangles for its attributed nodes. A related
       // node's rectangles alone cannot say whether the interactive element moved.
       const control = controlSources.get(entry);

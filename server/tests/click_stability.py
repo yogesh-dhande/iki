@@ -26,12 +26,17 @@ def install(
         set_viewport_size = page.set_viewport_size
 
         def resize(viewport_size: ViewportSize) -> None:
-            if viewport_size != page.viewport_size:
-                for frame in page.frames:
-                    # A document can navigate or detach before the viewport changes.
+            frames = page.frames if viewport_size != page.viewport_size else []
+            for frame in frames:
+                # A document can navigate or detach before the viewport changes.
+                with suppress(Error):
+                    frame.evaluate("size => window.__ikiMarkTestResize?.(size)", viewport_size)
+            try:
+                set_viewport_size(viewport_size)
+            finally:
+                for frame in frames:
                     with suppress(Error):
-                        frame.evaluate("size => window.__ikiMarkTestResize?.(size)", viewport_size)
-            set_viewport_size(viewport_size)
+                        frame.evaluate("() => window.__ikiFinishTestResize?.()")
 
         monkeypatch.setattr(page, "set_viewport_size", resize)
 
