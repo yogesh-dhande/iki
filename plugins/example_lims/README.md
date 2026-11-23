@@ -34,17 +34,16 @@ It shows the parts of Iki such a plugin needs:
 - **`Sample`**, a protein's sample as the lab tests it, with a `status`
   state field
   ([ADR 0125](../../docs/adr/0125-a-state-is-a-field-each-state-says-who-sets-it.md)):
-  Registered, Received, In testing, In review, then Approved, Released or
-  Rejected. Each state says which lab roles set it, from any other:
-  Coordinators register and receive samples, Analysts test and submit
-  them, Reviewers approve them, and QA releases or rejects them. Setting a sample
-  to Registered, In testing or Rejected requires a reason. Saving a correction to an
-  Approved sample also returns it to In testing and records the editor and reason. Released
-  and Rejected lock its values until an authorized person changes the status.
+  Coordinators register and receive samples. Analysts test and submit them,
+  reviewers approve them, and QA releases or rejects them. Saving a correction to
+  an Approved sample returns it to In testing and records the editor and reason.
+  Released and Rejected lock the sample's values. For a released sample, someone
+  with the QA role signs a reasoned return to testing before an analyst can edit
+  it again. The original release and its signature stay in the sample's history.
 - **Electronic signatures** under 21 CFR Part 11
   ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
   setting a sample In review is its analyst's signature of authorship,
-  Approved the reviewer's, and Released or Rejected QA's. Each signer signs
+  Approved the reviewer's, and Released, Rejected or Returned to testing QA's. Each signer signs
   in again at the identity provider
   ([ADR 0124](../../docs/adr/0124-signing-signs-in-again-at-the-identity-provider.md)),
   and the sample's page shows each signature: who, when, and what it means,
@@ -53,12 +52,12 @@ It shows the parts of Iki such a plugin needs:
 - **Guards** on its status
   ([ADR 0128](../../docs/adr/0128-guards-say-when-a-state-may-be-set.md)),
   conditions on top of who may set a state. A sample moves along its process:
-  it's submitted for review from In testing, once its result is recorded, and
-  approved from In review, released once approved, and rejected once in review
-  or approved. Whoever submitted it for review can't approve it, and whoever
-  approved it can't release it (four eyes). Recording or changing its purity,
-  concentration, result or testing notes since it entered In testing also
-  disqualifies the editor from approval and release. A reviewer can still
+  an analyst submits it for review after testing or retesting, once its result is
+  recorded. A reviewer approves it from In review. QA releases an approved sample
+  and can reject it from In review or Approved. Whoever submitted it for review
+  can't approve it, and whoever approved it can't release it (four eyes). Anyone
+  who records or changes purity, concentration, result or testing notes during
+  the current testing or retesting cycle also can't approve or release it. A reviewer can still
   claim their assignment. Guards are checked as each
   signature is given, with its signer acting, so nobody signs a change a guard
   refuses. Where one won't let someone sign, the sample's page says why.
@@ -74,8 +73,8 @@ It shows the parts of Iki such a plugin needs:
   ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
   its `analyst`, `reviewer` and `qa`, each someone in the project with that
   lab role, and its `due_on` date. Each is assigned the sample in its turn:
-  the analyst while its status is Received or In testing, the reviewer while it's In
-  review, QA once it's Approved, and it's on their My work, soonest due
+  the analyst while its status is Received, In testing or Returned to testing, the
+  reviewer while it's In review, and QA once it's Approved. It's on their My work, soonest due
   first. A received sample nobody has is open to everyone with the
   Analyst role, who can take it. An approved sample is locked, its people
   with it, so its QA is named before it's approved; if nobody is, it's open
