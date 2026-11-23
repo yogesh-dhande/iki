@@ -11,9 +11,9 @@ from the location of the record's own feature, and checks what it writes: every 
 bases are A, C, G or T, no two parts are one sequence, each part's length is the length
 its location gives, and each part is found in the record it came from.
 
-Nothing here is Iki's judgement of where a part lies: each part's location is a feature
-of a public-domain INSDC record, named in `source`, so the library can be checked against
-it. Parts a record annotates only as a point (a rep_origin at one base) are left out.
+Each part's location is a feature of a public INSDC record, named in `source`, so the
+library can be checked against it. Parts a record annotates only as a point (a
+rep_origin at one base) are left out.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -343,6 +344,53 @@ RECORDS = {
 #: says which library found it.
 VERSION = "1.0"
 
+DNA_LIBRARY_NAME = "Routine cloning-vector features"
+DNA_LIBRARY_VERSION = "1.0"
+DNA_PARTS = {
+    "OL989372.1": {
+        "ori",
+        "rop",
+        "lacI",
+        "lacI promoter",
+        "T7 promoter",
+        "lac operator",
+        "6xHis",
+        "thrombin site",
+        "T7 terminator",
+    },
+    "FJ457000.1": {"CEN6", "ARSH4"},
+}
+
+
+def dna_subset() -> None:
+    """Build the DNA annotation library from checked-in, accession-pinned vector parts."""
+    source = Path(__file__).with_name("features.json")
+    library = json.loads(source.read_text(encoding="utf-8"))
+    expected = {(accession, name) for accession, names in DNA_PARTS.items() for name in names}
+    parts, found = [], set()
+    for part in library["parts"]:
+        key = (part["source"]["accession"], part["name"])
+        if key in expected:
+            if key in found:
+                raise SystemExit(f"Duplicate DNA library part in {source.name}: {key}")
+            parts.append(part)
+            found.add(key)
+    if missing := expected - found:
+        raise SystemExit(f"DNA library parts missing from {source.name}: {sorted(missing)}")
+    json.dump(
+        {
+            "name": DNA_LIBRARY_NAME,
+            "version": DNA_LIBRARY_VERSION,
+            "licence": library["licence"],
+            "records": {accession: library["records"][accession] for accession in DNA_PARTS},
+            "parts": parts,
+        },
+        sys.stdout,
+        indent=2,
+        ensure_ascii=False,
+    )
+    sys.stdout.write("\n")
+
 
 def fetch(accession: str, email: str) -> str:
     """``accession``'s record, in GenBank format, from NCBI's E-utilities."""
@@ -390,8 +438,11 @@ def length_of(location: str) -> int:
 
 
 def main() -> None:
+    if sys.argv[1:] == ["--dna-subset"]:
+        dna_subset()
+        return
     if len(sys.argv) != 2 or "@" not in sys.argv[1]:
-        raise SystemExit("Usage: python build_features.py <your email for NCBI>")
+        raise SystemExit("Usage: python build_features.py <your email for NCBI> | --dna-subset")
     email = sys.argv[1]
     records: dict[str, str] = {}
     for accession in RECORDS:

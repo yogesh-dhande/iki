@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plasmid
-version: 0.2.0
+version: 0.3.0
 title: Plasmids and vectors
 description: >-
   Plasmids and vectors by the sequence that is each one, circular or linear, with what the
@@ -17,7 +17,7 @@ homepage: https://ikisci.org/plugins/plasmid
 dependencies:
   iki/dna:
     types:
-      DNASequence: ">=3"
+      DNASequence: ">=4"
       Primer: ">=1"
 roles:
   cloner:
