@@ -166,6 +166,19 @@ heuristic and the published formula does not contain. Iki reports the motif
 beside the score and leaves the weighing to the reader, rather than applying
 an adjustment it would have to attribute to a tool rather than a paper.
 
+### It runs on the server, not in `iki-wasm`
+
+`iki-wasm` holds the science the sequence viewer computes while a person
+interacts with it -- a melting temperature following a selection, annotation
+matching as a sequence is drawn -- work that has to happen between frames. A
+guide design is not that: a region and a nuclease are stated, a search is
+asked for, and the person reads the guides that come back. Nothing in the
+viewer needs a specificity recomputed per frame, so it runs server-side and
+there is no second implementation, and no digest to keep in step with one. If
+guides are ever to be drawn live as someone scrolls a long sequence, that is
+the moment to move the scoring into Rust, and this paragraph will say what
+changed.
+
 ## Consequences
 
 - A lab finds its guides, sees what is against each and where else each could
