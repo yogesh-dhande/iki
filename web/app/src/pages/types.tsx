@@ -7,6 +7,8 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 
 import { stateLabel, typeQuery, typesQuery, type EntityType, type FieldDef } from "../entities";
+import { typeFlowQuery, type TypeFlow } from "../flow";
+import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
 import { Badge, PageHeader } from "../ui";
@@ -223,6 +225,7 @@ export function TypeDetail() {
           </p>
         ) : null}
       </section>
+      <TypeFlows name={type.name} />
       <section aria-labelledby="fields-title">
         <h2 className="section-title" id="fields-title">
           Fields
@@ -283,6 +286,31 @@ export function TypeDetail() {
         <TypeNotifications notifications={type.notifications} type={type} types={types} />
       ) : null}
     </>
+  );
+}
+
+/** How its records move between the states of each state field (ADR 0199): a diagram,
+ * and the same in words, with what its guards say. */
+function TypeFlows({ name }: { name: string }) {
+  const flow: TypeFlow = useSuspenseQuery(typeFlowQuery(name)).data;
+  const roles = useRoleLabels();
+  if (!flow.fields.length) return null;
+  return (
+    <section aria-labelledby="flow-title">
+      <h2 className="section-title" id="flow-title">
+        How records move
+      </h2>
+      <p className="muted">
+        Each state field’s states, who moves a record into each and what they sign, and where an
+        edit returns it. Choose a state to follow its arrows.
+      </p>
+      {flow.fields.map((field) => (
+        <div className="card flow-card" key={field.name}>
+          <h3 className="flow-card-title">{field.label}</h3>
+          <FlowDiagram flow={field} roles={roles} />
+        </div>
+      ))}
+    </section>
   );
 }
 

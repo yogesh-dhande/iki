@@ -4069,6 +4069,102 @@ def test_the_grid_finds_what_rules_caught_and_says_why(open_as: Any, world: Worl
     page.context.close()
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_type_s_page_draws_how_its_records_move(open_as: Any, color_scheme: str) -> None:
+    """A type's flow (ADR 0199): a batch's states, who moves a record into each and what
+    they sign, where an edit returns it, and the same in words with its guards' messages.
+    Its states are buttons, reached by Tab and the arrow keys; choosing one lights its
+    arrows. Side by side at 1440px, one above another at 390px, with no sideways scroll.
+    By role, never by label (Firefox; see above)."""
+    page: Page = open_as("admin", f"/types/{BATCH}/", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    section = page.locator("section", has=page.get_by_role("heading", name="How records move"))
+    states = section.get_by_role("list", name="Status’s states", exact=True)
+    states.wait_for()
+    assert states.get_by_role("button").count() == 5
+    # Side by side once the page is wide: it lays out again as its width changes.
+    named = page.get_by_role("list", name="Status’s states", exact=True)
+    section.locator(".flow-row", has=named).wait_for()
+    # Each state's name is what it shows, its marks in words.
+    approved = states.get_by_role(
+        "button", name=re.compile(r"^Approved\s*,\s*locks it\s*\.\s*Set by Reviewer$")
+    )
+    approved.wait_for()
+    states.get_by_role(
+        "button",
+        name=re.compile(
+            r"^Certified\s*\.\s*Set by Reviewer or QA · from any state\s*,\s*"
+            r"signed:\s*Review and Approval$"
+        ),
+    ).wait_for()
+    words = section.get_by_role("list", name="Status’s states in words")
+    words.get_by_text("A batch is approved from In review.").wait_for()
+    words.get_by_text(
+        "Reviewer sets it from In review. It locks the record: its values can’t change. "
+        "Correcting a value returns it to In testing, with a reason."
+    ).wait_for()
+    assert_clean(page)
+
+    first = states.get_by_role("button").first
+    first.focus()
+    page.keyboard.press("ArrowRight")
+    focused = page.evaluate("document.activeElement.textContent")
+    assert focused.startswith("In review."), focused
+    approved.press("Enter")
+    assert approved.get_attribute("aria-pressed") == "true"
+    lit = page.locator(".flow-edge.is-lit")
+    assert sorted(lit.evaluate_all("els => els.map(e => e.dataset.edge)")) == [
+        "approved~in_testing",
+        "in_review>approved",
+    ]
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    section.locator(".flow-column", has=named).wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_record_shows_where_it_is_in_its_flow(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """A record's states (ADR 0199): asked, each state field shows its flow, the record's
+    state marked as now, and what the reader may move it to next. Compact until asked, and
+    no wider than a phone at 390px. By role (Firefox; see above)."""
+    from iki_server.entities import services as entities
+
+    _lab_roles(world, editor=("analyst",))
+    made = entities.create(world.users["editor"], BATCH, world.project, {"name": "L-9"})
+    hrid = cast("Entity", made.entity).hrid
+
+    page: Page = open_as("editor", f"/entities/{hrid}/", color_scheme)
+    card = page.locator("section", has=page.get_by_role("heading", name="States"))
+    card.get_by_text("Status: In testing").wait_for()
+    assert card.get_by_role("list", name="Status’s states", exact=True).count() == 0
+    toggle = card.get_by_role("button", name="How it moves").first
+    assert toggle.get_attribute("aria-expanded") == "false"
+    toggle.click()
+    assert toggle.get_attribute("aria-expanded") == "true"
+    flow = card.get_by_role("list", name="Status’s states", exact=True)
+    flow.wait_for()
+    card.get_by_text("Next for you: In review.").wait_for()
+    now = flow.locator("[aria-current='step']")
+    assert (now.text_content() or "").startswith("In testing, where records start, Now")
+    flow.get_by_role(
+        "button",
+        name=re.compile(r"^In review\s*,\s*You can\s*\.\s*Set by Analyst · from any state$"),
+    ).wait_for()
+    assert_clean(page)
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    toggle.click()
+    assert card.get_by_role("list", name="Status’s states", exact=True).count() == 0
+    page.context.close()
+
+
 def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
     """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
     state's control says so in the guard's words, and won't set it."""

@@ -55,6 +55,12 @@
       }
     },
     "settings": { "$ref": "https://ikisci.org/schemas/settings/v1" },
+    "starters": {
+      "description": "Project setup recipes shipped with this plugin, by starter ID and exact recipe version. The server offers installed recipes it supports (ADR 0198).",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]{0,62}$" },
+      "additionalProperties": { "$ref": "#/properties/version" }
+    },
     "roles": {
       "description": "The lab roles this plugin declares, such as `analyst`, `reviewer` and `qa`, by name (ADR 0116). A project's Admins give them to its members, people or teams, beside their project role, and a state field's states (ADR 0125) and a workflow step's approval can require one. Elsewhere a role is `namespace/plugin.role`, such as `acme/assays.qa`.",
       "type": "object",
