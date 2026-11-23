@@ -78,14 +78,14 @@ def _sha256(file: Path) -> str:
 
 
 def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = False) -> Path:
-    """Stage the compiled property measurement requested by a pinned DNA plugin.
+    """Stage first-party worker resources pinned by the plugin's source tree.
 
-    A fetched plugin has only Git files. The SHA in its source pins the module;
-    the installed iki-spec distribution supplies its bytes. The digest is of the
-    Linux x86-64 build. Other development hosts can produce different Rust/Wasm
-    bytes and require the built module and its notice. A developer's ignored
-    copy never contributes to either kind of worker bundle.
+    The annotation digest applies on every host. The measurement digest comes from
+    the Linux x86-64 release build; other development hosts use the installed module
+    and its notice. Both worker distributions read these resources from iki-spec.
     """
+    if name == "iki/plasmid":
+        return _prepared_annotation(directory, output)
     if name != "iki/dna":
         return directory
     relative = Path("data", "oligo-measurement.wasm")
@@ -133,6 +133,46 @@ def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = 
                 "the release build platform.\n"
             )
 
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _prepared_annotation(directory: Path, output: Path) -> Path:
+    """Stage annotation resources only when the clone pins the installed module. The digest
+    is verified on every host, including for a local checkout."""
+    relative = Path("data/dna-annotation.wasm")
+    generated = directory / relative
+    marker = generated.with_suffix(".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        return directory
+    notice = generated.with_name("rust-standard-library.html")
+    paths = (marker, generated, notice)
+    if generated.parent.is_symlink() or any(
+        path.is_symlink() or (path.exists() and not path.is_file()) for path in paths
+    ):
+        raise ValueError(
+            "The DNA annotation module, digest and notice must be regular plugin files."
+        )
+
+    resources: dict[str, bytes] = {}
+    package = files("iki_spec")
+    for path in (generated, notice):
+        installed = package.joinpath(path.name)
+        if not installed.is_file():
+            raise ValueError(
+                f"iki-spec lacks {path.name}. Run scripts/build-dna-annotation-wasm.sh."
+            )
+        resources[path.name] = installed.read_bytes()
+    digest = hashlib.sha256(resources[generated.name]).hexdigest().encode("ascii")
+    if digest != marker.read_bytes().strip():
+        raise ValueError("The DNA annotation module in iki-spec differs from the pinned digest.")
+
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _stage_resources(
+    directory: Path, output: Path, relative: Path, resources: dict[str, bytes]
+) -> Path:
+    """Replace or remove the build product in a private copy for both worker distributions."""
     shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
     target = output / relative
     if not resources:

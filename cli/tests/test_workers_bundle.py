@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from iki_cli import workers
+from iki_cli.main import main
 from iki_spec.validate import load_plugin
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
@@ -197,3 +198,93 @@ def test_measurement_uses_a_platform_specific_digest(
         staged = workers.prepared_source("iki/dna", checkout, tmp_path / "different")
         assert (staged / "data" / module.name).read_bytes() == module.read_bytes()
         assert "Linux x86-64" in capsys.readouterr().err
+
+
+def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = b"\0asm\x01\0\0\0"
+    notice = b"<html>Rust standard library</html>"
+    installed = tmp_path / "iki-spec"
+    installed.mkdir()
+    (installed / "dna-annotation.wasm").write_bytes(module)
+    (installed / "rust-standard-library.html").write_bytes(notice)
+    monkeypatch.setattr(workers, "files", lambda _package: installed)
+
+    source = tmp_path / "plasmid"
+    data = source / "data"
+    data.mkdir(parents=True)
+    (source / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\n"
+    )
+    marker = data / "dna-annotation.sha256"
+    marker.write_text(hashlib.sha256(module).hexdigest() + "\n")
+    stale = data / "dna-annotation.wasm"
+    stale.write_bytes(b"stale build product")
+    stale.chmod(0o444)
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - { name: iki/plasmid, local: ./plasmid, state: active }\n"
+    )
+
+    server, image = tmp_path / "server", tmp_path / "image"
+    assert (
+        main(
+            [
+                "deploy",
+                "build",
+                str(tmp_path),
+                "--allow-local",
+                "-o",
+                str(server),
+                "--workers",
+                str(image),
+            ]
+        )
+        == 0
+    )
+    registry = server / "iki_installed_plugins"
+    archive = registry / "bundles" / "iki__plasmid-local.tar.gz"
+    record = json.loads((registry / "lock.json").read_text())["plugins"][0]["bundle"]
+    archive_bytes = archive.read_bytes()
+    assert record == {
+        "sha256": hashlib.sha256(archive_bytes).hexdigest(),
+        "size": len(archive_bytes),
+    }
+    with tarfile.open(archive) as packed:
+        for name, contents in (
+            ("dna-annotation.wasm", module),
+            ("rust-standard-library.html", notice),
+        ):
+            member = packed.getmember(f"data/{name}")
+            stream = packed.extractfile(member)
+            assert stream is not None and stream.read() == contents and member.mode == 0o644
+            assert (image / "plugins" / "iki__plasmid" / "data" / name).read_bytes() == contents
+    assert stale.read_bytes() == b"stale build product"
+    assert not (data / "rust-standard-library.html").exists()
+
+
+def test_preparing_an_annotation_requires_a_matching_digest_and_regular_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    data = source / "data"
+    data.mkdir(parents=True)
+    installed = tmp_path / "iki-spec"
+    installed.mkdir()
+    (installed / "dna-annotation.wasm").write_bytes(b"\0asm")
+    (installed / "rust-standard-library.html").write_text("Rust standard library")
+    monkeypatch.setattr(workers, "files", lambda _package: installed)
+    output = tmp_path / "prepared"
+    assert workers.prepared_source("iki/plasmid", source, output) == source
+
+    marker = data / "dna-annotation.sha256"
+    marker.write_text("0" * 64)
+    assert workers.prepared_source("acme/plasmid", source, output) == source
+    with pytest.raises(ValueError, match="pinned digest"):
+        workers.prepared_source("iki/plasmid", source, output)
+    marker.unlink()
+    marker.symlink_to(tmp_path / "missing")
+    with pytest.raises(ValueError, match="regular plugin files"):
+        workers.prepared_source("iki/plasmid", source, output)
+    assert not output.exists()

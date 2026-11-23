@@ -28,6 +28,7 @@
 !pnpm-workspace.yaml
 !tsconfig.base.json
 !scripts/build-oligo-wasm.sh
+!scripts/build-dna-annotation-wasm.sh
 !web/
 **/node_modules/
 web/**/dist/

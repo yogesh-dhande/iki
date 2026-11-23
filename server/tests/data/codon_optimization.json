@@ -1,0 +1,630 @@
+{
+  "gene": "HBB (NM_000518.5)",
+  "host": "Escherichia coli K-12 substr. MG1655 (GCF_000005845.2)",
+  "recorded_by": "server/tests/data/record_codon_optimization.py",
+  "values": {
+    "name": "HBB for E. coli",
+    "host": "e_coli_k12",
+    "codons": 148,
+    "codons_changed": 76,
+    "protein_length": 147,
+    "source_cai": 0.6605,
+    "optimized_cai": 0.9955,
+    "cai_reference": "Escherichia coli K-12 substr. MG1655 (GCF_000005845.2 ASM584v2, 4,286 CDS)",
+    "source_gc_content": 56.08,
+    "optimized_gc_content": 57.43,
+    "constraints_met": true,
+    "unmet_constraints": [],
+    "codon_changes": [
+      {
+        "codon": 5,
+        "residue": "T",
+        "from": "ACT",
+        "to": "ACC",
+        "from_weight": 0.3757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 6,
+        "residue": "P",
+        "from": "CCT",
+        "to": "CCG",
+        "from_weight": 0.2976,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 7,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 8,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 9,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 10,
+        "residue": "S",
+        "from": "TCT",
+        "to": "AGC",
+        "from_weight": 0.5223,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 11,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 12,
+        "residue": "V",
+        "from": "GTT",
+        "to": "GTG",
+        "from_weight": 0.6916,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 13,
+        "residue": "T",
+        "from": "ACT",
+        "to": "ACC",
+        "from_weight": 0.3757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 14,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 18,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 24,
+        "residue": "V",
+        "from": "GTT",
+        "to": "GTG",
+        "from_weight": 0.6916,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 25,
+        "residue": "G",
+        "from": "GGT",
+        "to": "GGC",
+        "from_weight": 0.8293,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 26,
+        "residue": "G",
+        "from": "GGT",
+        "to": "GGC",
+        "from_weight": 0.8293,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 27,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 31,
+        "residue": "R",
+        "from": "AGG",
+        "to": "CGC",
+        "from_weight": 0.0488,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 35,
+        "residue": "V",
+        "from": "GTC",
+        "to": "GTG",
+        "from_weight": 0.5808,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 36,
+        "residue": "Y",
+        "from": "TAC",
+        "to": "TAT",
+        "from_weight": 0.7604,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 37,
+        "residue": "P",
+        "from": "CCT",
+        "to": "CCG",
+        "from_weight": 0.2976,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 41,
+        "residue": "R",
+        "from": "AGG",
+        "to": "CGC",
+        "from_weight": 0.0488,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 42,
+        "residue": "F",
+        "from": "TTC",
+        "to": "TTT",
+        "from_weight": 0.743,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 44,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 45,
+        "residue": "S",
+        "from": "TCC",
+        "to": "AGC",
+        "from_weight": 0.5349,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 47,
+        "residue": "G",
+        "from": "GGG",
+        "to": "GGC",
+        "from_weight": 0.3686,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 50,
+        "residue": "S",
+        "from": "TCC",
+        "to": "AGC",
+        "from_weight": 0.5349,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 51,
+        "residue": "T",
+        "from": "ACT",
+        "to": "ACC",
+        "from_weight": 0.3757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 52,
+        "residue": "P",
+        "from": "CCT",
+        "to": "CCG",
+        "from_weight": 0.2976,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 54,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 55,
+        "residue": "V",
+        "from": "GTT",
+        "to": "GTG",
+        "from_weight": 0.6916,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 59,
+        "residue": "P",
+        "from": "CCT",
+        "to": "CCG",
+        "from_weight": 0.2976,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 60,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 62,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 63,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 66,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 69,
+        "residue": "L",
+        "from": "CTC",
+        "to": "CTG",
+        "from_weight": 0.2097,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 70,
+        "residue": "G",
+        "from": "GGT",
+        "to": "GGC",
+        "from_weight": 0.8293,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 71,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 73,
+        "residue": "S",
+        "from": "AGT",
+        "to": "AGC",
+        "from_weight": 0.5395,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 77,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 78,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 80,
+        "residue": "D",
+        "from": "GAC",
+        "to": "GAT",
+        "from_weight": 0.5969,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 82,
+        "residue": "L",
+        "from": "CTC",
+        "to": "CTG",
+        "from_weight": 0.2097,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 83,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 87,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 88,
+        "residue": "T",
+        "from": "ACA",
+        "to": "ACC",
+        "from_weight": 0.2931,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 90,
+        "residue": "S",
+        "from": "AGT",
+        "to": "AGC",
+        "from_weight": 0.5395,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 91,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 93,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 94,
+        "residue": "C",
+        "from": "TGT",
+        "to": "TGC",
+        "from_weight": 0.7939,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 95,
+        "residue": "D",
+        "from": "GAC",
+        "to": "GAT",
+        "from_weight": 0.5969,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 96,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 98,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 99,
+        "residue": "V",
+        "from": "GTG",
+        "to": "GTT",
+        "from_weight": 1.0,
+        "to_weight": 0.6916
+      },
+      {
+        "codon": 101,
+        "residue": "P",
+        "from": "CCT",
+        "to": "CCG",
+        "from_weight": 0.2976,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 102,
+        "residue": "E",
+        "from": "GAG",
+        "to": "GAA",
+        "from_weight": 0.4494,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 104,
+        "residue": "F",
+        "from": "TTC",
+        "to": "TTT",
+        "from_weight": 0.743,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 105,
+        "residue": "R",
+        "from": "AGG",
+        "to": "CGC",
+        "from_weight": 0.0488,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 106,
+        "residue": "L",
+        "from": "CTC",
+        "to": "CTG",
+        "from_weight": 0.2097,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 112,
+        "residue": "V",
+        "from": "GTC",
+        "to": "GTG",
+        "from_weight": 0.5808,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 113,
+        "residue": "C",
+        "from": "TGT",
+        "to": "TGC",
+        "from_weight": 0.7939,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 116,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 118,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 123,
+        "residue": "F",
+        "from": "TTC",
+        "to": "TTT",
+        "from_weight": 0.743,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 125,
+        "residue": "P",
+        "from": "CCA",
+        "to": "CCG",
+        "from_weight": 0.3593,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 126,
+        "residue": "P",
+        "from": "CCA",
+        "to": "CCG",
+        "from_weight": 0.3593,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 129,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 130,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 136,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 137,
+        "residue": "G",
+        "from": "GGT",
+        "to": "GGC",
+        "from_weight": 0.8293,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 139,
+        "residue": "A",
+        "from": "GCT",
+        "to": "GCG",
+        "from_weight": 0.4483,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 140,
+        "residue": "N",
+        "from": "AAT",
+        "to": "AAC",
+        "from_weight": 0.8106,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 141,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 143,
+        "residue": "A",
+        "from": "GCC",
+        "to": "GCG",
+        "from_weight": 0.757,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 144,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 145,
+        "residue": "K",
+        "from": "AAG",
+        "to": "AAA",
+        "from_weight": 0.3034,
+        "to_weight": 1.0
+      },
+      {
+        "codon": 147,
+        "residue": "H",
+        "from": "CAC",
+        "to": "CAT",
+        "from_weight": 0.7537,
+        "to_weight": 1.0
+      }
+    ],
+    "optimized_with": "highest usage codons for Escherichia coli K-12 substr. MG1655 (GCF_000005845.2 ASM584v2, 4,286 CDS); translation table 1 (Standard); no codon below w = 0.1; GC 30-70% overall; 25-75% over 50 bases; runs of one base at most 6; no repeat of 15 bases; no hairpin stem of 10 bases closing a loop of up to 30; without the EcoRI, BamHI sites; the host's own motifs avoided"
+  }
+}

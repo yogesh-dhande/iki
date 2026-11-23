@@ -4,7 +4,8 @@
  * structure viewer, and the alignment viewer.
  */
 
-import { useParams } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useParams } from "@tanstack/react-router";
 import { createElement, useCallback, useMemo, useRef } from "react";
 import "@ikisci/science/sequence-viewer";
 import type {
@@ -14,6 +15,8 @@ import type {
 } from "@ikisci/science/sequence-viewer";
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
+import { actionsTakingQuery } from "../runs";
+import { buttonClass } from "../ui";
 import type { Camera, Capture, FeatureRef, TargetState } from "../views";
 import { EntityTabs, useEntity } from "./entity";
 import { AlignmentViewer } from "./alignment-viewer";
@@ -22,6 +25,36 @@ import { SavedViews } from "./saved-views";
 import { StructureViewer } from "./structure-viewer";
 
 type AnyViewer = EntityType["viewers"][number];
+
+const LIBRARY_ACTION = "iki/plasmid.annotate_dna_sequence";
+
+/** The DNA plugin's action writes library hits to a separate field on the record. */
+function hasFeatureLibrary(
+  type: EntityType,
+  viewer: Extract<AnyViewer, { viewer: "sequence" }>,
+): boolean {
+  return viewer.alphabet === "dna" && type.fields.some((f) => f.name === "library_features");
+}
+
+function AnnotateFromLibrary({ entity }: { entity: Entity }) {
+  const { data: action } = useQuery({
+    ...actionsTakingQuery([entity.type]),
+    select: (actions) => actions.find((a) => a.name === LIBRARY_ACTION),
+  });
+  if (!action || !entity.owner_project) return null;
+  return (
+    <p>
+      <Link
+        to="/projects/$slug/runs/new/"
+        params={{ slug: entity.owner_project.slug }}
+        search={{ action: action.name, entities: entity.hrid }}
+        className={buttonClass()}
+      >
+        Annotate from library
+      </Link>
+    </p>
+  );
+}
 
 /** What a viewer shows: an entity now, or as it was at a revision (for a saved view). */
 export interface Source {
@@ -46,6 +79,13 @@ export function EntityViewer() {
   return (
     <>
       <EntityTabs entity={entity} type={type} />
+      {viewer.viewer === "sequence" &&
+      hasFeatureLibrary(type, viewer) &&
+      entity.owner_project &&
+      entity.can.edit &&
+      !entity.archived ? (
+        <AnnotateFromLibrary entity={entity} />
+      ) : null}
       <ViewerBody source={entity} type={type} viewer={viewer} onCapture={onCapture} />
       <SavedViews entity={entity} viewer={viewer} capture={capture} />
     </>
@@ -121,8 +161,20 @@ function SequenceViewer({
     const label = type.fields.find((field) => field.name === viewer.sequence)?.label;
     // The package validates each JSON feature, coordinate and numeric track before drawing.
     const features = viewer.features ? source.values[viewer.features] : undefined;
+    const foundInLibrary = source.values["library_features"];
+    const libraryVersion = source.values["library_annotated_with"];
     return {
       title: source.title,
+      ...(hasFeatureLibrary(type, viewer)
+        ? {
+            library: {
+              ...(Array.isArray(foundInLibrary)
+                ? { features: foundInLibrary as SequenceFeature[] }
+                : {}),
+              ...(typeof libraryVersion === "string" ? { version: libraryVersion } : {}),
+            },
+          }
+        : {}),
       alphabet: viewer.alphabet,
       sequence: typeof value === "string" ? value : "",
       ...(label ? { label } : {}),

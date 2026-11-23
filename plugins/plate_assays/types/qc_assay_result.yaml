@@ -53,3 +53,9 @@ fields:
           independent:
             check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
             message: QA release requires a signer independent of the analyst, reviewer and editors.
+rules:
+  fit_flow:
+    label: The fit follows its review type
+    check: record.review_flow == null || record.review_flow == "regulated_qc"
+    fields: [review_flow]
+    message: A QC assay result records the Regulated QC flow.

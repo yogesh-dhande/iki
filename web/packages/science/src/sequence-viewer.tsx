@@ -104,6 +104,8 @@ export interface SequenceData {
   topology?: "linear" | "circular";
   strands?: "single" | "double";
   features?: SequenceFeature[];
+  /** Supplied library annotations. Omit features until a search has run. */
+  library?: { features?: readonly SequenceFeature[]; version?: string };
   tracks?: SequenceTrack[];
   feature?: FeatureRef;
 }
@@ -169,10 +171,16 @@ function SequenceView({
 }) {
   const ids = useId();
   const { sequence, alphabet, feature } = data;
-  const features = useMemo(
-    () => readFeatures(data.features, sequence.length),
-    [data.features, sequence.length],
-  );
+  const { features, recordedFeatures, libraryFeatures } = useMemo(() => {
+    const recorded = Array.isArray(data.features) ? data.features : [];
+    const annotated = Array.isArray(data.library?.features) ? data.library.features : [];
+    const features = readFeatures([...recorded, ...annotated], sequence.length);
+    return {
+      features,
+      recordedFeatures: features.filter((f) => f.index < recorded.length),
+      libraryFeatures: features.filter((f) => f.index >= recorded.length),
+    };
+  }, [data.features, data.library?.features, sequence.length]);
   // A protein's stops (*) are no residues, inside it (MK*V is 3) or ending it (M** is 1): its
   // values are one a residue up to the stops that end it, and none for those.
   const protein = alphabet === "protein";
@@ -240,11 +248,11 @@ function SequenceView({
     () =>
       nucleic
         ? lanedApart(
-            features.filter((f) => f.type.toLowerCase() === "cds"),
+            recordedFeatures.filter((f) => f.type.toLowerCase() === "cds"),
             sequence.length,
           ).map((f) => ({ feature: f, read: translateFeature(f, sequence) }))
         : [],
-    [nucleic, features, sequence],
+    [nucleic, recordedFeatures, sequence],
   );
   const [translating, setTranslating] = useState(true);
   const [frames, setFrames] = useState<Frame[]>([]);
@@ -339,7 +347,7 @@ function SequenceView({
       <p className="muted">
         {number.format(residues)} {unit}
         {circular ? " · circular" : ""}
-        {data.features
+        {data.features || libraryFeatures.length
           ? ` · ${String(features.length)} feature${features.length === 1 ? "" : "s"}`
           : ""}
       </p>
@@ -542,10 +550,23 @@ function SequenceView({
       </p>
       {data.features ? (
         <FeatureTable
-          features={features}
+          features={recordedFeatures}
           length={sequence.length}
           shown={shown}
           onShow={setShown}
+        />
+      ) : null}
+      {data.library ? (
+        <FeatureTable
+          features={libraryFeatures}
+          length={sequence.length}
+          shown={shown}
+          onShow={setShown}
+          library={{
+            id: `${ids}-library`,
+            searched: Array.isArray(data.library.features),
+            version: data.library.version ?? null,
+          }}
         />
       ) : null}
     </>
@@ -1372,65 +1393,78 @@ function FeatureTable({
   length,
   shown,
   onShow,
+  library,
 }: {
   features: Feature[];
   length: number;
   shown: Feature | null;
   onShow: (feature: Feature | null) => void;
+  library?: { id: string; searched: boolean; version: string | null };
 }) {
-  if (!features.length) return <p className="muted">It has no features yet.</p>;
+  if (!library && !features.length) return <p className="muted">It has no features yet.</p>;
   return (
-    <section className="card">
-      <h2>Features</h2>
-      <div className="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Type</th>
-              <th scope="col">Location</th>
-              <th scope="col">Strand</th>
-              <th scope="col">Length</th>
-              <th scope="col">
-                <span className="visually-hidden">Show</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {features.map((f) => {
-              const showing = shown?.index === f.index;
-              return (
-                <tr key={f.index}>
-                  <th scope="row">
-                    <span
-                      className={`feature-swatch feature-${kindOf(f.type)}`}
-                      aria-hidden="true"
-                    />
-                    {featureName(f)}
-                  </th>
-                  <td>{f.type}</td>
-                  <td>{locationText(f)}</td>
-                  <td>{f.strand === "none" ? "—" : f.strand}</td>
-                  <td>{lengthText(f, length, number)}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="button button-quiet"
-                      aria-pressed={showing}
-                      aria-label={`${showing ? "Hide" : "Show"} ${featureName(f)}`}
-                      onClick={() => {
-                        onShow(showing ? null : f);
-                      }}
-                    >
-                      {showing ? "Hide" : "Show"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+    <section className="card" aria-labelledby={library?.id}>
+      <h2 id={library?.id}>{library ? "Library features" : "Features"}</h2>
+      {library?.version ? <p className="muted">{library.version}</p> : null}
+      {features.length ? (
+        <div className="table-scroll">
+          <table className={library ? "table table-compact" : undefined}>
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Type</th>
+                <th scope="col">Location</th>
+                <th scope="col">Strand</th>
+                <th scope="col">Length</th>
+                {library ? <th scope="col">Source</th> : null}
+                <th scope="col">
+                  <span className="visually-hidden">Show</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {features.map((f) => {
+                const showing = shown?.index === f.index;
+                return (
+                  <tr key={f.index}>
+                    <th scope="row">
+                      <span
+                        className={`feature-swatch feature-${kindOf(f.type)}`}
+                        aria-hidden="true"
+                      />
+                      {featureName(f)}
+                    </th>
+                    <td>{f.type}</td>
+                    <td>{locationText(f)}</td>
+                    <td>{f.strand === "none" ? "—" : f.strand}</td>
+                    <td>{lengthText(f, length, number)}</td>
+                    {library ? (
+                      <td className="cell-wide">{f.qualifiers["source"] ?? "—"}</td>
+                    ) : null}
+                    <td>
+                      <button
+                        type="button"
+                        className="button button-quiet"
+                        aria-pressed={showing}
+                        aria-label={`${showing ? "Hide" : "Show"} ${featureName(f)}`}
+                        onClick={() => {
+                          onShow(showing ? null : f);
+                        }}
+                      >
+                        {showing ? "Hide" : "Show"}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="muted">
+          {library?.searched ? "No library features matched." : "No library search has run."}
+        </p>
+      )}
     </section>
   );
 }

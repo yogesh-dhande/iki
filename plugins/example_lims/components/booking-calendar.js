@@ -22,9 +22,13 @@ function more(element) {
 function refine(element, refinement) {
 	send(element, EVENTS.refine, refinement);
 }
-/** Opens the page of an entity it was given, by HRID: Iki navigates, not the frame. */
-function open(element, hrid) {
-	send(element, EVENTS.open, { entity: hrid });
+/** Opens an entity's page by HRID, or a stored revision pin by record UUID and
+* revision number. The host validates the target before navigating. */
+function open(element, entity, revision) {
+	send(element, EVENTS.open, revision === void 0 ? { entity } : {
+		entity,
+		revision
+	});
 }
 // web/packages/science/src/booking-calendar.ts
 const STYLE = `
