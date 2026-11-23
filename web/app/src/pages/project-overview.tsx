@@ -1,7 +1,6 @@
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { useLayoutEffect, useRef } from "react";
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 
 import {
@@ -19,6 +18,7 @@ import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { TopBar } from "../page-top";
 import { swatchColor } from "../project-color";
+import { TabStrip } from "../tab-strip";
 import { countsQuery } from "../lists";
 import { useRequestSides } from "../requests";
 import { Badge, Button, Loading, PageTitle, ProblemAlert, useMessages } from "../ui";
@@ -50,27 +50,6 @@ function TabCount({ count }: { count: number | undefined }) {
       {" "}
       <span className="tab-count">{count}</span>
     </>
-  );
-}
-
-/** In the tabs' place while they're worked out, as tall as they are: a bar for each tab
- * there's sure to be, nothing to press, and nothing to read. It shows only if it takes a
- * moment, so a quick answer doesn't flash it. */
-function TabsSettling({ project }: { project: Project }) {
-  const sure = [
-    "Overview",
-    ...(project.can.read ? ["Entities", "Runs", "Files"] : []),
-    ...(project.can.read || project.can.manage_webhooks ? ["Automation"] : []),
-    "Members",
-  ];
-  return (
-    <div className="tabs project-tabs tabs-settling" aria-hidden="true">
-      {sure.map((name) => (
-        <span key={name} className="tab-settling">
-          <span style={{ width: `${String(name.length * 0.6)}em` }} />
-        </span>
-      ))}
-    </div>
   );
 }
 
@@ -108,18 +87,8 @@ export function ProjectTabs() {
     requestCounts && !requestCounts.includes(null)
       ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
-  // On a phone its tabs scroll across, as a record's do: the one you're on is kept in view
-  // from when they're drawn, and again when a count changes. Before they're painted, so
-  // they don't move once they can be pressed.
-  const tabs = useRef<HTMLElement>(null);
+  // What a tab's width changes with: the tab you're on is brought into view again.
   const widths = `${String(counts?.total)} ${String(requests)} ${String(members?.length)}`;
-  useLayoutEffect(() => {
-    const nav = tabs.current;
-    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (settled && nav && current && nav.scrollWidth > nav.clientWidth) {
-      current.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
-  }, [path, widths, settled]);
   const summary = [
     project.description.split("\n")[0]?.trim(),
     members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
@@ -176,8 +145,18 @@ export function ProjectTabs() {
           <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
         </p>
       </div>
-      {settled ? null : <TabsSettling project={project} />}
-      <nav ref={tabs} className="tabs project-tabs" aria-label="Project" hidden={!settled}>
+      <TabStrip
+        label="Project"
+        className="project-tabs"
+        settled={settled}
+        sure={[
+          "Overview",
+          ...(project.can.read ? ["Entities", "Runs", "Files"] : []),
+          ...(project.can.read || project.can.manage_webhooks ? ["Automation"] : []),
+          "Members",
+        ]}
+        widths={widths}
+      >
         <Link
           to="/projects/$slug/"
           params={{ slug: project.slug }}
@@ -225,7 +204,7 @@ export function ProjectTabs() {
             Settings
           </Link>
         ) : null}
-      </nav>
+      </TabStrip>
       {inAutomation ? (
         <nav className="subtabs" aria-label="Automation">
           {project.can.read ? (
