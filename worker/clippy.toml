@@ -1,2 +1,27 @@
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
+# Names that belong in prose, not in backticks: the authors, journals and products the
+# scientific modules cite. `..` keeps clippy's own list.
+doc-valid-idents = [
+  "..",
+  # Restriction enzymes, named as REBASE names them.
+  "BamHI",
+  "BsaI",
+  "BsmBI",
+  "Eco31I",
+  "EcoRI",
+  "KpnI",
+  "PstI",
+  "SacI",
+  "SstI",
+  "Benchling",
+  "Biopython",
+  "dNTP",
+  "dNTPs",
+  "OligoAnalyzer",
+  "Owczarzy",
+  "Primer3",
+  "SantaLucia",
+  "SnapGene",
+  "WebAssembly",
+]

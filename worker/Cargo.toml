@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/iki-protocol", "crates/iki-wasm", "crates/iki-worker"]
+members = [
+  "crates/iki-protocol",
+  "crates/iki-wasm",
+  "crates/iki-wasm/standalone/plasmid-tools",
+  "crates/iki-worker",
+]
 
 [workspace.package]
 version = "0.1.0-dev.0"

@@ -41,16 +41,26 @@ exactly makes nothing. A linear product's sequence is its top strand from the cu
 end to the cut at the other, which is the reading that gives a digest band its length on
 a gel; an overhang beyond those cuts lies on one strand only, and isn't kept, since a
 linear duplex is read as fully paired (ADR 0138).
+
+**Where the work happens.** The cutting itself -- recognising a site with its IUPAC
+ambiguity codes, on both strands and round a circle's origin, and working out each cut's
+overhang, the fragments and the gel bands -- is the Rust in ``worker/crates/iki-wasm``,
+run from the module this plugin's archive carries (ADR 0200), so the server, the worker
+and the web app cut a molecule the same way. The enzymes themselves stay in the
+Biopython this plugin already depends on: their sites and cut offsets are REBASE's facts,
+and REBASE's terms are not a licence Iki can redistribute them under (ADR 0200), so each
+enzyme's description is read from Biopython here and passed to the module with the
+request. Ligation and assembly are still worked out below, on the fragments it gives.
 """
 
 from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import molecular
 from Bio import Restriction
-from Bio.Seq import Seq
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -212,6 +222,50 @@ def enzyme(name: str) -> object:
     return found
 
 
+def described(name: str) -> dict[str, object]:
+    """One enzyme as the module reads it: its recognition site and where it cuts each
+    strand, from the Biopython this plugin depends on. Whether the site reads the same on
+    both strands, and whether the enzyme cuts each strand twice, are Biopython's own
+    classification of it rather than fields of REBASE's table."""
+    cutter = enzyme(name)
+    return {
+        "name": name,
+        "site": cutter.site,  # type: ignore[attr-defined]
+        "size": cutter.size,  # type: ignore[attr-defined]
+        "fst5": cutter.fst5,  # type: ignore[attr-defined]
+        "fst3": cutter.fst3,  # type: ignore[attr-defined]
+        "scd5": cutter.scd5,  # type: ignore[attr-defined]
+        "scd3": cutter.scd3,  # type: ignore[attr-defined]
+        "ovhg": cutter.ovhg,  # type: ignore[attr-defined]
+        "palindromic": bool(cutter.is_palindromic()),  # type: ignore[attr-defined]
+        "two_cuts": bool(cutter.cut_twice()),  # type: ignore[attr-defined]
+    }
+
+
+def _cut(
+    bases: str, circular: bool, names: Sequence[str], *, part: str = "", want_bands: bool = False
+) -> dict[str, Any]:
+    """The module's answer for one molecule, or the refusal it gives."""
+    answer = molecular.call(
+        "iki_digest",
+        {
+            "part": part,
+            "bases": bases.upper(),
+            "circular": circular,
+            "enzymes": [described(name) for name in names],
+            "want_bands": want_bands,
+        },
+    )
+    if "error" in answer:
+        raise Impossible(answer["error"])
+    found: dict[str, Any] = answer
+    return found
+
+
+def _end(given: dict[str, Any]) -> End:
+    return End(given["overhang"], given["bases"])
+
+
 def cuts(
     bases: str, circular: bool, names: Sequence[str]
 ) -> list[tuple[int, int, tuple[str, ...]]]:
@@ -223,31 +277,16 @@ def cuts(
     bonds, so a digest with both gives the fragments either one gives alone, with both
     names recorded against each boundary.
     """
-    found: dict[int, tuple[int, list[str]]] = {}
-    sequence = Seq(bases.upper())
-    for name in names:
-        cutter = enzyme(name)
-        overhang: int = cutter.ovhg  # type: ignore[attr-defined]
-        for position in cutter.search(sequence, linear=not circular):  # type: ignore[attr-defined]
-            at = position - 1
-            known = found.setdefault(at, (overhang, []))
-            if known[0] != overhang:
-                raise Impossible(
-                    f"{name} and {known[1][0]} both cut the top strand after base {at}, "
-                    f"but leave different overhangs ({overhang} and {known[0]}), so what "
-                    "they make together isn't one molecule: digest with one of them."
-                )
-            if name not in known[1]:
-                known[1].append(name)
-    return [(at, found[at][0], tuple(sorted(found[at][1]))) for at in sorted(found)]
+    found = _cut(bases, circular, names)
+    return [(one["at"], one["overhang"], tuple(one["made_by"])) for one in found["cuts"]]
 
 
 def end_at(at: int, overhang: int, bases: str, circular: bool) -> End:
     """The end a cut at boundary ``at`` leaves, read on the top strand.
 
     A 5' overhang's bases are the ``overhang`` bases just after the top-strand cut, a 3'
-    one's the bases just before it, as ``elucidate()`` writes them. Either stretch can
-    cross a circular molecule's origin, so both are read from the doubled sequence.
+    one's the bases just before it. Either stretch can cross a circular molecule's origin,
+    so both are read from the doubled sequence.
     """
     if overhang == 0:
         return End(0, "")
@@ -261,33 +300,17 @@ def digest(part: str, bases: str, circular: bool, names: Sequence[str]) -> list[
     """``bases`` cut by ``names``'s enzymes: each fragment, with its ends. An uncut
     circular molecule gives nothing (it can't go into a ligation); an uncut linear one
     gives itself, blunt at both ends."""
-    bases = bases.upper()
-    length = len(bases)
-    made = cuts(bases, circular, names)
-    if not made:
-        return [] if circular else [Fragment(part, bases, End(0, ""), End(0, ""), ())]
-    doubled = bases + bases
-    ends = {at: end_at(at, o, bases, circular) for at, o, _ in made}
-    by_at = {at: made_by for at, _, made_by in made}
-    out: list[Fragment] = []
-    if circular:
-        for (left, _, _), (right, _, _) in zip(made, [*made[1:], made[0]], strict=True):
-            stop = right if right > left else right + length
-            cut_with = (*by_at[left], *by_at[right])
-            out.append(Fragment(part, doubled[left:stop], ends[left], ends[right], cut_with))
-    else:
-        edges = [0, *[at for at, _, _ in made], length]
-        for left, right in itertools.pairwise(edges):
-            out.append(
-                Fragment(
-                    part,
-                    bases[left:right],
-                    ends.get(left, End(0, "")),
-                    ends.get(right, End(0, "")),
-                    tuple(name for at in (left, right) for name in by_at.get(at, ())),
-                )
-            )
-    return [fragment for fragment in out if fragment.bases]
+    found = _cut(bases, circular, names, part=part)
+    return [
+        Fragment(
+            part=one["part"],
+            bases=one["bases"],
+            left=_end(one["left"]),
+            right=_end(one["right"]),
+            cut_with=tuple(one["cut_with"]),
+        )
+        for one in found["fragments"]
+    ]
 
 
 def _within_limits(choices: Sequence[Sequence[Fragment]], total: int) -> None:
@@ -548,24 +571,8 @@ def bands(bases: str, circular: bool, names: Sequence[str]) -> list[Band]:
     gel reads from its wells and as a marker's sizes are listed; bands of one length in
     the order they lie along the molecule. An uncut circle gives none: it stays a circle.
     An uncut linear molecule is one band, itself."""
-    bases = bases.upper()
-    length = len(bases)
-    made = cuts(bases, circular, names)
-    if not made and circular:
-        return []
-
-    def named(at: int, overhang: int, by: tuple[str, ...]) -> str:
-        return f"{', '.join(by)}, {end_at(at, overhang, bases, circular)}"
-
-    ends = [(at, named(at, overhang, by)) for at, overhang, by in made]
-    out: list[Band] = []
-    if circular:
-        for (left, said), (right, then) in zip(ends, [*ends[1:], ends[0]], strict=True):
-            size = right - left if right > left else right + length - left
-            out.append(Band(size, left % length + 1, right if right > 0 else length, said, then))
-    else:
-        edges = [(0, MOLECULE_END), *ends, (length, MOLECULE_END)]
-        for (left, said), (right, then) in itertools.pairwise(edges):
-            if right > left:
-                out.append(Band(right - left, left + 1, right, said, then))
-    return sorted(out, key=lambda b: (-b.length, b.start))
+    found = _cut(bases, circular, names, want_bands=True)
+    return [
+        Band(one["length"], one["start"], one["end"], one["left"], one["right"])
+        for one in found["bands"]
+    ]

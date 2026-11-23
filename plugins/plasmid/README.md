@@ -167,10 +167,29 @@ A project's Admins give these to its members, beside their project role:
 ## Actions
 
 They run on backend workers, in the `plasmid-tools` environment (Python 3.12 with
-Biopython, which the annotation's alignments and the digests' restriction enzymes use).
-`annotate_plasmid`, `assemble`, `check_assembly` and `virtual_digest` list Biopython
-1.88 as their software, so what their runs make is recorded as made with it
+Biopython, which the annotation's alignments and each restriction enzyme's description
+use, and Wasmtime, which runs the packaged molecular module). Each action lists the
+software its runs are made with, so that is recorded against what they make
 ([ADR 0106](../../docs/adr/0106-how-an-entity-was-made-recorded-by-iki-or-stated-by-its-source.md)).
+
+Placing primers, measuring a duplex and cutting a molecule are one implementation,
+written in Rust in `worker/crates/iki-wasm` and carried in this plugin's archive as
+`data/plasmid-tools.wasm`, so a site, a temperature or a fragment is the same whether a
+run, the server or the web app works it out
+([ADR 0200](../../docs/adr/0200-one-implementation-places-primers-and-cuts-dna.md)). That
+module is never committed: git holds the Rust and the digest beside it,
+`data/plasmid-tools.wasm.sha256`, and `scripts/build-plasmid-tools-wasm.sh` builds the
+bytes — as iki-spec's build and the server image do. Run it once in a fresh checkout, or
+the actions have no module to call. The digest is of the Linux x86-64 build, which is
+what an image and a deployment run; on another platform the script builds the module for
+the tests here and says it isn't comparing, because rustc's precompiled wasm32 standard
+library differs between host platforms. `--update` builds through the image's wasm stage
+in Docker, so the digest it writes is the Linux x86-64 one wherever it is run. The
+module holds no enzyme data: each request carries the enzymes it names, read here from
+Biopython's REBASE-derived table, because REBASE's terms are not a licence Iki can
+redistribute that table under. The Python these replaced is kept as the oracle they are
+cross-checked against, enzyme by enzyme and over random molecules
+(`server/tests/test_plasmid_parity.py`).
 
 - **`register_plasmid`**: registers a plasmid from its bases — the double-stranded DNA
   sequence and the plasmid that is it. Its `topology` param is `circular` unless it's set
@@ -305,13 +324,15 @@ out.
   its bases match; the rest is its 5' tail, which a product keeps. A site may cross a
   circle's origin and never a linear molecule's ends.
 - **Melting temperatures** are SantaLucia's unified nearest-neighbour model (_PNAS_
-  95:1460, 1998) as Biopython's `MeltingTemp.Tm_NN` computes it with its default table
-  `DNA_NN3` (Allawi & SantaLucia 1997) and SantaLucia's salt correction (`saltcorr=5`), at
-  50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each strand — the conditions `iki/dna` gives
-  a primer's own Tm under, so a primer's record and its exact site on a template agree. A
-  site's Tm is of its annealed bases against the template's own, so a mismatch lowers it
-  (Biopython's `DNA_IMM1` and `DNA_TMM1`); where Biopython has no parameters for a
-  mismatch, no Tm is given. This isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
+  95:1460, 1998), with Allawi & SantaLucia's Watson–Crick stacks (1997) and internal
+  mismatches and SantaLucia & Peyret's terminal ones, and SantaLucia's monovalent salt
+  correction (his equation 7), at 50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each
+  strand — the conditions `iki/dna` gives a primer's own Tm under, so a primer's record
+  and its exact site on a template agree. They are computed by the molecular module, and
+  checked against Biopython's `MeltingTemp.Tm_NN` with `DNA_NN3`, `DNA_IMM1`, `DNA_TMM1`
+  and `saltcorr=5`, which is where the same numbers used to come from. A site's Tm is of
+  its annealed bases against the template's own, so a mismatch lowers it; where no
+  published parameter covers a pair of neighbours, no Tm is given. This isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
   dNTPs), under which the same primer's Tm is some 5 to 6 °C higher, so compare a number
   here with one computed the same way; `tm_method` on a PCR says which that is.
 - **PCR.** The product is the forward primer whole, the template between the two primers'
@@ -331,8 +352,9 @@ out.
 ## Working out what a plan makes
 
 - **Restriction–ligation and Golden Gate.** Each part is cut with every enzyme the plan
-  names, with Biopython's REBASE-derived enzymes, so any of REBASE's enzymes can be
-  named and each one's own cut positions and overhang are used: a 5′ overhang (EcoRI), a
+  names, each described from Biopython's REBASE-derived table, so any of REBASE's enzymes
+  whose cut REBASE states can be named — 754 of them — and each one's own cut positions
+  and overhang are used: a 5′ overhang (EcoRI), a
   3′ one (PstI), a blunt cut (SmaI), or a Type IIS enzyme cutting outside its site
   (BsaI, BsmBI, BbsI). A circular part is cut round its origin. Then every circle one
   fragment from each part makes is tried, in both orientations, and the ones whose ends

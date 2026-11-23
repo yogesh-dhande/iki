@@ -41,6 +41,7 @@ effects:
       fields: [simulated_length, simulated_topology, junctions]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
+  - { name: Iki molecular module, version: "0.2.0", url: https://ikisci.org/plugins/plasmid }
 runs_on: { tier: backend, environment: plasmid-tools }
 command: [python, ./scripts/plasmids.py, assemble]
 deterministic: true

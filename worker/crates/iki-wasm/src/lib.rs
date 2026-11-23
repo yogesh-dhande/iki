@@ -8,10 +8,13 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod digest;
 pub mod expressions;
 pub mod helm;
+pub mod priming;
 pub mod rules;
 pub mod templates;
+pub mod thermodynamics;
 
 /// The most a file may be: the web app refuses larger ones before sending them.
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -577,6 +580,42 @@ pub mod exports {
     pub extern "C" fn iki_helm() {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::helm::read_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Places the primers in the input buffer on their template (see
+    /// [`super::priming::place_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_place_primers() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::priming::place_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Works out what the sites in the input buffer amplify (see
+    /// [`super::priming::products_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_pcr_products() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::priming::products_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Measures the duplex in the input buffer (see
+    /// [`super::priming::temperature_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_duplex_temperature() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::priming::temperature_json(&bytes);
+        OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Cuts the molecule in the input buffer with its enzymes (see
+    /// [`super::digest::cut_json`]), and frees it.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_digest() {
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let json = super::digest::cut_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 

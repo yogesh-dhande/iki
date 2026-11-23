@@ -90,6 +90,9 @@ PYTEST_PARALLEL ?= -n auto --dist worksteal
 
 .PHONY: check-python
 check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+	# The plugin actions' modules, which their tests call; no .wasm is committed, and
+	# each build checks itself against the tracked digest (ADR 0200).
+	scripts/build-plasmid-tools-wasm.sh
 	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
@@ -195,6 +198,8 @@ check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
 	cd worker && cargo clippy --locked --all-targets -- -D warnings
 	cd worker && cargo test --locked --all-targets
+	# Built from the crates above, and the same bytes as the tracked digest names.
+	scripts/build-plasmid-tools-wasm.sh --check
 
 .PHONY: fmt
 fmt: ## Format all code

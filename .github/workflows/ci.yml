@@ -221,6 +221,11 @@ jobs:
       - name: Build iki-wasm (without the web app)
         if: matrix.kind != 'browser'
         run: scripts/build-wasm.sh
+      # The plasmid plugin's actions call this module, and no .wasm is committed, so the
+      # tests that run those actions build it here. It checks itself against the tracked
+      # digest as it goes (ADR 0200).
+      - name: Build the plasmid plugin's molecular module
+        run: scripts/build-plasmid-tools-wasm.sh
       - name: Build iki-worker
         if: matrix.kind == 'worker'
         working-directory: worker
@@ -398,6 +403,8 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Tests
         run: cargo test --locked --all-targets
+      - name: Check the packaged primer and digest module
+        run: ../scripts/build-plasmid-tools-wasm.sh --check
 
   server-image:
     name: Server image
@@ -471,6 +478,10 @@ jobs:
           workspaces: worker
       - name: Build iki-wasm
         run: scripts/build-wasm.sh
+      # `iki deploy build` puts each plugin's module in its bundle, taking it from
+      # iki-spec, which this builds it into; no .wasm is committed (ADR 0200).
+      - name: Build the plasmid plugin's molecular module
+        run: scripts/build-plasmid-tools-wasm.sh
       - name: Build the worker image, and a deployment's on top of it
         run: scripts/ci/worker-image.sh iki-worker:ci
       - name: Install Grype and Syft (pinned, checksum verified)

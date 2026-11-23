@@ -702,6 +702,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iki-plasmid-tools-wasm"
+version = "0.1.0-dev.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iki-protocol"
 version = "0.1.0-dev.0"
 dependencies = [
