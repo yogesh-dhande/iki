@@ -33,6 +33,7 @@ from playwright.sync_api import (
     Page,
     Playwright,
     Route,
+    expect,
     sync_playwright,
 )
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -4540,6 +4541,96 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     saved = type(made.entity)._default_manager.get(pk=made.entity.pk)
     assert str(entities.current_values(saved)["analyst"]) == str(world.users["viewer"].pk)
     page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_reassignment_of_a_changed_selection_assigns_nothing_until_refreshed(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Reassigning sends each picked record's revision as the grid showed it. When one
+    changed meanwhile, the server refuses the whole batch (412): the dialog names it, keeps
+    what was chosen, and reassigns all of them once the selection is refreshed."""
+    from iki_server.entities import services as entities
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    grant = world.project.memberships.get(user=world.users["viewer"])
+    LabRoleGrant.objects.create(
+        membership=grant, role="acme/protein.analyst", granted_by=world.users["admin"]
+    )
+    permissions.forget(world.users["viewer"])
+    admin = world.users["admin"]
+    made = [
+        cast(
+            "Entity",
+            entities.create(admin, "acme/protein.Sample", world.project, {"label": label}).entity,
+        )
+        for label in ("Lot 11", "Lot 12")
+    ]
+    page = open_as(
+        "admin", "/projects/kinase-atlas/entities/?type=acme/protein.Sample", color_scheme
+    )
+    grid = page.get_by_role("table", name=re.compile(r"^2 samples$"))
+    for record in made:
+        grid.get_by_role("checkbox", name=f"Select {record.hrid}").check()
+    page.get_by_role("button", name="Reassign").click()
+    dialog = page.get_by_role("alertdialog", name="Reassign 2 samples")
+    dialog.get_by_role("combobox", name="Field").select_option("Analyst")
+    dialog.get_by_role("combobox", name="Analyst").fill("view")
+    page.get_by_role("option").filter(has_text="viewer@example.com").click()
+    page.get_by_role("listbox").wait_for(state="hidden")
+    dialog.get_by_role("textbox", name="Reason").fill("Editor is away")
+
+    changed = made[1]
+    entities.update(admin, changed, {"label": "Lot 12b"}, expected_revision=1, reason="Relabelled")
+    with page.expect_response(lambda r: r.url.endswith("/entities/assign")) as refused:
+        dialog.get_by_role("button", name="Reassign").click()
+    assert refused.value.status == 412, refused.value.text()
+    assert refused.value.request.post_data_json["expected_revisions"] == {
+        str(made[0].pk): 1,
+        str(changed.pk): 1,
+    }
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_contain_text(
+        "Nothing was reassigned: one of these records changed after you selected it."
+    )
+    expect(
+        alert.get_by_role("list", name="Changed since you selected them").get_by_role("listitem")
+    ).to_have_text(f"{changed.hrid}: revision 1 when you selected it, revision 2 now.")
+    expect(dialog.get_by_role("button", name="Reassign")).to_have_attribute("aria-disabled", "true")
+    for record in made:
+        saved = type(record)._default_manager.get(pk=record.pk)
+        assert entities.current_values(saved).get("analyst") is None
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [
+        e for e in PAGE_ERRORS[page] if "status of 412 (Precondition Failed)" not in e
+    ]
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    alert.get_by_role("button", name="Refresh the selection").click()
+    refreshed = dialog.get_by_role("status")
+    expect(refreshed).to_have_text(
+        "The selection is up to date. Check the record that changed before you reassign: "
+        f"{changed.hrid}."
+    )
+    expect(refreshed).to_be_focused()
+    expect(dialog.get_by_role("textbox", name="Reason")).to_have_value("Editor is away")
+    assert_clean(page)
+    with page.expect_response(lambda r: r.url.endswith("/entities/assign")) as accepted:
+        dialog.get_by_role("button", name="Reassign").click()
+    assert accepted.value.status == 200, accepted.value.text()
+    assert accepted.value.request.post_data_json["expected_revisions"] == {
+        str(made[0].pk): 1,
+        str(changed.pk): 2,
+    }
+    page.get_by_role("alertdialog", name="Reassigned 2 of 2").wait_for()
+    for record in made:
+        saved = type(record)._default_manager.get(pk=record.pk)
+        assert str(entities.current_values(saved)["analyst"]) == str(world.users["viewer"].pk)
 
 
 def test_signing_a_record_signs_in_again_and_shows_the_signature(
