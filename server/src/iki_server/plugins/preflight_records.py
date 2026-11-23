@@ -20,6 +20,7 @@ from psycopg import sql
 from iki_server.entities import checking
 from iki_server.entities.models import Entity
 from iki_server.entities.values import FOREIGN_KEYS, is_list_table, row_columns, to_json
+from iki_server.plugins.preflight_rules import projected_changes
 from iki_server.plugins.preflight_types import Record
 from iki_spec import naming
 from iki_spec.model import (
@@ -131,6 +132,10 @@ def records(
     return [r for r in page if r.id not in incomplete], len(selected) > limit or bool(incomplete)
 
 
+def _stored_fields(tables: Sequence[Table], *, entry: bool) -> dict[str, Field]:
+    return {n: f for t in tables if t.entry == entry for n, f in t.fields.items()}
+
+
 def referenced(
     ids: Collection[str],
     current: Mapping[str, Plugin],
@@ -163,12 +168,17 @@ def referenced(
             if kind not in BUILTIN_TYPES and kind not in candidate_types:
                 continue
             after = layout(kind, proposed)
-            if after != tables:
-                # A CEL reference reads one hop. A target whose values can change
-                # cannot be checked from the old values. A registry entry only
-                # exposes its entry fields, irrespective of changes to its records.
-                if [t for t in after if t.entry] != [t for t in tables if t.entry]:
-                    continue
+            # An entry exposes only shared fields. A project record exposes both.
+            # CEL can still read their deployed values when the only change is a
+            # label or a tighter constraint. A migration changing a value itself
+            # would make the old value unreliable for evaluating the proposed rule.
+            if projected_changes(
+                _stored_fields(tables, entry=True), _stored_fields(after, entry=True)
+            ):
+                continue
+            if projected_changes(
+                _stored_fields(tables, entry=False), _stored_fields(after, entry=False)
+            ):
                 page = [r for r in page if r.project is None]
         incomplete = _fill(page, tables, None, cel=True)
         out.update(

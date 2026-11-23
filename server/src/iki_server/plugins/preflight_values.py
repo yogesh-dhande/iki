@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import replace
 from typing import Any
-from uuid import UUID
 
 from django.core.management.base import CommandError
 from django.db import connection
+from psycopg import sql
 
+from iki_server.entities.values import is_list_table
 from iki_server.plugins.makemigrations import linear_conversion
 from iki_server.plugins.preflight_types import Finding, Record
 from iki_spec import units
@@ -26,21 +26,21 @@ def amount_unit(lineage: Iterable[EntityType]) -> str | None:
     return next((t.amount.unit for t in lineage if t.amount is not None), None)
 
 
-def amount_findings(
-    old_unit: str | None, new_unit: str | None, rows: list[Record]
-) -> list[Finding]:
-    """A change to ledger metadata generates no conversion for existing balances (ADR 0139)."""
-    from iki_server.amounts.models import Amount
+def amount_findings(old_unit: str | None, new_unit: str | None, qualified: str) -> list[Finding]:
+    """Count live balances by stored unit. A declaration change does not migrate them (ADR 0139)."""
+    from iki_server.plugins.preflight_sql import Scope, summary
 
     if old_unit == new_unit:
         return []
-    records = {UUID(r.id): r for r in rows}
-    ledger_rows: dict[str, list[Record]] = defaultdict(list)
-    for pk, unit in Amount.objects.filter(pk__in=records).values_list("pk", "unit"):
-        if unit != new_unit:
-            ledger_rows[unit].append(records[pk])
-    review = _Review()
-    for unit, affected in sorted(ledger_rows.items()):
+    scope = Scope([qualified], [])
+    balances = sql.SQL(
+        "SELECT records.id, records.hrid, records.entry_id, a.unit"
+        " FROM ({}) AS records JOIN iki_amount a ON a.entity_id = records.id"
+        " WHERE a.unit IS DISTINCT FROM {}"
+    ).format(scope.select(scope.keys), sql.Literal(new_unit))
+
+    findings = []
+    for unit, (count, examples) in sorted(summary(balances, group="unit").items()):
         if new_unit is None:
             message = (
                 "The proposed type removes the amount declaration. "
@@ -57,22 +57,20 @@ def amount_findings(
                 message += " The units have no direct conversion."
             else:
                 message += f" 1 {unit} equals {factor!r} {new_unit}."
-        review.add("unit", "amount", message, True, sorted(affected, key=lambda r: (r.hrid, r.id)))
-    if not ledger_rows and new_unit is not None:
+        findings.append(Finding("unit", "amount", message, True, count, examples))
+    if not findings and new_unit is not None:
         previous = f" (formerly {old_unit})" if old_unit else ""
-        review.add(
-            "unit",
-            "amount",
-            f"New balances are recorded in {new_unit}{previous}.",
-            False,
-            (),
-            include_empty=True,
-        )
-    return review.findings
+        message = f"New balances are recorded in {new_unit}{previous}."
+        findings.append(Finding("unit", "amount", message, False, 0, []))
+    return findings
 
 
 def field_findings(
-    old_fields: dict[str, Field], proposed_fields: dict[str, Field], rows: list[Record]
+    old_fields: dict[str, Field],
+    proposed_fields: dict[str, Field],
+    rows: list[Record],
+    *,
+    verify: Collection[str] | None = None,
 ) -> tuple[list[Finding], list[Record]]:
     """The records touched by each change and the projected values for checking rules.
 
@@ -80,13 +78,14 @@ def field_findings(
     The copy preserves the currently stored values for other parts of the report.
     """
     projected = [replace(row, values=dict(row.values)) for row in rows]
-    review = _Review()
+    review = _Review(verify)
     review.fields(old_fields, proposed_fields, projected)
     return review.findings, projected
 
 
 class _Review:
-    def __init__(self) -> None:
+    def __init__(self, verify: Collection[str] | None = None) -> None:
+        self.verify = verify
         self.findings: list[Finding] = []
 
     def add(
@@ -124,7 +123,7 @@ class _Review:
 
         # An entire state field can be retired into another one. Its moves follow any
         # initialization of the destination column, as in RetireStateField.
-        for name, old in before.items():
+        for name, old in sorted(before.items()):
             target = after.get(name)
             if old.removed or (target is not None and not target.removed):
                 continue
@@ -167,6 +166,10 @@ class _Review:
 
     def field(self, old: Field | None, field: Field, rows: list[Record], subject: str) -> None:
         name = field.name
+        if old is None and is_list_table(field):
+            # The new child table starts empty for every existing record.
+            for row in rows:
+                row.values[name] = []
         if old and (old.type == "state") != (field.type == "state"):
             self.add(
                 "state",
@@ -214,6 +217,11 @@ class _Review:
 
         if field.type == "quantity" and old and old.type == "quantity" and old.unit != field.unit:
             present = self.convert(old, field, present, subject)
+
+        # Scalar values may be needed to evaluate CEL after the migration's
+        # defaults and conversions. SQL already checked them in the whole table.
+        if self.verify is not None and subject.split(".", 1)[0] not in self.verify:
+            return
 
         if field.type == "json" and field.schema and (old is None or old.schema != field.schema):
             self.add(
@@ -295,8 +303,13 @@ class _Review:
         valid = []
         failed = []
         for row in rows:
-            value = row.values[field.name] * scale + offset
-            if math.isfinite(value):
+            stored = row.values[field.name]
+            product = stored * scale
+            value = product + offset
+            # float8 multiplication in ConvertUnit raises on a nonzero product
+            # rounded to zero, even if a subsequent offset would be representable.
+            underflow = product == 0 and stored != 0 and scale != 0
+            if math.isfinite(value) and not underflow:
                 row.values[field.name] = value
                 valid.append(row)
             else:
@@ -305,7 +318,7 @@ class _Review:
         self.add(
             "value",
             subject,
-            "The converted quantity exceeds the range of a finite number.",
+            "The converted quantity is outside the range of the stored number.",
             True,
             failed,
         )

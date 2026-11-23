@@ -93,6 +93,15 @@ def test_incompatible_units_and_nonfinite_conversions_need_attention() -> None:
     assert incompatible[0].blocking and incompatible[0].examples == ["full"]
     overflowing, _ = field_findings({"mass": field}, {"mass": replace(field, unit="mg")}, rows)
     assert any(item.blocking and item.examples == ["full"] for item in overflowing)
+    small = [
+        Record(name, name, "project", None, None, {"mass": v})
+        for name, v in [("zero", 0.0), ("tiny", float.fromhex("0x0.0000000000001p-1022"))]
+    ]
+    underflowing, projected = field_findings(
+        {"mass": field}, {"mass": replace(field, unit="kg")}, small
+    )
+    assert [r.values["mass"] for r in projected] == [0, None]
+    assert any(item.blocking and item.examples == ["tiny"] for item in underflowing)
 
 
 def test_retiring_a_whole_state_field_projects_into_the_destination_after_its_default() -> None:
@@ -192,12 +201,8 @@ def test_an_inherited_amount_unit_change_needs_a_migration_for_records_with_ledg
     new = amount_unit([replace(batch, amount=Amount("mL")), stock])
     assert new == "mL"
     with_ledger = sample(world, "filled", {"value": 1500, "unit": "uL"})
-    without = create(api_as(world), world.project, {"label": "empty"}, SAMPLE).json()
-    rows = [
-        Record(r["id"], r["hrid"], str(world.project.pk), None, None, {})
-        for r in [with_ledger, without]
-    ]
-    findings = amount_findings("uL", new, rows)
+    sample(world, "empty")
+    findings = amount_findings("uL", new, SAMPLE)
     assert len(findings) == 1
     assert (
         findings[0].count == 1
@@ -207,5 +212,36 @@ def test_an_inherited_amount_unit_change_needs_a_migration_for_records_with_ledg
     assert "0.001" in findings[0].message and "data migration" in findings[0].message
     stored = Balance.objects.get(pk=with_ledger["id"])
     assert stored.value == 1500 and stored.unit == "uL"
-    assert amount_findings("uL", "uL", rows) == []
-    assert amount_findings("uL", None, rows)[0].blocking
+    assert amount_findings("uL", "uL", SAMPLE) == []
+    assert amount_findings("uL", None, SAMPLE)[0].blocking
+
+
+@pytest.mark.django_db
+def test_ledger_units_have_exact_counts_and_bounded_examples(
+    world: World, django_assert_num_queries: Callable[[int], AbstractContextManager[object]]
+) -> None:
+    from django.utils import timezone
+
+    from iki_server.amounts.models import Amount
+    from iki_server.entities.models import Entity
+    from iki_server.plugins.preflight_values import amount_findings
+
+    # Balances keep their own unit even when an earlier deployment changed the declaration.
+    entities = Entity.objects.bulk_create(
+        [Entity(type=SAMPLE, owner_project=world.project, hrid=f"BAL-{i:06d}") for i in range(511)]
+    )
+    Amount.objects.bulk_create(
+        [Amount(entity_id=e.id, unit="uL", value=1) for e in entities[:504]]
+        + [Amount(entity_id=e.id, unit="nL", value=1) for e in entities[504:510]]
+        + [Amount(entity_id=entities[-1].id, unit="mL", value=1)]
+    )
+    Entity.objects.filter(pk=entities[504].pk).update(purged_at=timezone.now())
+    with django_assert_num_queries(1):
+        findings = amount_findings("uL", "mL", SAMPLE)
+    assert [f.count for f in findings] == [5, 504]  # nL and uL, excluding purged records
+    assert findings[0].examples == [e.hrid for e in entities[505:510]]
+    assert findings[1].examples == [e.hrid for e in entities[:5]]
+    assert all(f.blocking for f in findings)
+    assert sum(f.count for f in amount_findings("uL", None, SAMPLE)) == 510
+    empty = amount_findings("uL", "mL", "acme/protein.Protein")
+    assert [(f.count, f.blocking, f.examples) for f in empty] == [(0, False, [])]

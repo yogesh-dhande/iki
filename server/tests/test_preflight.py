@@ -3,13 +3,21 @@
 from dataclasses import replace
 
 import pytest
+from django.db import connection
+from org_world import build_world
 
-from iki_spec.model import EntityType, Extension, Field, Plugin
+from iki_server.entities.models import Entity
+from iki_server.plugins.preflight_types import Report
+from iki_spec.model import EntityType, Extension, Field, Plugin, Rule
 
 
+def no_sample(*args: object, **kwargs: object) -> None:
+    pytest.fail("An exact SQL check fetched a Python sample")
+
+
+@pytest.mark.django_db
 def test_parent_unique_checks_records_of_sibling_types(monkeypatch: pytest.MonkeyPatch) -> None:
     from iki_server.plugins import preflight
-    from iki_server.plugins.preflight_types import Record
 
     name = "acme/lab"
     batch = Field("batch", "string")
@@ -27,36 +35,40 @@ def test_parent_unique_checks_records_of_sibling_types(monkeypatch: pytest.Monke
             parent.qualified_name: replace(parent, fields={"batch": replace(batch, unique=True)}),
         },
     )
-
-    clipped: set[str] = set()
-
-    def read(qualified: str, *args: object, **kwargs: object) -> tuple[list[Record], bool]:
-        return [
-            Record(qualified, qualified, "project", None, None, {"batch": "B-1"})
-        ], qualified in clipped
-
-    monkeypatch.setattr(preflight, "records", read)
+    project = build_world().project
+    entities = Entity.objects.bulk_create(
+        [
+            Entity(type=t.qualified_name, hrid=f"MAT-{i:06d}", owner_project=project)
+            for i, t in enumerate((stock, item), 1)
+        ]
+    )
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "CREATE TEMP TABLE acme__lab_material (entity_id uuid PRIMARY KEY, batch text)"
+        )
+        cursor.executemany(
+            "INSERT INTO acme__lab_material VALUES (%s, 'B-1')", [(e.pk,) for e in entities]
+        )
+    monkeypatch.setattr(preflight, "records", no_sample)
     report = preflight.compare(current, {**current, name: candidate}, "lock-before", candidate)
     assert report.blocking
     assert report.configuration_revision == "lock-before"
     assert len(report.candidate_revision) == 64
     assert {t.type for t in report.types} == {stock.qualified_name, item.qualified_name}
     for result in report.types:
-        assert result.checked == 1
+        assert result.total == result.checked == 1
         assert not result.sampled
-        assert [(f.count, f.examples) for f in result.findings] == [(1, [result.type])]
-
-    # A sibling outside the sample could collide even with a fully enumerated type.
-    clipped.add(stock.qualified_name)
-    report = preflight.compare(current, {**current, name: candidate}, "lock-before", candidate)
-    assert all(t.sampled for t in report.types)
+        expected = next(e.hrid for e in entities if e.type == result.type)
+        assert [(f.count, f.examples, f.sampled) for f in result.findings] == [
+            (1, [expected], False)
+        ]
 
 
-def test_new_extension_requires_backfill_and_partial_coverage_blocks(
+@pytest.mark.django_db
+def test_new_extension_counts_all_backfills_and_only_cel_is_sampled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from iki_server.plugins import preflight
-    from iki_server.plugins.preflight_types import Record
 
     sample = EntityType("acme/lab", "Sample", 1)
     lab = Plugin(sample.plugin, "1", types={sample.qualified_name: sample})
@@ -64,24 +76,42 @@ def test_new_extension_requires_backfill_and_partial_coverage_blocks(
         "acme/qc", sample.qualified_name, {"method": Field("method", "string", required=True)}
     )
     qc = Plugin(extension.plugin, "1", extensions=(extension,))
-    sample_row = Record("id", "SMP-1", "p", None, None, {})
-    monkeypatch.setattr(preflight, "records", lambda *a, **kw: ([sample_row], True))
-    report = preflight.compare({lab.name: lab}, {lab.name: lab, qc.name: qc}, "abc", qc)
-    assert report.blocking
-    assert report.types[0].sampled
-    assert any(f.subject == "method" and f.count == 1 for f in report.types[0].findings)
+    project = build_world().project
+    Entity.objects.bulk_create(
+        [
+            Entity(type=sample.qualified_name, hrid=f"SMP-{i:06d}", owner_project=project)
+            for i in range(2)
+        ]
+    )
+    monkeypatch.setattr(preflight, "SAMPLE_LIMIT", 1)
+
+    def check(plugin: Plugin) -> Report:
+        return preflight.compare({lab.name: lab}, {lab.name: lab, qc.name: plugin}, "abc", plugin)
+
+    report = check(qc)
+    assert report.blocking and not report.types[0].sampled
+    assert report.types[0].total == report.types[0].checked == 2
+    assert [(f.subject, f.count, f.sampled) for f in report.types[0].findings] == [
+        ("method", 2, False)
+    ]
+    rule = Rule(
+        "labelled", "Labelled sample", qc.name, check='record.hrid == "no-match"', extension=True
+    )
+    with_rule = replace(qc, extensions=(replace(extension, rules={rule.name: rule}),))
+    mixed = check(with_rule).types[0]
+    assert mixed.sampled and mixed.total == 2 and mixed.checked == 1
+    assert any(rule.key in label for label in mixed.sampled_checks)
+    assert {(f.subject, f.count, f.sampled) for f in mixed.findings} == {
+        ("method", 2, False),
+        (rule.key, 1, True),
+    }
 
     optional = replace(
         qc, extensions=(replace(extension, fields={"method": Field("method", "string")}),)
     )
-    report = preflight.compare({lab.name: lab}, {lab.name: lab, qc.name: optional}, "abc", optional)
-    assert report.blocking == any(t.sampled for t in report.types)
-    assert (
-        report.candidate_revision
-        != preflight.compare(
-            {lab.name: lab}, {lab.name: lab, qc.name: qc}, "abc", qc
-        ).candidate_revision
-    )
+    clear = check(optional)
+    assert not clear.blocking and not clear.types[0].sampled_checks
+    assert clear.candidate_revision != report.candidate_revision
 
 
 def test_same_schema_does_not_read_any_records(monkeypatch: pytest.MonkeyPatch) -> None:

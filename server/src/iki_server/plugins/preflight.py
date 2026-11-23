@@ -16,8 +16,16 @@ from psycopg.errors import QueryCanceled
 from iki_server.core.snapshots import snapshot
 from iki_server.plugins import baseline, candidate, preflight_records, preflight_rules
 from iki_server.plugins.preflight_records import Table, layout, records
-from iki_server.plugins.preflight_types import Finding, Record, Report, TypeReport
-from iki_server.plugins.preflight_values import amount_findings, amount_unit, field_findings
+from iki_server.plugins.preflight_sql import Scope
+from iki_server.plugins.preflight_sql_fields import (
+    field_checks,
+    projection_inputs,
+    sampled_fields,
+    sampled_findings,
+)
+from iki_server.plugins.preflight_sql_relations import exact_relations
+from iki_server.plugins.preflight_types import Finding, Report, TypeReport
+from iki_server.plugins.preflight_values import amount_findings, amount_unit
 from iki_spec import naming
 from iki_spec.model import BUILTIN_TYPES, EntityType, Extension, Field, Plugin, Rule, plugin_to_dict
 
@@ -128,98 +136,38 @@ def _touched(old: Plugin | None, new: Plugin) -> set[str]:
     return names | {n for n in before.keys() | after.keys() if before.get(n) != after.get(n)}
 
 
-@dataclass
-class _Checked:
-    old: _Shape
-    new: _Shape
-    rows: list[Record]
-    report: TypeReport
-
-
-def _columns(old: _Shape, new: _Shape) -> set[str]:
-    changed = {
-        k for k in old.fields.keys() | new.fields.keys() if old.fields.get(k) != new.fields.get(k)
-    }
-    for rule in new.rules.values():
-        names = {
-            *rule.reads,
-            *rule.unique,
-            *rule.no_overlap,
-            *rule.per,
-            *(n for n, _ in rule.only_while),
-        }
-        if rule != old.rules.get(rule.key) or names & changed:
-            changed.update(names)
-    return changed
-
-
-def _check_relations(checked: list[_Checked]) -> None:
-    # A constraint on a parent table applies across sibling types using that table, even
-    # when a report presents each type separately.
-    scope: dict[str, list[Record]] = {}
-    incomplete: set[str] = set()
-    for check in checked:
-        for table in check.new.tables:
-            scope.setdefault(table.table, []).extend(check.rows)
-            if check.report.sampled:
-                incomplete.add(table.table)
-    for check in checked:
-        for table in check.new.tables:
-            rules = {
-                k: v for k, v in check.new.rules.items() if check.new.rule_tables[k] == table.table
-            }
-            changed_unique = any(
-                f.unique and f != check.old.fields.get(n) for n, f in table.fields.items()
-            )
-            changed_rules = any(
-                r.kind != "check"
-                and (
-                    r != check.old.rules.get(k)
-                    or any(table.fields.get(n) != check.old.fields.get(n) for n in r.reads)
-                )
-                for k, r in rules.items()
-            )
-            if not (changed_unique or changed_rules):
-                continue
-            if table.table in incomplete:
-                check.report.sampled = True
-            check.report.findings.extend(
-                preflight_rules.relational_findings(
-                    check.old.fields,
-                    table.fields,
-                    check.old.rules,
-                    rules,
-                    scope[table.table],
-                    report_ids={r.id for r in check.rows},
-                    entry_fields=table.fields.keys() if table.entry else (),
-                )
-            )
-
-
-def _check_type(name: str, old: _Schema, new: _Schema, recheck: set[str]) -> _Checked | None:
+def _check_type(name: str, old: _Schema, new: _Schema, recheck: set[str]) -> TypeReport:
     before, after = old.shape(name), new.shape(name)
-    if recheck:
-        before = replace(before, rules={k: v for k, v in before.rules.items() if k not in recheck})
-    if (
-        before.fields == after.fields
-        and before.rules == after.rules
-        and before.amount_unit == after.amount_unit
-    ):
-        return None
-    rows, sampled = records(name, old.plugins, SAMPLE_LIMIT, fields=_columns(before, after))
-    fields = {**after.fields, **after.retired}
-    findings, projected = field_findings(before.fields, fields, rows)
-    findings.extend(amount_findings(before.amount_unit, after.amount_unit, rows))
-    args = before.fields, after.fields, before.rules, after.rules, projected
-    ids = preflight_rules.reference_ids(*args)
-    findings.extend(
+    proposed = {**after.fields, **after.retired}
+    scope = Scope([name], before.tables)
+    total = scope.population()
+    findings = field_checks(scope, before.fields, proposed)
+    findings.extend(amount_findings(before.amount_unit, after.amount_unit, name))
+    # Reference targets may be changing in another type in this promotion.
+    old_rules = {k: v for k, v in before.rules.items() if k not in recheck}
+    rules = preflight_rules.checked_cel_rules(before.fields, proposed, old_rules, after.rules)
+    fields = sampled_fields(before.fields, proposed)
+    if not (fields or rules):
+        return TypeReport(name, total, total, False, [], findings)
+
+    reads = fields | {n for rule in rules.values() for n in rule.reads}
+    rows, capped = records(
+        name, old.plugins, SAMPLE_LIMIT, fields=projection_inputs(proposed, reads)
+    )
+    evaluated, projected = sampled_findings(before.fields, proposed, rows, reads=reads)
+    ids = preflight_rules.reference_ids(after.fields, rules, projected)
+    evaluated.extend(
         preflight_rules.row_findings(
-            *args,
+            after.fields,
+            rules,
+            projected,
             referenced=preflight_records.referenced(ids, old.plugins, new.plugins) if ids else {},
             ref_fields=new.ref_fields,
         )
     )
-    return _Checked(before, after, projected, TypeReport(name, len(rows), sampled, findings))
+    findings.extend(replace(f, sampled=capped) for f in evaluated)
+    labels = [*(f"field {n}" for n in sorted(fields)), *(f"rule {k}" for k in sorted(rules))]
+    return TypeReport(name, total, len(rows), capped, labels if capped else [], findings)
 
 
 def compare(
@@ -236,38 +184,52 @@ def compare(
     if not touched:
         return report
     old, new = _Schema(current), _Schema(proposed)
-    checked = []
+    scopes: dict[str, tuple[_Shape, _Shape]] = {}
+    checked: dict[str, TypeReport] = {}
     for name, t in sorted(old.types.items()):
         if t.abstract or name == naming.ENTITY:
             continue
         target = new.types.get(name)
         if target is None or target.abstract:
             if name in touched:
-                rows, sampled = records(name, current, SAMPLE_LIMIT, fields=())
+                count, examples = Scope([name], []).count_examples()
                 findings = []
-                if rows:
+                if count:
                     findings.append(
                         Finding(
                             "type",
                             name,
                             "Review the migration removing this concrete type.",
                             True,
-                            len(rows),
-                            [r.example for r in rows[:5]],
+                            count,
+                            examples,
                         )
                     )
-                report.types.append(TypeReport(name, len(rows), sampled, findings))
+                report.types.append(TypeReport(name, count, count, False, [], findings))
             continue
-        after = new.shape(name)
+        before, after = old.shape(name), new.shape(name)
+        scopes[name] = before, after
         recheck = preflight_rules.changed_reference_rules(
             after.fields, after.rules, old.ref_fields, new.ref_fields
         )
         lineage = (t.qualified_name for t in [*old.lineage(name), *new.lineage(name)])
-        if not (recheck or touched.intersection(lineage)):
+        if not recheck and (
+            not touched.intersection(lineage)
+            or (
+                before.tables == after.tables
+                and before.rules == after.rules
+                and before.amount_unit == after.amount_unit
+            )
+        ):
             continue
-        result = _check_type(name, old, new, recheck)
-        if result:
-            checked.append(result)
-            report.types.append(result.report)
-    _check_relations(checked)
+        checked[name] = _check_type(name, old, new, recheck)
+        report.types.append(checked[name])
+    for name, findings in exact_relations(scopes, affected=set(checked)).items():
+        if name not in checked:
+            # A migration in a sibling can create a conflict with an unchanged type.
+            total = Scope([name], []).population()
+            checked[name] = TypeReport(name, total, total, False, [], [])
+            report.types.append(checked[name])
+        checked[name].findings.extend(findings)
+    report.types.sort(key=lambda t: t.type)
     return report

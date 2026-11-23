@@ -29,13 +29,16 @@ class Finding:
     blocking: bool
     count: int
     examples: list[str]
+    sampled: bool = False
 
 
 @dataclass
 class TypeReport:
     type: str
+    total: int
     checked: int
     sampled: bool
+    sampled_checks: list[str]
     findings: list[Finding]
 
 

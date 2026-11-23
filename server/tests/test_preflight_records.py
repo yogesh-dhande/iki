@@ -14,7 +14,7 @@ from test_api_entities import api_as, create
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_server.plugins import preflight_records
-from iki_spec.model import Plugin
+from iki_spec.model import Field, Plugin
 
 pytestmark = pytest.mark.django_db
 PROTEIN = "acme/protein.Protein"
@@ -77,15 +77,28 @@ def test_sample_joins_old_parent_extension_and_entry_and_preserves_list_order(
     plugin = deployed["acme/protein"]
     old_type = plugin.types[PROTEIN]
 
-    def changing(field: str) -> dict[str, Plugin]:
-        old_field = old_type.fields[field]
-        changed = replace(
-            old_type, fields={**old_type.fields, field: replace(old_field, required=True)}
-        )
-        return {**deployed, plugin.name: replace(plugin, types={**plugin.types, PROTEIN: changed})}
+    def changing(kind: str, field: Field) -> dict[str, Plugin]:
+        original = plugin.types[kind]
+        changed = replace(original, fields={**original.fields, field.name: field})
+        return {**deployed, plugin.name: replace(plugin, types={**plugin.types, kind: changed})}
 
-    assert entry not in preflight_records.referenced({entry}, deployed, changing("hazard"))
-    assert entry in preflight_records.referenced({entry}, deployed, changing("host"))
+    targets = {entry, record.id}
+    expected = preflight_records.referenced(targets, deployed)
+    hazard = old_type.fields["hazard"]
+    metadata = replace(hazard, required=True, values=("bsl1",), label="Safety level")
+    assert preflight_records.referenced(targets, deployed, changing(PROTEIN, metadata)) == expected
+
+    new_default = replace(hazard, required=True, has_default=True, default="none")
+    assert preflight_records.referenced(targets, deployed, changing(PROTEIN, new_default)) == {}
+    unit_change = replace(old_type.fields["temperature_optimum"], unit="K")
+    assert preflight_records.referenced(targets, deployed, changing(PROTEIN, unit_change)) == {
+        entry: expected[entry]
+    }
+
+    # A project record can be another rule's target. A normalized list has no
+    # scalar column to read when a proposed version gives that field a scalar type.
+    scalar = Field("additions", "string")
+    assert preflight_records.referenced({rows[0].id}, deployed, changing(SAMPLE, scalar)) == {}
     # A long list must not exhaust the preview or be checked as if its partial value
     # were complete. Referenced records are subject to the same limit.
     monkeypatch.setattr(preflight_records, "LIST_ROWS", 1)
