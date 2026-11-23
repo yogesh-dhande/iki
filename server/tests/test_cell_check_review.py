@@ -1,21 +1,20 @@
 """The two signed review paths for a bank check and the results each test accepts."""
 
-from pathlib import Path
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 
 from iki_spec import rules
 from iki_spec.model import EntityType
 from iki_spec.validate import load_plugin
 
-PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
+PLUGIN = PLUGINS / "cell_lines"
 
 
 @pytest.fixture(scope="module")
 def check_type() -> EntityType:
-    dependencies = ["example_lims", "lots", "plasmid", "protein", "dna", "oligo"]
-    loaded = load_plugin(PLUGINS / "cell_lines", dependencies=[PLUGINS / n for n in dependencies])
+    loaded = load_plugin(PLUGIN, dependencies=FIRST_PARTY[PLUGIN])
     assert loaded.problems == []
     assert loaded.plugin is not None
     return loaded.plugin.types["iki/cell_lines.CellCheck"]

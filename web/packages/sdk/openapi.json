@@ -3189,6 +3189,14 @@
             "title": "Id",
             "type": "string"
           },
+          "people": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ComponentPersonOut"
+            },
+            "description": "Display names for the people those fields name, by ID.",
+            "title": "People",
+            "type": "object"
+          },
           "project": {
             "anyOf": [
               {
@@ -3334,6 +3342,20 @@
           "frame"
         ],
         "title": "ComponentOut",
+        "type": "object"
+      },
+      "ComponentPersonOut": {
+        "properties": {
+          "name": {
+            "description": "The person's display name for this record.",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ComponentPersonOut",
         "type": "object"
       },
       "Condition": {
