@@ -371,7 +371,8 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
     has both a plugin's component frame and an element named by `aria-labelledby`
     (aria-allowed-attr, aria-conditional-attr, aria-prohibited-attr, nested-interactive,
     label-content-name-mismatch and more each do). axe checks the DOM, which is the same
-    in every browser.
+    in every browser. Pass it only for a page that crashes, and take it off again once
+    Playwright's Firefox stops crashing: a page kept here is unchecked in one engine.
     """
     assert page.evaluate("window.__cspViolations") == [], page.url
     assert PAGE_ERRORS[page] == [], (page.url, FAILED_REQUESTS.get(page))
@@ -4182,9 +4183,11 @@ PLATE = "iki/plate_assays."
 
 def _starter_api(page: Page) -> dict[str, Any]:
     """Answers the starter API as a deployment with plate assays installed would (ADR 0198):
-    this one's fixture plugins don't include them, and the API's own tests cover what it
-    does. Members, projects and everything else are the real server's. Returns what the
-    page sent."""
+    this one's fixture plugins don't include them. This stubs the API for the screen's sake
+    and is not its coverage: what the endpoints themselves do, grants and examples included,
+    is tested against the real server in test_starter_applications, test_starter_api and
+    test_dose_response_starter. Members, projects and everything else here are the real
+    server's. Returns what the page sent."""
     import json
 
     fixtures = json.loads(FLOW_FIXTURES.read_text())
@@ -4358,6 +4361,7 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     assert card.get_by_role("button", name="Preview").count() == 0
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    # Playwright's Firefox crashes in axe on this page (see assert_clean).
     assert_clean(page, axe_in_firefox=False)
     page.context.close()
 
