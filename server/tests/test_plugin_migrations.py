@@ -23,6 +23,9 @@ import psycopg
 import pytest
 from psycopg import sql
 
+from iki_spec.builtin import core_plugin
+from iki_spec.validate import load_plugin
+
 TESTS = Path(__file__).parent
 PLUGINS = TESTS.parents[1] / "spec" / "tests" / "plugins"
 
@@ -415,32 +418,26 @@ def test_a_deployment_built_from_its_lockfile(migrated: Path, database: str) -> 
 
 
 def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database: str) -> None:
-    out = build(migrated, "dna", "protein", "structure_prediction")
+    names = ("dna", "protein", "structure_prediction")
+    out = build(migrated, *names)
     migrate(out, database)
     report = sync(out, database)
-    assert report.splitlines()[:19] == [
-        # The core plugin's alignments, apps, collections, organisms and views, which every
-        # deployment has, beside the fixtures'.
-        "  HRID sequence iki_hrid_aln",
-        "  HRID sequence iki_hrid_app",
-        "  HRID sequence iki_hrid_arq",
-        "  HRID sequence iki_hrid_ars",
-        "  HRID sequence iki_hrid_bat",
-        "  HRID sequence iki_hrid_box",
-        "  HRID sequence iki_hrid_bsp",
-        "  HRID sequence iki_hrid_col",
-        "  HRID sequence iki_hrid_dna",
-        "  HRID sequence iki_hrid_frz",
-        "  HRID sequence iki_hrid_lot",
-        "  HRID sequence iki_hrid_mlt",
-        "  HRID sequence iki_hrid_pls",
-        "  HRID sequence iki_hrid_prt",
-        "  HRID sequence iki_hrid_pst",
-        "  HRID sequence iki_hrid_rck",
-        "  HRID sequence iki_hrid_smp",
-        "  HRID sequence iki_hrid_tax",
-        "  HRID sequence iki_hrid_tub",
-    ]
+
+    # Compare the deployed report to the source manifests, independently of the installed registry.
+    directories = [migrated / name for name in names]
+    declared = [core_plugin()]
+    for directory in directories:
+        loaded = load_plugin(directory, dependencies=[d for d in directories if d != directory])
+        assert loaded.plugin is not None and not loaded.errors, loaded.problems
+        declared.append(loaded.plugin)
+    prefixes = {
+        entity_type.hrid_prefix.lower()
+        for plugin in declared
+        for entity_type in plugin.types.values()
+        if not entity_type.abstract and entity_type.hrid_prefix is not None
+    }
+    expected = [f"  HRID sequence iki_hrid_{prefix}" for prefix in sorted(prefixes)]
+    assert [line for line in report.splitlines() if line.startswith("  HRID sequence ")] == expected
     assert sync(out, database) == report  # idempotent
     result = orm(
         out,
