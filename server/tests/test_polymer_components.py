@@ -60,11 +60,6 @@ def test_structure_preserves_the_notation_and_distinguishes_monomers(
         color_scheme=scheme,
         bypass_csp=True,  # allow axe to check the frame
     )
-    # Firefox's role engine can crash the content process if a named region is queried
-    # before axe runs. Wait for the rendered component by text first (see test_browser).
-    page.get_by_text("CPD-000001 · Styrene", exact=True).wait_for()
-    page.evaluate(AXE.read_text())
-    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     source = page.get_by_role("region", name="Source monomers")
     source.get_by_text("CPD-000001 · Styrene", exact=True).wait_for()
     notation = page.get_by_role("region", name="BigSMILES")
@@ -72,6 +67,8 @@ def test_structure_preserves_the_notation_and_distinguishes_monomers(
     assert notation.get_by_text("[<]CC(c1ccccc1)[>]", exact=True).is_visible()
     assert notation.get_by_role("heading", name="Stochastic object 1").is_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.evaluate(AXE.read_text())
+    assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
     page.context.close()
 
 

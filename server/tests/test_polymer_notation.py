@@ -83,7 +83,8 @@ def test_invalid_notation_retains_no_partial_summary(source: str) -> None:
         "{[]CC,CC(CC)[]}",  # abbreviated AA descriptors
         "{[][$]CC(c1ccc(cc1)C{[$][$]CC[$][$]}Br)[$][]}",  # graft, nested object
         "{[][$]CC([#R])[$][]}.{#R=CO}",  # named fragment definition
-        "{[][<1[>1]]CC[>1[<1]][]}",  # multi-atom ladder descriptor
+        "{[][<1[<1]1]CC[>1[>1]2][]}",  # multi-atom ladder descriptor
+        "{[][$]~CC~[$][]}",  # bond-order query
         "{[][$]" + "C" * 3000 + "[$][]}",
         "{[]" + ",".join(["[$]C[$]"] * 1025) + "[]}",
     ],

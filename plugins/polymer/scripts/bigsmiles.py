@@ -34,7 +34,7 @@ class UnsupportedError(ValueError):
 
 class Descriptor(NamedTuple):
     kind: str
-    index: int
+    index: str
 
     def partner(self) -> Descriptor:
         return Descriptor({"<": ">", ">": "<", "$": "$"}[self.kind], self.index)
@@ -43,7 +43,8 @@ class Descriptor(NamedTuple):
 def _descriptor(text: str) -> Descriptor:
     # BigSMILES treats the first descriptor as unnumbered. Normalise optional
     # numeric spelling for comparison only, retaining it in the original fragments.
-    return Descriptor(text[1], int(text[2:-1] or "1"))
+    index = text[2:-1] or "1"
+    return Descriptor(text[1], index.lstrip("0") or "0")
 
 
 def _smiles(source: str) -> Chem.Mol:
@@ -82,8 +83,6 @@ def _fragment(source: str, *, end_group: bool) -> list[tuple[Descriptor, float]]
     # same atom still resolve to their own attachment bonds in the RDKit graph.
     replacements = iter(f"[{n}*]" for n in range(1, len(markers) + 1))
     molecule = _smiles(DESCRIPTOR.sub(lambda _: next(replacements), source))
-    if not markers and not end_group:
-        raise UnsupportedError("Repeat-unit shorthand needs explicit bonding descriptors to check.")
     if end_group and len(markers) != 1:
         raise ValueError("An implicit end-group fragment needs exactly one bonding descriptor.")
     if not end_group and len(markers) < 2:
@@ -110,7 +109,7 @@ def _object(body: str) -> tuple[list[str], list[str], tuple[float | None, float 
     repeats = units.split(",")
     # The v1.1 grammar also permits an empty end-group list after the separator.
     end_groups = ends.split(",") if separator and ends else []
-    if len(repeats) + len(end_groups) > MAX_FRAGMENTS:
+    if len(repeats) > MAX_FRAGMENTS or len(end_groups) > MAX_FRAGMENTS:
         raise UnsupportedError("The stochastic object exceeds the fragment limit.")
     repeat_bonds: dict[Descriptor, float] = {}
     for fragment in repeats:
@@ -184,7 +183,7 @@ def inspect(source: str) -> dict[str, Any]:
             raise ValueError("Give a single nonempty BigSMILES string without whitespace.")
         if "[#" in source or "{#" in source or re.search(r"\[[$<>]\d*\[", source):
             raise UnsupportedError("Named fragments and ladder descriptors are outside this check.")
-        if any(c in source for c in "*|"):
+        if any(c in source for c in "*|~") or "->" in source or "<-" in source:
             raise UnsupportedError("Wildcard atoms and extended notation are outside this check.")
         depth = 0
         nested = False

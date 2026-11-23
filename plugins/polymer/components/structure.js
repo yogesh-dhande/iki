@@ -65,11 +65,10 @@ const STATUS = {
   unsupported: "Outside the supported notation",
 };
 
-function section(title, id, ...children) {
+function section(title, ...children) {
   const heading = node("h3", title);
-  heading.id = id;
   const group = node("section", heading, ...children);
-  group.setAttribute("aria-labelledby", id);
+  group.setAttribute("aria-label", title);
   return group;
 }
 
@@ -108,7 +107,7 @@ class PolymerStructure extends HTMLElement {
 
     const raw = node("p", node("code", values.bigsmiles ?? ""));
     raw.className = "notation";
-    const notation = section("BigSMILES", "notation", raw);
+    const notation = section("BigSMILES", raw);
     const status = STATUS[values.notation_status] ?? "Awaiting inspection";
     notation.append(node("p", status));
     if (values.notation_note) notation.append(node("p", values.notation_note));
@@ -130,7 +129,7 @@ class PolymerStructure extends HTMLElement {
       node("h2", "Polymer ensemble"),
       design,
       notation,
-      section("Source monomers", "monomers", monomers),
+      section("Source monomers", monomers),
     );
   }
 }
