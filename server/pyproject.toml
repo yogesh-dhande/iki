@@ -27,7 +27,7 @@ dependencies = [
   "django-ninja>=1.8.0",
   "django-oauth-toolkit>=3.4.1",
   "iki-spec",
-  "boto3>=1.43.0",
+  "boto3>=1.44.3",
   # Files in Cloud Storage, through its own API (ADR 0109): generations, holds, signed URLs.
   "google-cloud-storage>=3.17.1",
   # The vm tier's machines on Compute Engine (ADR 0074, 0107).
