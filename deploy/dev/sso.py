@@ -69,9 +69,10 @@ def ok(message: str) -> None:
     sys.stdout.write(f"\033[1;32m  ok\033[0m {message}\n")
 
 
-def kubectl(*args: str) -> str:
+def kubectl(*args: str, stdin: str | None = None) -> str:
     result = subprocess.run(  # noqa: S603 - fixed argv
         ["kubectl", "--context", CONTEXT, "-n", NAMESPACE, *args],  # noqa: S607
+        input=stdin,
         capture_output=True,
         text=True,
         check=False,
@@ -89,7 +90,35 @@ def secret(name: str, key: str) -> str:
 def run_maintenance() -> None:
     """Run the deployed CronJob now. Its TTL cleans up each seed run's Job and pods."""
     name = f"iki-maintenance-seed-{secrets.token_hex(6)}"
-    kubectl("create", "job", name, "--from=cronjob/iki-maintenance")
+    template = json.loads(
+        kubectl(
+            "create",
+            "job",
+            name,
+            "--from=cronjob/iki-maintenance",
+            "--dry-run=client",
+            "-o",
+            "json",
+        )
+    )
+    container = next(
+        c for c in template["spec"]["template"]["spec"]["containers"] if c["name"] == "maintain"
+    )
+    # iki-server is the image ENTRYPOINT when Kubernetes doesn't override it. A shell in
+    # the same container can still read its cgroup's high-water mark after the server exits.
+    command = [*container.get("command", ["iki-server"]), *container["args"]]
+    container["command"] = ["/bin/sh", "-ec"]
+    container["args"] = [
+        '''status=0
+"$@" || status=$?
+read -r peak < /sys/fs/cgroup/memory.peak
+read -r limit < /sys/fs/cgroup/memory.max
+printf '{"event":"maintenance_cgroup","peak":"%s","limit":"%s"}\\n' "$peak" "$limit"
+exit "$status"''',
+        "maintenance-cgroup",
+        *command,
+    ]
+    kubectl("create", "-f", "-", stdin=json.dumps(template))
     deadline = time.monotonic() + 300
     reason = "still incomplete after five minutes"
     while time.monotonic() < deadline:
@@ -104,6 +133,7 @@ def run_maintenance() -> None:
         )
         if terminal:
             if terminal["type"] == "Complete":
+                report_maintenance_memory(name)
                 return
             reason = f"{terminal.get('reason', 'Failed')}: {terminal.get('message', '')}"
             break
@@ -129,6 +159,39 @@ def run_maintenance() -> None:
         except RuntimeError as error:
             diagnostics.append(str(error))
     fail("\n".join(diagnostics))
+
+
+def report_maintenance_memory(name: str) -> None:
+    pod = kubectl(
+        "get",
+        "pods",
+        "-l",
+        f"job-name={name}",
+        "--field-selector=status.phase=Succeeded",
+        "-o",
+        "name",
+    ).strip()
+    logs = kubectl("logs", pod, "-c", "maintain")
+    events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
+    loaded = next(
+        (
+            e
+            for e in events
+            if e.get("logger") == "iki_spec.wasm"
+            and e.get("event") == "Loaded precompiled iki-wasm"
+        ),
+        None,
+    )
+    cgroup = next((e for e in events if e.get("event") == "maintenance_cgroup"), None)
+    if not loaded or not cgroup:
+        fail(f"{pod} did not report its precompiled module and cgroup memory\n{logs}")
+    if cgroup["limit"] != str(384 * 1024**2) or int(cgroup["peak"]) <= 0:
+        fail(f"{pod} reported unexpected cgroup memory {cgroup}")
+    ok(
+        f"{pod} loaded precompiled iki-wasm for {loaded['wasm_target']} "
+        f"(SHA-256 {loaded['wasm_sha256']}). "
+        f"memory.peak={cgroup['peak']} bytes and memory.max={cgroup['limit']} bytes"
+    )
 
 
 def route(iki_port: int, keycloak_port: int) -> None:
