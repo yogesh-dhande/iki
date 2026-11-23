@@ -1,6 +1,7 @@
 // Cargo's machine-readable build output identifies the libraries compiled for
 // the parser's Wasm target and the exact registry sources actually used.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath, URL } from "node:url";
@@ -43,17 +44,26 @@ for (const artifact of artifacts) {
     .map((f) => f.name)
     .sort();
   const texts = files.map((name) => name + "\n\n" + readFileSync(join(dir, name), "utf8"));
-  if (!texts.length && label === "cel@0.15.0") {
+  if (!texts.length && label === "cel@0.16.0") {
     // This registry archive omits its workspace license. Its .cargo_vcs_info.json
     // identifies the exact upstream revision containing the retained notice.
-    const sha = JSON.parse(readFileSync(join(dir, ".cargo_vcs_info.json"), "utf8")).git.sha1;
-    if (sha !== "57b2a7e9b835425be0a7320e6bc0461380843f2d")
+    const { git, path_in_vcs } = JSON.parse(
+      readFileSync(join(dir, ".cargo_vcs_info.json"), "utf8"),
+    );
+    const revision = "92af54eb79f3b6cc64791fa5c3806562b904ce67";
+    if (git.sha1 !== revision || path_in_vcs !== "cel")
       throw new Error("Unexpected CEL source revision");
+    const license = readFileSync(
+      new URL("web/packages/science/tools/notices/cel-0.16.0.txt", root),
+    );
+    if (
+      createHash("sha256").update(license).digest("hex") !==
+      "87dd66ad9efb705e70f28a2f9efe4cfaca69073d9ce1447bdece366471c4664f"
+    ) {
+      throw new Error("The retained CEL notice differs from the upstream license.");
+    }
     texts.push(
-      "https://github.com/cel-rust/cel-rust/blob/" +
-        sha +
-        "/LICENSE\n\n" +
-        readFileSync(new URL("web/packages/science/tools/notices/cel-0.15.0.txt", root), "utf8"),
+      `https://github.com/cel-rust/cel-rust/blob/${revision}/LICENSE\n\n${license.toString("utf8")}`,
     );
   }
   if (!texts.length) throw new Error("Missing license text for Cargo dependency " + id);
