@@ -20,14 +20,14 @@ dependencies = [
   "opentelemetry-instrumentation-asgi>=0.66b2",
   "opentelemetry-instrumentation-django>=0.66b2",
   "opentelemetry-instrumentation-psycopg>=0.66b2",
-  "django-allauth[socialaccount,saml]>=65.21.1",
-  "servestatic>=4.4.0",
+  "django-allauth[socialaccount,saml]>=65.22.1",
+  "servestatic>=4.4.1",
   "cryptography>=50.0.2",
   "requests>=2.34.2",
   "django-ninja>=1.8.0",
   "django-oauth-toolkit>=3.4.1",
   "iki-spec",
-  "boto3>=1.43.0",
+  "boto3>=1.44.3",
   # Files in Cloud Storage, through its own API (ADR 0109): generations, holds, signed URLs.
   "google-cloud-storage>=3.17.1",
   # The vm tier's machines on Compute Engine (ADR 0074, 0107).
@@ -41,7 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 # Container images build psycopg's C extension against the distro's libpq,
 # which gets OS security updates. Development uses the prebuilt binary wheel.
-c = ["psycopg[c]>=3.3.8"]
+c = ["psycopg[c]>=3.3.9"]
 
 [tool.uv.sources]
 iki-spec = { workspace = true }
@@ -54,5 +54,5 @@ iki-server = "iki_server.manage:main"
 module-name = ["iki_server", "iki_plugin_iki__core"]
 
 [build-system]
-requires = ["uv_build>=0.13.7,<0.14"]
+requires = ["uv_build>=0.13.8,<0.14"]
 build-backend = "uv_build"
