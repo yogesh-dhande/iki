@@ -83,6 +83,18 @@ def test_standalone_story(
             page.get_by_role("combobox", name="Unit for Example volume").select_option("__other")
             page.get_by_role("textbox", name="UCUM unit code").fill("L")
             expect(page.get_by_role("status")).to_have_text("1.5 L")
+        elif component == "page-header":
+            page.get_by_role("button", name="About Review queue").click()
+            dialog = page.get_by_role("dialog", name="About Review queue")
+            expect(dialog.get_by_role("link", name="Review guide")).to_be_visible()
+            page.keyboard.press("Escape")
+            expect(dialog).to_have_count(0)
+            page.get_by_role("button", name="Export").press("Enter")
+            expect(page.get_by_role("status")).to_have_text("Requested export")
+        elif component == "sidebar":
+            page.get_by_role("button", name="Guides").press("Enter")
+            page.get_by_role("link", name="Importing data").click()
+            expect(page.get_by_role("status")).to_have_text("Selected #import")
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(
