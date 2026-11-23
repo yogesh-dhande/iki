@@ -2,7 +2,27 @@
 
 The `iki` command-line tool for plugin authors and deployments: the
 `iki plugin` commands `validate`, `build`, `makemigrations`, `preflight` and `test`,
-`iki bundle verify`, and `iki deploy build`. `upgrade` and `run` follow as the plugin system grows.
+`iki bundle verify`, `iki deploy build`, and `iki starter` for assay setup.
+
+## `iki starter`
+
+Use `iki starter list --project "$SERVICE"` to see which starter versions and review
+flows are installed and which one the service project uses. Supply the service and
+requesting project UUIDs, and a membership UUID from the service project for each lab
+role. Repeat `--role` to assign a role to more than one member.
+
+```sh
+iki starter preview dose-response --version 1.0.0 --flow regulated_qc \
+  --project "$SERVICE" --requester-project "$REQUESTER" \
+  --role "iki/example_lims.coordinator=$COORDINATOR" \
+  --role "iki/plate_assays.analyst=$ANALYST" \
+  --role "iki/plate_assays.reviewer=$REVIEWER" \
+  --role "iki/plate_assays.qa=$QA"
+```
+
+Run `iki starter apply` with the same arguments to apply that setup. All three
+commands use the SDK's sign-in, or `IKI_URL` and `IKI_TOKEN`. Use `--url` to select
+a deployment and `--json` to print the complete API response.
 
 ## `iki plugin validate`
 

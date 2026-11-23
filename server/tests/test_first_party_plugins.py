@@ -43,11 +43,15 @@ FIRST_PARTY = {
         PLUGINS / "oligo",
         PLUGINS / "plasmid",
     ),
-    PLUGINS / "plate_assays": tuple(
-        PLUGINS / name for name in ("dna", "protein", "oligo", "plasmid", "lots", "example_lims")
-    ),
     TEMPLATE: (PLUGINS / "dna",),
 }
+
+# Build the assay with the same transitive dependencies as the lots it receives.
+FIRST_PARTY[PLUGINS / "plate_assays"] = (
+    *FIRST_PARTY[PLUGINS / "lots"],
+    PLUGINS / "lots",
+    PLUGINS / "example_lims",
+)
 
 __all__ = ["database"]
 
