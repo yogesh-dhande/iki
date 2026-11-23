@@ -1,0 +1,33 @@
+:where(.viewer-story, iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail) {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(.viewer-story, iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail) {
+    color-scheme: dark;
+  }
+}
+
+:where([data-theme="light"])
+  :where(iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail),
+:where(.viewer-story[data-theme="light"]) {
+  color-scheme: light;
+}
+
+:where([data-theme="dark"])
+  :where(iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail),
+:where(.viewer-story[data-theme="dark"]) {
+  color-scheme: dark;
+}
+
+:where(.viewer-story) body,
+:where(iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail) {
+  background-color: var(--bg, Canvas);
+  color: var(--text, CanvasText);
+}
+
+/* WebKitGTK's native dark button uses white text on silver. Paint the pair together. */
+:where(iki-alignment-viewer, iki-sequence-viewer, iki-plasmid-thumbnail) :where(button.button) {
+  color: var(--text, CanvasText);
+  background-color: var(--surface, Canvas);
+}
