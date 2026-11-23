@@ -105,6 +105,25 @@ def test_standalone_story(
         elif component == "complex-composition":
             page.get_by_text("Its 3 bonds", exact=True).press("Enter")
             expect(page.get_by_text("Insulin B chain, copy 1, residue 19")).to_be_visible()
+        elif component == "sequence-viewer":
+            page.get_by_role("button", name="Show Segment").click()
+            expect(page.get_by_text("Showing Segment", exact=True)).to_be_visible()
+            expect(page.get_by_role("list", name="Tracks")).to_contain_text("Example score")
+        elif component == "plasmid-map":
+            page.get_by_role("button", name="Linear").press("Enter")
+            expect(page.get_by_role("status")).to_have_text("Showing the linear view")
+            expect(page.get_by_role("table", name="Parts found along it")).to_contain_text(
+                "350–400, 1–30"
+            )
+        elif component == "plasmid-thumbnail":
+            page.get_by_role("button", name="Open the example map").press("Enter")
+            expect(page.get_by_role("status")).to_have_text("Opened the example map")
+        elif component == "alignment-viewer":
+            grid = page.get_by_role("application", name="Alignment of Synthetic reads")
+            grid.press("n")
+            expect(page.locator(".alignment-at")).to_contain_text("reference, column 4")
+            page.get_by_role("checkbox", name="Select Sample A").check()
+            expect(page.locator("output")).to_have_text("Selected: a")
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(
@@ -120,15 +139,7 @@ def test_standalone_story(
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert not errors, errors
         assert all(url.startswith(f"{gallery_url}/") for url in requests), requests
-        if component in {
-            "booking-calendar",
-            "button",
-            "tokens",
-            "plasmid-map",
-            "box-map",
-            "sequence-input",
-            "quantity-input",
-        }:
+        if component != "chemical-depiction":
             assert not any(url.endswith(".wasm") for url in requests), requests
     finally:
         context.close()

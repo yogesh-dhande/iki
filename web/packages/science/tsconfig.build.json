@@ -18,7 +18,12 @@
     "src/composition-mass.ts",
     "src/molecular-properties.ts",
     "src/open-reading-frames.ts",
-    "src/restriction-map.ts"
+    "src/restriction-map.ts",
+    "src/plasmid-map.ts",
+    "src/plasmid-thumbnail.ts",
+    "src/sequence-viewer.tsx",
+    "src/alignment-compare.ts",
+    "src/alignment-viewer.tsx"
   ],
   "exclude": ["src/**/*.test.ts"]
 }

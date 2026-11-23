@@ -10,6 +10,7 @@ const components = [
   "oligo/chemistry",
   "oligo/duplex",
   "complex/composition",
+  "plasmid/plasmid-map",
 ];
 
 for (const component of components) {

@@ -30,6 +30,7 @@ export default tseslint.config(
       "plugins/small_molecule/components/depiction.js",
       // The source adapters are linted before bundling for the component sandbox.
       "plugins/example_lims/components/booking-calendar.js",
+      "plugins/plasmid/components/plasmid-map.js",
       "plugins/oligo/components/chemistry.js",
       "plugins/oligo/components/duplex.js",
       "plugins/complex/components/composition.js",

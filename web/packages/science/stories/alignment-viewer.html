@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Alignment viewer</title>
+    <style>
+      body {
+        margin: 1rem;
+        font:
+          1rem/1.45 system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Aligned sequences</h1>
+      <p>Synthetic alignment illustrating gaps, a pinned reference and row selection.</p>
+      <iki-alignment-viewer></iki-alignment-viewer>
+      <output aria-live="polite"></output>
+    </main>
+    <script type="module">
+      import "../dist/stories/alignment-viewer.js";
+      const element = document.querySelector("iki-alignment-viewer");
+      const rows = ["ACGTACGT", "ACG-ACGT", "ACGTACGA"].map((aligned, i) => ({
+        id: ["reference", "sample-A", "sample-B"][i],
+        description: "",
+        aligned,
+        residues: aligned.replaceAll("-", "").length,
+        start: 1,
+        spanned: false,
+        reverse: false,
+      }));
+      element.data = {
+        title: "Synthetic reads",
+        referenceRow: 1,
+        labels: [
+          null,
+          { text: "Sample A", selectionKey: "a" },
+          { text: "Sample B", selectionKey: "b" },
+        ],
+        alignment: {
+          kind: "alignment",
+          alphabet: "nucleotide",
+          alphabet_guessed: false,
+          rows,
+          length: 8,
+          consensus: "ACGTACGT",
+          agreement: [100, 100, 100, 67, 100, 100, 100, 67],
+          conservation: "*** *** ",
+          identical: 6,
+          gapped: 1,
+        },
+      };
+      element.addEventListener("selection-change", ({ detail }) => {
+        document.querySelector("output").textContent = `Selected: ${detail.join(", ") || "none"}`;
+      });
+    </script>
+  </body>
+</html>

@@ -39,6 +39,7 @@ spec/src/iki_spec/first_party_trees.json
 plugins/oligo/data/monomers.json
 # Single-file component frame produced by pnpm bundle:plugins.
 plugins/example_lims/components/booking-calendar.js
+plugins/plasmid/components/plasmid-map.js
 plugins/oligo/components/chemistry.js
 plugins/oligo/components/duplex.js
 plugins/complex/components/composition.js

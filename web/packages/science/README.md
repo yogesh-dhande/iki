@@ -80,6 +80,23 @@ These subpaths run without a browser or a server.
 | [`open-reading-frames`](stories/open-reading-frames.md)   | An IUPAC nucleotide sequence, NCBI table and topology to annotated complete ORFs on both strands, including the translated residues.                                               |
 | [`restriction-map`](stories/restriction-map.md)           | Molecule length, topology and existing cut positions to fragment lengths and coordinates. A recorded paired interval can project a primer's 3′-relative offset onto the reference. |
 
+## Sequence and map viewers
+
+| Public entry        | Element                 | Data and events                                                                                                                                                         |
+| ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence-viewer`   | `iki-sequence-viewer`   | Sequence string and alphabet, one-based annotations, per-position numeric tracks. Emits selection and feature changes. [Contract and story](stories/sequence-viewer.md) |
+| `plasmid-map`       | `iki-plasmid-map`       | Topology, length and independent feature, ORF and binding-site layers. Emits view, layer and primer actions. [Contract and story](stories/plasmid-map.md)               |
+| `plasmid-thumbnail` | `iki-plasmid-thumbnail` | Title, length, topology flag and annotations. An optional labeled button emits an open request. [Contract and story](stories/plasmid-thumbnail.md)                      |
+
+## Alignment viewer
+
+Import `@ikisci/science/alignment-viewer` and assign `.data` to
+`<iki-alignment-viewer>`. Supply an alignment, its title and optional reference
+row, row labels and initial position. The element emits selection, position and
+navigation events. The separate `@ikisci/science/alignment-compare` entry compares
+aligned rows as plain data. [Data and events](stories/alignment-viewer.md) ·
+[Alignment story](stories/alignment-viewer.html)
+
 ## Next.js
 
 Create the element inside a Client Component. Import the browser module in an

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Sequence with a numeric track</title>
+    <style>
+      body {
+        max-width: 65rem;
+        margin: 1rem auto;
+        padding: 0 0.75rem;
+        font:
+          1rem system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+      output {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sequence with a numeric track</h1>
+      <p>Synthetic RNA segment and per-position scores.</p>
+      <iki-sequence-viewer></iki-sequence-viewer>
+      <output aria-live="polite"></output>
+    </main>
+    <script type="module">
+      import "../dist/stories/sequence-viewer.js";
+      const viewer = document.querySelector("iki-sequence-viewer");
+      viewer.data = {
+        title: "Example RNA",
+        alphabet: "rna",
+        sequence: "AUGCGUUGAUAU",
+        features: [{ type: "misc_feature", name: "Segment", start: 3, end: 8 }],
+        tracks: [
+          {
+            id: "score",
+            label: "Example score",
+            values: [1, null, 3, 1, 0, -1, -2, 0, 1, 2, 1, 0],
+          },
+        ],
+      };
+      viewer.addEventListener("feature-change", ({ detail }) => {
+        document.querySelector("output").textContent = detail ? `Showing ${detail.name}` : "";
+      });
+    </script>
+  </body>
+</html>

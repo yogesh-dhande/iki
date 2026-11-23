@@ -87,20 +87,48 @@
       "@ikisci/source": "./src/restriction-map.ts",
       "types": "./dist/restriction-map.d.ts",
       "default": "./dist/restriction-map.js"
+    },
+    "./plasmid-map": {
+      "@ikisci/source": "./src/plasmid-map.ts",
+      "types": "./dist/plasmid-map.d.ts",
+      "default": "./dist/plasmid-map.js"
+    },
+    "./plasmid-thumbnail": {
+      "@ikisci/source": "./src/plasmid-thumbnail.ts",
+      "types": "./dist/plasmid-thumbnail.d.ts",
+      "default": "./dist/plasmid-thumbnail.js"
+    },
+    "./sequence-viewer": {
+      "@ikisci/source": "./src/sequence-viewer.tsx",
+      "types": "./dist/sequence-viewer.d.ts",
+      "default": "./dist/sequence-viewer.js"
+    },
+    "./alignment-viewer": {
+      "@ikisci/source": "./src/alignment-viewer.tsx",
+      "types": "./dist/alignment-viewer.d.ts",
+      "default": "./dist/alignment-viewer.js"
+    },
+    "./alignment-compare": {
+      "@ikisci/source": "./src/alignment-compare.ts",
+      "types": "./dist/alignment-compare.d.ts",
+      "default": "./dist/alignment-compare.js"
     }
   },
   "files": [
     "dist",
     "stories",
-    "LICENSE",
-    "NOTICE",
     "src/*.ts",
-    "wasm/iki_wasm.wasm",
+    "src/*.tsx",
+    "src/*.css",
     "!src/*.test.ts",
-    "style.d.ts"
+    "!src/*.test.tsx",
+    "wasm/iki_wasm.wasm",
+    "style.d.ts",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
-    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/check-web-package-size.js",
+    "build": "../../../scripts/build-wasm.sh && tsc -p tsconfig.build.json && cp src/*.css ../../../server/src/iki_server/web/static/iki/box-map.css ../../../server/src/iki_server/web/static/iki/science-inputs.css dist/ && node ../../../scripts/bundle-viewer-stories.js sequence-viewer alignment-viewer && node ../../../scripts/check-web-package-size.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
@@ -120,9 +148,21 @@
     "./composition-mass": 768,
     "./molecular-properties": 3072,
     "./open-reading-frames": 2304,
-    "./restriction-map": 832
+    "./restriction-map": 832,
+    "./plasmid-map": 6656,
+    "./plasmid-thumbnail": 3072,
+    "./sequence-viewer": 102400,
+    "./alignment-viewer": 80000,
+    "./alignment-compare": 1500
   },
   "devDependencies": {
-    "jsdom": "^31.0.0"
+    "jsdom": "^31.0.0",
+    "@types/react-dom": "^19.3.0"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.14.26",
+    "@types/react": "^19.3.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   }
 }

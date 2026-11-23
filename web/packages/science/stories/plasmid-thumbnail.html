@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Map thumbnail</title>
+    <style>
+      body {
+        max-width: 65rem;
+        margin: 1rem auto;
+        padding: 0 0.75rem;
+        font:
+          1rem system-ui,
+          sans-serif;
+        color: CanvasText;
+        background: Canvas;
+      }
+      output {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Map thumbnail</h1>
+      <p>Synthetic coordinates for an interactive overview.</p>
+      <iki-plasmid-thumbnail></iki-plasmid-thumbnail>
+      <output aria-live="polite"></output>
+    </main>
+    <script type="module">
+      import "../dist/plasmid-thumbnail.js";
+      const map = document.querySelector("iki-plasmid-thumbnail");
+      map.data = {
+        title: "Example circle",
+        alphabet: "dna",
+        length: 100,
+        circular: true,
+        features: [{ type: "misc_feature", name: "Segment A", start: 90, end: 10 }],
+        openLabel: "Open the example map",
+      };
+      map.addEventListener("thumbnail-open", () => {
+        document.querySelector("output").textContent = "Opened the example map";
+      });
+    </script>
+  </body>
+</html>

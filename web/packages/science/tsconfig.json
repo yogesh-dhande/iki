@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": ".",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"]
+    "types": ["node"],
+    "jsx": "react-jsx"
   },
   "include": ["src", "vitest.config.ts"]
 }
