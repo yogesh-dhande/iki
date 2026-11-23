@@ -6,10 +6,6 @@
    reader's own. The type scale and the heights of controls and rows are shared tokens:
    other styles use them rather than their own numbers. */
 
-@import url("tokens.css");
-@import url("fonts.css");
-@import url("button.css");
-
 *,
 *::before,
 *::after {
