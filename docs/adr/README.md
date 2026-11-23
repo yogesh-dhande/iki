@@ -213,6 +213,7 @@ supersedes the old one, and update the old one's status.
 | [0184](0184-a-plasmid-prep-links-to-reviewed-verification-evidence.md) | A plasmid prep links to reviewed verification evidence | Accepted |
 | [0185](0185-strain-identity-and-physical-stocks.md) | A transformed strain is its base and its set of plasmids | Accepted |
 | [0186](0186-cell-banks-and-the-checks-that-applied-to-a-culture.md) | Cell banks and the checks that applied to a culture | Accepted |
+| [0187](0187-mouse-strains-and-banked-germplasm.md) | Register mouse strains by MGI accession and trace their banked germplasm | Accepted |
 | [0188](0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint.md) | A plate read keeps the wells behind a fitted endpoint | Accepted |
 | [0189](0189-an-experiment-pins-the-evidence-its-witness-signs.md) | An experiment pins the evidence its witness signs | Accepted |
 | [0198](0198-a-project-applies-a-versioned-assay-starter.md) | A project applies a versioned assay starter | Accepted |
@@ -222,5 +223,7 @@ supersedes the old one, and update the old one's status.
 | [0205](0205-a-guide-design-says-where-a-nuclease-can-cut-and-how-particular-each-place-is.md) | A guide design says where a nuclease can cut, and how particular each place is | Accepted |
 | [0206](0206-dna-sequence-annotation-records-library-matches-and-provenance.md) | DNA sequence annotation records library matches and provenance | Proposed |
 
-| Number | Title | Status |
-| ------ | ----- | ------ |
+| Number                                                                                           | Title                                                                                               | Status                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Number                                                                                           | Title                                                                                               | Status                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
