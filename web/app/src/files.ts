@@ -71,7 +71,7 @@ function key(projectId: string | undefined, filter: FileFilter, takes?: Takes) {
 export function filesQuery(projectId: string | undefined, filter: FileFilter, takes?: Takes) {
   return infiniteQueryOptions({
     queryKey: [...FILES, "list", key(projectId, filter, takes)],
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/files", {
           params: {
@@ -82,6 +82,7 @@ export function filesQuery(projectId: string | undefined, filter: FileFilter, ta
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     initialPageParam: "",
@@ -95,10 +96,11 @@ export function filesQuery(projectId: string | undefined, filter: FileFilter, ta
 export function fileCountQuery(projectId: string | undefined, filter: FileFilter, takes?: Takes) {
   return queryOptions({
     queryKey: [...FILES, "count", key(projectId, { ...filter, sort: "newest" }, takes)],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/files/count", {
           params: { query: query(projectId, filter, takes) },
+          signal,
         }),
       ),
     placeholderData: keepPreviousData,
@@ -110,10 +112,11 @@ export function fileFormatsQuery(projectId: string | undefined, filter: FileFilt
   const others = { ...filter, format: [], sort: "newest" as const };
   return queryOptions({
     queryKey: [...FILES, "formats", key(projectId, others, takes)],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/files/formats", {
           params: { query: query(projectId, others, takes) },
+          signal,
         }),
       ),
     placeholderData: keepPreviousData,
@@ -123,18 +126,21 @@ export function fileFormatsQuery(projectId: string | undefined, filter: FileFilt
 export function fileQuery(id: string) {
   return queryOptions({
     queryKey: [...FILES, "one", id],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/files/{file_id}", { params: { path: { file_id: id } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/files/{file_id}", { params: { path: { file_id: id } }, signal }),
+      ),
   });
 }
 
 export function fileRecordsQuery(id: string) {
   return infiniteQueryOptions({
     queryKey: [...FILES, "records", id],
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/files/{file_id}/records", {
           params: { path: { file_id: id }, query: pageParam ? { cursor: pageParam } : {} },
+          signal,
         }),
       ),
     initialPageParam: "",
@@ -145,10 +151,11 @@ export function fileRecordsQuery(id: string) {
 export function fileRunsQuery(id: string) {
   return infiniteQueryOptions({
     queryKey: [...FILES, "runs", id],
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/files/{file_id}/runs", {
           params: { path: { file_id: id }, query: pageParam ? { cursor: pageParam } : {} },
+          signal,
         }),
       ),
     initialPageParam: "",

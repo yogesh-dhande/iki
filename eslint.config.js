@@ -5,6 +5,19 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+// Raw HTML would bypass React's escaping, and Trusted Types refuse it anyway.
+const RAW_HTML = {
+  selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+  message: "Render text, not HTML: the CSP's Trusted Types refuse raw HTML.",
+};
+
+// TanStack cancels a query (unmount, a new key) through its signal. page-reads.ts adds the
+// document's lifetime to every page read, but only the query can pass its own signal.
+const QUERY_SIGNAL = {
+  selector: "Property[key.name='queryFn'] > :function:not(:has(Identifier[name='signal']))",
+  message: "Pass the query's signal to its reads, so TanStack can cancel them.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -77,15 +90,13 @@ export default tseslint.config(
     ...jsxA11y.flatConfigs.strict,
     rules: {
       ...jsxA11y.flatConfigs.strict.rules,
-      // Raw HTML would bypass React's escaping, and Trusted Types refuse it anyway.
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
-          message: "Render text, not HTML: the CSP's Trusted Types refuse raw HTML.",
-        },
-      ],
+      "no-restricted-syntax": ["error", RAW_HTML],
     },
+  },
+  {
+    files: ["web/app/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL] },
   },
   {
     // Iki's bridge in plugins' components' frames: a module, in the browser (ADR 0084).

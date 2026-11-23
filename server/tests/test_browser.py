@@ -4483,6 +4483,38 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     page.context.close()
 
 
+def test_leaving_the_starters_while_every_project_is_read_leaves_no_error(
+    open_as: Any, world: World
+) -> None:
+    """Leaving a page stops its reads, whichever loader started them: here the starter
+    card's list of every project, held on the wire while its Admin goes to Projects and
+    answered only after. WebKit raised an access-control error for that read when the
+    departed page had left it running."""
+    page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
+    every_project = re.compile(r"/api/v1/projects\?limit=100$")
+    held: list[Route] = []
+
+    def hold(route: Route) -> None:
+        held.append(route)
+
+    page.route(every_project, hold)
+    with page.expect_request(every_project):
+        _starter_api(page)
+    page.get_by_role("region", name="Dose-response plate assay").wait_for()
+    assert len(held) == 1
+
+    page.goto("/projects/")
+    shown(page)
+    for route in held:
+        # The browser may have dropped the request with the page that sent it.
+        with contextlib.suppress(Exception):
+            route.continue_()
+    page.unroute(every_project)
+    page.get_by_role("link", name="Kinase Atlas").first.wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
     """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
     state's control says so in the guard's words, and won't set it."""

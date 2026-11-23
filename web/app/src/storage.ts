@@ -32,22 +32,26 @@ export const STORAGE = ["storage"] as const;
 
 export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/places")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
 });
 
 export function containerQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "container", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function locationQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "location", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -55,13 +59,14 @@ export function locationEventsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...STORAGE, "events", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/location/events", {
           params: {
             path: { ref },
             query: { limit: 20, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -74,10 +79,11 @@ export type CheckedOut = Schemas["CheckedOutOut"];
 export function checkedOutQuery(custodian?: string) {
   return queryOptions({
     queryKey: [...STORAGE, "checked-out", custodian ?? "all"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/checked-out", {
           params: { query: custodian ? { custodian } : {} },
+          signal,
         }),
       ),
   });
@@ -86,10 +92,11 @@ export function checkedOutQuery(custodian?: string) {
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
           params: { path: { ref } },
+          signal,
         }),
       ),
   });
@@ -97,25 +104,28 @@ export function reconciliationsQuery(ref: string) {
 
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/labels")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/labels", { signal })),
   staleTime: Infinity,
 });
 
 export function receiptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function reconciliationQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliation", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/reconciliations/{reconciliation_id}", {
           params: { path: { reconciliation_id: id } },
+          signal,
         }),
       ),
   });
@@ -124,9 +134,12 @@ export function reconciliationQuery(id: string) {
 export function receiptQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipt", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
+        await iki.GET("/api/v1/receipts/{receipt_id}", {
+          params: { path: { receipt_id: id } },
+          signal,
+        }),
       ),
   });
 }

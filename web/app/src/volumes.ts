@@ -17,7 +17,7 @@ export const VOLUMES = ["volumes"] as const;
 
 export const volumesQuery = queryOptions({
   queryKey: [...VOLUMES, "environments"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/volumes")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/volumes", { signal })),
 });
 
 /** How often the builds are read again while one hasn't finished. */
@@ -26,10 +26,11 @@ export const BUILD_POLL_MS = 5_000;
 export function setupsQuery(environment: string) {
   return queryOptions({
     queryKey: [...VOLUMES, "builds", environment],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/compute/setups", {
           params: { query: { environment, limit: 20 } },
+          signal,
         }),
       ).items,
     refetchInterval: (query) =>
