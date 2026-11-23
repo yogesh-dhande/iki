@@ -151,6 +151,13 @@ describe("a walk's results", () => {
     expect(stepWords(by, "PRT-000002", "upstream")).toBe(
       "RUN-000001 made PRT-000002 from PRT-000003 (its protein, at revision 2)",
     );
+    const draw = step(node(CHILD, "STK-000001"), { kind: "used", field: "" });
+    expect(stepWords(draw, "RES-000001", "upstream")).toBe(
+      "RES-000001 used material drawn from STK-000001",
+    );
+    expect(
+      stepWords({ ...draw, entity: node(PARENT, "RES-000001") }, "STK-000001", "downstream"),
+    ).toBe("RES-000001 used material drawn from STK-000001");
     expect(stepWords({ ...by, run: null, hidden_run: true }, "X", "downstream")).toMatch(
       /^A run you can’t see made/,
     );
@@ -280,14 +287,14 @@ describe("an entity's lineage page", () => {
       direction: "downstream",
       view: "list",
       depth: 2,
-      edges: ["run", "file", "aliquot", "transfer"],
+      edges: ["run", "file", "aliquot", "transfer", "used"],
     });
     expect(calls("GET", "/api/v1/entities/PRT-000001/downstream").at(-1)?.query.toString()).toBe(
-      "depth=2&limit=50&edges=run&edges=file&edges=aliquot&edges=transfer",
+      "depth=2&limit=50&edges=run&edges=file&edges=aliquot&edges=transfer&edges=used",
     );
     expect(screen.getByRole("link", { name: "Download all as CSV" })).toHaveAttribute(
       "href",
-      "/api/v1/entities/PRT-000001/downstream.csv?depth=2&edges=run&edges=file&edges=aliquot&edges=transfer",
+      "/api/v1/entities/PRT-000001/downstream.csv?depth=2&edges=run&edges=file&edges=aliquot&edges=transfer&edges=used",
     );
   });
 

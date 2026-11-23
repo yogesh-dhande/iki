@@ -562,6 +562,18 @@ def test_a_draw_from_a_tube_is_scanned_and_linked_to_its_sample_and_experiment(
     assert answer.json()["amount"]["value"] == "90"
     # The experiment used material from the tube: an edge of the graph.
     assert Edge.objects.filter(node_id=into["id"], on_id=tb["id"], kind="used").exists()
+    # The graph displays the stock draw and lets readers follow just material use.
+    graph_url = f"/entities/{into['id']}/graph"
+    for params in ({}, {"edges": ["used"]}):
+        picture = api.get(graph_url, up=1, down=0, **params)
+        assert picture.status_code == 200, picture.content
+        edges = {(e["node"], e["on"], e["kind"]) for e in picture.json()["edges"]}
+        assert (into["id"], tb["id"], "used") in edges
+    path = api.get(f"/entities/{into['id']}/upstream", depth=1, edges=["used"])
+    assert path.status_code == 200, path.content
+    assert [(item["entity"]["id"], item["path"][0]["kind"]) for item in path.json()["items"]] == [
+        (tb["id"], "used")
+    ]
     # The sample's hold applies to its tube, and says why.
     project_qa(lab)
     answer = state(lab, "project_qa", sample["id"], "custody", "quarantined", "Out of spec")

@@ -123,6 +123,6 @@
     "./restriction-map": 832
   },
   "devDependencies": {
-    "jsdom": "^31.0.0"
+    "jsdom": "^31.0.1"
   }
 }
