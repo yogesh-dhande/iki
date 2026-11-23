@@ -37,14 +37,19 @@ live in the Rust source behind `iki-wasm`. The full module exposes it alongside 
 file readers. The DNA action ships a small module compiled from the same source so
 an isolated worker can measure a supplied sequence without a service call.
 
-Git tracks the Rust source and the expected SHA-256 digest. The build compiles the
-module with the pinned Rust toolchain. Before including it in either the downloadable
-plugin archive or the worker image, the deployment CLI verifies its bytes against the
-digest in the pinned plugin revision. A reviewer can rebuild that revision and compare
-the result with the module extracted from the deployed artifact. [DNA plugin digest](../../plugins/dna/data/oligo-measurement.sha256)
+Git tracks the Rust source and the expected SHA-256 digest of the **Linux x86-64**
+build. Updating that digest builds the server image’s `wasm` stage for `linux/amd64`
+with the pinned Rust toolchain. The initial canonical module was 11,925 bytes with
+SHA-256 `b33f7080ac30ed6de1a6acd51927709adc1ce486695b434ea953e0205ad83371`.
+A reviewer can rebuild the pinned revision on that platform and compare its digest
+with the module extracted from the deployed archive. [DNA plugin digest](../../plugins/dna/data/oligo-measurement.sha256)
 
-For the initial module, independent builds on Linux x86-64 and macOS arm64 each
-produced 11,925 bytes with SHA-256 `b33f7080ac30ed6de1a6acd51927709adc1ce486695b434ea953e0205ad83371`.
+The worker release runs on Linux x86-64. There the deployment CLI requires a digest
+match before placing the module in a downloadable archive or worker image. On other
+hosts the CLI requires the module and reports why it skips the digest comparison.
+Rust can ship different precompiled WebAssembly standard-library bytes for different
+compiler hosts. A developer’s local cluster takes its module from the canonical
+Docker stage.
 
 The selection viewer needs a synchronous result on the page. Its build translates
 that small module to JavaScript, which keeps the page within its existing content
