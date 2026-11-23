@@ -244,7 +244,7 @@ class Migration(migrations.Migration):
                 'db_table': 'iki__mouse_strains_mousegenotype__alleles',
             },
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='mousecryostock',
             name='genotype',
             field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__mouse_strains.mousegenotype'),
@@ -304,12 +304,12 @@ class Migration(migrations.Migration):
             model_name='mousestrain_entry',
             constraint=models.CheckConstraint(condition=models.Q(('jax_stock__regex', '^(?:^[0-9]{6}$)$')), name='iki__mouse_strains_mousestrain__entry__jax_stock__pattern'),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='mousegenotype',
             name='strain',
             field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__mouse_strains.mousestrain_entry'),
         ),
-        migrations.AddField(
+        iki_server.plugins.operations.AddPluginField(
             model_name='mousecryostock',
             name='strain',
             field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__mouse_strains.mousestrain_entry'),
