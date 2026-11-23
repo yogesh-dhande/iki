@@ -363,6 +363,8 @@ class Wanted:
     record: Entity
     to: Entity | None
     position: str | None = None
+    #: A reconciliation can explain each move with a different observation or decision.
+    evidence: str = ""
 
 
 @dataclass
@@ -596,12 +598,12 @@ def move(
             _apply(
                 user,
                 p,
-                reason,
+                f"{reason} {w.evidence}" if w.evidence else reason,
                 operation,
                 (confirmations or {}).get(p.record.pk, ""),
                 handed_over_by,
             )
-            for p in planned
+            for w, p in zip(wanted, planned, strict=True)
         ]
         _check_now()
         return events

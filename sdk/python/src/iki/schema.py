@@ -764,6 +764,8 @@ class CompleteReconciliationIn(TypedDict):
     #: Take each recorded position nobody scanned to be missing, removed.
     missing_rest: NotRequired[bool]
     note: NotRequired[str]
+    #: The revision of the reconciliation plan being reviewed.
+    plan_revision: int
 
 
 class ComponentEntitiesIn(TypedDict):
@@ -3746,13 +3748,15 @@ class ReconciliationLineOut(TypedDict):
     entity: str | None
     #: Its recorded position, when this started.
     expected: str | None
-    finding: Literal['matched', 'missing', 'unexpected', 'wrong_slot', 'unchecked', 'empty', 'checked_out']
+    finding: Literal['matched', 'missing', 'unexpected', 'wrong_slot', 'unchecked', 'empty', 'checked_out', 'no_longer_found']
     #: Where it was scanned.
     found: str | None
     id: str
     note: str
     ref: RefOut | None
     resolution: Literal['moved', 'removed', 'placed', 'kept'] | None
+    #: The open count's saved decision needs review.
+    resolution_stale: bool
     resolved_by: UserOut | None
 
 
@@ -3765,6 +3769,8 @@ class ReconciliationOut(TypedDict):
     id: str
     lines: list[ReconciliationLineOut]
     note: str
+    #: The version of the count's observations and decisions.
+    plan_revision: int
     shape: ShapeOut
     started_at: str
     started_by: UserOut
@@ -4000,6 +4006,8 @@ class RerunIn(TypedDict):
 
 class ResolveIn(TypedDict):
     note: NotRequired[str]
+    #: The revision of the reconciliation plan being reviewed.
+    plan_revision: int
     #: `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
     resolution: Literal['moved', 'removed', 'placed', 'kept'] | None
 
