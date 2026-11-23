@@ -6,12 +6,13 @@ record IDs that another experiment can reference.
 
 ## Set up review
 
-Install `iki/plate_assays` with its declared dependencies. Bind the
-`iki/plate_assays.assay-tools` environment to a backend worker. Set
-`review_flow` to `research` (the default) or `regulated_qc` in the plugin's
-deployment settings. Give project members the assay analyst, reviewer and QA
-roles that their work requires. Each result keeps the flow selected when it
-was created.
+Install `iki/plate_assays` with its declared dependencies and bind
+`iki/plate_assays.assay-tools` to a backend worker. Apply the dose-response
+starter in the assay project to choose Research or Regulated QC, assign lab
+roles and run a requested assay on example data. Projects without a starter use
+the plugin's deployment setting `review_flow`, which defaults to `research`.
+Each result keeps the flow selected when it was created.
+[Run a first dose-response plate assay](../../docs/guides/first-dose-response-assay.md)
 
 ## Run an assay
 

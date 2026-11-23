@@ -94,6 +94,7 @@ check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytes
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
+	scripts/build-dna-annotation-wasm.sh
 	uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
@@ -195,6 +196,7 @@ check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo fmt --all --check
 	cd worker && cargo clippy --locked --all-targets -- -D warnings
 	cd worker && cargo test --locked --all-targets
+	scripts/build-dna-annotation-wasm.sh --check
 
 .PHONY: fmt
 fmt: ## Format all code
@@ -210,10 +212,15 @@ dev-up: ## Create the kind cluster and start Tilt (interactive)
 	deploy/dev/up.sh
 	tilt up
 
+#: How long `make dev-ci` waits for the cluster to come up. The images build from scratch on a
+#: cold cache, and on a machine running several gates at once they build alongside each other, so
+#: a timeout tuned to an idle machine fails a run that was only sharing the disk and the cores.
+DEV_CI_TIMEOUT ?= 40m
+
 .PHONY: dev-ci
 dev-ci: ## Bring the dev cluster up headless; run the end-to-end checks, then the restore test
 	deploy/dev/up.sh
-	tilt ci --timeout 20m
+	tilt ci --timeout $(DEV_CI_TIMEOUT)
 	deploy/dev/e2e.sh
 	deploy/dev/restore-test.sh
 

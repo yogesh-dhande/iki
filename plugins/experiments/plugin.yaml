@@ -1,0 +1,27 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/experiments
+version: 0.1.0
+title: Experiment records
+description: Link a lab notebook entry to the protocol followed, material drawn and result revisions witnessed by the lab.
+iki: ">=0.1"
+license: Apache-2.0
+settings:
+  review_flow:
+    type: enum
+    label: Experiment review
+    values: [research, regulated_qc]
+    default: research
+    description: Choose a research witness or signed submission, independent review and QA release.
+roles:
+  author:
+    {
+      label: Experiment author,
+      description: Records observations and submits an experiment for QC review.,
+    }
+  reviewer:
+    {
+      label: Experiment reviewer,
+      description: Witnesses a research record or independently reviews a QC submission.,
+    }
+  qa: { label: Experiment QA, description: Releases the independently reviewed experiment. }

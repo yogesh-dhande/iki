@@ -38,6 +38,7 @@ server/src/iki_server/web/static/viewers/
 # images: only ever built, never committed, wherever a copy is left.
 web/app/wasm/
 *.wasm
+spec/src/iki_spec/rust-standard-library.html
 
 # Local environment and secrets — never commit these
 .env

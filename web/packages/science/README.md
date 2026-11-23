@@ -82,11 +82,11 @@ These subpaths run without a browser or a server.
 
 ## Sequence and map viewers
 
-| Public entry        | Element                 | Data and events                                                                                                                                                         |
-| ------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sequence-viewer`   | `iki-sequence-viewer`   | Sequence string and alphabet, one-based annotations, per-position numeric tracks. Emits selection and feature changes. [Contract and story](stories/sequence-viewer.md) |
-| `plasmid-map`       | `iki-plasmid-map`       | Topology, length and independent feature, ORF and binding-site layers. Emits view, layer and primer actions. [Contract and story](stories/plasmid-map.md)               |
-| `plasmid-thumbnail` | `iki-plasmid-thumbnail` | Title, length, topology flag and annotations. An optional labeled button emits an open request. [Contract and story](stories/plasmid-thumbnail.md)                      |
+| Public entry        | Element                 | Data and events                                                                                                                                                                                               |
+| ------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sequence-viewer`   | `iki-sequence-viewer`   | Sequence and alphabet, recorded annotations, optional library results with provenance, and per-position numeric tracks. Emits selection and feature changes. [Contract and story](stories/sequence-viewer.md) |
+| `plasmid-map`       | `iki-plasmid-map`       | Topology, length and independent feature, ORF and binding-site layers. Emits view, layer and primer actions. [Contract and story](stories/plasmid-map.md)                                                     |
+| `plasmid-thumbnail` | `iki-plasmid-thumbnail` | Title, length, topology flag and annotations. An optional labeled button emits an open request. [Contract and story](stories/plasmid-thumbnail.md)                                                            |
 
 ## Alignment viewer
 

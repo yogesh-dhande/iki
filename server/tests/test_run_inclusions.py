@@ -11,6 +11,7 @@ from api_client import Api, problem
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_bundle_imports import PUBLIC, applied, bundle_of, upload
+from test_registries import registrar
 from test_run_projects import elsewhere
 from test_run_results import RELAX, _stored, done, output, world
 from test_run_reuse import pod as built_pod
@@ -80,6 +81,49 @@ def test_a_run_reads_what_its_inputs_references_name_as_of_launch(world: World) 
     assert chains[1]["values"]["sequence"] == src["values"]["sequence"]
     assert chains[0]["type"] == "acme/protein.Protein"
     assert chains[0]["entry_id"] == abl["entry"]["id"]
+
+
+@pytest.mark.parametrize("through_reference", [False, True])
+def test_command_receives_both_revision_pins_after_a_registry_move(
+    world: World, through_reference: bool
+) -> None:
+    editor = api_as(world, "editor")
+    original = protein(editor, world.project)
+    replacement = protein(editor, elsewhere(world), "src")
+    curator = registrar(world)
+    entry = f"/entries/{original['hrid']}"
+    curated = curator.patch(
+        entry,
+        {"values": {"synonyms": ["reference"]}, "reason": "Reference label"},
+        headers={"If-Match": curator.get(entry)["ETag"]},
+    )
+    assert curated.status_code == 200, curated.content
+    if through_reference:
+        made = relax(world, structure(world, original))
+    else:
+        made = launch(editor, world.project, {"protein": original["id"]})
+    assert made.status_code == 201, made.content
+
+    # Moving the record changes its live entry ID and HRID. The worker must receive
+    # the original registry identity and the independently curated entry revision.
+    superseded = curator.post(
+        f"{entry}/supersede", {"replacement": replacement["hrid"], "reason": "Correction"}
+    )
+    assert superseded.status_code == 200, superseded.content
+    moved = editor.post(f"/entities/{original['id']}/move", {"reason": "Correction"})
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["entry"]["id"] == replacement["entry"]["id"]
+
+    job = worker(world).lease().json()
+    assert not list(schemas.check("run-input", job))
+    if through_reference:
+        (row,) = job["inputs"]["structure"][0]["included"]["chains"]
+    else:
+        (row,) = job["inputs"]["protein"]
+    assert (row["id"], row["revision"]) == (original["id"], 1)
+    assert (row["entry_id"], row["entry_revision"]) == (original["entry"]["id"], 2)
+    assert row["hrid"] == original["hrid"]
+    assert row["values"]["synonyms"] == ["reference"]
 
 
 def test_an_input_that_includes_nothing_has_no_included(world: World) -> None:
