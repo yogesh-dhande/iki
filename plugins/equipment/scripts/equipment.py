@@ -70,6 +70,7 @@ def record_use(run: Record) -> list[Record]:
     return [
         {
             "type": PREFIX + "InstrumentUse",
+            "derived_from": [instrument["id"], result["id"], calibration["id"]],
             "values": {
                 "key": key(instrument["id"], result["id"], result["revision"], at),
                 "instrument": instrument["id"],
