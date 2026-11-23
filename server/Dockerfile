@@ -80,8 +80,9 @@ RUN pnpm --filter @ikisci/app build:web \
 
 # --- Build: resolve the locked dependencies into a virtualenv ----------------
 FROM ${PYTHON_IMAGE} AS build
-RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc libc6-dev libpq-dev \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY install -y --no-install-recommends gcc libc6-dev libpq-dev \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
@@ -126,9 +127,10 @@ RUN key() { /opt/iki/venv/bin/python -c "import base64,os; print(base64.urlsafe_
 
 # --- Runtime ------------------------------------------------------------------
 FROM ${PYTHON_IMAGE} AS runtime
-RUN apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends libpq5 \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY upgrade -y --no-install-recommends \
+ && apt-get $APT_RETRY install -y --no-install-recommends libpq5 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 iki \
  && useradd --system --uid 10001 --gid iki --no-create-home --home-dir /nonexistent \
