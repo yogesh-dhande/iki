@@ -210,6 +210,33 @@
                 }
               ]
             }
+          ],
+          "transitions": [
+            {
+              "from": "in_review",
+              "to": "draft",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "draft",
+              "conditional": false
+            },
+            {
+              "from": "draft",
+              "to": "in_review",
+              "conditional": true
+            },
+            {
+              "from": "in_review",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "released",
+              "conditional": true
+            }
           ]
         }
       ]
@@ -421,6 +448,123 @@
                 }
               ]
             }
+          ],
+          "transitions": [
+            {
+              "from": "received",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "in_review",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "approved",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "rejected",
+              "to": "registered",
+              "conditional": false
+            },
+            {
+              "from": "registered",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "in_review",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "approved",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "rejected",
+              "to": "received",
+              "conditional": false
+            },
+            {
+              "from": "registered",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "received",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "in_review",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "approved",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "rejected",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "in_review",
+              "conditional": true
+            },
+            {
+              "from": "in_review",
+              "to": "approved",
+              "conditional": true
+            },
+            {
+              "from": "approved",
+              "to": "released",
+              "conditional": true
+            },
+            {
+              "from": "in_review",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "approved",
+              "to": "rejected",
+              "conditional": false
+            }
           ]
         }
       ]
@@ -457,6 +601,18 @@
               "reason": "required",
               "guards": [],
               "signatures": []
+            }
+          ],
+          "transitions": [
+            {
+              "from": "withdrawn",
+              "to": "open",
+              "conditional": false
+            },
+            {
+              "from": "open",
+              "to": "withdrawn",
+              "conditional": false
             }
           ]
         },
@@ -524,6 +680,108 @@
               "reason": "required",
               "guards": [],
               "signatures": []
+            }
+          ],
+          "transitions": [
+            {
+              "from": "accepted",
+              "to": "submitted",
+              "conditional": false
+            },
+            {
+              "from": "in_progress",
+              "to": "submitted",
+              "conditional": false
+            },
+            {
+              "from": "delivered",
+              "to": "submitted",
+              "conditional": false
+            },
+            {
+              "from": "declined",
+              "to": "submitted",
+              "conditional": false
+            },
+            {
+              "from": "submitted",
+              "to": "accepted",
+              "conditional": false
+            },
+            {
+              "from": "in_progress",
+              "to": "accepted",
+              "conditional": false
+            },
+            {
+              "from": "delivered",
+              "to": "accepted",
+              "conditional": false
+            },
+            {
+              "from": "declined",
+              "to": "accepted",
+              "conditional": false
+            },
+            {
+              "from": "submitted",
+              "to": "in_progress",
+              "conditional": false
+            },
+            {
+              "from": "accepted",
+              "to": "in_progress",
+              "conditional": false
+            },
+            {
+              "from": "delivered",
+              "to": "in_progress",
+              "conditional": false
+            },
+            {
+              "from": "declined",
+              "to": "in_progress",
+              "conditional": false
+            },
+            {
+              "from": "submitted",
+              "to": "delivered",
+              "conditional": false
+            },
+            {
+              "from": "accepted",
+              "to": "delivered",
+              "conditional": false
+            },
+            {
+              "from": "in_progress",
+              "to": "delivered",
+              "conditional": false
+            },
+            {
+              "from": "declined",
+              "to": "delivered",
+              "conditional": false
+            },
+            {
+              "from": "submitted",
+              "to": "declined",
+              "conditional": false
+            },
+            {
+              "from": "accepted",
+              "to": "declined",
+              "conditional": false
+            },
+            {
+              "from": "in_progress",
+              "to": "declined",
+              "conditional": false
+            },
+            {
+              "from": "delivered",
+              "to": "declined",
+              "conditional": false
             }
           ]
         }
@@ -697,6 +955,78 @@
               ],
               "signatures": []
             }
+          ],
+          "transitions": [
+            {
+              "from": "released",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
+              "from": "on_hold",
+              "to": "quarantined",
+              "conditional": false
+            },
+            {
+              "from": "quarantined",
+              "to": "released",
+              "conditional": true
+            },
+            {
+              "from": "on_hold",
+              "to": "released",
+              "conditional": true
+            },
+            {
+              "from": "quarantined",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "on_hold",
+              "conditional": false
+            },
+            {
+              "from": "quarantined",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "released",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "on_hold",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "expired",
+              "to": "rejected",
+              "conditional": false
+            },
+            {
+              "from": "quarantined",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "released",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "on_hold",
+              "to": "expired",
+              "conditional": true
+            },
+            {
+              "from": "rejected",
+              "to": "expired",
+              "conditional": true
+            }
           ]
         }
       ]
@@ -750,6 +1080,13 @@
                   "roles": ["iki/plate_assays.reviewer"]
                 }
               ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "recorded",
+              "to": "signed",
+              "conditional": true
             }
           ]
         }
@@ -888,6 +1225,33 @@
                   "roles": ["iki/plate_assays.qa"]
                 }
               ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "submitted",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "recorded",
+              "conditional": false
+            },
+            {
+              "from": "recorded",
+              "to": "submitted",
+              "conditional": true
+            },
+            {
+              "from": "submitted",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "released",
+              "conditional": true
             }
           ]
         }

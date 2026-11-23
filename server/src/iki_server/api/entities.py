@@ -1575,6 +1575,32 @@ def get_type(request: HttpRequest, name: str) -> dict[str, Any]:
     return _type_out(found)
 
 
+def _flow_field(f: Any) -> dict[str, Any]:  # noqa: ANN401 - a spec state field
+    """A state field's flow: its live states, and each move from one to another its guards
+    allow, knowing only the two states. A move that also depends on the record, the person
+    or the history is conditional."""
+    live = [state for state in f.states.values() if not state.removed]
+    transitions = []
+    for target in live:
+        if not target.set_by:
+            continue  # An initial-only state has no incoming transition.
+        origins = [state.name for state in live if state.name != target.name]
+        for origin, possible in zip(
+            origins, spec_rules.state_origins(f, target.name, origins), strict=True
+        ):
+            if possible is not False:
+                transitions.append(
+                    {"from": origin, "to": target.name, "conditional": possible is None}
+                )
+    return {
+        "name": f.name,
+        "label": f.label,
+        "initial": f.initial,
+        "states": [_state_out(state) for state in live],
+        "transitions": transitions,
+    }
+
+
 @router.get(
     "/entity-types/{qualified:name}/flow",
     response=TypeFlowOut,
@@ -1587,30 +1613,7 @@ def get_type_flow(request: HttpRequest, name: str) -> dict[str, Any]:
     found = registry.types().get(name)
     if found is None:
         raise Problem(404, f"There’s no entity type {name}.")
-    fields = []
-    for f in states.state_fields(name).values():
-        live = [state for state in f.states.values() if not state.removed]
-        transitions = []
-        for target in live:
-            if not target.set_by:
-                continue  # An initial-only state has no incoming transition.
-            origins = [state.name for state in live if state.name != target.name]
-            for origin, possible in zip(
-                origins, spec_rules.state_origins(f, target.name, origins), strict=True
-            ):
-                if possible is not False:
-                    transitions.append(
-                        {"from": origin, "to": target.name, "conditional": possible is None}
-                    )
-        fields.append(
-            {
-                "name": f.name,
-                "label": f.label,
-                "initial": f.initial,
-                "states": [_state_out(state) for state in live],
-                "transitions": transitions,
-            }
-        )
+    fields = [_flow_field(f) for f in states.state_fields(name).values()]
     return {"type": name, "label": found.label or found.name, "fields": fields}
 
 

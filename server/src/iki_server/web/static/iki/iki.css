@@ -8328,3 +8328,60 @@ input[type="file"]::file-selector-button {
   grid-row: 1 / span 2;
   margin-top: 0;
 }
+
+/* --- A project's starters (ADR 0198) ----------------------------------------- */
+
+/* Wide enough for a flow drawn side by side; its words and choices stay a readable width. */
+.starter.card-wide > form {
+  max-width: none;
+}
+
+.starter > p,
+.starter > form > :not(.starter-flow),
+.starter-intro > p {
+  max-width: 46rem;
+}
+
+.starter-help {
+  margin-bottom: calc(12rem / 13);
+}
+
+.starter-flow {
+  margin: calc(12rem / 13) 0;
+  padding: calc(12rem / 13);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.starter-flow-title,
+.starter-step {
+  margin: 0 0 calc(8rem / 13);
+  font-size: var(--text-lg);
+}
+
+.starter-step {
+  margin-top: calc(20rem / 13);
+}
+
+.starter-flow-more {
+  margin: calc(6rem / 13) 0 0;
+  font-size: var(--text-sm);
+}
+
+.starter-role {
+  margin: 0 0 calc(4rem / 13);
+  font-weight: 600;
+}
+
+.starter-plan {
+  margin: calc(16rem / 13) 0;
+  padding: calc(12rem / 13);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.starter-plan ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
