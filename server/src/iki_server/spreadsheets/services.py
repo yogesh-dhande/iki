@@ -275,10 +275,19 @@ def _suggested(imported: SpreadsheetImport) -> list[Column]:
         ):
             best = saved
     if best is not None:
-        imported.mapping = best
+        _remember_mapping(imported, best)
         imported.locale = Locale.of(best.locale).as_json()
         return mapping.from_saved(best.columns, headers)
     return mapping.suggest(imported.type, headers)
+
+
+def _remember_mapping(imported: SpreadsheetImport, saved: SavedMapping) -> None:
+    imported.mapping = saved
+    imported.mapping_source = {
+        "id": str(saved.pk),
+        "name": saved.name,
+        "match": mapping.matches(saved.headers, headers_of(imported)),
+    }
 
 
 def sheet_of(imported: SpreadsheetImport) -> dict[str, Any]:
@@ -359,6 +368,9 @@ def change(
         if choice.skip is not None:
             imported.skip = choice.skip
         _check_rows(imported, rows, errors)
+        if remap and choice.mapping is None:
+            imported.mapping = None
+            imported.mapping_source = None
         if choice.mapping is not None:
             saved = SavedMapping.objects.filter(
                 pk=choice.mapping, project=imported.project_id, type=imported.type
@@ -366,7 +378,7 @@ def change(
             if saved is None:
                 errors["mapping"] = ["isn't a mapping saved for this type in the project."]
             else:
-                imported.mapping = saved
+                _remember_mapping(imported, saved)
                 imported.locale = Locale.of(saved.locale).as_json()
                 imported.columns = [
                     c.as_json() for c in mapping.from_saved(saved.columns, headers_of(imported))
@@ -378,7 +390,6 @@ def change(
             if not wrong:
                 imported.columns = [c.as_json() for c in mapping.columns_from_json(choice.columns)]
         elif remap:
-            imported.mapping = None
             imported.columns = [
                 c.as_json() for c in mapping.suggest(imported.type, headers_of(imported))
             ]
@@ -574,15 +585,19 @@ def save_mapping(
             )
             what = "spreadsheet_mapping.saved"
         else:
-            saved = replace
+            saved = SavedMapping.objects.select_for_update().get(pk=replace.pk)
             saved.name, saved.columns, saved.headers = name, columns, kept
             saved.header_row, saved.updated_by = imported.header_row, user
             saved.locale = imported.locale
             saved.updated_at = timezone.now()
             saved.save()
             what = "spreadsheet_mapping.changed"
-        imported.mapping = saved
-        imported.save(update_fields=["mapping"])
+        if imported.applied_mapping is None and imported.state not in (
+            ImportState.COMMITTING,
+            ImportState.COMMITTED,
+        ):
+            _remember_mapping(imported, saved)
+            imported.save(update_fields=["mapping", "mapping_source"])
         audit.record(
             what,
             actor=user,
@@ -1400,6 +1415,17 @@ def clear_rows(import_id: str, round_: int) -> str:
 # --- Committing --------------------------------------------------------------------------------
 
 
+def _applied_mapping(imported: SpreadsheetImport) -> dict[str, Any]:
+    return {
+        "template": imported.mapping_source,
+        "header_row": imported.header_row,
+        "locale": Locale.of(imported.locale).as_json(),
+        "columns": mapping.saved_columns(
+            mapping.columns_from_json(imported.columns), headers_of(imported), keep_index=True
+        ),
+    }
+
+
 def commit(
     user: User,
     imported: SpreadsheetImport,
@@ -1433,6 +1459,7 @@ def commit(
         if not sum(int(counts.get(o, 0)) for o in (*WRITTEN, RowOutcome.REUSE, RowOutcome.SAME)):
             raise Refused("It has no rows to import.")
         imported.state = ImportState.COMMITTING
+        imported.applied_mapping = _applied_mapping(imported)
         imported.skip_problems = skip_problems and bool(problems)
         imported.reason = reason.strip()[:2000]
         imported.via = audit.current_via()
@@ -1480,16 +1507,20 @@ def committing(import_id: str) -> str:
             locked.error = f"{user.name} can no longer add records to {project.name}."
             locked.save(update_fields=["state", "error"])
             return "refused"
-        headers = headers_of(locked)
+        # A task queued before upgrades may not have a snapshot yet.
+        pinned = locked.applied_mapping or _applied_mapping(locked)
         params = {
             "workbook": str(locked.file_id),
             "sheet": locked.sheet,
-            "header_row": locked.header_row,
+            "header_row": pinned["header_row"],
             "first_row": locked.first_row,
             "last_row": locked.last_row,
             "skip": locked.skip,
-            "locale": Locale.of(locked.locale).as_json(),
-            "columns": mapping.saved_columns(mapping.columns_from_json(locked.columns), headers),
+            "locale": pinned["locale"],
+            "columns": [
+                {key: value for key, value in column.items() if key != "index"}
+                for column in pinned["columns"]
+            ],
             "skip_problems": locked.skip_problems,
         }
         with audit.using(audit.Context(via=locked.via or "api", oauth_client=locked.client)):
@@ -1505,6 +1536,7 @@ def committing(import_id: str) -> str:
                 agent=locked.agent,
             )
             locked.run = run
+            locked.applied_mapping = pinned
             locked.state = ImportState.COMMITTED
             locked.committed_at = timezone.now()
             locked.updated_at = timezone.now()

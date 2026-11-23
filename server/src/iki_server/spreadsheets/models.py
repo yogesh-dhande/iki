@@ -133,6 +133,9 @@ class SpreadsheetImport(models.Model):
         SavedMapping, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
 
+    #: The name and identity of the saved mapping when this draft selected it.
+    mapping_source = models.JSONField(null=True, blank=True)
+
     # Its preview: each round is one, from the start; changing what's imported starts afresh.
     round = models.PositiveIntegerField(default=0)
     phase = models.CharField(max_length=16, choices=PreviewPhase.choices, blank=True, default="")
@@ -150,6 +153,8 @@ class SpreadsheetImport(models.Model):
     failures = models.PositiveSmallIntegerField(default=0)
 
     # Its commit.
+    #: The exact mapping confirmed at commit, independent of the reusable template.
+    applied_mapping = models.JSONField(null=True, blank=True)
     #: Leave out the rows with problems: the person said so, when they committed it.
     skip_problems = models.BooleanField(default=False)
     reason = models.TextField(blank=True, default="")

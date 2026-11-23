@@ -80,10 +80,15 @@ def proteins(world: World) -> dict[str, dict[str, Any]]:
 
 
 def started(
-    world: World, data: bytes, type_name: str = SAMPLE, name: str = "manifest.xlsx", **kw: Any
+    world: World,
+    data: bytes,
+    type_name: str = SAMPLE,
+    name: str = "manifest.xlsx",
+    *,
+    principal: str = "editor",
 ) -> dict[str, Any]:
-    file_id = workbook(world, data, name)
-    api = api_as(world)
+    file_id = workbook(world, data, name, principal)
+    api = api_as(world, principal)
     made = api.post(
         f"/projects/{world.project.pk}/spreadsheet-imports", {"file": file_id, "type": type_name}
     )
@@ -712,6 +717,56 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
         == 403
     )
     assert api.delete(f"/spreadsheet-mappings/{listed[0]['id']}").status_code == 204
+
+
+def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
+    owner, colleague = api_as(world), api_as(world, "via_team")
+    original = started(world, b"Label,Purity (%)\nS-1,95\n", name="first.csv")
+    ref = f"/spreadsheet-imports/{original['id']}"
+    saved = owner.post(f"{ref}/mappings", {"name": "Instrument v1"}, headers=seen(original))
+    assert saved.status_code == 201, saved.content
+    mapping_id = saved.json()["id"]
+    previewed(world, original)
+
+    next_sheet = started(
+        world, b"Label,Purity (%)\nS-2,85\n", name="second.csv", principal="via_team"
+    )
+    next_ref = f"/spreadsheet-imports/{next_sheet['id']}"
+    changed = colleague.patch(
+        next_ref, {"columns": [{"index": 0, "field": "label"}]}, headers=seen(next_sheet)
+    )
+    assert changed.status_code == 200, changed.content
+    replacement = colleague.post(
+        f"{next_ref}/mappings",
+        {"name": "Instrument v2", "replace": mapping_id},
+        headers=seen(changed.json()),
+    )
+    assert replacement.status_code == 201, replacement.content
+    assert replacement.json()["columns"] == [{"header": "Label", "field": "label"}]
+
+    accepted = owner.post(f"{ref}/commit", {}, headers=seen(original))
+    assert accepted.status_code == 202, accepted.content
+    pinned = accepted.json()["applied_mapping"]
+    assert pinned["template"] == {"id": mapping_id, "name": "Instrument v1", "match": 1.0}
+    assert [(c["index"], c["field"]) for c in pinned["columns"]] == [(0, "label"), (1, "purity")]
+    settle()
+    done = colleague.get(ref).json()
+    assert done["state"] == "imported", done
+    run = ActionRun.objects.get(pk=done["run"]["id"])
+    assert run.params["header_row"] == pinned["header_row"]
+    assert run.params["locale"] == pinned["locale"]
+    assert run.params["columns"] == [
+        {key: value for key, value in col.items() if key != "index"} for col in pinned["columns"]
+    ]
+    assert values(records(world)["S-1"])["purity"] == 95
+
+    late = owner.post(f"{ref}/mappings", {"name": "Saved after the import"}, headers=seen(original))
+    assert late.status_code == 201, late.content
+    assert late.json()["id"] != mapping_id
+    assert colleague.delete(f"/spreadsheet-mappings/{mapping_id}").status_code == 204
+    history = colleague.get(ref).json()
+    assert history["mapping"] == pinned["template"]
+    assert history["applied_mapping"] == pinned
 
 
 # --- Revisions --------------------------------------------------------------------------------

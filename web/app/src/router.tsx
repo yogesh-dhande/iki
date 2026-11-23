@@ -97,6 +97,7 @@ const ProjectRequestsPage = lazyRouteComponent(
   () => import("./pages/project-requests"),
   "ProjectRequestsPage",
 );
+const ProjectStock = lazyRouteComponent(() => import("./pages/project-stock"), "ProjectStock");
 const entityFormPages = () => import("./pages/entity-form");
 const runPages = () => import("./pages/runs");
 const ProjectRuns = lazyRouteComponent(runPages, "ProjectRuns");
@@ -305,6 +306,12 @@ const projectRequestsRoute = createRoute({
       context.queryClient.query(componentsQuery).catch(() => undefined),
     ]),
   component: ProjectRequestsPage,
+});
+
+const projectStockRoute = createRoute({
+  getParentRoute: () => projectRoute,
+  path: "stock",
+  component: ProjectStock,
 });
 
 const projectEntityNewRoute = createRoute({
@@ -768,6 +775,7 @@ const routeTree = rootRoute.addChildren([
       projectMembersRoute,
       projectEntitiesRoute,
       projectRequestsRoute,
+      projectStockRoute,
       projectEntityNewRoute,
       projectSheetImportRoute,
       projectSheetImportPageRoute,

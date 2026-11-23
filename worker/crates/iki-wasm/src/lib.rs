@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod annotation;
 pub mod expressions;
 pub mod helm;
+pub mod oligo;
 pub mod rules;
 pub mod templates;
 
@@ -587,6 +588,27 @@ pub mod exports {
         let bytes = INPUT.with_borrow_mut(std::mem::take);
         let json = super::helm::read_json(&bytes);
         OUTPUT.with_borrow_mut(|output| *output = json);
+    }
+
+    /// Estimate the supplied unmodified DNA strand's melting temperature at the fixed
+    /// record conditions. Accepts `{"bases":"..."}` and returns `{"celsius":number|null}`.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn iki_melting_temperature() {
+        #[derive(serde::Deserialize)]
+        struct Request {
+            bases: String,
+        }
+        let bytes = INPUT.with_borrow_mut(std::mem::take);
+        let result = match serde_json::from_slice::<Request>(&bytes) {
+            Ok(request) => {
+                let celsius = super::oligo::melting_temperature(request.bases.as_bytes());
+                serde_json::json!({ "celsius": celsius })
+                    .to_string()
+                    .into_bytes()
+            }
+            Err(error) => super::failed(&format!("The request isn't one: {error}.")),
+        };
+        OUTPUT.with_borrow_mut(|output| *output = result);
     }
 
     /// Annotates a DNA sequence from the feature library.

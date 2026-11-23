@@ -488,7 +488,7 @@ describe("a project", () => {
     onProjectPage({ description: "Kinases\nand their inhibitors" });
     await renderApp("/projects/kinase-atlas/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Kinase Atlas");
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Overview" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -594,7 +594,7 @@ describe("a project", () => {
     const { user } = await renderApp("/projects/kinase-atlas/");
     expect(screen.getByText("You’re not a member of this project")).toBeVisible();
     expect(await screen.findByText("This project has no Admins.")).toBeVisible();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).queryByRole("link", { name: "Settings" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add me as Admin" }));
     await waitFor(() => {
@@ -1593,7 +1593,7 @@ describe("webhooks", () => {
     onWebhooks();
     await renderApp("/projects/kinase-atlas/automation/webhooks/");
     // One of Automation's three (ADR 0176): the tab is current, and its row says which.
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
       "aria-current",
       "page",

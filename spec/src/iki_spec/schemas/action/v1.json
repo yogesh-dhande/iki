@@ -365,6 +365,10 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
         "cardinality": { "enum": ["one", "many"] },
+        "receive_into": {
+          "description": "Receive a fresh physical record with its starting amount into the container named by this single required input. Each inline create supplies its receipt.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
         "match_on": {
           "description": "One of the type's unique fields, such as a LIMS record's ID. A create whose value an entity in the run's project has already updates that entity instead, as a revision with its origin.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"

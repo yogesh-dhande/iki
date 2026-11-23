@@ -742,6 +742,35 @@ def storage_labels(w: World) -> tuple[Any, ...]:
     return "/storage/labels", {"records": [str(_tube(w).pk)], "size": "cryo", "format": "zpl"}
 
 
+def stock_lots(w: World) -> tuple[str, None]:
+    from iki_server.entities import services as entities
+
+    editor = w.users["editor"]
+    item = entities.create(editor, "acme/protein.Lot", w.project, {"label": "uL"}).entity
+    entities.create(
+        editor,
+        "acme/protein.Sample",
+        w.project,
+        {"label": "Lot 1", "lot": str(item.pk)},
+        amount={"value": "10", "unit": "uL"},
+    )
+    return f"/projects/{w.project.pk}/stock/{item.pk}/lots", None
+
+
+@pytest.fixture
+def stock_lot_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Map the installed fixture types' unit and lot fields for the lot-detail request."""
+    from types import SimpleNamespace
+
+    from iki_server.amounts import stock
+    from iki_spec.model import StockLots
+
+    cfg = SimpleNamespace(
+        unit="label", lots=StockLots("acme/protein.Sample", "lot", "label", "due_on")
+    )
+    monkeypatch.setattr(stock, "catalogues", lambda: {"acme/protein.Lot": cfg})
+
+
 def _received(w: World) -> Any:
     """An assay request sending a tube to a core, whose analyst has started receiving it."""
     from iki_server.accounts.models import User
@@ -2029,6 +2058,15 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(200, org_admin=403),
     ),
     ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
+    # Stock, reorder lines and lot locations all require a project reader (ADR 0190).
+    ("GET", "/projects/{project_id}/stock", project("/stock"), visible(200, org_admin=403)),
+    (
+        "GET",
+        "/projects/{project_id}/stock/orders",
+        project("/stock/orders"),
+        visible(200, org_admin=403),
+    ),
+    ("GET", "/projects/{project_id}/stock/{item_id}/lots", stock_lots, visible(200, org_admin=403)),
 ]
 
 
@@ -2111,6 +2149,8 @@ def test_operation_matrix(
         with_cluster(request)
     world = build_world()
     path, body, *headers = build(world)
+    if build is stock_lots:
+        request.getfixturevalue("stock_lot_fields")
     client = Api(world.browser(principal))
     response = client.call(method, path, body, headers=headers[0] if headers else None)
     assert response.status_code == expected[principal], (

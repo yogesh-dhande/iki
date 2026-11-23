@@ -29,6 +29,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import F, Func, Value
 
+from iki_server.amounts import services as amounts
 from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of, identity_of
@@ -343,6 +344,9 @@ class _Create:
     made_with: tuple[Software, ...] = ()
     #: Its values that only fill an entry's empty fields (ADR 0140).
     fills: frozenset[str] = frozenset()
+    #: Physical inventory is recorded and placed only when this fresh create succeeds.
+    receipt: Mapping[str, Any] | None = None
+    destination: UUID | None = None
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -464,6 +468,15 @@ def _create(
     made_with = _made_with(check, at, item.get("made_with"))
     if parents is None:
         return None
+    destination = None
+    if effect.receive_into is not None:
+        ids = check.inputs.get(effect.receive_into, {})
+        if len(ids) != 1:
+            check.error(
+                _pointer(*at, "receipt"), "The run must have exactly one destination container."
+            )
+            return None
+        destination = next(iter(ids))
     return _Create(
         _pointer(*at),
         item["type"],
@@ -474,6 +487,8 @@ def _create(
         effect.match_on,
         made_with,
         fills,
+        item.get("receipt"),
+        destination,
     )
 
 
@@ -717,6 +732,24 @@ def update_match(
     return None
 
 
+def _place_received(
+    check: Check, create: _Create, saved: entities.Saved, receipt: Mapping[str, Any]
+) -> None:
+    from iki_server.storage import services as storage
+
+    if saved.reused or create.destination is None:
+        raise Rejected("conflict", "A delivery must create a fresh record in its input container.")
+    container = Entity.objects.get(pk=create.destination)
+    record = Entity.objects.get(pk=saved.entity.pk)
+    storage.move(
+        check.run.requested_by,
+        [storage.Wanted(record, container, receipt.get("position"))],
+        reason=receipt["reason"],
+        confirmations={record.pk: receipt.get("confirmation", "")},
+        operation=check.run.pk,
+    )
+
+
 def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
     run = check.run
     #: key → the entity its create made or reused
@@ -732,10 +765,13 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
             if len(check.errors) > errors:
                 continue
         if match is not None:
+            if create.receipt is not None:
+                raise Rejected("conflict", "A receipt cannot match an existing stock record.")
             saved = update_match(check, create.pointer, create.type, match, values)
             if saved is None:
                 continue
         else:
+            receipt = create.receipt
             try:
                 saved = entities.create(
                     run.requested_by,
@@ -745,9 +781,21 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
                     by_run=True,
                     hold_reason=holds.run_reason(run),
                     fills=create.fills,
+                    amount=receipt["amount"] if receipt else None,
+                    reason=receipt["reason"] if receipt else "",
                 )
+            except amounts.Wrong as error:
+                invalid(check, create.pointer, error, values="receipt")
+                continue
             except Invalid as error:
                 invalid(check, create.pointer, error)
+                continue
+        if create.receipt is not None:
+            try:
+                _place_received(check, create, saved, create.receipt)
+            except Invalid as error:
+                for messages in error.errors.values():
+                    check.error(f"{create.pointer}/receipt", " ".join(messages))
                 continue
         entity_id = saved.entity.pk
         if create.key is not None:

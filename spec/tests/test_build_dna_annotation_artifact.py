@@ -64,6 +64,7 @@ def test_distribution_build_requires_the_notice(
 ) -> None:
     resources = project / "src" / "iki_spec"
     (resources / "iki_wasm.wasm").write_bytes(b"\0asm")
+    (resources / "oligo-measurement.wasm").write_bytes(b"\0asm")
     (resources / "dna-annotation.wasm").write_bytes(b"\0asm")
     monkeypatch.chdir(project)
 
