@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/cell_lines
+version: 0.1.0
+title: Cell lines
+description: >-
+  Registers parental lines and engineered derivatives. Tracks each bank, its vials,
+  the cultures thawed and passaged from them, the bank's quality checks and the
+  samples collected for analysis.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/cell_lines
+dependencies:
+  iki/example_lims:
+    types:
+      Tube: ">=1"
+roles:
+  research_signer:
+    label: Cell bank research signatory
+    description: Signs a recorded check in a research project.
+  analyst:
+    label: Cell bank analyst
+    description: Signs and submits a check in a regulated QC project.
+  reviewer:
+    label: Cell bank reviewer
+    description: Independently reviews a submitted check.
+  qa:
+    label: Cell bank QA
+    description: Releases a reviewed check.

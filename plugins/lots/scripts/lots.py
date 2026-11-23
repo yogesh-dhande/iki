@@ -438,6 +438,7 @@ def polymer(lot: Lot) -> None:
     if not mn or mw is None:
         lot.set("dispersity", None)
         return
+    # IUPAC, Dispersity in polymer science (2009), doi:10.1351/PAC-REC-08-05-02.
     dispersity = round(mw / mn, 3)
     lot.set("dispersity", dispersity)
     print(f"{lot.hrid}: Đ = Mw/Mn = {_shown(mw)} / {_shown(mn)} = {dispersity:.3f}")

@@ -1,0 +1,23 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CellSample
+label: Cell culture sample
+schema_version: 1
+sample: true
+description: A sample collected from one culture and the data collected on it.
+hrid: { prefix: CSP }
+fields:
+  name: { type: string, required: true, max_length: 160, indexed: true }
+  culture: { type: ref, to: CellCulture, required: true, immutable: true }
+  collected_on: { type: date, required: true, immutable: true, indexed: true }
+  data_file:
+    type: file
+    label: Measurement data
+    description: The file made from this sample. Analysis runs may also use the sample as an input.
+rules:
+  collected_after_culture:
+    check: record.collected_on >= record.culture.event_on
+    message: The sample must be collected on or after the culture event.
+    fields: [collected_on]
+display:
+  title: "{{ name }}"

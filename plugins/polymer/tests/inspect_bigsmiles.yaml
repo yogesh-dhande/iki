@@ -1,0 +1,56 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: nylon_with_implicit_ends
+description: >-
+  Nylon-6,6 with its implicit end-group alternatives from the authors'
+  BigSMILES v1.1 end-group examples
+  (https://olsenlabmit.github.io/BigSMILES/docs/line_notation.html#end-groups).
+  Each fragment retains its stereochemistry and bonding descriptors as submitted.
+action: inspect_bigsmiles
+inputs:
+  polymer:
+    - values:
+        architecture: linear
+        sequence_distribution: alternating
+        bigsmiles: "{[][<]C(=O)CCCCC(=O)[<],[>]NCCCCCCN[>];[>]O[H],[<][H][]}"
+expect:
+  output:
+    updates:
+      polymer:
+        - values:
+            notation_status: checked
+            stochastic_objects: 1
+            repeat_units:
+              - { object: 1, fragment: "[<]C(=O)CCCCC(=O)[<]" }
+              - { object: 1, fragment: "[>]NCCCCCCN[>]" }
+            implicit_end_groups:
+              - { object: 1, fragment: "[>]O[H]" }
+              - { object: 1, fragment: "[<][H]" }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: uninspected_and_invalid_notations
+description: >-
+  The BigSMILES project's simplified ethylene/butene example omits its
+  AA-type descriptors, outside this inspector's explicit subset. A synthetic
+  malformed input with an unclosed brace has a distinct outcome.
+  Source https://olsenlabmit.github.io/BigSMILES/docs/line_notation.html#simplification-for-aa-type-descriptors
+action: inspect_bigsmiles
+inputs:
+  polymer:
+    - values: { bigsmiles: "{[]CC,CC(CC)[]}", architecture: linear }
+    - values: { bigsmiles: "{[][$]CC[$][]", architecture: linear }
+expect:
+  output:
+    updates:
+      polymer:
+        - values:
+            notation_status: unsupported
+            stochastic_objects: null
+            repeat_units: null
+            implicit_end_groups: null
+        - values:
+            notation_status: invalid
+            stochastic_objects: null
+            repeat_units: null
+            implicit_end_groups: null
