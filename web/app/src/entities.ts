@@ -10,6 +10,7 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/
 import { iki, projectQuery, queryClient } from "./api";
 import { searchWords, validateFilters, type Filter } from "./filters";
 import { objectList, objectListText } from "./object-lists";
+import { fetchPageRead, pageReadSignal } from "./page-reads";
 
 export type EntityType = Schemas["EntityTypeOut"];
 export type FieldDef = Schemas["FieldOut"];
@@ -27,7 +28,8 @@ export const ENTITIES = ["entities"] as const;
 /** The installed types: they change only when the deployment does. */
 export const typesQuery = queryOptions({
   queryKey: ["entity-types"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/entity-types")),
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/entity-types", { signal: pageReadSignal(signal) })),
   staleTime: 10 * 60_000,
 });
 
@@ -120,6 +122,15 @@ export function searchCsvUrl(filter: EntityFilter, columns: readonly string[] = 
   return `/api/v1/entities/search.csv?${query.toString()}`;
 }
 
+/** A search sends its filters as JSON, but has the same lifetime as the other reads on a page. */
+export function searchEntities(body: Schemas["SearchIn"], signal?: AbortSignal) {
+  return iki.POST("/api/v1/entities/search", {
+    body,
+    fetch: fetchPageRead,
+    ...(signal ? { signal } : {}),
+  });
+}
+
 /** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
 export function entitiesQuery(filter: EntityFilter) {
   return infiniteQueryOptions({
@@ -127,8 +138,10 @@ export function entitiesQuery(filter: EntityFilter) {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: { limit: 100, ...gridSearch(filter), ...(pageParam ? { cursor: pageParam } : {}) },
+        await searchEntities({
+          limit: 100,
+          ...gridSearch(filter),
+          ...(pageParam ? { cursor: pageParam } : {}),
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -194,11 +207,13 @@ export function pickerQuery(types: readonly string[], q: string) {
 export function entityQuery(ref: string, project?: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "one", ref.toUpperCase(), project ?? null],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
+      const read = pageReadSignal(signal);
       const id = project ? (await queryClient.query(projectQuery(project))).id : undefined;
       return unwrap(
         await iki.GET("/api/v1/entities/{ref}", {
           params: { path: { ref }, query: id ? { project: id } : {} },
+          signal: read,
         }),
       );
     },

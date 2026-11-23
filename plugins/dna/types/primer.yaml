@@ -30,12 +30,27 @@ fields:
     unit: Cel
     computed: true
     indexed: true
+    label: Tm (50 mM Na⁺)
+    description: >-
+      Its melting temperature (Tm) by SantaLucia's nearest-neighbour model, at
+      50 mM Na+ with no Mg2+ or dNTPs, and 50 nM of strands in all
+      (SantaLucia's CT): 25 nM each of the primer and its complement, or 50 nM
+      of a primer that pairs with itself. The same measurement the sequence
+      viewer quotes for a selection (ADR 0191); for the Tm a PCR anneals at,
+      see its Tm in PCR buffer.
+  buffer_melting_temperature:
+    type: quantity
+    registry: derived
+    unit: Cel
+    computed: true
+    indexed: true
+    label: Tm in PCR buffer (1.5 mM Mg²⁺, 0.6 mM dNTPs)
     description: >-
       Its melting temperature (Tm) by SantaLucia's nearest-neighbour model in
-      the buffer a PCR runs in — 50 mM Na+, 1.5 mM Mg2+ and 0.6 mM dNTPs, with
-      25 nM each of the primer and its complement — corrected for the
-      magnesium by Owczarzy's measurements. Several degrees above the same
-      primer's Tm in sodium alone.
+      Primer3's default PCR buffer — 50 mM Na+, 1.5 mM Mg2+ and 0.6 mM dNTPs,
+      with 25 nM each of the primer and its complement — corrected for the
+      magnesium by Owczarzy et al. (2008). Several degrees above its Tm in
+      sodium alone, and the one to set an annealing temperature by (ADR 0201).
   hairpin_free_energy:
     type: quantity
     registry: derived

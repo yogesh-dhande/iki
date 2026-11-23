@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Action
 name: primer_properties
-label: Compute length, GC content, Tm and the primer's own checks
+label: Compute length, GC content, both Tms and the primer's own checks
 inputs:
   primer: { type: Primer, schema: ">=1" }
 effects:
@@ -13,12 +13,14 @@ effects:
           length,
           gc_content,
           melting_temperature,
+          buffer_melting_temperature,
           hairpin_free_energy,
           self_dimer_free_energy,
           end_stability,
           longest_run,
         ]
 software:
+  - { name: Iki oligo measurement module, version: "0.12.0", url: https://ikisci.org/plugins/dna }
   - { name: Iki oligo checks module, version: "0.12.0", url: https://ikisci.org/plugins/dna }
 runs_on: { tier: backend, environment: sequence-tools }
 command: [python, ./scripts/sequences.py, primers]

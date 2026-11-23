@@ -94,7 +94,7 @@ describe("a project's runs", () => {
     );
     const { user } = await renderApp("/projects/kinase-atlas/runs/");
     expect(
-      within(screen.getByRole("navigation", { name: "Project" })).getByRole("link", {
+      within(await screen.findByRole("navigation", { name: "Project" })).getByRole("link", {
         name: "Runs",
       }),
     ).toHaveAttribute("aria-current", "page");

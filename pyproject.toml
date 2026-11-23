@@ -236,6 +236,7 @@ addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importli
 testpaths = [
   "plugins/plate_assays/tests",
   "plugins/experiments/tests",
+  "plugins/reagents/tests",
   "server/tests",
   "cli/tests",
   "spec/tests",

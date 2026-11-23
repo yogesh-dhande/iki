@@ -1324,6 +1324,12 @@
       },
       "ApplyIn": {
         "properties": {
+          "planned_at": {
+            "description": "The planned_at of the plan being confirmed.",
+            "format": "date-time",
+            "title": "Planned At",
+            "type": "string"
+          },
           "reason": {
             "description": "Why: the import and the audit log keep it.",
             "maxLength": 2000,
@@ -1333,6 +1339,7 @@
           }
         },
         "required": [
+          "planned_at",
           "reason"
         ],
         "title": "ApplyIn",
@@ -3065,8 +3072,17 @@
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
+          },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -4185,6 +4201,18 @@
             },
             "title": "Derived From",
             "type": "array"
+          },
+          "receive_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The required input container for a fresh stock receipt.",
+            "title": "Receive Into"
           },
           "type": {
             "title": "Type",
@@ -9262,6 +9290,19 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
           }
         },
         "title": "ImportEntityParams",
@@ -9326,6 +9367,45 @@
           "sha256"
         ],
         "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportMemberParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
+          }
+        },
+        "title": "ImportMemberParams",
         "type": "object"
       },
       "ImportOut": {
@@ -9394,6 +9474,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -9774,6 +9855,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -12297,6 +12379,68 @@
         "title": "OccupantOut",
         "type": "object"
       },
+      "OpenOrder": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_hrid": {
+            "title": "Item Hrid",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "order_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Reference"
+          },
+          "ordered_packs": {
+            "title": "Ordered Packs",
+            "type": "integer"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "received_packs": {
+            "title": "Received Packs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "order_reference",
+          "item_id",
+          "item_hrid",
+          "item_name",
+          "ordered_packs",
+          "received_packs",
+          "outstanding_packs"
+        ],
+        "title": "OpenOrder",
+        "type": "object"
+      },
       "OrgParams": {
         "properties": {
           "by": {
@@ -13144,6 +13288,35 @@
         "title": "Page[NotificationOut]",
         "type": "object"
       },
+      "Page_OpenOrder_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpenOrder"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OpenOrder]",
+        "type": "object"
+      },
       "Page_PreviewRowOut_": {
         "properties": {
           "items": {
@@ -13490,6 +13663,64 @@
           "next_cursor"
         ],
         "title": "Page[SpreadsheetImportOut]",
+        "type": "object"
+      },
+      "Page_StockLot_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockLot"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockLot]",
+        "type": "object"
+      },
+      "Page_StockSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockSummary]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -16933,7 +17164,8 @@
               "wrong_slot",
               "unchecked",
               "empty",
-              "checked_out"
+              "checked_out",
+              "no_longer_found"
             ],
             "title": "Finding",
             "type": "string"
@@ -16986,6 +17218,11 @@
             ],
             "title": "Resolution"
           },
+          "resolution_stale": {
+            "description": "The open count's saved decision needs review.",
+            "title": "Resolution Stale",
+            "type": "boolean"
+          },
           "resolved_by": {
             "anyOf": [
               {
@@ -17006,6 +17243,7 @@
           "found",
           "finding",
           "resolution",
+          "resolution_stale",
           "note",
           "resolved_by"
         ],
@@ -17066,6 +17304,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The version of the count's observations and decisions.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "shape": {
             "$ref": "#/components/schemas/ShapeOut"
           },
@@ -17089,6 +17333,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "container",
           "shape",
           "status",
@@ -18068,6 +18313,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "resolution": {
             "anyOf": [
               {
@@ -18088,6 +18339,7 @@
           }
         },
         "required": [
+          "plan_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -25227,6 +25479,231 @@
         "title": "StepRunOut",
         "type": "object"
       },
+      "StockFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "low_only": {
+            "default": false,
+            "title": "Low Only",
+            "type": "boolean"
+          }
+        },
+        "title": "StockFilters",
+        "type": "object"
+      },
+      "StockLot": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "checked_out": {
+            "title": "Checked Out",
+            "type": "boolean"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "container_hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Hrid"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires On"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lot_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Number"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "boolean"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "lot_number",
+          "expires_on",
+          "expired",
+          "held",
+          "unit",
+          "amount",
+          "available",
+          "container_id",
+          "container_hrid",
+          "row",
+          "column",
+          "checked_out",
+          "placed"
+        ],
+        "title": "StockLot",
+        "type": "object"
+      },
+      "StockSummary": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "physical": {
+            "title": "Physical",
+            "type": "string"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "name",
+          "unit",
+          "threshold",
+          "physical",
+          "stored",
+          "available",
+          "low",
+          "outstanding_packs"
+        ],
+        "title": "StockSummary",
+        "type": "object"
+      },
       "StructureViewerOut": {
         "properties": {
           "label": {
@@ -26013,6 +26490,12 @@
             "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
             "title": "Unit",
             "type": "string"
+          },
+          "whole_units": {
+            "default": false,
+            "description": "Whether quantities must be whole numbers in this ledger unit.",
+            "title": "Whole Units",
+            "type": "boolean"
           }
         },
         "required": [
@@ -36651,6 +37134,25 @@
             }
           },
           {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
+            }
+          },
+          {
             "in": "query",
             "name": "action",
             "required": false,
@@ -36800,6 +37302,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
             }
           }
         ],
@@ -39549,6 +40070,246 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/stock": {
+      "get": {
+        "description": "All active catalogue items owned by the project, including items with no lots.\nPhysical is the amount on hand. Stored excludes unplaced and checked-out material.\nAvailable counts stored material eligible for routine use. Amounts are exact decimal\nstrings in the item's unit. A low-only page can be empty and have a next cursor.",
+        "operationId": "iki_server_api_stock_project_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "low_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Low Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockSummary_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Current stock and reorder thresholds",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/orders": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_orders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OpenOrder_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outstanding stock reorders",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_lots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockLot_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A catalogue item's lots and storage positions",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/trigger-firings": {
       "get": {
         "description": "Newest first. `trigger` narrows it to one trigger's.",
@@ -40358,7 +41119,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -40410,6 +41171,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
+        "description": "Saves or clears a line decision for the reviewed revision. Returns 409 if the\nobservations or another decision changed in the meantime.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {

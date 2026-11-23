@@ -306,6 +306,21 @@ complement: how firmly the 3′ end a polymerase extends from is held. **Longest
 run** is the longest stretch of one base, four or more G being the one that can
 stack into a quadruplex.
 
+The plugin pins the SHA-256 of its Linux x86-64 build in
+`data/oligo-measurement.sha256`. When building a deployment, Iki takes the compiled
+measurement from the installed `iki-spec` distribution and includes
+`data/oligo-measurement.wasm` in both the worker image and downloadable plugin archive.
+Release builds on Linux x86-64 compare its bytes with the pin. Other developer hosts
+require the built module and report why they skip that comparison. The dev cluster
+gets the verified Linux x86-64 bytes from Docker.
+The Rust standard library notice accompanies it in `data/rust-standard-library.html`.
+The worker runs it offline with the Wasmtime wheel in `sequence-tools`. The browser and
+server compile the same Rust source. In the Iki source checkout, `scripts/build-wasm.sh`
+builds the modules and places an ignored copy in the plugin for direct action invocations.
+After changing the Rust measurement, run `pnpm generate:temperature` to update its digest
+and the browser implementation. Deploy with an Iki release that supplies the pinned
+measurement. Retain previously shipped measurements when adding a new digest to a release.
+
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
 LOCUS's molecule type says the strandedness: `ss-DNA` and RNA records

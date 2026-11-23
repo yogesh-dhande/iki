@@ -69,9 +69,10 @@ def ok(message: str) -> None:
     sys.stdout.write(f"\033[1;32m  ok\033[0m {message}\n")
 
 
-def kubectl(*args: str) -> str:
+def kubectl(*args: str, stdin: str | None = None) -> str:
     result = subprocess.run(  # noqa: S603 - fixed argv
         ["kubectl", "--context", CONTEXT, "-n", NAMESPACE, *args],  # noqa: S607
+        input=stdin,
         capture_output=True,
         text=True,
         check=False,
@@ -84,6 +85,113 @@ def kubectl(*args: str) -> str:
 def secret(name: str, key: str) -> str:
     raw = kubectl("get", "secret", name, "-o", f"jsonpath={{.data.{key}}}")
     return base64.b64decode(raw).decode()
+
+
+def run_maintenance() -> None:
+    """Run the deployed CronJob now. Its TTL cleans up each seed run's Job and pods."""
+    name = f"iki-maintenance-seed-{secrets.token_hex(6)}"
+    template = json.loads(
+        kubectl(
+            "create",
+            "job",
+            name,
+            "--from=cronjob/iki-maintenance",
+            "--dry-run=client",
+            "-o",
+            "json",
+        )
+    )
+    container = next(
+        c for c in template["spec"]["template"]["spec"]["containers"] if c["name"] == "maintain"
+    )
+    # iki-server is the image ENTRYPOINT when Kubernetes doesn't override it. A shell in
+    # the same container can still read its cgroup's high-water mark after the server exits.
+    command = [*container.get("command", ["iki-server"]), *container["args"]]
+    container["command"] = ["/bin/sh", "-ec"]
+    container["args"] = [
+        '''status=0
+"$@" || status=$?
+read -r peak < /sys/fs/cgroup/memory.peak
+read -r limit < /sys/fs/cgroup/memory.max
+printf '{"event":"maintenance_cgroup","peak":"%s","limit":"%s"}\\n' "$peak" "$limit"
+exit "$status"''',
+        "maintenance-cgroup",
+        *command,
+    ]
+    kubectl("create", "-f", "-", stdin=json.dumps(template))
+    deadline = time.monotonic() + 300
+    reason = "still incomplete after five minutes"
+    while time.monotonic() < deadline:
+        job = json.loads(kubectl("get", f"job/{name}", "-o", "json", "--request-timeout=10s"))
+        terminal = next(
+            (
+                c
+                for c in job.get("status", {}).get("conditions", [])
+                if c["type"] in ("Complete", "Failed") and c["status"] == "True"
+            ),
+            None,
+        )
+        if terminal:
+            if terminal["type"] == "Complete":
+                report_maintenance_memory(name)
+                return
+            reason = f"{terminal.get('reason', 'Failed')}: {terminal.get('message', '')}"
+            break
+        time.sleep(2)
+
+    selector = f"job-name={name}"
+    diagnostics = [f"Maintenance Job {name}: {reason}"]
+    for args in (
+        ("get", "pods", "-l", selector, "-o", "wide"),
+        (
+            "logs",
+            "-l",
+            selector,
+            "-c",
+            "maintain",
+            "--prefix",
+            "--tail=40",
+            "--pod-running-timeout=5s",
+        ),
+    ):
+        try:
+            diagnostics.append(kubectl(*args, "--request-timeout=10s").strip())
+        except RuntimeError as error:
+            diagnostics.append(str(error))
+    fail("\n".join(diagnostics))
+
+
+def report_maintenance_memory(name: str) -> None:
+    pod = kubectl(
+        "get",
+        "pods",
+        "-l",
+        f"job-name={name}",
+        "--field-selector=status.phase=Succeeded",
+        "-o",
+        "name",
+    ).strip()
+    logs = kubectl("logs", pod, "-c", "maintain")
+    events = [json.loads(line) for line in logs.splitlines() if line.startswith("{")]
+    loaded = next(
+        (
+            e
+            for e in events
+            if e.get("logger") == "iki_spec.wasm"
+            and e.get("event") == "Loaded precompiled iki-wasm"
+        ),
+        None,
+    )
+    cgroup = next((e for e in events if e.get("event") == "maintenance_cgroup"), None)
+    if not loaded or not cgroup:
+        fail(f"{pod} did not report its precompiled module and cgroup memory\n{logs}")
+    if cgroup["limit"] != str(384 * 1024**2) or int(cgroup["peak"]) <= 0:
+        fail(f"{pod} reported unexpected cgroup memory {cgroup}")
+    ok(
+        f"{pod} loaded precompiled iki-wasm for {loaded['wasm_target']} "
+        f"(SHA-256 {loaded['wasm_sha256']}). "
+        f"memory.peak={cgroup['peak']} bytes and memory.max={cgroup['limit']} bytes"
+    )
 
 
 def route(iki_port: int, keycloak_port: int) -> None:
@@ -1618,6 +1726,7 @@ def lims() -> None:
     bookings(alice, project)
     signatures(alice, project, first)
     plate_assay(alice, project)
+    reagent_stock(alice, project)
     dose_response_starters(alice, project)
 
 
@@ -2322,29 +2431,79 @@ def receive_at_core(
     if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
         fail(f"{request['hrid']}'s receipt counted {outcomes}")
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "A2"]:
-        fail(f"{incoming['hrid']} holds {contents}, not two tubes at A1 and A2")
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "A2"),
+    ]:
+        fail(f"{incoming['hrid']} did not receive the expected tubes at A1 and A2: {contents}")
     ok(f"the core received {request['hrid']}'s tubes, one damaged, put away in {incoming['hrid']}")
+
+    def review(plan: dict[str, Any], decision: str | None) -> str:
+        """Check the two tubes and the empty slot before approving this version."""
+        lines = plan["lines"]
+        actual = {
+            (line["entity"], line["expected"], line["found"], line["finding"], line["resolution"])
+            for line in lines
+        }
+        expected = {
+            (tubes[0]["id"], "A1", "A1", "matched", None),
+            (tubes[1]["id"], "A2", "B1", "wrong_slot", decision),
+            (None, None, "A2", "empty", None),
+        }
+        if (
+            plan["container"]["id"] != incoming["id"]
+            or plan["status"] != "open"
+            or actual != expected
+            or any(line["resolution_stale"] for line in lines)
+        ):
+            fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
+        return str(next(line["id"] for line in lines if line["entity"] == tubes[1]["id"]))
+
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
+    if started.status_code != 201:
+        fail(
+            f"starting a count for {incoming['hrid']} answered {started.status_code}: "
+            f"{started.text[:300]}"
+        )
     count = f"/reconciliations/{started.json()['id']}"
     scans = [
         {"position": "A1", "code": first},
         {"position": "A2", "code": None},
         {"position": "B1", "code": second},
     ]
-    found = api_call(alice, "POST", f"{count}/scans", {"scans": scans}).json()
-    wrong = next(x for x in found["lines"] if x["finding"] == "wrong_slot")
-    api_call(alice, "PATCH", f"{count}/lines/{wrong['id']}", {"resolution": "moved"})
-    finished = api_call(alice, "POST", f"{count}/complete", {"note": "Weekly count"})
+    observed = api_call(alice, "POST", f"{count}/scans", {"scans": scans})
+    if observed.status_code != 200:
+        fail(f"scanning {incoming['hrid']} answered {observed.status_code}: {observed.text[:300]}")
+    found = observed.json()
+    wrong = review(found, None)
+    resolved = api_call(
+        alice,
+        "PATCH",
+        f"{count}/lines/{wrong}",
+        {"resolution": "moved", "plan_revision": found["plan_revision"]},
+    )
+    if resolved.status_code != 200:
+        fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")
+    plan = resolved.json()
+    review(plan, "moved")
+    finished = api_call(
+        alice,
+        "POST",
+        f"{count}/complete",
+        {"note": "Weekly count", "plan_revision": plan["plan_revision"]},
+    )
     if finished.status_code != 200:
         fail(
             f"reconciling {incoming['hrid']} answered {finished.status_code}: {finished.text[:300]}"
         )
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "B1"]:
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "B1"),
+    ]:
         fail(f"after reconciling, {incoming['hrid']} holds {contents}")
-    ok(f"reconciling {incoming['hrid']} by scan moved the tube found at B1 to where it was")
+    ok(f"reconciling {incoming['hrid']} by scan moved {tubes[1]['hrid']} from A2 to B1")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
@@ -3357,6 +3516,180 @@ def linked_experiment(
     ):
         fail(f"{experiment['hrid']} did not witness the ELN, protocol, plate and lot evidence")
     ok(f"{experiment['hrid']}: witnessed the ELN and result revisions with the 1.5 mg draw")
+
+
+def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Receive two labelled racks, release their lots and draw three tubes at the bench."""
+    prefix = "iki/reagents."
+    give_lab_roles(alice, project, prefix + "stock_manager", "iki/lots.qa")
+    stock = f"/projects/{project['id']}/stock"
+
+    def rows(path: str) -> list[dict[str, Any]]:
+        response = api_call(alice, "GET", path + "?limit=100")
+        if response.status_code != 200:
+            fail(f"reading {path} answered HTTP {response.status_code}: {response.text}")
+        found: list[dict[str, Any]] = response.json()["items"]
+        return found
+
+    def ensure(kind: str, field: str, values: dict[str, Any]) -> dict[str, Any]:
+        found = matching_records(alice, project, prefix + kind, field, values[field])
+        return found[0] if found else created(alice, project, prefix + kind, values)
+
+    # Corning's catalogue no. 430790 specifies 50 tubes per rack and 500 per case.
+    # https://ecatalog.corning.com/life-sciences/b2b/us/en/Liquid-Handling/Tubes%2C-Liquid-Handling/Centrifuge-Tubes/Corning%C2%AE-15mL-Centrifuge-Tubes/p/430790
+    item = ensure(
+        "StockItem",
+        "catalogue_number",
+        {
+            "name": "Corning 15 mL centrifuge tubes",
+            "supplier": "Corning",
+            "catalogue_number": "430790",
+            "pack_size": 50,
+            "stock_unit": "1",
+            "low_stock_at": 98,
+        },
+    )
+    order_reference = "SYNTH-430790-ORDER-01"
+    orders = matching_records(
+        alice, project, prefix + "ReorderLine", "order_reference", order_reference
+    )
+    if not orders:
+        launch(
+            alice,
+            project,
+            prefix + "place_order",
+            {"item": item["id"]},
+            {"order_reference": order_reference, "ordered_packs": 2},
+        )
+        orders = matching_records(
+            alice, project, prefix + "ReorderLine", "order_reference", order_reference
+        )
+    [order] = orders
+    lot_ids = []
+    location_ids = []
+    certificate = None
+    for line in (1, 2):
+        location = ensure("StockLocation", "name", {"name": f"Synthetic tube storage {line}"})
+        location_ids.append(location["id"])
+        number = f"SYNTH-430790-LOT-{line}"
+        lots = matching_records(alice, project, prefix + "CountStockLot", "lot_number", number)
+        if not lots:
+            if certificate is None:
+                certificate = upload(
+                    alice,
+                    project,
+                    "synthetic-tube-certificate.csv",
+                    b"lot,certificate\nSYNTH-430790-LOT-1,synthetic\nSYNTH-430790-LOT-2,synthetic\n",
+                    "text/csv",
+                )
+            launch(
+                alice,
+                project,
+                prefix + "receive_delivery",
+                {"order": order["id"], "storage": location["id"]},
+                {
+                    "packs": 1,
+                    "delivery_note": f"SYNTH-DELIVERY-{line}",
+                    "delivery_line": "1",
+                    "lot_number": number,
+                    "received_on": f"2025-01-0{line}",
+                    "expires_on": "2099-01-01",
+                    "certificate": certificate,
+                },
+            )
+            lots = matching_records(alice, project, prefix + "CountStockLot", "lot_number", number)
+        [lot] = lots
+        lot_ids.append(lot["id"])
+        ordered = record(alice, order["id"])["values"]
+        if line == 1 and ordered["received_packs"] == 1:
+            [outstanding] = [row for row in rows(stock + "/orders") if row["id"] == order["id"]]
+            if outstanding["outstanding_packs"] != 1:
+                fail(f"{order['hrid']} should have one rack left to receive")
+        if lot["values"]["disposition"] == "quarantined":
+            released = signing(alice, lot, "released", "alice", field="disposition")
+            if not released["set"]:
+                fail(f"QA release of {lot['hrid']} failed: {released}")
+    if record(alice, order["id"])["values"]["received_packs"] != 2 or any(
+        row["id"] == order["id"] for row in rows(stock + "/orders")
+    ):
+        fail(f"{order['hrid']} still appears outstanding after both racks arrived")
+    title = "Synthetic stock-use experiment"
+    kind = "iki/experiments.Experiment"
+    experiments = matching_records(alice, project, kind, "title", title)
+    experiment = (
+        experiments[0]
+        if experiments
+        else created(
+            alice,
+            project,
+            kind,
+            {
+                "title": title,
+                "eln_id": "SYNTH-STOCK-USE-01",
+                "eln_revision": "1",
+                "protocol_id": "SYNTH-TUBE-USE",
+                "protocol_revision": "1",
+            },
+        )
+    )
+    lot_path = f"/entities/{lot_ids[0]}/amount"
+    movements = api_call(alice, "GET", lot_path + "/movements").json()["items"]
+    used = [move for move in movements if move["used_in"] == experiment["id"]]
+    if not used:
+        [before] = [row for row in rows(stock) if row["id"] == item["id"]]
+        if Decimal(before["available"]) != 100 or before["low"]:
+            fail(f"two released racks should provide 100 tubes: {before}")
+        drawn = api_call(
+            alice,
+            "POST",
+            lot_path + "/draw",
+            {
+                "amount": {"value": 3, "unit": "1"},
+                "used_in": experiment["id"],
+                "reason": "Synthetic use of three tubes at the bench",
+            },
+        )
+        if drawn.status_code != 200 or Decimal(drawn.json()["amount"]["value"]) != 47:
+            fail(f"drawing three tubes answered HTTP {drawn.status_code}: {drawn.text}")
+        used = [drawn.json()["movement"]]
+    [movement] = used
+    experiment_values = record(alice, experiment["id"])["values"]
+    [receipt] = experiment_values["material_draws"]
+    if (
+        experiment_values["review"] != "recorded"
+        or experiment_values["eln_id"] != "SYNTH-STOCK-USE-01"
+        or experiment_values["eln_revision"] != "1"
+        or movement["used_in"] != experiment["id"]
+        or movement["kind"] != "drawn"
+        or movement["unit"] != "1"
+        or Decimal(movement["change"]) != -3
+        or receipt["movement"] != movement["id"]
+        or receipt["record"] != lot_ids[0]
+        or receipt["unit"] != "1"
+        or Decimal(receipt["amount"]) != 3
+    ):
+        fail(f"{experiment['hrid']} should record the three-tube withdrawal: {receipt}")
+    [now] = [row for row in rows(stock) if row["id"] == item["id"]]
+    locations = {
+        row["container_id"]: (row["id"], Decimal(row["amount"]))
+        for row in rows(f"{stock}/{item['id']}/lots")
+    }
+    if (
+        not now["low"]
+        or any(Decimal(now[field]) != 97 for field in ("physical", "stored", "available"))
+        or locations
+        != {location_ids[0]: (lot_ids[0], Decimal(47)), location_ids[1]: (lot_ids[1], Decimal(50))}
+    ):
+        fail(f"{item['hrid']} should be low with 47 and 50 tubes stored: {now}, {locations}")
+    # Run the hourly maintenance command now to exercise the low-stock notification.
+    run_maintenance()
+    notices = api_call(alice, "GET", "/notifications?limit=100").json()["items"]
+    if not any(
+        note["kind"] == "stock.low" and any(r["id"] == item["id"] for r in note["records"])
+        for note in notices
+    ):
+        fail(f"the stock manager was not notified that {item['hrid']} was low")
+    ok(f"{order['hrid']}: both racks arrived and the draw raised a low-stock alert at 97 tubes")
 
 
 def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]) -> None:

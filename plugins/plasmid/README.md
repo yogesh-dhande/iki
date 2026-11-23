@@ -194,7 +194,7 @@ redistribute that table under. The Python these replaced is kept as the oracle t
 cross-checked against, enzyme by enzyme and over random molecules
 (`server/tests/test_plasmid_parity.py`).
 
-The plugin pins the matcher in `data/dna-annotation.sha256`. When building a
+The plugin pins the matcher in `data/dna-annotation.wasm.sha256`. When building a
 deployment, Iki verifies the installed `iki-spec` module against this digest and
 adds it to the worker image and downloadable plugin archive as
 `data/dna-annotation.wasm`. The archive includes the Rust standard library notice.

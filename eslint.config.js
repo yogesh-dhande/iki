@@ -10,6 +10,8 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/coverage/**",
+      // Binaryen's output; its Rust source and typed adapter are checked separately.
+      "web/packages/science/generated/oligo-temperature.js",
       "**/node_modules/**",
       "worker/target/**",
       ".venv/**",
@@ -28,6 +30,12 @@ export default tseslint.config(
       // Built by plugins/small_molecule/web/build.js: RDKit.js, minified, and the
       // component's source, which is linted where it's written (web/src).
       "plugins/small_molecule/components/depiction.js",
+      // The source adapters are linted before bundling for the component sandbox.
+      "plugins/example_lims/components/booking-calendar.js",
+      "plugins/plasmid/components/plasmid-map.js",
+      "plugins/oligo/components/chemistry.js",
+      "plugins/oligo/components/duplex.js",
+      "plugins/complex/components/composition.js",
     ],
   },
   js.configs.recommended,
@@ -42,7 +50,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.js"],
+    files: ["**/*.{js,mjs}"],
     ...tseslint.configs.disableTypeChecked,
   },
   {
@@ -111,7 +119,11 @@ export default tseslint.config(
   },
   {
     // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
-    files: ["**/plugins/**/components/**/*.{js,mjs}", "plugin-template/components/**/*.{js,mjs}"],
+    files: [
+      "**/plugins/**/components/**/*.{js,mjs}",
+      "plugins/*/web/src/**/*.js",
+      "plugin-template/components/**/*.{js,mjs}",
+    ],
     languageOptions: {
       globals: {
         CustomEvent: "readonly",

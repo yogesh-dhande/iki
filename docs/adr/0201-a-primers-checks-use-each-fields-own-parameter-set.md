@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-23
+- Amended: 2026-11-23 — the buffer temperature is its own field (see
+  [Two temperatures, each named](#two-temperatures-each-named))
 
 ## Context
 
@@ -14,7 +16,9 @@ amplified in place of the target, so these are the numbers a design is rejected
 for.
 
 Iki already had a melting temperature. It had two, in fact: the DNA plugin
-computed one in pure Python at 50 mM Na⁺ with no magnesium, and the plasmid
+computed one at 50 mM Na⁺ with no magnesium — since
+[ADR 0191](0191-web-components-are-published-by-entry-point.md), the packaged
+oligo measurement that the server and the browser quote too — and the plasmid
 plugin's port (ADR 0200) computed the same quantity in Rust. Neither was the
 temperature a PCR actually runs at, because a PCR buffer's magnesium and dNTPs
 raise a primer's Tm by several degrees. Nothing computed a hairpin or a dimer at
@@ -56,10 +60,39 @@ a choice of salt correction:
   of the monovalent concentration, as that paper sets out.
 
 Every coefficient and both regime boundaries are cited where they are written.
-A primer's own `melting_temperature` field is now the buffer temperature: 50 mM
-Na⁺, 1.5 mM Mg²⁺, 0.6 mM dNTPs, 25 nM of each strand, which is Primer3's default
-PCR buffer. It reads several degrees above the sodium-only figure it replaced,
-and that is the point of it.
+
+### Two temperatures, each named
+
+A primer carries both temperatures, in two fields, and neither replaces the
+other:
+
+- **`melting_temperature`**, "Tm (50 mM Na⁺)", stays the fixed-condition
+  measurement of
+  [ADR 0191](0191-web-components-are-published-by-entry-point.md): 50 mM Na⁺, no
+  Mg²⁺ or dNTPs, 50 nM of strands in all. ADR 0191 requires one measurement to
+  agree in an action result, a Python check and a browser selection, and a
+  primer's record is one of those places: the Tm beside a selected stretch in
+  the sequence viewer and the Tm on the record of a primer with those bases are
+  the same number. The mutagenesis and guide designs compare against it too.
+- **`buffer_melting_temperature`**, "Tm in PCR buffer (1.5 mM Mg²⁺, 0.6 mM
+  dNTPs)", is the buffer temperature this decision adds: 50 mM Na⁺, 1.5 mM Mg²⁺,
+  0.6 mM dNTPs, 25 nM of each strand, which is Primer3's default PCR buffer, with
+  Owczarzy's corrections. It reads several degrees above the sodium-only figure,
+  and that is the point of it: it is the one to set an annealing temperature by.
+
+As first accepted, this decision made `melting_temperature` itself the buffer
+temperature. That would have given one field name two meanings — the sodium
+figure ADR 0191 fixes everywhere else, and the buffer figure on a primer — and a
+scientist comparing a primer's record with its bases selected in the viewer
+would have seen two different Tms under one label. A temperature is only
+meaningful with its conditions, so each field's label and description state
+them, and wherever Iki shows a Tm it shows which one it is.
+
+That leaves two Rust implementations of SantaLucia's model at 50 mM Na⁺: the
+oligo measurement of ADR 0191 and `thermodynamics` under `Conditions::PRIMER`.
+They agree today — the same tenth of a degree on 21,360 oligos, 1,360 of them
+palindromes — and ADR 0191 asks for one; consolidating them is tracked
+separately rather than folded into this decision.
 
 An oligo that is its own complement — `GCGCGC`, and every palindrome — is
 handled as SantaLucia's self-complementary case: there is no second species in
@@ -147,15 +180,15 @@ the same free energy.
 ## Consequences
 
 A primer's record now carries what a scientist would otherwise paste into
-OligoAnalyzer: its Tm in the reaction's buffer, the free energy of its hairpin
+OligoAnalyzer: its Tm in the reaction's buffer beside its Tm in sodium alone,
+the free energy of its hairpin
 and self-dimer, how firmly its 3′ end is held, and its longest run of one base.
 They are indexed fields, so a plate of primers can be sorted and filtered by
 them rather than read one at a time.
 
-The melting temperatures on existing primer records change, upward by several
-degrees, when the action is run again. Nothing is deployed yet, so no record is
-being rewritten in the field; after M1 a change of this kind would need its own
-migration of derived values.
+Existing primer records keep their `melting_temperature`, which means what it
+meant before, and gain a `buffer_melting_temperature` when the action is run
+again.
 
 Iki's structure free energies will not match Primer3's, IDT's or Benchling's to
 the decimal, because those tools use different parameter sets and in Primer3's

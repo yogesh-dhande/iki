@@ -64,7 +64,12 @@ def test_iki_wasm_is_only_ever_built() -> None:
 
 def test_from_a_checkout_it_builds_iki_wasm_first(tmp_path: Path) -> None:
     wasm = "spec/src/iki_spec/iki_wasm.wasm"
-    project = checkout(tmp_path, f'cd "$(dirname "$0")/.." && printf wasm > {wasm}')
+    project = checkout(
+        tmp_path,
+        f'cd "$(dirname "$0")/.." && printf wasm > {wasm}\n'
+        f"cp {wasm} spec/src/iki_spec/oligo-measurement.wasm\n"
+        "printf notice > spec/src/iki_spec/rust-standard-library.html",
+    )
     (project / "src" / "iki_spec" / "iki_wasm.wasm").write_text("stale")
 
     built = backend().ensure_wasm(project)
@@ -86,4 +91,10 @@ def test_without_a_checkout_iki_wasm_must_be_there(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match=r"iki-spec needs iki-wasm .* isn't there"):
         backend().ensure_wasm(project)
     (project / "src" / "iki_spec" / "iki_wasm.wasm").write_bytes(b"\0asm")
+    with pytest.raises(RuntimeError, match=r"iki-spec needs oligo-measurement\.wasm"):
+        backend().ensure_wasm(project)
+    (project / "src" / "iki_spec" / "oligo-measurement.wasm").write_bytes(b"\0asm")
+    with pytest.raises(RuntimeError, match=r"iki-spec needs rust-standard-library\.html"):
+        backend().ensure_wasm(project)
+    (project / "src" / "iki_spec" / "rust-standard-library.html").write_text("notice")
     assert backend().ensure_wasm(project).is_file()

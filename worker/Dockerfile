@@ -21,8 +21,10 @@ FROM ${RUST_IMAGE} AS build
 # apt retries, because a name that doesn't resolve on the first try shouldn't fail a build: the
 # image builds on machines running several builds at once, where a DNS lookup or a mirror
 # connection times out under load. Without this, a build that was only unlucky fails with
-# "Temporary failure resolving 'deb.debian.org'" and the whole gate runs again.
-ARG APT_RETRY="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+# "Temporary failure resolving 'deb.debian.org'" and the whole gate runs again. Eight tries, not
+# three: apt backs off between them, so eight keep trying for about two minutes where three gave
+# up after about six seconds, and the outages seen on the test machine outlasted six seconds.
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
 RUN apt-get $APT_RETRY update \
  && apt-get $APT_RETRY install -y --no-install-recommends musl-tools file \
  && rm -rf /var/lib/apt/lists/*
@@ -40,7 +42,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 # --- Runtime --------------------------------------------------------------------
 FROM ${DEBIAN_IMAGE} AS runtime
-ARG APT_RETRY="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
 RUN apt-get $APT_RETRY update \
  && apt-get $APT_RETRY upgrade -y --no-install-recommends \
  && apt-get $APT_RETRY install -y --no-install-recommends ca-certificates \

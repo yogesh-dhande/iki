@@ -195,14 +195,25 @@ and counting pages, typing in an editable field belongs to that field. With
 focus elsewhere, at least four characters form a scan if the gaps between
 them, including the final Enter or Tab, are at most 50 ms, with one gap
 allowed up to 250 ms. This accommodates a brief scheduling or rendering
-stall while excluding a person's steadily slower typing. Two consecutive
-characters within 50 ms identify a possible scan. From then until its
-terminator, a longer pause or a second stall rejects the whole code. Iki
-consumes the terminator either way so it cannot activate the focused
-control. For an unreadable scan the scan box asks the person to try again
-or type the code. On a tablet, the camera reads codes where
-the browser has `BarcodeDetector`; elsewhere, Iki says so and offers the
-code typed.
+stall while excluding a person's steadily slower typing. The gap budget
+applies from the first character. A gap longer than 250 ms or a second
+gap over 50 ms invalidates the whole sequence through its terminator.
+Otherwise a stalled label such as `XRC001` could be accepted as `RC001`.
+
+Two consecutive characters within 50 ms identify a possible scan. Once that
+happens, Iki consumes Enter or Tab even when an earlier gap invalidated the
+code. When the timing broke before that fast pair, the scan box explains
+that a key arrived before the rest of the scan and asks for a rescan.
+There is no idle timeout that starts a new code. With focus outside
+editable controls, a stray character followed by a scanner burst can cost
+one retry even minutes later. This prevents the suffix of a label from
+matching a different tube. Enter or Tab ends the attempt. Typing in an
+editable control, composing text, or using a Ctrl, Alt or Meta shortcut
+also clears the listener’s buffer. Steadily slow typing keeps its ordinary
+keyboard behavior.
+
+On a tablet, the camera reads codes where the browser has `BarcodeDetector`.
+Elsewhere, Iki offers the typed code.
 
 **A type can require a scan before a draw or a move.** `storage.confirm:
 [draw, move]`: the code scanned is sent with the change, Iki checks it names
@@ -245,10 +256,26 @@ order, or upload a rack scanner's file of positions and codes. Each record
 is `matched`, `missing`, `unexpected` (scanned here, recorded elsewhere or
 nowhere) or `wrong_slot` (scanned at another position of this box), and each
 that isn't matched is resolved: moved to where it was found, removed from
-storage, placed here, or kept as recorded with a note. Completing it applies
+storage, placed here, or kept as recorded with a note. Each decision records the
+position it refers to. A changed observation requires the operator to review
+the affected decision. The completion screen shows each tube and its planned
+destination. A move or placement requires a positive scan at that exact slot.
+
+Each edit advances the count's revision. Saving or clearing a line decision
+and completing the count each require the revision the operator reviewed.
+The server checks it under the same lock that protects the count. Completion
+also verifies each saved decision against its current observation. Another operator can save
+a valid replacement while the first has the form open. The first operator
+must review that revision and enter a fresh approval before completing.
+Completing it applies
 every resolution as one change, which its movements share as their
 operation, and is refused if anything moved in or out of the container since
-it started. It's an audit event, `storage.reconciled`, and a webhook event.
+it started. Each movement records its scan position or why the item was
+removed. A removal distinguishes a recorded position checked without finding
+the item from an unscanned position the operator chose to treat as missing.
+The `storage.reconciled` audit counts the observed findings, each resolution,
+the unscanned records treated as missing, and the movements saved under the
+operation. It also emits a webhook event.
 
 ### What's core and what's a plugin's
 
@@ -268,7 +295,8 @@ Tube of a sample and a lot, kept in µL, following both.
   check-out and receipt says who, when and why.
 - Where a record is isn't in its revisions or a bundle's records, as its
   amount isn't; its location history is where that is. A bundle doesn't
-  carry places yet, nor does an import or an action run's `creates`.
+  carry places yet. An inline run create can receive a fresh lot with its opening
+  amount and storage placement when its action declares `receive_into` (ADR 0190).
 - A record's place isn't a search condition or a grid column yet: the
   storage pages and its record's page are where it's found.
 - A receipt doesn't change a request's own status, which is the service's:

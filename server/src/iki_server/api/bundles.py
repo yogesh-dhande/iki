@@ -1,12 +1,14 @@
 """Bundles: a project's entities, with their history, for another deployment (ADR 0096)."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from django.db.models import Model, QuerySet
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, Query, Router, Schema
 from ninja.responses import Status
+from pydantic import field_serializer
 
 from iki_server.api.common import caller, project
 from iki_server.api.files import PartOut, PartsIn, _invalid, _storage
@@ -242,10 +244,20 @@ class ImportOut(Schema):
         "the problems that keep it from being applied (empty when it can be)."
     )
     created_at: datetime
-    planned_at: datetime | None
+    planned_at: datetime | None = Field(
+        description="Revision of the published plan. Pass this value unchanged when applying it."
+    )
     applied_by: PersonRef | None = Field(description="Who confirmed applying it.")
     reason: str = Field(description="Why they applied it.")
     applied_at: datetime | None
+
+    @field_serializer(
+        "planned_at",
+        return_type=Annotated[str, Field(json_schema_extra={"format": "date-time"})] | None,
+    )
+    def serialize_planned_at(self, value: datetime | None) -> str | None:
+        # DjangoJSONEncoder truncates datetimes to milliseconds. The revision must round-trip.
+        return value.isoformat() if value is not None else None
 
     @staticmethod
     def resolve_state(made: BundleImport) -> str:
@@ -308,12 +320,19 @@ class ImportPersonOut(Schema):
 
 
 class ApplyIn(Schema):
+    planned_at: datetime = Field(description="The planned_at of the plan being confirmed.")
     reason: str = Field(
         min_length=1, max_length=2000, description="Why: the import and the audit log keep it."
     )
 
 
-class ImportEntityParams(PageParams):
+class ImportMemberParams(PageParams):
+    planned_at: datetime | None = Field(
+        None, description="Read this revision of the plan. A newer plan answers 409."
+    )
+
+
+class ImportEntityParams(ImportMemberParams):
     action: Literal["new", "update", "skip", "conflict"] | None = None
 
 
@@ -327,6 +346,23 @@ def _import(request: HttpRequest, import_id: UUID) -> BundleImport:
     if made is None or not can(me, Action.PROJECT_IMPORT, made.project):
         raise Problem(404, "No such import, or it isn't yours to see.")
     return made
+
+
+def _member_page[M: Model](
+    made: BundleImport, members: QuerySet[M], params: ImportMemberParams
+) -> dict[str, Any]:
+    result = page(members, params)
+    # The page is materialized in one query. Fence it with the import read before it and a
+    # fresh check afterward, so a replan or an apply cannot mix versions during pagination.
+    if params.planned_at is not None and (
+        made.planned_at != params.planned_at
+        or made.state == ImportState.DISCARDED
+        or not BundleImport.objects.filter(
+            pk=made.pk, planned_at=params.planned_at, state=made.state
+        ).exists()
+    ):
+        raise Problem(409, "The plan changed. Review the current plan.", code="stale_plan")
+    return result
 
 
 def _imported(made: BundleImport) -> BundleImport:
@@ -416,7 +452,7 @@ def import_entities(
     found = ImportEntity.objects.filter(bundle_import=made)
     if params.action:
         found = found.filter(action=params.action)
-    return page(found, params)
+    return _member_page(made, found, params)
 
 
 @router.get(
@@ -425,11 +461,13 @@ def import_entities(
     summary="Who the bundle's people are here",
 )
 def import_people(
-    request: HttpRequest, import_id: UUID, params: Query[PageParams]
+    request: HttpRequest, import_id: UUID, params: Query[ImportMemberParams]
 ) -> dict[str, Any]:
     """Matched by email to someone here, or a placeholder who can't sign in."""
     made = _import(request, import_id)
-    return page(ImportPerson.objects.filter(bundle_import=made).select_related("user"), params)
+    return _member_page(
+        made, ImportPerson.objects.filter(bundle_import=made).select_related("user"), params
+    )
 
 
 @router.post("/imports/{import_id}/apply", response={202: ImportOut}, summary="Apply an import")
@@ -439,7 +477,9 @@ def apply_import(request: HttpRequest, import_id: UUID, payload: ApplyIn) -> Sta
     made = _import(request, import_id)
     _storage()
     try:
-        applying.apply(caller(request), made, payload.reason)
+        applying.apply(caller(request), made, payload.reason, planned_at=payload.planned_at)
+    except applying.StalePlan as error:
+        raise Problem(409, str(error), code="stale_plan") from None
     except Refused as error:
         if error.field:
             raise _invalid(error) from None

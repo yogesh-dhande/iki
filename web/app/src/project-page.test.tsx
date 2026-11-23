@@ -133,7 +133,7 @@ describe("a project's page", () => {
     expect(
       await screen.findByText("Kinases · 3 members · you’re an Admin ·", { exact: false }),
     ).toBeVisible();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Members 3" })).toBeVisible();
     expect(
       within(tabs)
@@ -171,12 +171,37 @@ describe("a project's page", () => {
     expect(
       screen.getByRole("link", { name: "Open in Entities, filtered to this project" }),
     ).toHaveAttribute("href", "/entities/?project=kinase-atlas");
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities 1252" })).toBeVisible();
     // The project's, beside the sidebar's of every project.
     expect(calls("GET", "/api/v1/entities/counts").map((c) => c.query.get("project"))).toContain(
       PROJECT.id,
     );
+  });
+
+  it("draws its tabs once their counts are in, so none moves once it can be pressed", async () => {
+    signedIn();
+    onProject();
+    const held: ((counts: unknown) => void)[] = [];
+    answer("GET /api/v1/entities/counts", ({ query }: { query: URLSearchParams }) =>
+      query.get("project")
+        ? new Promise((resolve) => {
+            held.push(resolve);
+          })
+        : { types: [], total: 0 },
+    );
+    await renderApp("/projects/kinase-atlas/");
+    // As tall as the tabs, in their place, with nothing in it to press or to read.
+    await screen.findByText("Kinases · 3 members · you’re an Admin ·", { exact: false });
+    const settling = document.querySelector(".tabs-settling");
+    expect(settling).toHaveAttribute("aria-hidden", "true");
+    expect(settling?.querySelectorAll("a, button")).toHaveLength(0);
+    expect(screen.queryByRole("navigation", { name: "Project" })).toBeNull();
+    expect(held).toHaveLength(1);
+    held[0]?.({ types: [{ type: "iki/dna.Plasmid", label: "Plasmid", count: 0 }], total: 0 });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
+    expect(within(tabs).getByRole("link", { name: "Entities 0" })).toBeVisible();
+    expect(document.querySelector(".tabs-settling")).toBeNull();
   });
 
   it("says which types it didn't count, where counting would be slow", async () => {
@@ -189,7 +214,7 @@ describe("a project's page", () => {
     await renderApp("/projects/kinase-atlas/");
     const counts = await screen.findByRole("list", { name: "Entities by type" });
     expect(within(counts).getByRole("link", { name: "Plasmid not counted" })).toBeVisible();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities" })).toBeVisible();
   });
 
@@ -205,7 +230,7 @@ describe("a project's page", () => {
     await renderApp("/projects/kinase-atlas/");
     const card = await screen.findByRole("region", { name: "Entities in this project" });
     expect(await within(card).findByText("No such project, or you can’t read it.")).toBeVisible();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities" })).toBeVisible();
   });
 
@@ -283,7 +308,7 @@ describe("a project's Automation tab", () => {
     onProject();
     answer(`GET ${BASE}/triggers`, []);
     await renderApp("/projects/kinase-atlas/automation/triggers/");
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -305,7 +330,7 @@ describe("a project's Automation tab", () => {
     onProject();
     await renderApp("/projects/kinase-atlas/");
     expect(screen.queryByRole("navigation", { name: "Automation" })).toBeNull();
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).not.toHaveAttribute(
       "aria-current",
     );

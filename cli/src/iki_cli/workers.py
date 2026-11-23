@@ -37,8 +37,11 @@ import io
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
+import subprocess
+import sys
 import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -82,17 +85,74 @@ def _sha256(file: Path) -> str:
     return hashlib.sha256(file.read_bytes()).hexdigest()
 
 
-def prepared_source(name: str, directory: Path, output: Path) -> Path:
-    """Add the installed annotation module to a staged copy of its plugin sources.
+def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = False) -> Path:
+    """Stage first-party worker resources pinned by the plugin's source tree.
 
-    The source tree pins the generated module by digest. Both worker distributions
-    use the verified bytes from iki-spec, including when the source is a local checkout.
+    The annotation digest applies on every host. The measurement digest comes from
+    the Linux x86-64 release build; other development hosts use the installed module
+    and its notice. Both worker distributions read these resources from iki-spec.
     """
-    if name != "iki/plasmid":
+    if name == "iki/plasmid":
+        return _prepared_annotation(directory, output)
+    if name != "iki/dna":
         return directory
-    relative = Path("data/dna-annotation.wasm")
+    relative = Path("data", "oligo-measurement.wasm")
     generated = directory / relative
     marker = generated.with_suffix(".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Historical Git trees can carry their own module. Only discard an explicitly
+        # ignored build product in a local checkout that no longer requests it.
+        git = shutil.which("git")
+        if pinned or not generated.exists() or git is None:
+            return directory
+        ignored = subprocess.run(  # noqa: S603 - git, with a fixed relative path
+            [git, "-C", str(directory), "check-ignore", "--quiet", "--", str(relative)],
+            capture_output=True,
+            check=False,
+        )
+        if ignored.returncode != 0:
+            return directory
+    notice = generated.with_name("rust-standard-library.html")
+    if any(path.is_symlink() for path in (generated.parent, marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular plugin files.")
+    if any(path.exists() and not path.is_file() for path in (marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular files.")
+
+    resources: dict[str, bytes] = {}
+    if marker.is_file():
+        for name in (generated.name, notice.name):
+            installed = files("iki_spec").joinpath(name)
+            if not installed.is_file():
+                raise ValueError(f"iki-spec lacks {name}. Run scripts/build-wasm.sh.")
+            resources[name] = installed.read_bytes()
+            if not resources[name]:
+                raise ValueError(f"iki-spec's {name} is empty. Run scripts/build-wasm.sh.")
+        expected = marker.read_text("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            raise ValueError("The DNA measurement marker must hold a SHA-256 digest.")
+        module = resources[generated.name]
+        if platform.system() == "Linux" and platform.machine().lower() in {"x86_64", "amd64"}:
+            if hashlib.sha256(module).hexdigest() != expected:
+                raise ValueError("The DNA measurement in iki-spec differs from the pinned digest.")
+        else:
+            sys.stderr.write(
+                f"iki/dna: using the installed measurement on {platform.system()} "
+                f"{platform.machine()}. Its SHA-256 pin is compared on Linux x86-64, "
+                "the release build platform.\n"
+            )
+
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _prepared_annotation(directory: Path, output: Path) -> Path:
+    """Stage annotation resources only when the clone pins the installed module. The digest
+    is verified on every host, including for a local checkout."""
+    relative = Path("data/dna-annotation.wasm")
+    generated = directory / relative
+    marker = generated.with_name(generated.name + ".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Older pinned plugin trees used the marker without the module suffix.
+        marker = generated.with_suffix(".sha256")
     if not marker.exists() and not marker.is_symlink():
         return directory
     notice = generated.with_name("rust-standard-library.html")
@@ -113,16 +173,31 @@ def prepared_source(name: str, directory: Path, output: Path) -> Path:
                 f"iki-spec lacks {path.name}. Run scripts/build-dna-annotation-wasm.sh."
             )
         resources[path.name] = installed.read_bytes()
-    digest = hashlib.sha256(resources[generated.name]).hexdigest().encode("ascii")
-    if digest != marker.read_bytes().strip():
-        raise ValueError("The DNA annotation module in iki-spec differs from the pinned digest.")
+    digest = hashlib.sha256(resources[generated.name]).hexdigest()
+    expected = marker.read_bytes().strip()
+    if digest.encode("ascii") != expected:
+        raise ValueError(
+            f"{generated.name} in iki-spec differs from the pinned digest. "
+            f"Expected {expected.decode('ascii', errors='backslashreplace')}, actual {digest}."
+        )
 
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _stage_resources(
+    directory: Path, output: Path, relative: Path, resources: dict[str, bytes]
+) -> Path:
+    """Replace or remove the build product in a private copy for both worker distributions."""
     shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
-    for name, contents in resources.items():
-        target = output / relative.with_name(name)
-        target.unlink(missing_ok=True)
-        target.write_bytes(contents)
-        target.chmod(0o644)
+    target = output / relative
+    if not resources:
+        target.unlink()
+    for name, data in resources.items():
+        asset = target.with_name(name)
+        # A local build product copied into staging may be read-only.
+        asset.unlink(missing_ok=True)
+        asset.write_bytes(data)
+        asset.chmod(0o644)
     return output
 
 
@@ -208,12 +283,12 @@ def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
         if digest.suffix != DIGEST_SUFFIX:
             continue
         module = digest.with_suffix("")
-        # Only this convention's digests, `<module>.wasm.sha256`. The annotation module
-        # pins itself the other way round, as `dna-annotation.sha256` beside
-        # `dna-annotation.wasm`, and :func:`prepared_source` places that one; without this
-        # check the name here would come out as `dna-annotation`, which nothing builds. The
-        # two conventions should become one, and will when both modules are built once on
-        # their canonical host and verified here rather than recompiled per platform.
+        # Only this convention's digests, `<module>.wasm.sha256`. The annotation module's,
+        # `dna-annotation.wasm.sha256`, is one too, but :func:`prepared_source` has already
+        # staged and verified that module, so it is found in place here and checked again.
+        # The DNA measurement pins itself as `oligo-measurement.sha256`, which
+        # :func:`prepared_source` handles alone; without this check the name here would
+        # come out as `oligo-measurement`, which nothing builds.
         if module.suffix != ".wasm":
             continue
         relative = module.relative_to(directory).as_posix()

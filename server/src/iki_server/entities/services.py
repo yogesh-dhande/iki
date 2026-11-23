@@ -734,6 +734,10 @@ def prepare(
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
     if not errors:
+        from iki_server.amounts import stock
+
+        errors = stock.check_item(type_name, project, given)
+    if not errors:
         errors = requests.check_result(project, type_name, given)
     if not errors:
         errors = rules.check(user, entity_type, project, given.get)

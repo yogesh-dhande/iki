@@ -5,6 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -13,13 +14,16 @@ import pytest
 import yaml
 from first_party_dependencies import FIRST_PARTY, PLUGINS
 
-from iki_spec import schemas
+from iki_cli import workers
+from iki_spec import schemas, wasm
 
 DNA = PLUGINS / "dna"
 SCRIPT = DNA / "scripts" / "sequences.py"
 
 
-def run(tmp_path: Path, kind: str, name: str, bases: list[str]) -> dict[str, Any]:
+def run(
+    tmp_path: Path, kind: str, name: str, bases: list[str], *, script: Path = SCRIPT
+) -> dict[str, Any]:
     entities = [
         {"id": f"00000000-0000-0000-0000-{i:012d}", "hrid": f"X-{i}", "values": {"bases": b}}
         for i, b in enumerate(bases)
@@ -27,8 +31,8 @@ def run(tmp_path: Path, kind: str, name: str, bases: list[str]) -> dict[str, Any
     (tmp_path / "input.json").write_text(json.dumps({"inputs": {name: entities}}))
     result = subprocess.run(  # noqa: S603 - our own script
         # Not isolated: the script imports `oligos`, its sibling, as a worker's own
-        # `python ./scripts/sequences.py` does.
-        [sys.executable, str(SCRIPT), kind],
+        # `python ./scripts/sequences.py` does, and isolation drops the script's directory.
+        [sys.executable, str(script), kind],
         env={"IKI_INPUT": str(tmp_path / "input.json"), "IKI_OUTPUT": str(tmp_path / "out.json")},
         capture_output=True,
         text=True,
@@ -59,10 +63,10 @@ def test_composition_counts_gc_among_bases_whose_pairing_is_known(tmp_path: Path
         # (+0.368 x 23 x ln 0.05), so Tm = -184400 / (-526.06 + 1.987 ln(50e-9/4)) -
         # 273.15 = 54.84 °C.
         #
-        # The second is what the action now reports: the same primer in the buffer a PCR
-        # runs in -- 1.5 mM Mg2+ and 0.6 mM dNTPs besides the sodium -- corrected by
-        # Owczarzy et al. 2008, equation 16. The magnesium is worth several degrees, which
-        # is the point of quoting it: a primer annealed at its sodium Tm runs cold.
+        # The second is the primer's Tm in the buffer a PCR runs in -- 1.5 mM Mg2+ and
+        # 0.6 mM dNTPs besides the sodium -- corrected by Owczarzy et al. 2008, equation
+        # 16. The magnesium is worth several degrees, which is why a primer carries both,
+        # each under its own name: a primer annealed at its sodium Tm runs cold.
         ("AGCGGATAACAATTTCACACAGGA", 54.8, 60.0),  # M13 reverse
         ("GTAAAACGACGGCCAGT", 49.2, 53.8),  # M13 forward (-20)
         ("TAATACGACTCACTATAGGG", 44.6, 49.5),  # T7 promoter
@@ -72,18 +76,21 @@ def test_composition_counts_gc_among_bases_whose_pairing_is_known(tmp_path: Path
         ("GCGCGC", 17.3, 19.1),
     ],
 )
-def test_a_primers_melting_temperature_is_the_one_its_buffer_gives(
+def test_a_primer_carries_its_tm_in_sodium_and_in_a_pcr_buffer(
     tmp_path: Path, bases: str, sodium: float, buffer: float
 ) -> None:
     (found,) = run(tmp_path, "primers", "primer", [bases]).values()
-    assert found["melting_temperature"] == pytest.approx(buffer, abs=0.05)
-    assert found["melting_temperature"] > sodium
+    # The sodium Tm is the one measurement every view of a primer quotes (ADR 0191).
+    assert found["melting_temperature"] == wasm.melting_temperature(bases)
+    assert found["melting_temperature"] == pytest.approx(sodium, abs=0.05)
+    assert found["buffer_melting_temperature"] == pytest.approx(buffer, abs=0.05)
     assert found["length"] == len(bases)
 
 
 def test_primers_with_ambiguous_bases_get_no_melting_temperature(tmp_path: Path) -> None:
     (found,) = run(tmp_path, "primers", "primer", ["ACGTNACGTACGTACGT"]).values()
     assert "melting_temperature" not in found
+    assert "buffer_melting_temperature" not in found
     assert "hairpin_free_energy" not in found
     assert found["gc_content"] == 50.0
     assert found["longest_run"] == 1
@@ -122,6 +129,30 @@ def test_every_field_the_action_declares_is_one_a_primer_can_get(tmp_path: Path)
     (fields,) = [update["fields"] for update in declared["effects"]["updates"]]
     found = run(tmp_path, "primers", "primer", ["GGGCCCTTTTGGGCCC"])
     assert set(fields) == set(next(iter(found.values())))
+
+
+def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
+    """Run the same files a worker gets from its pinned plugin: the script, the checks
+    module's wrapper it imports, and the two modules they load."""
+    packed = tmp_path / "dna.tar.gz"
+    code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
+    workers.bundle(code, packed)
+    unpacked = tmp_path / "action"
+    with tarfile.open(packed, "r:gz") as archive:
+        for path in (
+            "scripts/sequences.py",
+            "scripts/oligos.py",
+            "data/oligo-measurement.wasm",
+            "data/oligo-checks.wasm",
+        ):
+            archive.extract(path, unpacked, filter="data")
+
+    # The B-DNA dodecamer (PDB 1BNA), an ambiguous oligo, and a one-base record.
+    bases = ["cgcgaattcgcg", "NN", "A"]
+    found = run(tmp_path, "primers", "primer", bases, script=unpacked / "scripts/sequences.py")
+    for index, strand in enumerate(bases):
+        assert found[str(index)].get("melting_temperature") == wasm.melting_temperature(strand)
+    assert isinstance(wasm.melting_temperature(bases[0]), float)
 
 
 # --- Importing files -----------------------------------------------------------------------------

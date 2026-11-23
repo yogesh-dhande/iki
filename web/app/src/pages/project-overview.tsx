@@ -1,7 +1,7 @@
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 
 import {
@@ -53,6 +53,27 @@ function TabCount({ count }: { count: number | undefined }) {
   );
 }
 
+/** In the tabs' place while they're worked out, as tall as they are: a bar for each tab
+ * there's sure to be, nothing to press, and nothing to read. It shows only if it takes a
+ * moment, so a quick answer doesn't flash it. */
+function TabsSettling({ project }: { project: Project }) {
+  const sure = [
+    "Overview",
+    ...(project.can.read ? ["Entities", "Runs", "Files"] : []),
+    ...(project.can.read || project.can.manage_webhooks ? ["Automation"] : []),
+    "Members",
+  ];
+  return (
+    <div className="tabs project-tabs tabs-settling" aria-hidden="true">
+      {sure.map((name) => (
+        <span key={name} className="tab-settling">
+          <span style={{ width: `${String(name.length * 0.6)}em` }} />
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** The project's heading and tabs, shared by its pages: where it is, what it's called, who's
  * in it, and its tabs. Automation's three are a row of their own under it. */
 export function ProjectTabs() {
@@ -62,9 +83,20 @@ export function ProjectTabs() {
   const section = path.slice(`/projects/${project.slug}/`.length).split("/")[0] ?? "";
   const inAutomation = section === "automation";
   const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
-  const members = useQuery(membersQuery(project.id)).data;
-  const counts = useQuery({ ...countsQuery(project.id), enabled: project.can.read }).data;
-  const types = useQuery(typesQuery).data;
+  // What decides which tabs there are and how wide each is. Until each has answered, or
+  // failed, the tabs aren't drawn: one pressed as they arrived would move under the finger,
+  // and a press would end on its neighbour, or on nothing.
+  const read = {
+    members: useQuery(membersQuery(project.id)),
+    counts: useQuery({ ...countsQuery(project.id), enabled: project.can.read }),
+    // The types installed: a plugin's tab is there or not by them.
+    types: useQuery(typesQuery),
+  };
+  const members = read.members.data;
+  const counts = read.counts.data;
+  const types = read.types.data;
+  const settled =
+    Object.values(read).every((q) => !q.isLoading) && (sides.ready || read.types.isError);
   // Its request types' records: unknown if any of them is uncounted.
   const requestCounts =
     counts && types
@@ -76,17 +108,18 @@ export function ProjectTabs() {
     requestCounts && !requestCounts.includes(null)
       ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
-  // On a phone its tabs scroll across, as a record's do: the one you're on is kept in view,
-  // again once the counts that widen them arrive.
+  // On a phone its tabs scroll across, as a record's do: the one you're on is kept in view
+  // from when they're drawn, and again when a count changes. Before they're painted, so
+  // they don't move once they can be pressed.
   const tabs = useRef<HTMLElement>(null);
   const widths = `${String(counts?.total)} ${String(requests)} ${String(members?.length)}`;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const nav = tabs.current;
     const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (nav && current && nav.scrollWidth > nav.clientWidth) {
+    if (settled && nav && current && nav.scrollWidth > nav.clientWidth) {
       current.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
-  }, [path, widths]);
+  }, [path, widths, settled]);
   const summary = [
     project.description.split("\n")[0]?.trim(),
     members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
@@ -143,7 +176,8 @@ export function ProjectTabs() {
           <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
         </p>
       </div>
-      <nav ref={tabs} className="tabs project-tabs" aria-label="Project">
+      {settled ? null : <TabsSettling project={project} />}
+      <nav ref={tabs} className="tabs project-tabs" aria-label="Project" hidden={!settled}>
         <Link
           to="/projects/$slug/"
           params={{ slug: project.slug }}
@@ -156,6 +190,11 @@ export function ProjectTabs() {
           <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
             Entities
             <TabCount count={counts?.total ?? undefined} />
+          </Link>
+        ) : null}
+        {project.can.read && types?.some((t) => t.name === "iki/reagents.StockItem") ? (
+          <Link to="/projects/$slug/stock/" params={{ slug: project.slug }} activeProps={tab}>
+            Stock
           </Link>
         ) : null}
         {/* For a service, or a project that asks one (ADR 0132). */}
