@@ -12,27 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
 from iki_spec import schemas
 from iki_spec.validate import load_plugin
 
-ROOT = Path(__file__).resolve().parents[2]
-PLUGINS = ROOT / "plugins"
 LOTS = PLUGINS / "lots"
-DEPENDENCIES = [
-    PLUGINS / n
-    for n in (
-        "dna",
-        "protein",
-        "oligo",
-        "plasmid",
-        "antibody",
-        "small_molecule",
-        "conjugate",
-        "polymer",
-    )
-]
 #: A concrete type of complex, for a protein lot of one.
 COMPLEX = PLUGINS / "complex"
 #: Inotersen (Tegsedi): a 5-10-5 2′-MOE gapmer, phosphorothioate throughout, every C a
@@ -64,7 +50,7 @@ lots = _lots()
 
 
 def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
-    result = load_plugin(LOTS, dependencies=DEPENDENCIES)
+    result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.problems == []
     assert result.plugin is not None
     types = result.plugin.types
@@ -140,7 +126,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
 
 
 def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() -> None:
-    result = load_plugin(LOTS, dependencies=DEPENDENCIES)
+    result = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS])
     assert result.plugin is not None
     triggers = result.plugin.triggers.values()
     fired = sorted((t.type.rsplit(".", 1)[1], t.on) for t in triggers)
@@ -476,7 +462,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
     release signed for, on a certificate, by someone other than its maker; and one search
     finding every kind."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", *DEPENDENCIES, COMPLEX, LOTS, "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(LOTS, COMPLEX), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)
@@ -772,7 +758,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
     and a transfer can't change what a lot is: a released one takes only released
     material, and any lot only its own molecule's, as an aliquot is its source's."""
     out = tmp_path / "build"
-    built = iki("plugin", "build", *DEPENDENCIES, COMPLEX, LOTS, "--output", out, cwd=ROOT)
+    built = iki("plugin", "build", *build_order(LOTS, COMPLEX), "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
     sync(out, database)

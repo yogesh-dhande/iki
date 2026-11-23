@@ -68,8 +68,7 @@ with its reported outcome, including adverse or inconclusive results.
 From the repository root, run the catalogue import scenarios with:
 
 ```sh
-uv run iki plugin test plugins/cell_lines --with plugins/example_lims --with plugins/lots \
-  --with plugins/protein --with plugins/dna --with plugins/plasmid --with plugins/oligo
+uv run iki plugin test plugins/cell_lines
 ```
 
 The server tests trace a synthetic local bank history, including storage

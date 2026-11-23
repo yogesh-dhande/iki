@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from first_party_dependencies import PLUGINS, build_order
 from org_world import build_world
 from test_plugin_migrations import database, iki, migrate, orm, sync
 from test_signatures import ready, signed
@@ -18,7 +19,6 @@ from iki_server.storage import services as storage
 
 __all__ = ["database"]
 
-PLUGINS = Path(__file__).resolve().parents[2] / "plugins"
 PREFIX = "iki/cell_lines."
 
 
@@ -27,8 +27,9 @@ def test_a_samples_graph_keeps_its_banks_thaw_passage_and_signed_checks(
 ) -> None:
     installed = tmp_path / "build"
     # Each database uses the real first-party migrations and the database's graph triggers.
-    names = ["cell_lines", "example_lims", "lots", "plasmid", "protein", "dna", "oligo"]
-    built = iki("plugin", "build", *names, "--output", installed, cwd=PLUGINS)
+    built = iki(
+        "plugin", "build", *build_order(PLUGINS / "cell_lines"), "--output", installed, cwd=PLUGINS
+    )
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(installed, database)
     sync(installed, database)
