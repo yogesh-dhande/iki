@@ -43,8 +43,7 @@ export function slotName(slot: Slot): string {
 function shortText(o: Occupant): string {
   if (!o.ref) return "";
   if (o.ref.title && o.ref.title !== o.ref.hrid) return o.ref.title;
-  const digits = /(\d+)$/.exec(o.ref.hrid);
-  return digits ? String(Number(digits[1])) : o.ref.hrid;
+  return /0*(\d+)$/.exec(o.ref.hrid)?.[1] ?? o.ref.hrid;
 }
 
 export function BoxMap({
