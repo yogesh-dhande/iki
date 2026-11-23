@@ -1,4 +1,5 @@
 import { featureName, readFeatures, spans, type Alphabet, type Feature } from "./sequence.js";
+import { viewerThemeUrl } from "./viewer-theme.js";
 import { featureColor } from "./feature-colors.js";
 export { featureColor } from "./feature-colors.js";
 import type { SequenceFeature } from "./sequence-viewer.js";
@@ -138,11 +139,15 @@ export class PlasmidThumbnail extends HTMLElement {
     if (map.openLabel) {
       const button = document.createElement("button");
       button.type = "button";
+      button.className = "button";
+      const theme = document.createElement("link");
+      theme.rel = "stylesheet";
+      theme.href = viewerThemeUrl;
       button.textContent = map.openLabel;
       button.addEventListener("click", () =>
         this.dispatchEvent(new CustomEvent("thumbnail-open", { bubbles: true, composed: true })),
       );
-      this.replaceChildren(picture, button);
+      this.replaceChildren(theme, picture, button);
     } else this.replaceChildren(picture);
   }
 }

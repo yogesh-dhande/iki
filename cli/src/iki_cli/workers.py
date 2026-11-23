@@ -30,9 +30,11 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
 import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -46,6 +48,7 @@ __all__ = [
     "WorkerPlugin",
     "bundle",
     "environments",
+    "prepared_source",
     "write",
 ]
 
@@ -69,6 +72,61 @@ class WorkerPlugin:
 
 def _sha256(file: Path) -> str:
     return hashlib.sha256(file.read_bytes()).hexdigest()
+
+
+def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = False) -> Path:
+    """Stage the compiled property measurement requested by a pinned DNA plugin.
+
+    A fetched plugin has only Git files. The SHA in its source pins the module;
+    the installed iki-spec distribution supplies its bytes. A developer's ignored
+    copy never contributes to either kind of worker bundle.
+    """
+    if name != "iki/dna":
+        return directory
+    relative = Path("data", "oligo-measurement.wasm")
+    generated = directory / relative
+    marker = generated.with_suffix(".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Historical Git trees can carry their own module. Only discard an explicitly
+        # ignored build product in a local checkout that no longer requests it.
+        git = shutil.which("git")
+        if pinned or not generated.exists() or git is None:
+            return directory
+        ignored = subprocess.run(  # noqa: S603 - git, with a fixed relative path
+            [git, "-C", str(directory), "check-ignore", "--quiet", "--", str(relative)],
+            capture_output=True,
+            check=False,
+        )
+        if ignored.returncode != 0:
+            return directory
+    notice = generated.with_name("rust-standard-library.html")
+    if any(path.is_symlink() for path in (generated.parent, marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular plugin files.")
+    if any(path.exists() and not path.is_file() for path in (marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular files.")
+
+    resources: dict[str, bytes] = {}
+    if marker.is_file():
+        for name in (generated.name, notice.name):
+            installed = files("iki_spec").joinpath(name)
+            if not installed.is_file():
+                raise ValueError(f"iki-spec lacks {name}. Run scripts/build-wasm.sh.")
+            resources[name] = installed.read_bytes()
+        if (
+            hashlib.sha256(resources[generated.name]).hexdigest()
+            != marker.read_text("ascii").strip()
+        ):
+            raise ValueError("The DNA measurement in iki-spec differs from the pinned digest.")
+
+    shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
+    target = output / relative
+    if not resources:
+        target.unlink()
+    for name, data in resources.items():
+        asset = target.with_name(name)
+        asset.write_bytes(data)
+        asset.chmod(0o644)
+    return output
 
 
 def _built(env: Environment) -> bool:

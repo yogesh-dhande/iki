@@ -11,7 +11,7 @@ interface ScalarModule {
 
 describe("the supplied DNA strand’s melting temperature", () => {
   it("matches the Rust module carried by the DNA plugin, including memory growth and invalid input", async () => {
-    const binary = new URL("../../../../plugins/dna/data/oligo-measurement.wasm", import.meta.url);
+    const binary = new URL("../wasm/oligo-measurement.wasm", import.meta.url);
     const { instance } = await WebAssembly.instantiate(await readFile(binary));
     const rust = instance.exports as unknown as ScalarModule;
     // Synthetic sequences cover ambiguity, self-complementarity and reused buffers.

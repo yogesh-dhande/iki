@@ -1196,6 +1196,7 @@ def actions() -> None:
     compounds(alice, project)
     oligonucleotides(alice, project)
     conjugates(alice, project)
+    polymers(alice, project)
     plasmids(alice, project)
     lots(alice, project)
 
@@ -1248,6 +1249,18 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     if made.status_code not in (200, 201):
         fail(f"registering a plasmid answered HTTP {made.status_code}: {made.text[:300]}")
     reference = made.json()
+    design = created(
+        alice,
+        project,
+        "iki/plasmid.Plasmid",
+        {"sequence": entry_of(reference), "name": "Synthetic read-verification control"},
+    )
+    prep = created(
+        alice,
+        project,
+        "iki/lots.PlasmidPrep",
+        {"plasmid": design["id"], "notes": "Synthetic prep for the read-verification control."},
+    )
     # Bases 201-700, read forward, with another base at 451, between poor ends.
     called = list(plasmid[200:700])
     other = "A" if called[250] != "A" else "C"
@@ -1271,13 +1284,13 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
     expected = f"Differences from {reference['hrid']}: o.451{plasmid[450]}>{other} (clone_F1 Q40)."
     if expected not in said:
         fail(f"{run['hrid']} said {said}, not {expected!r}")
-    created = [e for e in run.get("effects") or [] if e["kind"] == "created"]
-    if [e["type"] for e in created] != ["iki/core.Alignment"]:
-        fail(f"{run['hrid']} created {created}, not one iki/core.Alignment")
-    values = api_call(alice, "GET", f"/entities/{created[0]['hrid']}").json()["values"]
+    alignments = [e for e in run.get("effects") or [] if e["kind"] == "created"]
+    if [e["type"] for e in alignments] != ["iki/core.Alignment"]:
+        fail(f"{run['hrid']} created {alignments}, not one iki/core.Alignment")
+    values = api_call(alice, "GET", f"/entities/{alignments[0]['hrid']}").json()["values"]
     plasmid_entry = entry_of(reference)
     if values["reference"] != plasmid_entry or values["members"] != [plasmid_entry]:
-        fail(f"{created[0]['hrid']} is {values}")
+        fail(f"{alignments[0]['hrid']} is {values}")
     # It keeps Iki's alignment, its file, and the same with `-` for every gap, which tools
     # reading aligned FASTA take (alignment-standard.fasta).
     artifacts = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
@@ -1286,12 +1299,93 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{run['hrid']} kept {sorted(kept)}, not its alignment and the standard one")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if stored["sha256"] != kept["alignment.fasta"]["sha256"]:
-        fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
+        fail(f"{alignments[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
     ok(
         f"{action} aligned a trace and a read across the origin of a plasmid ({run['hrid']}): "
         f"{metrics['coverage_percent']}% covered, {expected[:-1].split(': ', 1)[1]}, "
-        f"making {created[0]['hrid']}"
+        f"making {alignments[0]['hrid']}"
     )
+    verify_prep(alice, project, prep, design, record(alice, alignments[0]["entity"]))
+
+
+def verify_prep(
+    alice: requests.Session,
+    project: dict[str, Any],
+    prep: dict[str, Any],
+    design: dict[str, Any],
+    alignment: dict[str, Any],
+) -> None:
+    """Archive the synthetic prep's alignment, sign its discrepancy and open it from the prep."""
+    run = launch(
+        alice,
+        project,
+        "iki/lots.record_plasmid_verification",
+        {"prep": prep["id"], "alignment": alignment["id"]},
+        {"outcome": "discrepancy", "notes": "Synthetic control: partial coverage, one mismatch."},
+    )
+    (effect,) = [e for e in run["effects"] if e["type"] == "iki/lots.PlasmidVerification"]
+    assessment = record(alice, effect["entity"])
+    values = assessment["values"]
+    expected = {
+        "prep": prep["id"],
+        "plasmid": entry_of(design),
+        "plasmid_record_id": design["id"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "review_flow": "research",
+        "review": "recorded",
+        "outcome": "discrepancy",
+    }
+    if any(values.get(k) != v for k, v in expected.items()):
+        fail(f"{run['hrid']} created {assessment['hrid']} with {values}, expected {expected}")
+    pinned = api_call(
+        alice,
+        "GET",
+        f"/entities/{values['plasmid_record_id']}/revisions/{values['plasmid_revision']}",
+    )
+    evidence = api_call(
+        alice, "GET", f"/entities/{values['alignment']}/revisions/{values['alignment_revision']}"
+    )
+    if (
+        pinned.status_code != 200
+        or evidence.status_code != 200
+        or pinned.json()["values"]["sequence"] != alignment["values"]["reference"]
+        or evidence.json()["values"]["aligned"] != alignment["values"]["aligned"]
+    ):
+        fail(f"{assessment['hrid']} could not reopen the recorded plasmid and alignment revisions")
+    give_lab_roles(alice, project, "iki/lots.verification_reviewer")
+    reviewer = api_call(alice, "GET", "/me").json()["id"]
+    path = f"/entities/{assessment['id']}"
+    assigned = api_call(
+        alice,
+        "PATCH",
+        path,
+        {"values": {"reviewer": reviewer}},
+        {"If-Match": api_call(alice, "GET", path).headers["ETag"]},
+    )
+    if assigned.status_code != 200:
+        fail(f"assigning the reviewer answered {assigned.status_code}: {assigned.text[:300]}")
+    signed = signing(alice, assessment, "signed_off", "alice", field="review")
+    if signed["status"] != "signed" or not signed["set"]:
+        fail(f"signing the research assessment {assessment['hrid']} gave {signed}")
+    tab = api_call(
+        alice, "POST", "/components/iki/lots.prep_verifications/entities", {"entity": prep["id"]}
+    )
+    if tab.status_code != 200 or [r["hrid"] for r in tab.json()["items"]] != [assessment["hrid"]]:
+        fail(f"{prep['hrid']}'s Verification tab did not return its assessment: {tab.text[:300]}")
+    row = tab.json()["items"][0]["values"]
+    reviewed = {
+        "plasmid_record_id": design["id"],
+        "plasmid_revision": values["plasmid_revision"],
+        "alignment": alignment["id"],
+        "alignment_revision": alignment["revision"],
+        "reviewer": reviewer,
+        "outcome": "discrepancy",
+        "review": "signed_off",
+    }
+    if any(row.get(k) != v for k, v in reviewed.items()):
+        fail(f"{prep['hrid']}'s Verification tab returned {row}")
+    ok(f"{prep['hrid']} shows the signed discrepancy and the pinned alignment {alignment['hrid']}")
 
 
 def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1495,30 +1589,209 @@ def signing(
     return api_call(session, "GET", f"/signings/{signing_id}").json()
 
 
-def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
-    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
-    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
-    verifies; signing in at Keycloak as someone else gives no signature."""
-    bob = sign_in_as("bob")
-    if api_call(bob, "GET", "/signatures/certification").json()["certification"] is None:
+def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Trace a sample's data through passage, thaw, QC and banking back to its catalogue line."""
+    plugin = "iki/cell_lines."
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/cell_lines/tests/data/wi-38.txt"
+    file_id = upload(alice, project, "WI-38.txt", catalogue.read_bytes(), "text/plain")
+    sources = {}
+    parent_ids = set()
+    for supplier, catalogue_id in (("ATCC", "CCL-75"), ("Coriell", "AG06814-J")):
+        imported = launch(
+            alice,
+            project,
+            plugin + "import_parental_line",
+            {},
+            {"file": file_id, "supplier": supplier, "catalogue_id": catalogue_id},
+        )
+        effects = {e["type"]: e["entity"] for e in imported["effects"]}
+        parent = record(alice, effects[plugin + "ParentalLine"])
+        parent_ids.add(parent["id"])
+        source = record(alice, effects[plugin + "CellLineSource"])
+        if (
+            source["values"]["supplier"],
+            source["values"]["catalogue_id"],
+            source["values"]["line"],
+        ) != (supplier, catalogue_id, entry_of(parent)):
+            fail(f"{imported['hrid']} returned unexpected supplier details {source['values']}")
+        sources[supplier] = source
+    if (
+        len(parent_ids) != 1
+        or parent["values"]["cellosaurus_id"] != "CVCL_0579"
+        or parent["values"]["name"] != "WI-38"
+        or sources["ATCC"]["id"] == sources["Coriell"]["id"]
+    ):
+        fail("The two supplier records must identify one WI-38 line")
+    catalogue_graph = api_call(alice, "GET", f"/entities/{parent['id']}/graph?up=0&down=1").json()
+    if not {s["id"] for s in sources.values()} <= {e["id"] for e in catalogue_graph["entities"]}:
+        fail(f"{parent['hrid']}'s catalogue graph lost one of its supplier records")
+    # WI-38's identification is public. All local materials, dates and results here are synthetic.
+    line = created(
+        alice,
+        project,
+        plugin + "EngineeredLine",
+        {
+            "name": "Synthetic reporter clone",
+            "parent": entry_of(parent),
+            "parent_source": entry_of(sources["ATCC"]),
+            "changes": [
+                {"kind": "stable_transfection", "description": "Synthetic reporter marker"}
+            ],
+        },
+    )
+    master = created(
+        alice,
+        project,
+        plugin + "CellBank",
+        {
+            "name": "Synthetic master bank",
+            "kind": "master",
+            "line": line["id"],
+            "banked_on": "2026-01-02",
+            "passage_number": 8,
+        },
+    )
+    bank = created(
+        alice,
+        project,
+        plugin + "CellBank",
+        {
+            "name": "Synthetic working bank",
+            "kind": "working",
+            "line": line["id"],
+            "source_bank": master["id"],
+            "banked_on": "2026-01-06",
+            "passage_number": 9,
+        },
+    )
+    vial = created(
+        alice,
+        project,
+        plugin + "CellVial",
+        {"bank": bank["id"], "barcode": f"SYNTHETIC-{secrets.token_hex(4)}"},
+    )
+    box = created(alice, project, LIMS_TYPE + "Box", {"name": "Synthetic cell bank"})
+    moved(alice, [(vial, box, "A1")], "Synthetic working bank deposit")
+    location = api_call(alice, "GET", f"/entities/{vial['id']}/location").json()
+    if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], "A1")]:
+        fail(f"{vial['hrid']}'s bank deposit has an unexpected location {location}")
+    give_lab_roles(alice, project, plugin + "research_signer")
+    checks = {}
+    for kind, result in (("str_authentication", "match"), ("mycoplasma", "negative")):
+        check = created(
+            alice,
+            project,
+            plugin + "CellCheck",
+            {
+                "bank": bank["id"],
+                "kind": kind,
+                "method": "Synthetic QC report",
+                "result": result,
+                "checked_on": "2026-01-07",
+                "due_on": "2026-02-07",
+            },
+        )
+        signed = signing(alice, check, "signed_off", "alice", field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"Research sign-off for {check['hrid']} returned {signed}")
+        checks[kind] = check["id"]
+    thaw = created(
+        alice,
+        project,
+        plugin + "CellCulture",
+        {
+            "event": "thaw",
+            "event_on": "2026-01-09",
+            "passage_number": 9,
+            "bank": bank["id"],
+            "vial": vial["id"],
+            "str_check": checks["str_authentication"],
+            "mycoplasma_check": checks["mycoplasma"],
+        },
+    )
+    moved(alice, [(vial, None, None)], f"Synthetic thaw recorded as {thaw['hrid']}")
+    passage = created(
+        alice,
+        project,
+        plugin + "CellCulture",
+        {
+            "event": "passage",
+            "event_on": "2026-01-12",
+            "passage_number": 10,
+            "bank": bank["id"],
+            "parent_culture": thaw["id"],
+        },
+    )
+    measurement = upload(
+        alice, project, "synthetic_counts.csv", b"sample,count\nsynthetic,8\n", "text/csv"
+    )
+    sample = created(
+        alice,
+        project,
+        plugin + "CellSample",
+        {
+            "name": "Synthetic sample at passage 10",
+            "collected_on": "2026-01-12",
+            "culture": passage["id"],
+            "data_file": measurement,
+        },
+    )
+    graph = api_call(alice, "GET", f"/entities/{sample['id']}/graph?up=7&down=0").json()
+    ancestors = {entity["id"] for entity in graph["entities"]}
+    expected = {
+        row["id"] for row in (passage, thaw, vial, bank, master, line, parent, sources["ATCC"])
+    }
+    if (
+        not expected.union(checks.values()) <= ancestors
+        or sources["Coriell"]["id"] in ancestors
+        or sample["values"]["data_file"] != measurement
+    ):
+        fail(f"{sample['hrid']} lost its measurement, banking history or signed QC records")
+    thaw_links = {
+        edge["field"]: edge["on"]
+        for edge in graph["edges"]
+        if edge["node"] == thaw["id"] and edge["kind"] == "reference"
+    }
+    for field, kind, result in (
+        ("str_check", "str_authentication", "match"),
+        ("mycoplasma_check", "mycoplasma", "negative"),
+    ):
+        if thaw_links.get(field) != checks[kind]:
+            fail(f"{thaw['hrid']}'s graph omitted the {field} it cited")
+        values = record(alice, thaw_links[field])["values"]
+        if (values["result"], values["due_on"], values["review"]) != (
+            result,
+            "2026-02-07",
+            "signed_off",
+        ):
+            fail(f"{thaw['hrid']}'s {field} link led to unexpected QC details {values}")
+    ok(f"{sample['hrid']} traces through P10 and {vial['hrid']}'s thaw to both signed checks")
+
+
+def certify_dev_signatures(admin: requests.Session) -> None:
+    if api_call(admin, "GET", "/signatures/certification").json()["certification"] is None:
         certified = api_call(
-            bob,
+            admin,
             "POST",
             "/signatures/certification",
             {"submitted_on": datetime.now(UTC).date().isoformat(), "reference": "DEV-CERT-1"},
         )
         if certified.status_code != 200:
             fail(f"recording the certification answered HTTP {certified.status_code}")
-    members = api_call(alice, "GET", f"/projects/{project['id']}/members?limit=100").json()
-    grant = next(m for m in members["items"] if (m["user"] or {}).get("email") == "alice@iki.test")
-    roles = {
-        "roles": ["iki/example_lims.analyst", "iki/example_lims.reviewer", "iki/example_lims.qa"]
-    }
-    given = api_call(
-        alice, "PUT", f"/projects/{project['id']}/members/{grant['id']}/lab-roles", roles
+
+
+def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+    """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
+    there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
+    verifies; signing in at Keycloak as someone else gives no signature."""
+    bob = sign_in_as("bob")
+    give_lab_roles(
+        alice,
+        project,
+        "iki/example_lims.analyst",
+        "iki/example_lims.reviewer",
+        "iki/example_lims.qa",
     )
-    if given.status_code != 200:
-        fail(f"giving alice lab roles answered HTTP {given.status_code}: {given.text[:300]}")
     made = api_call(
         alice,
         "POST",
@@ -1578,6 +1851,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
     bench_material(alice, project, core, protein)
+    cell_bank_history(alice, project)
 
 
 def analytical_core(
@@ -2450,6 +2724,72 @@ def conjugates(alice: requests.Session, project: dict[str, Any]) -> None:
     if record(alice, lot["id"])["values"]["conjugate"] != entry_of(conjugate):
         fail(f"{lot['hrid']} did not retain its reference to {conjugate['hrid']}")
     ok(f"{lot['hrid']} links to {conjugate['hrid']}, the adenylated strand at 2530.62 u")
+
+
+def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Register the polystyrene design and the certified measurements of NIST SRM 1478."""
+    # Styrene, PubChem CID 7501: https://pubchem.ncbi.nlm.nih.gov/compound/7501
+    registered = launch(
+        alice,
+        project,
+        "iki/small_molecule.register_compounds",
+        {},
+        {"smiles": "C=Cc1ccccc1 styrene"},
+    )
+    (styrene,) = [
+        e["entity"] for e in registered["effects"] if e["type"] == "iki/small_molecule.Compound"
+    ]
+    precursor = entry_of(record(alice, styrene))
+    # A representative uncapped, head-to-tail polystyrene fragment. The certificate
+    # reports the bulk sample's averages. It does not identify its end groups.
+    formulation = "{[][<]CC(c1ccccc1)[>][]}"
+    polymer = created(
+        alice,
+        project,
+        "iki/polymer.Polymer",
+        {
+            "name": "Polystyrene",
+            "bigsmiles": formulation,
+            "monomers": [precursor],
+            "architecture": "linear",
+            "sequence_distribution": "homopolymer",
+        },
+    )
+    if not polymer.get("entry"):
+        fail(f"{polymer['hrid']} has no registry entry for the polystyrene design")
+    inspection = launch(alice, project, "iki/polymer.inspect_bigsmiles", {"polymer": polymer["id"]})
+    design = record(alice, polymer["id"])["values"]
+    expected = {
+        "bigsmiles": formulation,
+        "monomers": [precursor],
+        "notation_status": "checked",
+        "stochastic_objects": 1,
+        "repeat_units": [{"object": 1, "fragment": "[<]CC(c1ccccc1)[>]"}],
+    }
+    if any(design.get(k) != v for k, v in expected.items()):
+        fail(f"{inspection['hrid']} read {polymer['hrid']} as {design}, expected {expected}")
+    # https://tsapps.nist.gov/srmext/certificates/1478.pdf, July 1992, certified values.
+    lot = created(
+        alice,
+        project,
+        "iki/lots.PolymerLot",
+        {
+            "polymer": polymer["id"],
+            "catalogue_number": "SRM 1478",
+            "supplier": "National Institute of Standards and Technology",
+            "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
+            "mn": 35800,
+            "mn_method": "membrane_osmometry",
+            "mw": 37400,
+            "mw_method": "sedimentation_equilibrium",
+        },
+    )
+    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    measured = record(alice, lot["id"])["values"]
+    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
+    if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
+        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+    ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 
 #: Cloning vector pUC19, 2,686 bp, as INSDC record L09137.2 gives it: the vector most
@@ -4568,6 +4908,7 @@ def main() -> None:
         provisioning(admin)
         rest_api(admin)
         webhooks(admin)
+        certify_dev_signatures(admin)
         actions()
         lims()
         containers()

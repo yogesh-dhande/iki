@@ -140,6 +140,17 @@ def test_standalone_story(
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.add_script_tag(path=AXE)
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+        override = "dark" if theme == "light" else "light"
+        page.evaluate("(theme) => document.documentElement.dataset.theme = theme", override)
+        expect(page.locator("body")).to_have_css(
+            "background-color",
+            "rgb(20, 21, 23)" if override == "dark" else "rgb(255, 255, 255)",
+        )
+        if component in {"alignment-viewer", "plasmid-thumbnail", "sequence-viewer"}:
+            expect(page.locator("button.button:enabled").first).to_have_css(
+                "color", "rgb(232, 233, 235)" if override == "dark" else "rgb(29, 31, 33)"
+            )
+            assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert not errors, errors
         assert all(url.startswith(f"{gallery_url}/") for url in requests), requests
         assert not any(url.endswith(".wasm") for url in requests), requests

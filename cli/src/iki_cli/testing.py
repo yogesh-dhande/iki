@@ -14,10 +14,13 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TextIO
 
+from iki_cli.workers import prepared_source
 from iki_spec import action_tests, outputs, schemas
 from iki_spec.action_tests import ActionTest
 from iki_spec.builtin import core_plugin
+from iki_spec.first_party_dependencies import build_order
 from iki_spec.model import Action, EntityType, Extension, Plugin
+from iki_spec.yamlsource import read_documents
 
 #: How much of a failing command's log is shown.
 LOG_LINES = 20
@@ -48,7 +51,10 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
         default=[],
         type=Path,
         metavar="DIRECTORY",
-        help="A plugin this one depends on, directly or not. Repeat for each.",
+        help=(
+            "A dependency or fixture plugin. Repeat for each. First-party plugins in Iki's "
+            "source checkout find their declared dependencies there. Explicit paths take priority."
+        ),
     )
     test.add_argument(
         "-k",
@@ -87,13 +93,39 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
     test.set_defaults(handler=run_test)
 
 
+def _test_dependencies(directory: Path, explicit: Sequence[Path]) -> Sequence[Path]:
+    """Discover sibling plugins only when testing a first-party plugin in Iki's source tree."""
+    target = directory.resolve()
+    plugins = target.parent
+    checkout = plugins.parent
+    if (
+        plugins.name != "plugins"
+        or not (checkout / "scripts" / "first_party_trees.py").is_file()
+        or not (checkout / "spec/src/iki_spec/first_party_trees.json").is_file()
+    ):
+        return explicit
+    manifest = target / "plugin.yaml"
+    if manifest.is_symlink():
+        return explicit
+    documents, _ = read_documents(manifest, "plugin.yaml")
+    metadata = documents[0].data if documents else None
+    if not isinstance(metadata, dict) or metadata.get("name") != f"iki/{target.name}":
+        return explicit
+    return tuple(path for path in build_order(plugins, directory, *explicit) if path != directory)
+
+
 def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
     from iki_cli.plugin import _load, _missing_dependencies, _text
 
     out = out or sys.stdout
     err = sys.stderr
     directory: Path = args.directory
-    missing = _missing_dependencies([directory, *args.dependencies])
+    try:
+        dependencies = _test_dependencies(directory, args.dependencies)
+    except ValueError as error:
+        err.write(f"error: {error}\n")
+        return 1
+    missing = _missing_dependencies([directory, *dependencies])
     if missing:
         err.write(
             "".join(
@@ -102,12 +134,12 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
             )
         )
         return 1
-    result = _load(directory, args.dependencies, err)
+    result = _load(directory, dependencies, err)
     if result is None:
         return 1
     plugin = result.plugin
     assert plugin is not None  # noqa: S101 - _load returns loaded plugins
-    found = _types(args.dependencies, err)
+    found = _types(dependencies, err)
     if found is None:
         return 1
     types, extensions = found
@@ -127,7 +159,13 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
         worker = _worker(args.worker, err)
         if worker is None:
             return 1
-        failed = not _action_tests(tests, plugin, types, installed, directory, worker, out)
+        with tempfile.TemporaryDirectory(prefix="iki-test-code-") as staging:
+            try:
+                code = prepared_source(plugin.name, directory, Path(staging) / "plugin")
+            except ValueError as error:
+                err.write(f"error: {error}\n")
+                return 1
+            failed = not _action_tests(tests, plugin, types, installed, code, worker, out)
     elif not args.upgrade_from:
         matching = f" matching {args.select}" if args.select else ""
         out.write(
@@ -140,7 +178,7 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
 
         upgraded = upgrade_test.run(
             directory,
-            args.dependencies,
+            dependencies,
             plugin,
             types,
             args.upgrade_from,

@@ -159,12 +159,17 @@ dNTPs as well), under which the same primer's Tm is some 5 to 6 °C higher, so
 compare it with Tms computed for sodium alone. It's computed only for primers
 of A, C, G and T alone.
 
-A worker loads `data/oligo-measurement.wasm` from this plugin's pinned action
-archive using the Wasmtime wheel in `sequence-tools`. The browser package and the
-server's `iki-spec` module compile the same Rust measurement. The worker needs
-only its archive and hashed Python environment to run this calculation offline.
-From the repository root, regenerate the module with
-`scripts/build-oligo-wasm.sh plugins/dna/data/oligo-measurement.wasm`.
+The plugin pins the SHA-256 of its fixed-condition measurement in
+`data/oligo-measurement.sha256`. When building a deployment, Iki takes the compiled
+module from the installed `iki-spec` distribution, verifies that digest, and includes
+`data/oligo-measurement.wasm` in both the worker image and downloadable plugin archive.
+The Rust standard library notice accompanies it in `data/rust-standard-library.html`.
+The worker runs it offline with the Wasmtime wheel in `sequence-tools`. The browser and
+server compile the same Rust source. In the Iki source checkout, `scripts/build-wasm.sh`
+builds the modules and places an ignored copy in the plugin for direct action invocations.
+After changing the Rust measurement, run `pnpm generate:temperature` to update its digest
+and the browser implementation. Deploy with an Iki release that supplies the pinned
+measurement. Retain previously shipped measurements when adding a new digest to a release.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.

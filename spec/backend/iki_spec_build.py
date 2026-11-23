@@ -33,6 +33,12 @@ def ensure_wasm(project: Path) -> Path:
             "repository, where scripts/build-wasm.sh builds it first, or from a source "
             "distribution that carries it."
         )
+    measurement = wasm.with_name("oligo-measurement.wasm")
+    if not measurement.is_file() or measurement.stat().st_size == 0:
+        raise RuntimeError("iki-spec needs oligo-measurement.wasm alongside iki_wasm.wasm.")
+    notice = wasm.with_name("rust-standard-library.html")
+    if not notice.is_file() or notice.stat().st_size == 0:
+        raise RuntimeError("iki-spec needs rust-standard-library.html alongside its Rust modules.")
     return wasm
 
 

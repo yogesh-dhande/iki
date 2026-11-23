@@ -37,6 +37,15 @@ live in the Rust source behind `iki-wasm`. The full module exposes it alongside 
 file readers. The DNA action ships a small module compiled from the same source so
 an isolated worker can measure a supplied sequence without a service call.
 
+Git tracks the Rust source and the expected SHA-256 digest. The build compiles the
+module with the pinned Rust toolchain. Before including it in either the downloadable
+plugin archive or the worker image, the deployment CLI verifies its bytes against the
+digest in the pinned plugin revision. A reviewer can rebuild that revision and compare
+the result with the module extracted from the deployed artifact. [DNA plugin digest](../../plugins/dna/data/oligo-measurement.sha256)
+
+For the initial module, independent builds on Linux x86-64 and macOS arm64 each
+produced 11,925 bytes with SHA-256 `b33f7080ac30ed6de1a6acd51927709adc1ce486695b434ea953e0205ad83371`.
+
 The selection viewer needs a synchronous result on the page. Its build translates
 that small module to JavaScript, which keeps the page within its existing content
 security policy. Build checks regenerate the artifacts, and tests compare their

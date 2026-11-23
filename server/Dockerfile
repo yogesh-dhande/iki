@@ -22,11 +22,13 @@ COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
 # Its build settings: rules' CEL keeps only UTC's time zone (ADR 0127).
 COPY worker/.cargo .cargo
+COPY scripts/build-oligo-wasm.sh /src/scripts/build-oligo-wasm.sh
 # rustup checks the target against the release's manifest as it installs it.
 # A module with every time zone missed .cargo's filter: it fails here, not in browsers.
 RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
- && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm
+ && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+ && /src/scripts/build-oligo-wasm.sh --with-notice /src/worker/oligo-measurement.wasm
 
 # --- Web app: the React app the server serves (web/app) ----------------------
 FROM ${NODE_IMAGE} AS web
@@ -86,6 +88,7 @@ COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_ser
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
 COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm spec/src/iki_spec/
+COPY --from=wasm /src/worker/oligo-measurement.wasm /src/worker/rust-standard-library.html spec/src/iki_spec/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
  && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM"

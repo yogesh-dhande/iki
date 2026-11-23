@@ -11,11 +11,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from first_party_dependencies import FIRST_PARTY, PLUGINS
 
 from iki_cli import workers
 from iki_spec import schemas, wasm
 
-SCRIPT = Path(__file__).resolve().parents[2] / "plugins" / "dna" / "scripts" / "sequences.py"
+DNA = PLUGINS / "dna"
+SCRIPT = DNA / "scripts" / "sequences.py"
 
 
 def run(
@@ -81,7 +83,8 @@ def test_primers_with_ambiguous_bases_get_no_melting_temperature(tmp_path: Path)
 def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
     """Run isolated Python on the same two files a worker gets from its pinned plugin."""
     packed = tmp_path / "dna.tar.gz"
-    workers.bundle(SCRIPT.parents[1], packed)
+    code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
+    workers.bundle(code, packed)
     unpacked = tmp_path / "action"
     with tarfile.open(packed, "r:gz") as archive:
         for path in ("scripts/sequences.py", "data/oligo-measurement.wasm"):
@@ -993,7 +996,7 @@ def test_a_fetch_needs_the_contact_address_before_it_runs() -> None:
     it. The dev cluster sets it, so it can fetch."""
     from iki_spec.validate import check_settings_text, load_plugin
 
-    plugin = load_plugin(SCRIPT.parents[1]).plugin
+    plugin = load_plugin(DNA, dependencies=FIRST_PARTY[DNA]).plugin
     assert plugin is not None
     needing = {a.name for a in plugin.actions.values() if a.requires_settings}
     assert needing == {"fetch_sequences"}

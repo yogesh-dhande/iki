@@ -9,9 +9,12 @@ docker build -f server/Dockerfile --target wasm -t iki-wasm:dev .
 # The server's and the worker's builds may run it at once: each writes its own copy,
 # then moves it into place.
 container="$(docker create iki-wasm:dev)"
-part="$(mktemp spec/src/iki_spec/iki_wasm.XXXXXX)"
-trap 'docker rm "$container" >/dev/null; rm -f "$part"' EXIT
-docker cp "$container:/src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm" - \
-  | tar -xO > "$part"
-chmod 644 "$part"
-mv "$part" spec/src/iki_spec/iki_wasm.wasm
+tmp="$(mktemp -d spec/src/iki_spec/iki_wasm.XXXXXX)"
+trap 'docker rm "$container" >/dev/null; rm -rf "$tmp"' EXIT
+for file in target/wasm32-unknown-unknown/release/iki_wasm.wasm oligo-measurement.wasm rust-standard-library.html; do
+  name="${file##*/}"
+  docker cp "$container:/src/worker/$file" - | tar -xO > "$tmp/$name"
+  chmod 644 "$tmp/$name"
+done
+# Validate every Docker copy before replacing files from a previous successful build.
+mv "$tmp"/* spec/src/iki_spec/

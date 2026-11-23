@@ -25,7 +25,8 @@ name: nists_polystyrene_by_two_methods
 description: >-
   NIST SRM 1478, polystyrene: Mn 35,800 g/mol by membrane osmometry in toluene at 37 °C,
   Mw 37,400 g/mol by sedimentation equilibrium ultracentrifugation in cyclohexane at
-  35 °C (its certificate, July 15, 1992): Đ = 1.045.
+  35 °C (https://tsapps.nist.gov/srmext/certificates/1478.pdf). The molar-mass
+  dispersity is Mw/Mn (IUPAC, doi:10.1351/PAC-REC-08-05-02), giving 1.045.
 action: compute_polymer_lot
 inputs:
   lot:

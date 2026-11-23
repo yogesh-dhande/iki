@@ -1,16 +1,19 @@
-// The DNA plugin carries the small Rust module. Translate that exact artifact so
-// callers can use the same measurement synchronously, including under a strict CSP.
+// Build the same offline module the DNA plugin's action archive carries, then
+// translate it for synchronous browser consumers, including under a strict CSP.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import process from "node:process";
 import { fileURLToPath, URL } from "node:url";
 
-const binary = fileURLToPath(
-  new URL("../plugins/dna/data/oligo-measurement.wasm", import.meta.url),
-);
+const wasmDir = new URL("../web/packages/science/wasm/", import.meta.url);
+mkdirSync(wasmDir, { recursive: true });
+const binary = fileURLToPath(new URL("oligo-measurement.wasm", wasmDir));
+const digestFile = new URL("../plugins/dna/data/oligo-measurement.sha256", import.meta.url);
 const checking = process.argv.includes("--check");
 const compile = fileURLToPath(new URL("./build-oligo-wasm.sh", import.meta.url));
-execFileSync(compile, checking ? ["--check", binary] : [binary], { stdio: "inherit" });
+execFileSync(compile, [binary], { stdio: "inherit" });
+const digest = createHash("sha256").update(readFileSync(binary)).digest("hex") + "\n";
 const output = new URL("../web/packages/science/generated/oligo-temperature.js", import.meta.url);
 const compiler = fileURLToPath(import.meta.resolve("binaryen/bin/wasm2js"));
 const module = execFileSync(
@@ -30,9 +33,13 @@ const source =
     .join("\n") +
   "\n\nexport { instantiate };\n";
 if (checking) {
+  if (readFileSync(digestFile, "utf8") !== digest) {
+    throw new Error("The DNA measurement digest is stale. Run pnpm generate:temperature.");
+  }
   if (readFileSync(output, "utf8") !== source) {
     throw new Error("The browser temperature measurement is stale. Run pnpm generate:temperature.");
   }
 } else {
   writeFileSync(output, source);
+  writeFileSync(digestFile, digest);
 }

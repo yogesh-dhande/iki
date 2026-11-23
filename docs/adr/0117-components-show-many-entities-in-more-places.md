@@ -73,6 +73,9 @@ roles in each project, their token's scopes and projects, and the records
 and registry entries they can read (ADR 0115). A place they can't read
 (another project, an entity they can't open) answers 404. A component
 that doesn't declare a place, or declares no `entities`, is refused there.
+For each item, `people` maps the IDs in its declared person fields to
+display names visible on that record. A verification tab can show who
+reviewed the evidence while supplying only the name to the component.
 
 **A component may page and refine, never widen.** The frame can ask for the
 next page (`iki-more`) and narrow what it was given (`iki-refine`: conditions,

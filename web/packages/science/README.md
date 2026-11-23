@@ -154,7 +154,8 @@ export default function Calendar() {
 ## Run the story
 
 From the repository root run `pnpm install --frozen-lockfile`, then
-`pnpm --filter @ikisci/science build`. Serve `web/packages` with
+`pnpm --filter @ikisci/science --filter @ikisci/ui build` to build the components
+and their gallery theme. Serve `web/packages` with
 `python3 -m http.server --directory web/packages 8000` and open
 `/science/stories/booking-calendar.html`. The package build checks each public entry
 against its gzip byte limit. The release workflow sets both package versions from the
