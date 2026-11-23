@@ -23,13 +23,7 @@ WORKDIR /src/worker
 COPY worker/Cargo.toml worker/Cargo.lock worker/rust-toolchain.toml ./
 COPY worker/crates crates
 COPY scripts/build-dna-annotation-wasm.sh /src/scripts/build-dna-annotation-wasm.sh
-# The stage above pins the compiler host to keep the artifact's digest reproducible, so on an
-# arm64 builder this rustc is emulated -- and an emulated rustc gets a much smaller usable
-# stack than a native one, which it meets as a SIGSEGV part way through the build rather than
-# as an error it can explain. The size is rustc's own suggestion from that crash. Raising it
-# costs a native build nothing, and the digest is unchanged either way: the same compiler
-# version for the same target emits the same bytes whether or not it was emulated.
-RUN RUST_MIN_STACK=16777216 /src/scripts/build-dna-annotation-wasm.sh --build-here /src/worker
+RUN /src/scripts/build-dna-annotation-wasm.sh --build-here /src/worker
 
 # --- The web app's parsers: iki-wasm, Rust built for browsers (ADR 0088) ----
 FROM ${RUST_IMAGE} AS wasm
