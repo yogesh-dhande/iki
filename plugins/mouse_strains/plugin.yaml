@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/mouse_strains
+version: 0.1.0
+title: Mouse strains
+description: >-
+  Register mouse strains and alleles by MGI accession, look up JAX stocks and
+  trace genotypes, cryopreserved embryos and sperm to their source and data.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/mouse_strains
+dependencies:
+  iki/example_lims: { types: { Box: ">=1" } }

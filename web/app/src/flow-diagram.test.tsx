@@ -1,6 +1,7 @@
 /**
  * A type's flow (ADR 0199) on its page and on its records' pages, drawn from example_lims'
- * analysis results and requests (flow-fixtures.json: the plugins' own state fields).
+ * analysis results and requests (flow-fixtures.json: the plugins' own flows, as
+ * `GET /entity-types/{type}/flow` serves them).
  */
 
 import type { Schemas } from "@ikisci/sdk";
@@ -43,7 +44,16 @@ function typeOf(name: string): Schemas["EntityTypeOut"] {
 const RESULT = typeOf("iki/example_lims.AnalysisResult");
 const REQUEST = typeOf("iki/example_lims.AnalysisRequest");
 
+/** The deployment's lab roles, and each type's flow: none for a protein. */
 function labRoles(): void {
+  for (const flow of fixtures.types) {
+    answer(`GET /api/v1/entity-types/${flow.type}/flow`, flow);
+  }
+  answer(`GET /api/v1/entity-types/${PROTEIN.name}/flow`, {
+    type: PROTEIN.name,
+    label: PROTEIN.label,
+    fields: [],
+  });
   answer(
     "GET /api/v1/lab-roles",
     Object.entries(fixtures.roles).map(([name, label]) => ({

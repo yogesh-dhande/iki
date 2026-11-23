@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: MouseAllele
+label: Mouse allele
+schema_version: 1
+description: An allele in Mouse Genome Informatics, shared by the strains that carry it.
+hrid: { prefix: MAL }
+identity: [mgi_id]
+fields:
+  mgi_id:
+    type: string
+    label: MGI allele ID
+    required: true
+    immutable: true
+    indexed: true
+    max_length: 32
+    pattern: "^MGI:[1-9][0-9]*$"
+    pattern_help: an MGI accession such as MGI:1855985
+    link: "https://www.informatics.jax.org/allele/{value}"
+  symbol:
+    type: string
+    registry: fact
+    label: MGI allele symbol
+    indexed: true
+    max_length: 512
+    pattern: "^[^\\t\\r\\n]+$"
+    pattern_help: the published allele symbol on one line, such as Tyr<c-2J>
+display:
+  title: "{{ symbol or mgi_id }}"

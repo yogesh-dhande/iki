@@ -1,13 +1,13 @@
 /**
- * Working a type's flow out from its definition (ADR 0199), against the real plugins'
- * state fields: example_lims' analysis results, samples and requests, lots, and plate
- * assays' research and regulated QC results (flow-fixtures.json, which a server test
- * keeps the plugins' own).
+ * A type's flow as a diagram has it (ADR 0199), from the real plugins' flows as
+ * `GET /entity-types/{type}/flow` serves them (ADR 0198): example_lims' analysis results,
+ * samples and requests, lots, and plate assays' research and regulated QC results
+ * (flow-fixtures.json, which a server test keeps the plugins' own).
  */
 
 import { describe, expect, it } from "vitest";
 
-import { fieldFlow, parse, typeFlow, type FlowField, type FlowSource } from "./flow";
+import type { FlowField } from "./flow";
 import fixtures from "./flow-fixtures.json";
 import {
   flowModel,
@@ -22,14 +22,10 @@ import {
 
 const ROLES: Record<string, string> = fixtures.roles;
 
-function source(type: string, field: string): FlowSource {
+function flowOf(type: string, field: string): FlowField {
   const found = fixtures.types.find((t) => t.type === type)?.fields.find((f) => f.name === field);
   if (!found) throw new Error(`No ${type} ${field} in the fixtures`);
-  return found as FlowSource;
-}
-
-function flowOf(type: string, field: string): FlowField {
-  return fieldFlow(source(type, field));
+  return found as FlowField;
 }
 
 /** Its moves as "from > to", a "?" after those that depend on more than the states. */
@@ -48,7 +44,7 @@ const LOT = "iki/lots.Lot";
 const RESEARCH = "iki/plate_assays.ResearchAssayResult";
 const QC = "iki/plate_assays.QCAssayResult";
 
-describe("a flow from a type's guards", () => {
+describe("the plugins' flows", () => {
   it("draws an analysis result's regulated review: submitted, reviewed, released", () => {
     expect(moves(flowOf(RESULT, "review"))).toEqual([
       // Returned for correction only while it waits for review or release.
@@ -102,107 +98,15 @@ describe("a flow from a type's guards", () => {
     ]);
   });
 
-  it("reads each of a type's state fields", () => {
+  it("has a flow for each of a type's state fields", () => {
     const request = fixtures.types.find((t) => t.type === REQUEST);
-    if (!request) throw new Error("No analysis request");
-    const flow = typeFlow({
-      name: request.type,
-      label: request.label,
-      fields: request.fields as FlowSource[],
-    });
-    expect(flow.fields.map((f) => [f.name, f.label, f.initial])).toEqual([
+    expect(request?.fields.map((f) => [f.name, f.label, f.initial])).toEqual([
       ["standing", "Standing", "open"],
       ["status", "Status", "submitted"],
     ]);
-    const [standing, status] = flow.fields;
-    if (!standing) throw new Error("No standing");
-    expect(moves(standing)).toEqual(["withdrawn > open", "open > withdrawn"]);
+    expect(moves(flowOf(REQUEST, "standing"))).toEqual(["withdrawn > open", "open > withdrawn"]);
     // Without guards, each state the core sets can follow any other.
-    expect(status?.transitions).toHaveLength(5 * 4);
-    expect(status?.transitions.every((t) => !t.conditional)).toBe(true);
-  });
-
-  it("leaves out a type's fields that aren't state fields", () => {
-    const flow = typeFlow({
-      name: "acme/x.Thing",
-      label: "Thing",
-      fields: [
-        { ...source(SAMPLE, "status"), type: "state" },
-        { name: "notes", label: "Notes", initial: null, states: [], type: "text" },
-      ],
-    });
-    expect(flow.fields.map((f) => f.name)).toEqual(["status"]);
-  });
-});
-
-describe("reading guards", () => {
-  const state = (check: string, when?: string) =>
-    moves(
-      fieldFlow({
-        name: "review",
-        label: "Review",
-        initial: "a",
-        states: [
-          {
-            name: "a",
-            label: "A",
-            set_by: ["x.r"],
-            locks: false,
-            holds_amount: false,
-            reason: null,
-            signatures: [],
-          },
-          {
-            name: "b",
-            label: "B",
-            set_by: ["x.r"],
-            locks: false,
-            holds_amount: false,
-            reason: null,
-            signatures: [],
-          },
-          {
-            name: "c",
-            label: "C",
-            set_by: ["x.r"],
-            locks: false,
-            holds_amount: false,
-            reason: null,
-            signatures: [],
-            guards: [{ name: "g", check, message: "No.", ...(when ? { when } : {}) }],
-          },
-        ],
-      }),
-    ).filter((m) => m.includes("> c"));
-
-  it("reads equality, inequality, lists, negation and the record's own state", () => {
-    expect(state("state.from in ['a', 'b'] && !(state.from == 'b')")).toEqual(["a > c"]);
-    expect(state("record.review != 'a'")).toEqual(["b > c"]);
-    expect(state("state.field == 'review' && 'c' == state.to")).toEqual(["a > c", "b > c"]);
-    expect(state('(state.from == "a" || state.from == "b") && record.fit != null')).toEqual([
-      "a > c ?",
-      "b > c ?",
-    ]);
-  });
-
-  it("keeps a move it can't settle, as conditional", () => {
-    expect(state("history.all(h, h.by != actor.person)")).toEqual(["a > c ?", "b > c ?"]);
-    expect(state("size(record.files) > 0 ? true : false")).toEqual(["a > c ?", "b > c ?"]);
-    // Not CEL at all: unknown, never a reason to leave it out.
-    expect(state("state.from ==")).toEqual(["a > c ?", "b > c ?"]);
-  });
-
-  it("applies a guard only where its `when` holds", () => {
-    expect(state("false", "state.from != 'a'")).toEqual(["a > c"]);
-    expect(state("state.from == 'b'", "actor.waiver")).toEqual(["a > c ?", "b > c ?"]);
-  });
-
-  it("parses what it doesn't evaluate", () => {
-    expect(parse("edits.review.draft.all(e, e.by != actor.person)")).toEqual({ kind: "other" });
-    expect(parse("history.review[0].by != actor.person")?.kind).toBe("ne");
-    expect(parse("{'a': 1}.size() == 1")?.kind).toBe("eq");
-    expect(parse("r'raw\\d' == state.from")?.kind).toBe("eq");
-    expect(parse("a b")).toBeNull();
+    expect(flowOf(REQUEST, "status").transitions).toHaveLength(5 * 4);
   });
 });
 
