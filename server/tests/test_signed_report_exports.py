@@ -1,24 +1,55 @@
-# ruff: noqa: F811 - fixtures imported by name are parameters here.
 """A portable report follows the signatures of its final review cycle."""
 
 import hashlib
 import json
+import shutil
+from pathlib import Path
 
-import pytest
 from api_client import Api, problem
-from org_world import World
-from test_signatures import lab, past_the_triggers, signed, world  # noqa: F401 - fixtures
+from org_world import build_world
+from test_plugin_migrations import build, database, django, made, migrate, sync
+from test_signatures import past_the_triggers, ready, signed
+from test_states import roles
 
 from iki_server.audit.models import AuditEvent
 from iki_server.signatures import proof, signing_keys
 from iki_server.signatures.models import Signature
 
-pytestmark = pytest.mark.django_db
+__all__ = ["database"]
 
-TYPE = "acme/protein.SignedReport"
+FIXTURE = Path(__file__).parents[2] / "spec" / "tests" / "data" / "signed_report"
+PLUGIN = "acme/signed_reports"
+TYPE = f"{PLUGIN}.SignedReport"
 
 
-def test_report_exports_are_audited_and_carry_the_verified_issuance(lab: World) -> None:
+def test_report_exports_are_audited_and_carry_the_verified_issuance(
+    tmp_path: Path, database: str
+) -> None:
+    plugins = tmp_path / "plugins"
+    shutil.copytree(FIXTURE, plugins / FIXTURE.name)
+    made(FIXTURE.name, "--no-input", cwd=plugins)
+    installed = build(plugins, FIXTURE.name)
+    migrate(installed, database)
+    sync(installed, database)
+    checked = django(
+        installed,
+        database,
+        "-c",
+        "import django; django.setup(); from test_signed_report_exports import exercise_exports; "
+        "exercise_exports()",
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
+def exercise_exports() -> None:
+    lab = build_world()
+    ready(lab)
+    roles(
+        lab,
+        editor=(f"{PLUGIN}.analyst",),
+        admin=(f"{PLUGIN}.reviewer",),
+        viewer=(f"{PLUGIN}.qa",),
+    )
     editor = Api(lab.browser("editor"))
     reader = Api(lab.browser("viewer"))
     shown = reader.get(f"/entity-types/{TYPE}").json()

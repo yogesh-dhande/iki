@@ -24,6 +24,11 @@ after earlier ones. A release case pins the schedule and the version in effect o
 testing date. The database enforces one schedule per material and one case per lot within
 the project, including when two actions run concurrently.
 
+The case title starts with the lot number printed on its physical label so QA can match
+the container to the case in the list. The testing date follows the number. The same lot
+number identifies the tested batch on the certificate.
+[WHO model certificate of analysis](https://www.who.int/publications/m/item/trs1010-annex4)
+
 The testing action records the measured value and whether it meets the selected criterion.
 A result may come from a manually reported measurement or a reviewed plate-assay endpoint
 on that physical lot. An OOS value opens an investigation in the same transaction. The

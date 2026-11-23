@@ -42,4 +42,4 @@ rules:
       record.version != null && record.testing_on != null && record.review_flow != null &&
       record.attempts != null && record.sealed != null
     message: Open the lot release case with the effective specification action.
-display: { title: "Lot release · {{ testing_on or hrid }}" }
+display: { title: "{{ lot_number or hrid }} · {{ testing_on }}" }

@@ -162,6 +162,9 @@ def exercise_qc() -> None:
     services.update(
         editor, lot, {"lot_number": "Renamed after testing"}, expected_revision=lot.revision
     )
+    shown = Api(world.browser("editor")).get(f"/entities/{case.pk}")
+    assert shown.status_code == 200, shown.content
+    assert shown.json()["title"] == f"Synthetic NaCl lot · {today.isoformat()}"
 
     assay, drying = specification["criteria"]
 
