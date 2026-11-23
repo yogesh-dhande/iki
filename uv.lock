@@ -1300,7 +1300,7 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-psycopg", specifier = ">=0.66b2" },
     { name = "opentelemetry-sdk", specifier = ">=1.45.2" },
     { name = "packaging", specifier = ">=26.3" },
-    { name = "psycopg", extras = ["c"], marker = "extra == 'c'", specifier = ">=3.3.8" },
+    { name = "psycopg", extras = ["c"], marker = "extra == 'c'", specifier = ">=3.3.9" },
     { name = "psycopg", extras = ["pool"], specifier = ">=3.3.8" },
     { name = "python-calamine", specifier = ">=0.9.1" },
     { name = "requests", specifier = ">=2.34.2" },
