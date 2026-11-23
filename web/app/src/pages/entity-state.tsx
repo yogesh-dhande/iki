@@ -5,7 +5,7 @@
  */
 
 import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
@@ -21,7 +21,18 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
-import { Badge, Button, ConfirmDialog, RadioField, TextField, useMessages } from "../ui";
+import { typeFlowQuery } from "../flow";
+import { FlowDiagram, useRoleLabels } from "../flow-diagram";
+import { flowModel, nextFrom } from "../flow-model";
+import {
+  Badge,
+  Button,
+  buttonClass,
+  ConfirmDialog,
+  RadioField,
+  TextField,
+  useMessages,
+} from "../ui";
 import { WORK } from "../people";
 import { listed } from "../requests";
 
@@ -96,6 +107,8 @@ export function lockedWhy(entity: Entity, type: EntityType | undefined): string 
 
 export function EntityState({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const [chosen, setChosen] = useState<FieldDef | null>(null);
+  // The state fields whose flow is open.
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const id = useId();
   const fields = stateFields(type);
   if (!fields.length) return null;
@@ -140,6 +153,21 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
                 </span>
               </div>
               <div className="row-actions">
+                <button
+                  type="button"
+                  className={buttonClass("quiet")}
+                  aria-expanded={open.has(f.name)}
+                  aria-controls={`${id}-${f.name}-flow`}
+                  onClick={() => {
+                    setOpen((was) => {
+                      const now = new Set(was);
+                      if (!now.delete(f.name)) now.add(f.name);
+                      return now;
+                    });
+                  }}
+                >
+                  How it moves
+                </button>
                 <Button
                   disabled={!allowed}
                   describedBy={why}
@@ -149,6 +177,16 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
                 >
                   {`Set ${f.label}`}
                 </Button>
+              </div>
+              <div className="row-flow" id={`${id}-${f.name}-flow`} hidden={!open.has(f.name)}>
+                {open.has(f.name) && type ? (
+                  <RecordFlow
+                    type={type.name}
+                    field={f.name}
+                    current={stateOf(entity, f)}
+                    options={options}
+                  />
+                ) : null}
               </div>
             </li>
           );
@@ -165,6 +203,39 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
         />
       ) : null}
     </section>
+  );
+}
+
+/** A record's place in its state field's flow (ADR 0199): the diagram, its state now and
+ * the states the reader may move it to. */
+function RecordFlow({
+  type,
+  field,
+  current,
+  options,
+}: {
+  type: string;
+  field: string;
+  current: string;
+  options: StateCan[];
+}) {
+  const flow = useQuery(typeFlowQuery(type)).data?.fields.find((f) => f.name === field);
+  const roles = useRoleLabels();
+  if (!flow) return null;
+  const model = flowModel(flow, roles);
+  const next = nextFrom(model, current);
+  const yours = next.filter((n) => options.some((o) => o.name === n.name && o.allowed));
+  return (
+    <>
+      <p className="row-meta">
+        {yours.length
+          ? `Next for you: ${either(yours.map((n) => n.label))}.`
+          : next.length
+            ? `It can move to ${either(next.map((n) => n.label))}, but not by you now.`
+            : "It doesn’t move on from here."}
+      </p>
+      <FlowDiagram flow={flow} roles={roles} current={current} options={options} words="hidden" />
+    </>
   );
 }
 

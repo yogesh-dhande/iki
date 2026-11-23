@@ -551,6 +551,7 @@ def _read(root: FilePath) -> _Loaded:
         triggers=fires,
         components=shown,
         roles=roles,
+        starters=dict(data.get("starters", {})),
         apis=apis.read_apis(name, data),
     )
     # Each action's uses of an outside API, with the API as the plugin declares it.

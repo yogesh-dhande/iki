@@ -1,0 +1,286 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A codon optimization: the gene to be rewritten, the host it is to be expressed in, and
+# what the design must avoid. It has no identity, as an assembly and a PCR have none
+# (ADR 0163, ADR 0172): the same protein is optimized differently for different hosts and
+# different constraints, and which design a lab ordered is the lab's record, not a fact
+# about the molecule.
+#
+# Its product is the optimized DNA sequence, worked out and registered by the run,
+# derived from this record: so the gene, the design and what was ordered are one chain in
+# the graph (ADR 0123), and a cloning plan takes the optimized sequence as a fragment
+# exactly as it takes any other. As with an assembly, the record keeps what is known of
+# the product -- how many codons changed, the CAI and GC content before and after, what
+# is still broken -- and the product itself is the record's in the graph, not a reference
+# of its own: a run's updates are written before what it creates (ADR 0064).
+apiVersion: iki/v1
+kind: EntityType
+name: CodonOptimization
+label: Codon optimization
+label_plural: Codon optimizations
+schema_version: 1
+description: >-
+  A coding sequence rewritten in a host's own codons, keeping the protein exactly: the
+  template and the region of it that codes, the host whose codon usage is used, how the
+  codons are chosen, and the restriction sites and motifs the design keeps out. Iki
+  rewrites the region, registers the result as a DNA sequence derived from this record,
+  and reports how far it moved -- the codon adaptation index and GC content before and
+  after, how many codons changed, and any constraint it could not meet.
+hrid: { prefix: OPT }
+fields:
+  name: { type: string, max_length: 255, indexed: true }
+  description: { type: text, max_length: 10000 }
+  template:
+    type: ref
+    to: DNASequence
+    required: true
+    description: >-
+      The sequence whose coding region is rewritten: a gene, a construct, or a plasmid
+      with the gene in it. Everything outside the coding region is kept exactly, and the
+      product is the whole template with that region rewritten.
+  coding_start:
+    type: int
+    min: 1
+    label: Coding region starts at
+    description: >-
+      The first base of the coding region, counting from 1. Left empty, the whole
+      template is the coding region.
+  coding_end:
+    type: int
+    min: 1
+    label: Coding region ends at
+    description: >-
+      The last base of the coding region, its stop codon's included. Left empty, the
+      template's last base.
+  coding_strand:
+    type: enum
+    values: [forward, reverse]
+    default: forward
+    description: >-
+      Which strand the coding region is read on. A reverse-strand gene is read from
+      `coding_end` back to `coding_start` on the other strand, and written back the same
+      way, so the product reads as the template does.
+  host:
+    type: enum
+    required: true
+    indexed: true
+    values:
+      [
+        e_coli_k12,
+        b_subtilis_168,
+        s_cerevisiae_s288c,
+        k_phaffii_gs115,
+        h_sapiens,
+        c_griseus,
+        s_frugiperda,
+        d_melanogaster,
+        a_thaliana,
+      ]
+    description: >-
+      The host the gene is to be expressed in, whose codon usage the design uses:
+      E. coli K-12 MG1655, Bacillus subtilis 168, Saccharomyces cerevisiae S288C,
+      Komagataella phaffii (Pichia pastoris) GS115, human, Chinese hamster (CHO),
+      Spodoptera frugiperda (Sf9), Drosophila melanogaster, or Arabidopsis thaliana. Each
+      table is counted from the RefSeq coding sequences of that organism's reference
+      assembly, which the record names once the run has been.
+  strategy:
+    type: enum
+    default: highest_usage
+    values: [highest_usage, usage_matched, harmonized]
+    description: >-
+      How a codon is chosen before the constraints are repaired. `highest_usage` takes
+      each amino acid's most-used codon in the host, which gives the highest codon
+      adaptation index and is what a synthesis order usually means by optimization.
+      `usage_matched` uses each amino acid's codons in the proportions the host uses
+      them, dealt out so synonyms alternate: the gene keeps the host's codon
+      distribution, and is less repetitive. `harmonized` keeps each codon's share within
+      its family as near as it can to the share the template's codon has in the source
+      organism, so that where the template's ribosome slowed the new gene's slows too
+      (Angov et al., PLoS ONE 3:e2189, 2008); it needs `source_organism`.
+  source_organism:
+    type: enum
+    values:
+      [
+        e_coli_k12,
+        b_subtilis_168,
+        s_cerevisiae_s288c,
+        k_phaffii_gs115,
+        h_sapiens,
+        c_griseus,
+        s_frugiperda,
+        d_melanogaster,
+        a_thaliana,
+      ]
+    description: >-
+      The organism the template's gene is from, for a harmonized design: the codon usage
+      the template's own codon shares are read against. Ignored by the other strategies.
+  genetic_code:
+    type: enum
+    default: standard
+    values:
+      [
+        standard,
+        bacterial_archaeal_plant_plastid,
+        vertebrate_mitochondrial,
+        yeast_mitochondrial,
+        mold_protozoan_coelenterate_mitochondrial,
+        invertebrate_mitochondrial,
+        alternative_yeast_nuclear,
+      ]
+    label: Genetic code
+    description: >-
+      Which of NCBI's translation tables reads the coding region, and so which codons are
+      synonymous: standard is table 1, and bacterial_archaeal_plant_plastid table 11. The
+      others are tables 2, 3, 4, 5 and 12. A table whose stop codons are read as sense
+      codons in some places (NCBI's tables 27, 28 and 31) isn't offered: the bases alone
+      don't say which (ADR 0172).
+  avoid_enzymes:
+    type: list
+    max_items: 12
+    items: { type: string, max_length: 20, pattern: "^[A-Za-z][A-Za-z0-9.-]{1,19}$" }
+    label: Restriction sites to avoid
+    description: >-
+      Restriction enzymes whose recognition sites the optimized gene must not have, named
+      as REBASE names them (EcoRI, BamHI, BsaI, BsmBI). A site is avoided on both
+      strands, as an enzyme cuts a duplex. Sites outside the coding region are the
+      template's and are left alone.
+  avoid_motifs:
+    type: list
+    max_items: 12
+    items: { type: string, max_length: 40, pattern: "^[ACGTRYKMBVDHNSWacgtrykmbvdhnsw]{3,40}$" }
+    label: Motifs to avoid
+    description: >-
+      Any other sequences the optimized gene must not have, in IUPAC codes, avoided on
+      both strands: a vendor's forbidden sequences, a probe's binding site, a motif the
+      lab has had trouble with.
+  codons:
+    type: int
+    computed: true
+    min: 0
+    description: The codons of the coding region, its stop codon's included.
+  codons_changed:
+    type: int
+    computed: true
+    min: 0
+    description: >-
+      How many of them were written with a different codon. The protein is unchanged:
+      every substitution is synonymous under the chosen translation table, and the run
+      refuses to register anything whose protein differs.
+  protein_length:
+    type: int
+    computed: true
+    min: 0
+    label: Amino acids
+    description: The amino acids the region codes for, a stop codon not counted.
+  source_cai:
+    type: quantity
+    unit: "1"
+    computed: true
+    min: 0
+    max: 1
+    label: CAI before
+    description: >-
+      The template region's codon adaptation index against the host's codon usage (Sharp
+      and Li, Nucleic Acids Res 15:1281, 1987): the geometric mean of each codon's
+      relative adaptiveness, 1 when every codon is its family's most-used codon in the
+      host. `cai_reference` says which table it is against; a CAI is comparable only with
+      another against the same table.
+  optimized_cai:
+    type: quantity
+    unit: "1"
+    computed: true
+    min: 0
+    max: 1
+    label: CAI after
+    description: The optimized region's, the same way.
+  cai_reference:
+    type: string
+    max_length: 300
+    computed: true
+    label: CAI against
+    description: >-
+      The codon usage table the two indexes are against, with the assembly it was counted
+      from and how many coding sequences went into it.
+  source_gc_content:
+    type: quantity
+    unit: "%"
+    computed: true
+    min: 0
+    max: 100
+    label: GC before
+    description: The share of G and C in the template's coding region.
+  optimized_gc_content:
+    type: quantity
+    unit: "%"
+    computed: true
+    min: 0
+    max: 100
+    label: GC after
+    description: The share in the optimized region.
+  constraints_met:
+    type: bool
+    computed: true
+    label: Every constraint met
+    description: >-
+      Whether the optimized region breaks none of the constraints. Where a stretch of
+      protein has no synonymous choice that meets them all, the design is registered
+      anyway, with what is still broken: the protein is never compromised, and everything
+      else is best effort, said to be.
+  unmet_constraints:
+    type: json
+    computed: true
+    label: What is still broken
+    description: >-
+      Each constraint the optimized region still breaks: what it is, where it lies within
+      the region (from 1), and why, so it can be looked at and the design run again with
+      a wider band or a shorter repeat.
+    schema:
+      type: array
+      maxItems: 500
+      items:
+        type: object
+        additionalProperties: false
+        required: [kind, start, end, detail]
+        properties:
+          kind:
+            type: string
+            maxLength: 40
+            description: >-
+              restriction_site, motif, host_motif, homopolymer, repeat, hairpin,
+              gc_content or gc_window.
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1 }
+          detail: { type: string, maxLength: 300 }
+  codon_changes:
+    type: json
+    computed: true
+    label: Codon by codon
+    description: >-
+      Every codon that changed: its place in the protein (from 1), the amino acid, the
+      template's codon and the one written, and each codon's relative adaptiveness in the
+      host, so the design can be read rather than taken on trust.
+    schema:
+      type: array
+      maxItems: 10000
+      items:
+        type: object
+        additionalProperties: false
+        required: [codon, residue, from, to]
+        properties:
+          codon: { type: integer, minimum: 1 }
+          residue: { type: string, maxLength: 1 }
+          from: { type: string, maxLength: 3 }
+          to: { type: string, maxLength: 3 }
+          from_weight: { type: number, minimum: 0, maximum: 1 }
+          to_weight: { type: number, minimum: 0, maximum: 1 }
+  optimized_with:
+    type: string
+    max_length: 1000
+    computed: true
+    label: Optimized with
+    description: >-
+      Everything the design was worked out with, in words: the host and its table, the
+      strategy, the translation table, and every constraint with the number it was set
+      to. A sequence nobody can read these off is a sequence nobody can order again.
+display:
+  title: "{{ name or hrid }}"
