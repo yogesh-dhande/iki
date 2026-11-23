@@ -8070,7 +8070,10 @@ input[type="file"]::file-selector-button {
   opacity: 0.3;
 }
 
+/* As big as the plane, so the list has the size its absolutely placed states make. */
 .flow-nodes {
+  position: absolute;
+  inset: 0;
   list-style: none;
   margin: 0;
   padding: 0;
