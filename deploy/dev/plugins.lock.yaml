@@ -22,6 +22,7 @@ plugins:
     local: ../../plugins/example_lims
     state: active
     settings: settings/example_lims.yaml
+  - { name: iki/cell_lines, local: ../../plugins/cell_lines, state: active }
   # Calls the fake FoldCloud (manifests/fake-foldcloud.yaml), an outside API.
   - name: iki/example_models
     local: ../../plugins/example_models

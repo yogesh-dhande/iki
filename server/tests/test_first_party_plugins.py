@@ -26,6 +26,14 @@ FIRST_PARTY = {
     PLUGINS / "small_molecule": (),
     PLUGINS / "oligo": (),
     PLUGINS / "plasmid": (PLUGINS / "dna",),
+    PLUGINS / "cell_lines": (
+        PLUGINS / "dna",
+        PLUGINS / "protein",
+        PLUGINS / "oligo",
+        PLUGINS / "plasmid",
+        PLUGINS / "lots",
+        PLUGINS / "example_lims",
+    ),
     PLUGINS / "complex": (PLUGINS / "dna", PLUGINS / "protein"),
     PLUGINS / "conjugate": (
         PLUGINS / "dna",
