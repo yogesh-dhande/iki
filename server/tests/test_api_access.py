@@ -1826,7 +1826,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/imports/{import_id}/apply",
-        bundle_import("/apply", {"reason": "Moving the work"}),
+        bundle_import(
+            "/apply", {"reason": "Moving the work", "planned_at": "2026-11-15T10:00:05Z"}
+        ),
         row(404),
     ),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),

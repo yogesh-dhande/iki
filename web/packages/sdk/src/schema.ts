@@ -5887,6 +5887,12 @@ export interface components {
         /** ApplyIn */
         ApplyIn: {
             /**
+             * Planned At
+             * Format: date-time
+             * @description The planned_at of the plan being confirmed.
+             */
+            planned_at: string;
+            /**
              * Reason
              * @description Why: the import and the audit log keep it.
              */
@@ -9717,6 +9723,11 @@ export interface components {
              * @default 50
              */
             limit: number;
+            /**
+             * Planned At
+             * @description Read this revision of the plan. A newer plan answers 409.
+             */
+            planned_at?: string | null;
         };
         /** ImportFiles */
         ImportFiles: {
@@ -9756,6 +9767,25 @@ export interface components {
              */
             size: number;
         };
+        /** ImportMemberParams */
+        ImportMemberParams: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Planned At
+             * @description Read this revision of the plan. A newer plan answers 409.
+             */
+            planned_at?: string | null;
+        };
         /** ImportOut */
         ImportOut: {
             /** Applied At */
@@ -9784,7 +9814,10 @@ export interface components {
             name: string;
             /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
             plan: components["schemas"]["ImportPlan"] | null;
-            /** Planned At */
+            /**
+             * Planned At
+             * @description Revision of the published plan. Pass this value unchanged when applying it.
+             */
             planned_at: string | null;
             /**
              * Project
@@ -9968,7 +10001,10 @@ export interface components {
             parts: components["schemas"]["PartOut"][];
             /** @description Once planned: counts, types, files, what it refers to outside it, and the problems that keep it from being applied (empty when it can be). */
             plan: components["schemas"]["ImportPlan"] | null;
-            /** Planned At */
+            /**
+             * Planned At
+             * @description Revision of the published plan. Pass this value unchanged when applying it.
+             */
             planned_at: string | null;
             /**
              * Project
@@ -21695,6 +21731,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Read this revision of the plan. A newer plan answers 409. */
+                planned_at?: string | null;
                 action?: ("new" | "update" | "skip" | "conflict") | null;
             };
             header?: never;
@@ -21749,6 +21787,8 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Read this revision of the plan. A newer plan answers 409. */
+                planned_at?: string | null;
             };
             header?: never;
             path: {
