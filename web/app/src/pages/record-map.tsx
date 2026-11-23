@@ -174,11 +174,11 @@ export function miniMapOf(entity: Entity, type: EntityType): MapOf | null {
 
 /** A type whose sequence is another record's, as a plasmid's is its DNA sequence's
  * (ADR 0163): the reference and its own features field, from the sequence export that
- * writes the two together (ADR 0171; every export is a sequence's). */
+ * writes the two together (ADR 0171). */
 function referencedSequence(type: EntityType): { sequence: string; features: string } | null {
   const field = (name: string) => type.fields.find((f) => f.name === name);
   for (const e of type.exports ?? []) {
-    if (e.features && field(e.sequence)?.type === "ref") {
+    if (e.export === "sequence" && e.features && field(e.sequence)?.type === "ref") {
       return { sequence: e.sequence, features: e.features };
     }
   }

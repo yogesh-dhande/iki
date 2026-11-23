@@ -90,6 +90,7 @@ from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     EntityType,
+    ReportExport,
     Rule,
     State,
     Track,
@@ -406,8 +407,11 @@ ViewerOut = Annotated[
 ]
 
 
+ExportFormat = Literal["genbank", "fasta", "signed-report-html", "signed-report-json"]
+
+
 class FileFormatOut(Schema):
-    format: Literal["genbank", "fasta"] = Field(description="What `/entities/{ref}/export` takes.")
+    format: ExportFormat = Field(description="What `/entities/{ref}/export` takes.")
     label: str = Field(description="Its name, such as GenBank.")
     extension: str = Field(description="Its file name's, such as gb.")
     media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
@@ -427,6 +431,14 @@ class FileExportOut(Schema):
         description="A json field of features (type, start, end, name, strand) it adds "
         "along the sequence, or null. A record page draws them as a map."
     )
+
+
+class SignedReportExportOut(Schema):
+    export: Literal["signed_report"]
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    report: str = Field(description="The JSON field holding the report.")
+    review: str = Field(description="The state field whose signed transitions issue the report.")
+    issued: list[str] = Field(description="States in which a signed report has been issued.")
 
 
 class TypeNotificationOut(Schema):
@@ -561,7 +573,9 @@ class EntityTypeOut(Schema):
         description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
         "nearest parent's."
     )
-    exports: list[FileExportOut] = Field(
+    exports: list[
+        Annotated[FileExportOut | SignedReportExportOut, Field(discriminator="export")]
+    ] = Field(
         default_factory=list,
         description="The files Iki writes of its records (ADR 0171), from "
         "`/entities/{ref}/export`: its own, or its nearest parent's.",
@@ -1351,8 +1365,11 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
             {
                 "export": e.export,
                 "formats": [asdict(f) for f in exports.FORMATS[e.export]],
-                "sequence": e.sequence,
-                "features": e.features or None,
+                **(
+                    {"report": e.report, "review": e.review, "issued": e.issued}
+                    if isinstance(e, ReportExport)
+                    else {"sequence": e.sequence, "features": e.features or None}
+                ),
             }
             for e in registry.exports(entity_type)
         ],
@@ -3084,10 +3101,7 @@ def get_revision(
 
 
 class ExportParams(Schema):
-    format: Literal["genbank", "fasta"] = Field(
-        description="Which file: `genbank` (with its features) or `fasta`, as its type's "
-        "`exports` list them."
-    )
+    format: ExportFormat = Field(description="Which file, as its type's `exports` list them.")
     revision: int | None = Field(
         None, ge=1, description="Which revision, as it was then. Its latest if left out."
     )
@@ -3104,7 +3118,12 @@ class ExportParams(Schema):
         "responses": {
             200: {
                 "description": "The file, as an attachment named for the record.",
-                "content": {"chemical/seq-na-genbank": {}, "chemical/seq-na-fasta": {}},
+                "content": {
+                    "chemical/seq-na-genbank": {},
+                    "chemical/seq-na-fasta": {},
+                    "text/html": {},
+                    "application/json": {},
+                },
             }
         }
     },

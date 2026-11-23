@@ -41,8 +41,8 @@ There are three kinds:
   with each reference one step deep, as the referenced record's fields), and
   `now` and `today`. `when` limits it to some records, and `fields` says which
   fields its message points at. The default is the fields it reads.
-- **`unique: [fields]`**: no two of a project's records share them together,
-  such as `[box, position]`. The database holds it.
+- **`unique: [fields]`**: no two of a project's records share the values of
+  a field or combination of fields, such as `[box, position]`. The database holds it.
 - **`no_overlap: {from, to, per}`**: no two of a project's records' ranges
   overlap, with the same `per` values, such as an instrument's bookings. The
   database holds it with an exclusion constraint (`btree_gist`). Datetimes and

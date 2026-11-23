@@ -57,6 +57,7 @@ from iki_spec.model import (
     Guard,
     LabRole,
     Plugin,
+    ReportExport,
     RequestSpec,
     ResultSpec,
     RowRole,
@@ -893,7 +894,9 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
-def _export(body: dict[str, Any]) -> Export:
+def _export(body: dict[str, Any]) -> Export | ReportExport:
+    if body["export"] == "signed_report":
+        return ReportExport(body["export"], body["report"], body["review"], tuple(body["issued"]))
     return Export(
         export=body["export"],
         sequence=body["sequence"],
@@ -2607,6 +2610,9 @@ class _Semantics:
                     hint="Give each export once: its files are offered on the record's page.",
                 )
             seen.add(export.export)
+            if isinstance(export, ReportExport):
+                self.report_export(export, source, path, fields)
+                continue
             for role, wanted, kinds in self._export_roles():
                 name = getattr(export, role)
                 if not name:
@@ -2624,6 +2630,42 @@ class _Semantics:
                         source,
                         (*path, role),
                     )
+
+    def report_export(
+        self, export: ReportExport, source: Document, path: Path, fields: dict[str, Field]
+    ) -> None:
+        report, review = fields.get(export.report), fields.get(export.review)
+        if report is None or report.type != "json":
+            self.add(
+                "export-field",
+                f"`{export.report}` must be a JSON field for a signed report.",
+                source,
+                (*path, "report"),
+            )
+        if review is None or review.type != "state":
+            self.add(
+                "export-field",
+                f"`{export.review}` must be a state field for a signed report.",
+                source,
+                (*path, "review"),
+            )
+            return
+        for index, name in enumerate(export.issued):
+            state = review.states.get(name)
+            if (
+                state is None
+                or state.removed
+                or not state.signatures
+                or not state.locks
+                or state.on_edit
+            ):
+                self.add(
+                    "export-state",
+                    f"`{name}` must be a signed locking state of `{export.review}` with no "
+                    "edit destination.",
+                    source,
+                    (*path, "issued", index),
+                )
 
     def _export_roles(self) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
         return (
@@ -2654,7 +2696,7 @@ class _Semantics:
         declared = next((t.exports for t in [target, *self.ancestors(target)] if t.exports), ())
         fields = {n: f for n, (f, _) in self.all_fields(target).items()}
         return any(
-            e.export == "sequence"
+            isinstance(e, Export)
             and (f := fields.get(e.sequence)) is not None
             and f.type == "string"
             and f.format in NUCLEIC_FORMATS

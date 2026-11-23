@@ -825,7 +825,7 @@ class EntityType:
     viewers: tuple[Viewer, ...] = ()
     #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
-    exports: tuple[Export, ...] = ()
+    exports: tuple[Export | ReportExport, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -929,6 +929,16 @@ class Extension:
 
 #: Where actions run, from a machine a team registered to a virtual machine Iki starts.
 TIERS = ("self_hosted", "backend", "container", "vm")
+
+
+@dataclass(frozen=True)
+class ReportExport:
+    """A JSON report issued by a signed state change."""
+
+    export: str
+    report: str
+    review: str
+    issued: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1557,6 +1567,7 @@ _DATACLASSES = (
     ResultSpec,
     EntityType,
     Export,
+    ReportExport,
     Extension,
     Plugin,
     Action,
@@ -1608,6 +1619,12 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
 def _viewer(data: dict[str, Any]) -> Viewer:
     tracks = tuple(Track(**t) for t in data.get("tracks") or ())
     return Viewer(**{**data, "tracks": tracks})
+
+
+def _export(data: dict[str, Any]) -> Export | ReportExport:
+    if data["export"] == "signed_report":
+        return ReportExport(**{**data, "issued": tuple(data["issued"])})
+    return Export(**data)
 
 
 def plugin_from_dict(data: dict[str, Any]) -> Plugin:

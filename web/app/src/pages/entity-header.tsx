@@ -295,7 +295,7 @@ function RecordActions({ entity, type }: { entity: Entity; type: EntityType | un
   const [exporting, setExporting] = useState(false);
   const editable = entity.can.edit && type !== undefined;
   // Anyone who reads it may download it (ADR 0171).
-  const exports = exportFormats(type).length > 0;
+  const exports = exportFormats(type, entity.values).length > 0;
   return (
     <div className="actions record-actions">
       <EntityWatch entity={entity} />

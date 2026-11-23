@@ -106,6 +106,7 @@ FIRST_PARTY = frozenset(
         "iki/lots",
         "iki/strains",
         "iki/plate_assays",
+        "iki/qc_release",
         "iki/example_lims",
         "iki/example_models",
     }

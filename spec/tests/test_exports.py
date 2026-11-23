@@ -3,7 +3,7 @@
 import textwrap
 from pathlib import Path
 
-from iki_spec.model import Export, plugin_from_dict, plugin_to_dict
+from iki_spec.model import Export, ReportExport, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -116,7 +116,9 @@ def test_a_reference_exports_the_sequence_it_names(tmp_path: Path) -> None:
     assert result.problems == []
     plugin = result.plugin
     assert plugin is not None
-    assert plugin.types["acme/lab.Vector"].exports[0].sequence == "construct"
+    (export,) = plugin.types["acme/lab.Vector"].exports
+    assert isinstance(export, Export)
+    assert export.sequence == "construct"
 
 
 def test_a_reference_to_a_type_that_exports_nothing_isnt_a_sequence(tmp_path: Path) -> None:
@@ -135,3 +137,32 @@ def test_the_schema_knows_each_exports_fields(tmp_path: Path) -> None:
     assert codes(made(tmp_path, "[{ export: sequence }]")) == ["schema"]
     assert codes(made(tmp_path, "[{ export: sequence, sequence: bases, file: x }]")) == ["schema"]
     assert codes(made(tmp_path, "[{ export: chart, sequence: bases }]")) == ["schema"]
+
+
+def test_a_signed_report_names_a_json_field_and_a_locking_signed_state(tmp_path: Path) -> None:
+    located = Path(__file__).parent / "plugins/protein/types/signed_report.yaml"
+    manifest = located.read_text()
+    root = tmp_path / "acme"
+    (root / "types").mkdir(parents=True)
+    (root / "plugin.yaml").write_text(
+        PLUGIN
+        + "roles: {analyst: {label: Analyst}, reviewer: {label: Reviewer}, qa: {label: QA}}\n"
+    )
+    report = root / "types" / "report.yaml"
+    report.write_text(manifest)
+    loaded = load_plugin(root)
+    assert loaded.problems == []
+    plugin = loaded.plugin
+    assert plugin is not None
+    assert plugin.types["acme/lab.SignedReport"].exports == (
+        ReportExport("signed_report", "report", "review", ("issued",)),
+    )
+    assert plugin_from_dict(plugin_to_dict(plugin)) == plugin
+    for old, bad, code in (
+        ("type: json", "type: int", "export-field"),
+        ("review: review", "review: report", "export-field"),
+        ("issued: [issued]", "issued: [reviewed]", "export-state"),
+        ("issued: [issued]", "issued: [recorded]", "export-state"),
+    ):
+        report.write_text(manifest.replace(old, bad))
+        assert codes(load_plugin(root)) == [code]

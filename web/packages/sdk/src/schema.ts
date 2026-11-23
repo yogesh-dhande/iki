@@ -7856,7 +7856,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: components["schemas"]["FileExportOut"][];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["SignedReportExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -8297,10 +8297,10 @@ export interface components {
         ExportParams: {
             /**
              * Format
-             * @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.
+             * @description Which file, as its type's `exports` list them.
              * @enum {string}
              */
-            format: "genbank" | "fasta";
+            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -8568,9 +8568,8 @@ export interface components {
         /** FileExportOut */
         FileExportOut: {
             /**
-             * Export
-             * @description What it writes. `sequence`: a DNA or RNA sequence, with its features.
-             * @constant
+             * @description What it writes. `sequence`: a DNA or RNA sequence, with its features. (enum property replaced by openapi-typescript)
+             * @enum {string}
              */
             export: "sequence";
             /**
@@ -8673,7 +8672,7 @@ export interface components {
              * @description What `/entities/{ref}/export` takes.
              * @enum {string}
              */
-            format: "genbank" | "fasta";
+            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
             /**
              * Label
              * @description Its name, such as GenBank.
@@ -15830,6 +15829,34 @@ export interface components {
             /** To Label */
             to_label: string;
         };
+        /** SignedReportExportOut */
+        SignedReportExportOut: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            export: "signed_report";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Issued
+             * @description States in which a signed report has been issued.
+             */
+            issued: string[];
+            /**
+             * Report
+             * @description The JSON field holding the report.
+             */
+            report: string;
+            /**
+             * Review
+             * @description The state field whose signed transitions issue the report.
+             */
+            review: string;
+        };
         /** SigningIn */
         SigningIn: {
             /**
@@ -20105,8 +20132,8 @@ export interface operations {
     iki_server_api_entities_export_entity: {
         parameters: {
             query: {
-                /** @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them. */
-                format: "genbank" | "fasta";
+                /** @description Which file, as its type's `exports` list them. */
+                format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
                 /** @description Which revision, as it was then. Its latest if left out. */
                 revision?: number | null;
                 /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
@@ -20126,8 +20153,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
+                    "text/html": unknown;
                 };
             };
         };

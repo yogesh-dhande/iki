@@ -404,6 +404,26 @@
     },
     "export": {
       "type": "object",
+      "required": ["export"],
+      "properties": {
+        "export": { "enum": ["sequence", "signed_report"] }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["export"], "properties": { "export": { "const": "sequence" } } },
+          "then": { "$ref": "#/$defs/sequenceExport" }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": { "export": { "const": "signed_report" } }
+          },
+          "then": { "$ref": "#/$defs/reportExport" }
+        }
+      ]
+    },
+    "sequenceExport": {
+      "type": "object",
       "required": ["export", "sequence"],
       "additionalProperties": false,
       "properties": {
@@ -430,6 +450,33 @@
         "organism": {
           "description": "A reference to iki/core.Organism: the taxon it's from, written as GenBank's source feature.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
+    "reportExport": {
+      "type": "object",
+      "required": ["export", "report", "review", "issued"],
+      "additionalProperties": false,
+      "properties": {
+        "export": {
+          "const": "signed_report",
+          "description": "A JSON report and its carried electronic signatures, as HTML or JSON."
+        },
+        "report": {
+          "description": "The JSON field holding the report.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "review": {
+          "description": "The state field whose signed transitions issue the report.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "issued": {
+          "description": "The signed locking states, with no edit destination, at which an issued revision may be exported.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
         }
       }
     },

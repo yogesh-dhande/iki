@@ -5484,7 +5484,21 @@
           "exports": {
             "description": "The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.",
             "items": {
-              "$ref": "#/components/schemas/FileExportOut"
+              "discriminator": {
+                "mapping": {
+                  "sequence": "#/components/schemas/FileExportOut",
+                  "signed_report": "#/components/schemas/SignedReportExportOut"
+                },
+                "propertyName": "export"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FileExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/SignedReportExportOut"
+                }
+              ]
             },
             "title": "Exports",
             "type": "array"
@@ -6443,10 +6457,12 @@
       "ExportParams": {
         "properties": {
           "format": {
-            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "description": "Which file, as its type's `exports` list them.",
             "enum": [
               "genbank",
-              "fasta"
+              "fasta",
+              "signed-report-html",
+              "signed-report-json"
             ],
             "title": "Format",
             "type": "string"
@@ -7334,7 +7350,9 @@
             "description": "What `/entities/{ref}/export` takes.",
             "enum": [
               "genbank",
-              "fasta"
+              "fasta",
+              "signed-report-html",
+              "signed-report-json"
             ],
             "title": "Format",
             "type": "string"
@@ -23258,6 +23276,50 @@
         "title": "SignedChangeOut",
         "type": "object"
       },
+      "SignedReportExportOut": {
+        "properties": {
+          "export": {
+            "const": "signed_report",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "issued": {
+            "description": "States in which a signed report has been issued.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Issued",
+            "type": "array"
+          },
+          "report": {
+            "description": "The JSON field holding the report.",
+            "title": "Report",
+            "type": "string"
+          },
+          "review": {
+            "description": "The state field whose signed transitions issue the report.",
+            "title": "Review",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "report",
+          "review",
+          "issued"
+        ],
+        "title": "SignedReportExportOut",
+        "type": "object"
+      },
       "SigningIn": {
         "properties": {
           "acknowledge": {
@@ -32724,15 +32786,17 @@
             }
           },
           {
-            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "description": "Which file, as its type's `exports` list them.",
             "in": "query",
             "name": "format",
             "required": true,
             "schema": {
-              "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+              "description": "Which file, as its type's `exports` list them.",
               "enum": [
                 "genbank",
-                "fasta"
+                "fasta",
+                "signed-report-html",
+                "signed-report-json"
               ],
               "title": "Format",
               "type": "string"
@@ -32780,8 +32844,10 @@
         "responses": {
           "200": {
             "content": {
+              "application/json": {},
               "chemical/seq-na-fasta": {},
-              "chemical/seq-na-genbank": {}
+              "chemical/seq-na-genbank": {},
+              "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
           }

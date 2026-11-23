@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: publish_version
+label: Publish an approved specification version
+description: Append an approved version to its material's schedule. The release date of each new version must follow the previous one.
+inputs:
+  schedule: { type: SpecificationSchedule, include: [versions] }
+  version: { type: SpecificationVersion }
+effects:
+  updates: [{ input: schedule, fields: [versions] }]
+runs_on: { tier: backend, environment: qc-tools }
+command: [python, ./scripts/qc_release.py, publish_version]
+timeout: 1m

@@ -414,7 +414,18 @@ function TrailRow({
             ) : null}
             {/* Each of the record's revisions as it was, as a file (ADR 0171): the latest
                 too, as every revision is. An entry's revisions export as its records do. */}
-            {entry ? null : <ExportButton entity={entity} type={type} revision={revision.number} />}
+            {entry ? null : (
+              <ExportButton
+                entity={entity}
+                type={type}
+                revision={revision.number}
+                change={
+                  revision.state
+                    ? { field: revision.state.field.name, to: revision.state.to.name }
+                    : null
+                }
+              />
+            )}
           </span>
         </div>
         <p className="trail-meta">

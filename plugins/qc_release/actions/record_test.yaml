@@ -1,0 +1,38 @@
+apiVersion: iki/v1
+kind: Action
+name: record_test
+label: Record a release test
+inputs:
+  case: { type: ReleaseCase, include: [specification] }
+  assay:
+    type: iki/plate_assays.AssayResult
+    optional: true
+    description: A signed, reportable 4PL result measured on this lot. Leave the manual observed value empty when using an assay.
+  repeat_of:
+    type: ReleaseTest
+    optional: true
+    description: The most recent out-of-specification attempt for this attribute, if this test repeats it after a signed invalidation.
+  investigation:
+    type: OOSInvestigation
+    optional: true
+    description: The signed invalidation of the attempt being repeated.
+params:
+  attribute: { type: string, max_length: 120, required: true }
+  method: { type: string, max_length: 200, required: true }
+  unit: { type: string, max_length: 50, required: true }
+  value: { type: float, label: Observed value }
+  lab_report:
+    type: file
+    label: Laboratory report
+    media_types: [application/pdf, text/plain, text/csv]
+    max_size: 50MiB
+    description: Optional raw evidence for a manually recorded observation.
+effects:
+  creates:
+    - { type: ReleaseTest, derived_from: [case, assay, repeat_of, investigation] }
+    - { type: ResearchOOSInvestigation, derived_from: [case, assay, repeat_of, investigation] }
+    - { type: QCOOSInvestigation, derived_from: [case, assay, repeat_of, investigation] }
+  updates: [{ input: case, fields: [attempts] }]
+runs_on: { tier: backend, environment: qc-tools }
+command: [python, ./scripts/qc_release.py, record_test]
+timeout: 1m

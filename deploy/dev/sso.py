@@ -1616,6 +1616,151 @@ def lims() -> None:
     bookings(alice, project)
     signatures(alice, project, first)
     plate_assay(alice, project)
+    qc_release(alice, project)
+
+
+def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Release a teaching lot against a public USP excerpt and a signed OOS decision."""
+    prefix = "iki/qc_release."
+    give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer", prefix + "qa")
+    # PubChem CID 5234 identifies sodium chloride. All local lot and test data below are synthetic.
+    material = created(
+        alice,
+        project,
+        "iki/small_molecule.Compound",
+        {
+            "name": "Sodium chloride",
+            "smiles": "[Na+].[Cl-]",
+            "inchikey": "FAPWRFPIFSIZLT-UHFFFAOYSA-M",
+            "pubchem_cid": "5234",
+        },
+    )
+    lot = created(
+        alice,
+        project,
+        "iki/lots.GenericLot",
+        {"of": material["id"], "lot_number": "Synthetic NaCl release example", "source": "bought"},
+    )
+
+    def effect(run: dict[str, Any], kind: str) -> dict[str, Any]:
+        [made] = [e["entity"] for e in run["effects"] if e["type"] == prefix + kind]
+        return record(alice, made)
+
+    def sign(entity: dict[str, Any], field: str, state: str, reason: str = "") -> None:
+        result = signing(alice, entity, state, "alice", field=field, reason=reason)
+        if result["status"] != "signed" or not result["set"]:
+            fail(f"signing {entity['hrid']} gave {result}")
+
+    fixture = (
+        Path(__file__).resolve().parents[2]
+        / "plugins/qc_release/tests/data/sodium-chloride-specification.json"
+    )
+    specification = json.loads(fixture.read_text(encoding="utf-8"))
+    schedule = created(
+        alice, project, prefix + "SpecificationSchedule", {"material": material["id"]}
+    )
+    version = created(
+        alice,
+        project,
+        prefix + "SpecificationVersion",
+        {"schedule": schedule["id"], **specification},
+    )
+    sign(version, "approval", "approved")
+    approved = record(alice, version["id"])
+    launch(
+        alice,
+        project,
+        prefix + "publish_version",
+        {"schedule": schedule["id"], "version": version["id"]},
+    )
+    case = effect(
+        launch(
+            alice,
+            project,
+            prefix + "open_release",
+            {"lot": lot["id"], "schedule": schedule["id"]},
+            {"testing_on": datetime.now(UTC).date().isoformat()},
+        ),
+        "ReleaseCase",
+    )
+    assay, drying = specification["criteria"]
+
+    def test(criterion: dict[str, Any], value: float, **inputs: str) -> dict[str, Any]:
+        params = {key: criterion[key] for key in ("attribute", "method", "unit")}
+        return launch(
+            alice,
+            project,
+            prefix + "record_test",
+            {"case": case["id"], **inputs},
+            {**params, "value": value},
+        )
+
+    first = test(assay, 98.7)
+    original = effect(first, "ReleaseTest")
+    investigation = effect(first, "ResearchOOSInvestigation")
+    evidence = upload(
+        alice,
+        project,
+        "synthetic-investigation.txt",
+        b"Synthetic training evidence. The original record used another sample's report.",
+        "text/plain",
+    )
+    amended = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{investigation['id']}",
+        {
+            "values": {
+                "resolution": "invalidated",
+                "findings": "Synthetic scenario: the report ID belongs to a different specimen.",
+                "evidence": evidence,
+            },
+            "reason": "Record the synthetic investigation evidence.",
+        },
+        {"If-Match": f'"{investigation["revision"]}"'},
+    )
+    if amended.status_code != 200:
+        fail(f"recording an OOS disposition answered HTTP {amended.status_code}: {amended.text}")
+    sign(investigation, "review", "signed_off", "Signed synthetic investigation conclusion.")
+    repeat = effect(
+        test(assay, 99.9, repeat_of=original["id"], investigation=investigation["id"]),
+        "ReleaseTest",
+    )
+    moisture = effect(test(drying, 0.2), "ReleaseTest")
+    certificate = effect(
+        launch(
+            alice,
+            project,
+            prefix + "prepare_certificate",
+            {
+                "case": case["id"],
+                "tests": [original["id"], repeat["id"], moisture["id"]],
+                "investigations": [investigation["id"]],
+            },
+        ),
+        "ResearchCertificate",
+    )
+    report = certificate["values"]["report"]
+    if (
+        report["specification"]["revision"] != approved["revision"]
+        or [row["value"] for row in report["tests"]] != [98.7, 99.9, 0.2]
+        or report["investigations"][0]["resolution"] != "invalidated"
+    ):
+        fail(f"{certificate['hrid']} lost the pinned data: {report}")
+    sign(certificate, "review", "signed_off")
+    proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
+    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        fail(f"{certificate['hrid']} has no verifiable reviewer signature")
+    url = f"/entities/{certificate['id']}/export?format=signed-report-json"
+    receipt = api_call(alice, "GET", url)
+    if (
+        receipt.status_code != 200
+        or receipt.json()["report"] != report
+        or len(receipt.json()["signatures"]) != 1
+        or api_call(alice, "GET", url).content != receipt.content
+    ):
+        fail(f"{certificate['hrid']} has no reproducible signed certificate download")
+    ok(f"{certificate['hrid']} pins an effective specification, original OOS and signed resolution")
 
 
 def signing(
