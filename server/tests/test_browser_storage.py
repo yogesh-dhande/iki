@@ -14,6 +14,7 @@ and a tablet either way up."""
 import re
 from itertools import pairwise
 from typing import Any
+from uuid import UUID
 
 import pytest
 from org_world import World
@@ -84,13 +85,25 @@ def make(world: World, type_name: str, values: dict[str, Any], **kw: Any) -> dic
     return ref(entities.create(world.users["admin"], type_name, world.project, values, **kw))
 
 
-def put(world: World, *items: tuple[dict[str, Any], dict[str, Any], str | None]) -> None:
+def put(
+    world: World,
+    *items: tuple[dict[str, Any], dict[str, Any], str | None],
+    scanned: tuple[dict[str, Any], ...] = (),
+) -> None:
+    """Puts each away as its project's Admin; those `scanned` with their own Iki label read,
+    for a type that asks for a scan before a move."""
     found = Entity.objects.in_bulk([i for x in items for i in (x[0]["id"], x[1]["id"])])
     storage.move(
         world.users["admin"],
         [storage.Wanted(found[r["id"]], found[c["id"]], p) for r, c, p in items],
         reason="Put away",
+        confirmations={found[r["id"]].pk: iki_label(r) for r in scanned},
     )
+
+
+def iki_label(record: dict[str, Any]) -> str:
+    """What the record's own Iki label reads: IKI: and its UUID's 32 hex digits."""
+    return "IKI:" + UUID(str(record["id"])).hex.upper()
 
 
 def a_freezer(world: World) -> dict[str, Any]:
@@ -986,6 +999,8 @@ def test_a_count_scan_replacing_an_empty_position_asks_why_and_shows_it_in_the_h
 SHARED = "SHARED-42"
 #: What Iki says when a scan involves a tube the person can't read.
 REFUSED = str(ScanRefused())
+# A tube whose type asks for its own scan before a draw and before a move.
+RETAIN_TUBE = "acme/protein.RetainTube"
 # A typed Iki ID refused: none has it, or a tube the person can't read does. The same words.
 IKI_ID_REFUSED = (
     "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer."
@@ -998,11 +1013,14 @@ def expected_refusals(page: Page, status: str) -> None:
     PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if f"status of {status}" not in e]
 
 
-def twins(world: World, *, concealed: bool = False) -> dict[str, Any]:
+def twins(
+    world: World, *, concealed: bool = False, kind: str = TUBE, apart: bool = False
+) -> dict[str, Any]:
     """Two tubes with one vendor barcode side by side in the Kinase Atlas's box: its own at
-    A1, with 50 µL, and a supplier's at A2, shared into the Kinase Atlas, where the admin
-    also reads the supplier's project; or, concealed, taken out of the Kinase Atlas again
-    once it's in the box, so the admin can't read it or its project."""
+    A1, a `kind` with 50 µL, and a supplier's at A2, shared into the Kinase Atlas, where the
+    admin also reads the supplier's project; or, concealed, taken out of the Kinase Atlas
+    again once it's in the box, so the admin can't read it or its project. `apart` leaves
+    the supplier's out of storage, for a test to put beside it later."""
     supplier = Project.objects.create(team=world.team, name="Supplier")
     member = world.users["team_member"]
     ProjectMembership.objects.create(project=supplier, user=member, role=ProjectRole.ADMIN)
@@ -1015,11 +1033,13 @@ def twins(world: World, *, concealed: bool = False) -> dict[str, Any]:
     permissions.forget(member)
     retains = make(world, BOX, {"name": "Kinase retains", "rows": 9, "columns": 9})
     spare = make(world, BOX, {"name": "Spare box", "rows": 9, "columns": 9})
-    ours = make(world, TUBE, {"barcode": SHARED}, amount={"value": 50, "unit": "uL"})
+    ours = make(world, kind, {"barcode": SHARED}, amount={"value": 50, "unit": "uL"})
     theirs = ref(entities.create(member, TUBE, supplier, {"barcode": SHARED}))
     theirs_entity = Entity.objects.get(pk=theirs["id"])
     entities.link(member, theirs_entity, world.project)
-    put(world, (ours, retains, "A1"), (theirs, retains, "A2"))
+    put(world, (ours, retains, "A1"), scanned=(ours,))
+    if not apart:
+        put(world, (theirs, retains, "A2"))
     if concealed:
         entities.unlink(member, theirs_entity, world.project)
     return {"retains": retains, "spare": spare, "ours": ours, "theirs": theirs}
@@ -1069,7 +1089,7 @@ def test_a_label_two_readable_tubes_share_asks_which_with_their_projects_and_pos
     typed = page.get_by_role("textbox", name="Iki ID")
     typed.fill(SHARED)
     typed.press("Enter")
-    expect(page.get_by_role("alert").filter(has_text=REFUSED)).to_be_visible()
+    expect(page.get_by_role("alert").filter(has_text=IKI_ID_REFUSED)).to_be_visible()
     expect(page.get_by_role("region", name=re.compile("matches more than one"))).to_have_count(0)
     expected_refusals(page, "409 (Conflict)")
     typed.fill(ours["hrid"])
@@ -1148,7 +1168,7 @@ def test_receiving_keeps_the_scanners_exact_text_in_its_history(open_as: Any, wo
 def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     open_as: Any, world: World
 ) -> None:
-    kept = twins(world)
+    kept = twins(world, kind=RETAIN_TUBE)
     ours, spare = kept["ours"], kept["spare"]
     page: Page = open_as("admin", f"/entities/{ours['hrid']}/")
     card = page.get_by_role("region", name="Volume")
@@ -1167,22 +1187,9 @@ def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     dialog.get_by_role("button", name="Draw", exact=True).click()
     expect(page.get_by_text(f"{ours['hrid']} has 45 uL now.")).to_be_visible()
 
-    # Moving: this deployment's tube asks for a draw scan only. The page is told it asks for
-    # one before a move as well, so the confirmation is checked by the server's resolver.
-    def confirm_moves(route: Route) -> None:
-        response = route.fetch()
-        types = response.json()
-        tube = next(t for t in types if t["name"] == TUBE)
-        tube["storage"]["confirm"] = ["draw", "move"]
-        route.fulfill(response=response, json=types)
-
-    page.route(re.compile(r"/api/v1/entity-types$"), confirm_moves)
+    # A retain tube asks for its own scan before a move too.
     page.goto(f"/storage/{kept['retains']['hrid']}/")
-    page.get_by_role("button", name="Select several").click()
-    grid = page.get_by_role("grid", name="Kinase retains’s positions")
-    grid.get_by_role("gridcell", name=re.compile(r"^A1, ")).click()
-    page.get_by_role("region", name="Selected").get_by_role("button", name="Move…").click()
-    move = page.get_by_role("dialog", name=f"Move {ours['hrid']}")
+    move = select_and_move(page, ours)
     scan = move.get_by_role("textbox", name="Scan each label to confirm")
     scan.fill(SHARED)
     scan.press("Enter")
@@ -1190,7 +1197,7 @@ def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     expect(shared).to_be_visible()
     # Both are shown, and neither can be picked: a shared label confirms neither.
     expect(shared.get_by_role("listitem")).to_have_count(2)
-    expect(shared.get_by_role("button", name=re.compile("^TUB-"))).to_have_count(0)
+    expect(shared.get_by_role("button", name=re.compile("^(TUB|RTB)-"))).to_have_count(0)
     confirmed = move.get_by_role("list", name="Confirmed")
     expect(confirmed).to_contain_text(f"{ours['hrid']} not scanned yet")
     checked(page)
@@ -1204,6 +1211,65 @@ def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     expect(move.get_by_role("table", name="What moving them does")).to_contain_text(
         f"{spare['hrid']}, A1"
     )
+    move.get_by_role("button", name="Move it").click()
+    move.wait_for(state="hidden")
+    assert where(ours) == (spare["hrid"], 1, 1)
+    page.context.close()
+
+
+def select_and_move(page: Page, record: dict[str, Any]) -> Any:
+    """Selects the tube at A1 on the box's map and opens Move for it."""
+    page.get_by_role("button", name="Select several").click()
+    grid = page.get_by_role("grid", name=re.compile("’s positions$"))
+    grid.get_by_role("gridcell", name=re.compile(r"^A1, ")).click()
+    page.get_by_role("region", name="Selected").get_by_role("button", name="Move…").click()
+    return page.get_by_role("dialog", name=f"Move {record['hrid']}")
+
+
+def test_a_move_whose_label_became_shared_since_its_scan_moves_nothing(
+    open_as: Any, world: World
+) -> None:
+    kept = twins(world, kind=RETAIN_TUBE, apart=True)
+    ours, theirs, retains, spare = kept["ours"], kept["theirs"], kept["retains"], kept["spare"]
+    page: Page = open_as("admin", f"/storage/{retains['hrid']}/")
+    move = select_and_move(page, ours)
+    # Alone in its box, its vendor label is enough.
+    scan = move.get_by_role("textbox", name="Scan each label to confirm")
+    scan.fill(SHARED)
+    scan.press("Enter")
+    confirmed = move.get_by_role("list", name="Confirmed")
+    expect(confirmed).to_contain_text(f"{ours['hrid']} confirmed")
+    move.get_by_role("textbox", name="Container").fill(spare["hrid"])
+    move.get_by_role("textbox", name="Reason").fill("Consolidating retains")
+    move.get_by_role("button", name="Check where they go").click()
+    expect(move.get_by_role("table", name="What moving them does")).to_contain_text(
+        f"{spare['hrid']}, A1"
+    )
+    # Before it's moved, the supplier's tube with the same label is put beside it.
+    put(world, (theirs, retains, "A2"))
+    move.get_by_role("button", name="Move it").click()
+    now = move.get_by_role("region", name=f"“{SHARED}” matches more than one tube")
+    expect(now).to_contain_text(
+        "This label now matches more than one tube, so nothing was moved and "
+        f"{ours['hrid']} isn’t confirmed."
+    )
+    expect(now.get_by_role("button", name=re.compile("^(TUB|RTB)-"))).to_have_count(0)
+    expect(move.get_by_role("alert").filter(has_text="Nothing was moved")).to_be_visible()
+    # Nothing was written, its tick is taken back, and the move it was is still there.
+    assert where(ours) == (retains["hrid"], 1, 1)
+    expect(confirmed).to_contain_text(f"{ours['hrid']} not scanned yet")
+    # What moving it does is checked again: it can't move until it's scanned.
+    plan = move.get_by_role("table", name="What moving them does")
+    expect(plan).to_contain_text(f"Scan {ours['hrid']} to confirm")
+    expect(move.get_by_role("button", name="Move it")).to_have_count(0)
+    expect(move.get_by_role("textbox", name="Container")).to_have_value(spare["hrid"])
+    expected_refusals(page, "422 (Unprocessable Content)")
+    checked(page)
+    typed = move.get_by_role("textbox", name="Iki ID")
+    typed.fill(ours["hrid"])
+    typed.press("Enter")
+    expect(confirmed).to_contain_text(f"{ours['hrid']} confirmed")
+    expect(plan).not_to_contain_text(f"Scan {ours['hrid']} to confirm")
     move.get_by_role("button", name="Move it").click()
     move.wait_for(state="hidden")
     assert where(ours) == (spare["hrid"], 1, 1)

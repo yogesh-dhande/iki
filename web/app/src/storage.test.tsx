@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { entity, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { IKI_ID_REFUSED, SCAN_REFUSED } from "./storage";
-import { answer, calls, page, problem, type Sent } from "./test-server";
+import { answer, calls, ME, page, problem, type Sent } from "./test-server";
 
 const BOX_ID = "00000000-0000-7000-8000-0000000b0001";
 const SHAPE = { rows: 9, columns: 9, labels: "letter_number", order: "by_row", size: 81 } as const;
@@ -460,6 +460,9 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
   };
   const OTHER = { ...SPARE, id: "00000000-0000-7000-8000-0000000b0003", hrid: "BOX-000016" };
 
+  // A label only the first has, until the test gives the second the same one.
+  let solo = [first];
+
   /** The resolver, for a confirmation and a destination, as the server answers them. */
   function resolver(call: Sent) {
     const body = call.body as Schemas["ScanResolveIn"];
@@ -471,17 +474,17 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
       }
       return { status: "one", candidates: [SPARE] };
     }
-    const target = [first, second].find((o) => o.id === body.record);
-    if (!target) return { status: "none", candidates: [] };
-    if (body.mode === "iki_id")
-      return code === target.ref?.hrid
-        ? { status: "one", candidates: [candidateOf(target)] }
-        : { status: "none", candidates: [] };
-    if (code === `IKI:${hex(target.id)}`)
-      return { status: "one", candidates: [candidateOf(target)] };
-    if (code === "SHARED-42")
-      return { status: "ambiguous", candidates: [candidateOf(first), candidateOf(second)] };
-    return { status: "none", candidates: [] };
+    // One question for the whole selection, never for one record of it.
+    expect(body.record ?? null).toBeNull();
+    const among = [first, second].filter((o) => body.records?.includes(o.id ?? ""));
+    const found = (them: typeof among) => ({
+      status: them.length === 1 ? "one" : them.length ? "ambiguous" : "none",
+      candidates: them.map((o) => candidateOf(o)),
+    });
+    if (body.mode === "iki_id") return found(among.filter((o) => code === o.ref?.hrid));
+    if (code === "SHARED-42") return found(among);
+    if (code === "SOLO-7") return found(solo);
+    return found(among.filter((o) => code === `IKI:${hex(o.id)}`));
   }
 
   function plan(call: Sent) {
@@ -509,6 +512,7 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
   }
 
   async function openMove() {
+    solo = [first];
     onBox({ ...container(), contents: [first, second] });
     answer("GET /api/v1/entity-types", [PROTEIN, MOVED]);
     answer("POST /api/v1/storage/scan/resolve", resolver);
@@ -547,11 +551,9 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
     const list = within(dialog).getByRole("list", { name: "Confirmed" });
     expect(list).toHaveTextContent("TUBE-000011 not scanned yet");
     expect(list).toHaveTextContent("TUBE-000012 not scanned yet");
-    // Both were asked about, each with the whole selection.
-    const asked = resolved().filter((b) => b.scope === "confirmation");
-    expect(asked.map((b) => [b.record, b.records])).toEqual([
-      [first.id, [first.id, second.id]],
-      [second.id, [first.id, second.id]],
+    // One question, with the whole selection.
+    expect(resolved().filter((b) => b.scope === "confirmation")).toEqual([
+      { scope: "confirmation", code: "SHARED-42", mode: "label", records: [first.id, second.id] },
     ]);
 
     // The Iki ID typed from the second tube: matched only against Iki IDs.
@@ -561,7 +563,12 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
       expect(list).toHaveTextContent("TUBE-000012 confirmed");
     });
     expect(list).toHaveTextContent("TUBE-000011 not scanned yet");
-    expect(resolved().at(-1)).toMatchObject({ mode: "iki_id", record: second.id });
+    expect(resolved().at(-1)).toEqual({
+      scope: "confirmation",
+      code: "TUBE-000012",
+      mode: "iki_id",
+      records: [first.id, second.id],
+    });
 
     // The first, by its own Iki label; then the same again ticks nothing more.
     const own = `IKI:${hex(first.id)}`;
@@ -591,6 +598,149 @@ describe("moving tubes whose type asks for each to be confirmed", () => {
       },
       preview: false,
     });
+  });
+
+  it("takes back a tick when the move finds its label now shared, and keeps the selection", async () => {
+    const { user, dialog } = await openMove();
+    const scan = within(dialog).getByRole("textbox", { name: "Scan each label to confirm" });
+    const list = within(dialog).getByRole("list", { name: "Confirmed" });
+    await user.type(scan, "SOLO-7{Enter}");
+    await waitFor(() => {
+      expect(list).toHaveTextContent("TUBE-000011 confirmed");
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "Type its printed Iki ID instead" }),
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "TUBE-000012{Enter}");
+    await waitFor(() => {
+      expect(list).toHaveTextContent("TUBE-000012 confirmed");
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Check where they go" }));
+    await within(dialog).findByRole("table", { name: "What moving them does" });
+    // Between the preview and the move, the second tube is given the first's label.
+    solo = [first, second];
+    const refused =
+      "Could not confirm TUBE-000011. Scan its record link or enter its printed Iki ID.";
+    answer("POST /api/v1/storage/moves", (call: Sent) =>
+      (call.body as { preview: boolean }).preview
+        ? plan(call)
+        : problem(422, "validation_failed", "Some fields are invalid.", [
+            { pointer: "#/items/0", detail: refused },
+          ]),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
+    const now = await within(dialog).findByRole("region", {
+      name: "“SOLO-7” matches more than one tube",
+    });
+    expect(now).toHaveTextContent(
+      "This label now matches more than one tube, so nothing was moved and TUBE-000011 isn’t confirmed.",
+    );
+    expect(within(now).queryByRole("button", { name: /^TUBE-/ })).toBeNull();
+    // Its tick is taken back; the other's stays, and both are still to be moved.
+    expect(list).toHaveTextContent("TUBE-000011 not scanned yet");
+    expect(list).toHaveTextContent("TUBE-000012 confirmed");
+    expect(within(dialog).getByRole("button", { name: "Move all 2" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(
+      resolved()
+        .filter((b) => b.scope === "confirmation")
+        .at(-1),
+    ).toEqual({
+      scope: "confirmation",
+      code: "SOLO-7",
+      mode: "label",
+      records: [first.id, second.id],
+    });
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "TUBE-000011{Enter}");
+    await waitFor(() => {
+      expect(list).toHaveTextContent("TUBE-000011 confirmed");
+    });
+    answer("POST /api/v1/storage/moves", plan);
+    // What it shows is checked again with the scans as they are now.
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/storage/moves").at(-1)?.body).toMatchObject({
+        confirmations: { [first.id ?? ""]: { code: "TUBE-000011", mode: "iki_id" } },
+        preview: true,
+      });
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Move all 2" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(calls("POST", "/api/v1/storage/moves").at(-1)?.body).toMatchObject({
+      confirmations: {
+        [first.id ?? ""]: { code: "TUBE-000011", mode: "iki_id" },
+        [second.id ?? ""]: { code: "TUBE-000012", mode: "iki_id" },
+      },
+      preview: false,
+    });
+  });
+
+  it("takes back a tick when a check-in finds its label now shared", async () => {
+    solo = [first];
+    const custodian = {
+      id: ME.id,
+      name: "Ada",
+      email: "ada@example.com",
+      active: true,
+      kind: "person" as const,
+      imported_from: "",
+    };
+    onBox({
+      ...container(),
+      contents: [
+        { ...first, custodian, custody_since: "2026-11-23T09:00:00Z" },
+        { ...second, custodian, custody_since: "2026-11-23T09:00:00Z" },
+      ],
+    });
+    answer("GET /api/v1/entity-types", [PROTEIN, MOVED]);
+    answer("POST /api/v1/storage/scan/resolve", resolver);
+    answer(
+      "POST /api/v1/storage/check-in",
+      problem(422, "validation_failed", "Some fields are invalid.", [
+        { pointer: "#/items/0", detail: "Could not confirm TUBE-000011." },
+      ]),
+    );
+    const { user } = await renderApp("/storage/BOX-000014/");
+    await user.click(screen.getByRole("button", { name: "Select several" }));
+    const grid = screen.getByRole("grid");
+    await user.click(within(grid).getByRole("gridcell", { name: /^A1,/ }));
+    await user.click(within(grid).getByRole("gridcell", { name: /^A2,/ }));
+    await user.click(
+      within(screen.getByRole("region", { name: "Selected" })).getByRole("button", {
+        name: "Check in",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Check in 2 records" });
+    const list = within(dialog).getByRole("list", { name: "Confirmed" });
+    await user.type(
+      within(dialog).getByRole("textbox", { name: "Scan each label to confirm" }),
+      "SOLO-7{Enter}",
+    );
+    await waitFor(() => {
+      expect(list).toHaveTextContent("TUBE-000011 confirmed");
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: "Type its printed Iki ID instead" }),
+    );
+    await user.type(within(dialog).getByRole("textbox", { name: "Iki ID" }), "TUBE-000012{Enter}");
+    await waitFor(() => {
+      expect(list).toHaveTextContent("TUBE-000012 confirmed");
+    });
+    solo = [first, second];
+    await user.click(within(dialog).getByRole("button", { name: "Check in" }));
+    const now = await within(dialog).findByRole("region", {
+      name: "“SOLO-7” matches more than one tube",
+    });
+    expect(now).toHaveTextContent("This label now matches more than one tube");
+    expect(list).toHaveTextContent("TUBE-000011 not scanned yet");
+    expect(list).toHaveTextContent("TUBE-000012 confirmed");
+    expect(within(dialog).getByRole("button", { name: "Check in" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 
   it("says only that a scan can’t identify a tube when the server refuses it", async () => {

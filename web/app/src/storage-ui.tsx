@@ -5,7 +5,7 @@
  * hand them over.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, type Problem } from "@ikisci/sdk";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
@@ -518,20 +518,13 @@ function useConfirms(records: readonly Chosen[], what: "move" | "draw") {
 type Heard =
   | { kind: "said"; text: string; problem?: boolean }
   | { kind: "refused"; mode: ScanMode }
-  | { kind: "ambiguous"; code: string; candidates: ScanCandidate[] };
-
-/** The 32 hex digits an Iki label or a record link names, if it names one. */
-function namedId(code: string): string | null {
-  const text = code.trim();
-  const compact = /^IKI:([0-9A-F]{32})$/i.exec(text);
-  if (compact?.[1]) return compact[1].toUpperCase();
-  const link = /\/entities\/([0-9a-f-]{32,36})\/?(?:[?#].*)?$/i.exec(text);
-  return link?.[1] ? link[1].replaceAll("-", "").toUpperCase() : null;
-}
-
-function hexOf(id: string): string {
-  return id.replaceAll("-", "").toUpperCase();
-}
+  | {
+      kind: "ambiguous";
+      code: string;
+      candidates: ScanCandidate[];
+      /** The record a refused submit found this label no longer confirms. */
+      lost?: Chosen;
+    };
 
 /** Whether a proof already given is this one again. */
 function sameProof(proof: Proof | undefined, code: string, mode: ScanMode): boolean {
@@ -541,22 +534,24 @@ function sameProof(proof: Proof | undefined, code: string, mode: ScanMode): bool
   return givenMode === mode && given.trim().toUpperCase() === code.trim().toUpperCase();
 }
 
-/**
- * Which records a scan is most likely the label of, to ask the server about first: those
- * it names, by Iki label, link, Iki ID or the code their label had. The server decides.
- */
-function likelyFor(left: readonly Chosen[], code: string, mode: ScanMode): readonly Chosen[] {
-  const text = code.trim().toUpperCase();
-  const named = mode === "label" ? namedId(code) : null;
-  const likely = left.filter((r) =>
-    named
-      ? hexOf(r.id) === named
-      : r.hrid.toUpperCase() === text || (mode === "label" && r.code?.toUpperCase() === text),
-  );
-  return likely.length ? likely : left;
+function proofParts(proof: Proof): { code: string; mode: ScanMode } {
+  return typeof proof === "string" ? { code: proof, mode: "label" } : proof;
 }
 
-type Answer = { record: Chosen; found: ScanResolved } | { record: Chosen; error: unknown };
+/** The records a refused move or check-in said it couldn't confirm, by their item. */
+function unconfirmedBy(
+  problem: Problem,
+  selected: readonly Chosen[],
+  needed: readonly Chosen[],
+): Chosen[] {
+  if (problem.status !== 422) return [];
+  const asked = new Set(needed.map((r) => r.id));
+  return (problem.errors ?? []).flatMap((e) => {
+    const at = /^#\/items\/(\d+)$/.exec(e.pointer ?? "");
+    const record = at ? selected[Number(at[1])] : undefined;
+    return record && asked.has(record.id) ? [record] : [];
+  });
+}
 
 /**
  * Scanning each record's label to say it's the one in hand. Each scan is checked by the
@@ -569,12 +564,15 @@ function Confirmations({
   needed,
   confirmed,
   onConfirm,
+  failed,
 }: {
   /** Every record in the change, the ones that need no scan too. */
   selected: readonly Chosen[];
   needed: readonly Chosen[];
   confirmed: Record<string, Proof>;
   onConfirm: (next: Record<string, Proof>) => void;
+  /** Why the move or check-in was refused, if it was: its items in `selected`'s order. */
+  failed?: unknown;
 }) {
   const [heard, setHeard] = useState<Heard | null>(null);
   const [checking, setChecking] = useState(false);
@@ -583,6 +581,55 @@ function Confirmations({
   useEffect(() => {
     latest.current = confirmed;
   }, [confirmed]);
+  const records = selected.map((r) => r.id);
+  // A move or check-in refused, rechecked under its lock: a record's proof no longer
+  // identifies it, such as a label another tube now shares. Its tick is taken back, the
+  // selection kept, and why is asked of the resolver, so a refusal stays neutral.
+  useEffect(() => {
+    if (!failed) return;
+    const lost = unconfirmedBy(problemOf(failed), selected, needed).filter(
+      (r) => latest.current[r.id],
+    );
+    const first = lost[0];
+    const proof = first ? latest.current[first.id] : undefined;
+    if (!first || !proof) return;
+    const gone = new Set(lost.map((r) => r.id));
+    const next = Object.fromEntries(
+      Object.entries(latest.current).filter(([record]) => !gone.has(record)),
+    );
+    latest.current = next;
+    onConfirm(next);
+    let stale = false;
+    const { code, mode } = proofParts(proof);
+    resolveScan({ scope: "confirmation", code, mode, records }).then(
+      (found) => {
+        if (stale) return;
+        if (found.status === "ambiguous") {
+          setHeard({ kind: "ambiguous", code, candidates: found.candidates, lost: first });
+          return;
+        }
+        setHeard({
+          kind: "said",
+          text: `${first.hrid} couldn’t be confirmed as it’s kept now. Scan its Iki label, or type its printed Iki ID.`,
+          problem: true,
+        });
+      },
+      (error: unknown) => {
+        if (stale) return;
+        const refusal = scanRefusal(problemOf(error));
+        setHeard(
+          refusal
+            ? { kind: "refused", mode }
+            : { kind: "said", text: problemOf(error).detail, problem: true },
+        );
+      },
+    );
+    return () => {
+      stale = true;
+    };
+    // Only a newly refused submit rechecks: not each tick or change of selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failed]);
   if (!needed.length) return null;
   const left = needed.filter((r) => !confirmed[r.id]);
   const check = async (code: string, mode: ScanMode) => {
@@ -592,50 +639,48 @@ function Confirmations({
       setHeard({ kind: "said", text: `${again.hrid} is already confirmed. Nothing changed.` });
       return;
     }
-    const open = needed.filter((r) => !now[r.id]);
-    if (!open.length) {
+    if (!needed.some((r) => !now[r.id])) {
       setHeard({ kind: "said", text: "All are confirmed. Nothing changed." });
       return;
     }
     setChecking(true);
-    const records = selected.map((r) => r.id);
-    const answers: Answer[] = await Promise.all(
-      likelyFor(open, code, mode).map((record) =>
-        resolveScan({ scope: "confirmation", code, mode, record: record.id, records }).then(
-          (found): Answer => ({ record, found }),
-          (error: unknown): Answer => ({ record, error }),
-        ),
-      ),
-    );
+    // One question for the whole selection: which of them, if any, this is.
+    let found: ScanResolved;
+    try {
+      found = await resolveScan({ scope: "confirmation", code, mode, records });
+    } catch (error) {
+      setChecking(false);
+      const refusal = scanRefusal(problemOf(error));
+      setHeard(
+        refusal?.kind === "ambiguous"
+          ? { kind: "ambiguous", code, candidates: refusal.candidates }
+          : refusal
+            ? { kind: "refused", mode }
+            : { kind: "said", text: problemOf(error).detail, problem: true },
+      );
+      return;
+    }
     setChecking(false);
-    // Only the record the server confirmed is ticked, and only if it's still open.
-    const hit = answers.find(
-      (a) =>
-        "found" in a &&
-        a.found.status === "one" &&
-        a.found.candidates[0]?.id === a.record.id &&
-        !latest.current[a.record.id],
-    );
-    if (hit) {
-      const next = { ...latest.current, [hit.record.id]: mode === "iki_id" ? ikiId(code) : code };
+    if (found.status === "ambiguous") {
+      setHeard({ kind: "ambiguous", code, candidates: found.candidates });
+      return;
+    }
+    const match = found.status === "one" ? found.candidates[0] : undefined;
+    const record = match ? needed.find((r) => r.id === match.id) : undefined;
+    // Only the record the server identified is ticked, and only if it's still open.
+    if (record && !latest.current[record.id]) {
+      const next = { ...latest.current, [record.id]: mode === "iki_id" ? ikiId(code) : code };
       latest.current = next;
       onConfirm(next);
-      setHeard({ kind: "said", text: `${hit.record.hrid} confirmed.` });
+      setHeard({ kind: "said", text: `${record.hrid} confirmed.` });
       return;
     }
-    const failed = answers.flatMap((a) => ("error" in a ? [a.error] : []));
-    if (failed.some((e) => scanRefusal(problemOf(e))?.kind === "refused")) {
-      setHeard({ kind: "refused", mode });
+    if (record) {
+      setHeard({ kind: "said", text: `${record.hrid} is already confirmed. Nothing changed.` });
       return;
     }
-    const several = answers.find((a) => "found" in a && a.found.status === "ambiguous");
-    if (several && "found" in several) {
-      setHeard({ kind: "ambiguous", code, candidates: several.found.candidates });
-      return;
-    }
-    const other = failed[0];
-    if (other) {
-      setHeard({ kind: "said", text: problemOf(other).detail, problem: true });
+    if (match && selected.some((r) => r.id === match.id)) {
+      setHeard({ kind: "said", text: `${match.hrid} needs no scan. Nothing changed.` });
       return;
     }
     setHeard({
@@ -663,7 +708,11 @@ function Confirmations({
         <ScanChooser
           code={heard.code}
           candidates={heard.candidates}
-          then="A label several tubes share can’t confirm which is in your hand. Scan the tube’s Iki label, or type the Iki ID printed on it."
+          then={
+            heard.lost
+              ? `This label now matches more than one tube, so nothing was moved and ${heard.lost.hrid} isn’t confirmed. Scan its Iki label, or type the Iki ID printed on it.`
+              : "A label several tubes share can’t confirm which is in your hand. Scan the tube’s Iki label, or type the Iki ID printed on it."
+          }
           onCancel={() => {
             setHeard(null);
           }}
@@ -777,9 +826,18 @@ export function MoveDialog({
       ...(where !== "out" && choice ? { to_choice: choice.id } : {}),
       position: where === "out" ? null : (at[i] ?? null),
     }));
-  /** What moving them would do; or, for a code several containers share, those to choose from. */
+  /**
+   * What moving them would do, with the scans given so far; or, for a code several
+   * containers share, those to choose from.
+   */
   const preview = useApiMutation(
-    async (choice: ScanCandidate | null): Promise<Planned | { choose: ScanCandidate[] }> => {
+    async ({
+      choice,
+      proofs,
+    }: {
+      choice: ScanCandidate | null;
+      proofs: Record<string, Proof>;
+    }): Promise<Planned | { choose: ScanCandidate[] }> => {
       let box: string | null = null;
       if (where === "container" && to.trim()) {
         if (choice) box = choice.id;
@@ -797,24 +855,27 @@ export function MoveDialog({
       return previewMoves({
         items: items(at, choice),
         reason: reason.trim(),
-        confirmations: {},
+        confirmations: proofs,
         preview: true,
       });
     },
     [],
   );
-  const check = (choice: ScanCandidate | null) => {
-    preview.mutate(choice, {
-      onSuccess: (done) => {
-        if ("choose" in done) {
-          setToOptions(done.choose);
-          return;
-        }
-        setToChoice(choice);
-        setToOptions(null);
-        setPlanned(done);
+  const check = (choice: ScanCandidate | null, proofs: Record<string, Proof> = confirmed) => {
+    preview.mutate(
+      { choice, proofs },
+      {
+        onSuccess: (done) => {
+          if ("choose" in done) {
+            setToOptions(done.choose);
+            return;
+          }
+          setToChoice(choice);
+          setToOptions(null);
+          setPlanned(done);
+        },
       },
-    });
+    );
   };
   const move = useApiMutation(
     () =>
@@ -935,7 +996,12 @@ export function MoveDialog({
             selected={records}
             needed={needed}
             confirmed={confirmed}
-            onConfirm={setConfirmed}
+            onConfirm={(next) => {
+              setConfirmed(next);
+              // What it shows is checked again with them: a scan can clear or add a problem.
+              if (planned) check(toChoice, next);
+            }}
+            failed={move.error}
           />
           {planned ? (
             <div className="table-scroll">
@@ -1159,6 +1225,7 @@ export function CustodyDialog({
             needed={needed}
             confirmed={confirmed}
             onConfirm={setConfirmed}
+            failed={run.error}
           />
           <div className="actions">
             <Button
