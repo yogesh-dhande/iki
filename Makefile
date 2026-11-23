@@ -91,15 +91,19 @@ check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS
 #: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
 PYTEST_PARALLEL ?= -n auto --dist worksteal
 
+.PHONY: test-wasm
+test-wasm: ## Build the shared WASM and the plugin modules declared in this checkout
+	scripts/build-wasm.sh
+	uv run --locked python scripts/ci/check_test_prerequisites.py wasm
+
 .PHONY: check-python
-check-python: test-browsers ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
-	@test -s server/src/iki_server/web/static/app/manifest.json || { echo "Missing web app manifest. Run make web." >&2; exit 1; }
-	@test -s spec/src/iki_spec/iki_wasm.wasm || { echo "Missing iki-wasm. Run scripts/build-wasm.sh." >&2; exit 1; }
+check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+	uv run --locked python scripts/ci/check_test_prerequisites.py web
 	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
-	env -u IKI_SKIP_BROWSER_TESTS uv run pytest $(PYTEST_PARALLEL)
+	env -u IKI_SKIP_BROWSER_TESTS IKI_GATE=1 uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations

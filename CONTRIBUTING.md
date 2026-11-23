@@ -85,13 +85,28 @@ coverage. To run a shard locally:
 `test-durations` artifact of a recent run, and add shards to the matrix in
 `.github/workflows/ci.yml` when the suite outgrows them.
 
-`make check` and `make check-python` always install the project's locked
-Playwright revisions of Chromium, Firefox, and WebKit and run the browser
-tests. Before running pytest directly, use `pnpm install --frozen-lockfile`
-and `make web test-browsers` to build the app and iki-wasm and install the
-browsers. On Linux, `uv run --locked playwright install-deps chromium firefox
-webkit` installs the system libraries. For a partial local pytest run without
-browsers, use `IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. CI requires browsers.
+Before running Python browser tests, run `pnpm install --frozen-lockfile`
+and `make web test-wasm test-browsers`. Both `make check` and `make check-python`
+install the project's locked Chromium, Firefox, and WebKit and run the browser
+tests. The gate checks both web builds, their manifest assets, and axe-core.
+On Linux, `uv run --locked playwright install-deps chromium firefox webkit`
+installs the browsers' system libraries.
+
+`make test-wasm` builds the shared module for the browser and Python. When a
+checkout declares plugin modules in `plugins/*/data/*.wasm.sha256`, it runs
+each matching `scripts/build-<name>-wasm.sh` and checks the plugin and packaged
+copies. The builder verifies the digest on its canonical build platform.
+
+Start Docker for the test suite's pinned PostgreSQL and SeaweedFS containers.
+If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
+`IKI_TEST_S3_URL`. The S3 service must accept the credentials in
+`server/tests/conftest.py`.
+
+For a partial local pytest run without browsers, use
+`IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. The full gate (`IKI_GATE=1`) and
+CI require browsers. A gate failure lists each unexpected pytest skip. When a
+new capability or opt-in suite warrants a skip, record its exact reason and
+the tests it applies to in `scripts/ci/pytest_gate_skips.py`.
 
 ## Dependencies
 

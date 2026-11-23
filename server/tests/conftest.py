@@ -1,7 +1,7 @@
 import os
 import socket
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -107,7 +107,11 @@ def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) ->
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1" and not os.environ.get("CI"):
+    if (
+        os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1"
+        and not os.environ.get("CI")
+        and os.environ.get("IKI_GATE") != "1"
+    ):
         skip_browser = pytest.mark.skip(reason="IKI_SKIP_BROWSER_TESTS=1")
         for item in items:
             if isinstance(item, pytest.Function) and "browser" in item.fixturenames:
@@ -202,7 +206,30 @@ POSTGRES_SETTINGS = (
 
 
 @contextmanager
-def _postgres_server() -> Iterator[str]:
+def _test_service(
+    url_variable: str, image: str, container: AbstractContextManager[str]
+) -> Iterator[str]:
+    if url := os.environ.get(url_variable):
+        yield url
+        return
+    with ExitStack() as stack:
+        try:
+            url = stack.enter_context(container)
+        except Exception as exc:
+            exc.add_note(
+                f"Start Docker and check the pinned image with `docker pull {image}`, "
+                f"or set {url_variable} to a running test service."
+            )
+            raise
+        yield url
+
+
+def _postgres_server() -> AbstractContextManager[str]:
+    return _test_service("IKI_TEST_DATABASE_URL", POSTGRES_IMAGE, _postgres_container())
+
+
+@contextmanager
+def _postgres_container() -> Iterator[str]:
     """A throwaway Postgres container, removed afterwards."""
     from testcontainers.community.postgres import PostgresContainer
 
@@ -223,10 +250,6 @@ def _postgres_url() -> Iterator[str]:
     parallel run (``-n``) for its workers. Otherwise a throwaway container is started
     with Docker and removed at the end of the session.
     """
-    url = os.environ.get("IKI_TEST_DATABASE_URL")
-    if url:
-        yield url
-        return
     with _postgres_server() as url:
         yield url
 
@@ -453,10 +476,6 @@ def _s3_endpoint() -> Iterator[str]:
     ``IKI_TEST_S3_URL`` names one instead, which must accept the test keys above. The
     controller of a parallel run (``-n``) starts one for its workers.
     """
-    url = os.environ.get("IKI_TEST_S3_URL")
-    if url:
-        yield url
-        return
     with _seaweedfs_server() as url:
         yield url
 
@@ -478,8 +497,12 @@ def _s3_bucket(_s3_endpoint: str) -> str:
     return S3_BUCKET
 
 
+def _seaweedfs_server() -> AbstractContextManager[str]:
+    return _test_service("IKI_TEST_S3_URL", SEAWEEDFS_IMAGE, _seaweedfs_container())
+
+
 @contextmanager
-def _seaweedfs_server() -> Iterator[str]:
+def _seaweedfs_container() -> Iterator[str]:
     """A throwaway SeaweedFS container, removed afterwards."""
     import time
     import urllib.request

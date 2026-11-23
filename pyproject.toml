@@ -231,7 +231,7 @@ django_settings_module = "iki_typecheck_settings"
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "iki_test_settings"
 pythonpath = ["server/tests", "sdk/python/tests", "deploy/live", "deploy/gcp/tests", "deploy/aws/tests", "scripts/ci"]
-addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+addopts = ["-p", "pytest_gate_skips", "-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 testpaths = [
   "plugins/plate_assays/tests",
   "server/tests",

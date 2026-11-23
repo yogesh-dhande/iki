@@ -68,10 +68,12 @@ jobs:
           enable-cache: false
       # Links between Markdown files, and release links' GitHub account (docs/tests).
       - name: Docs tests
+        env:
+          PYTHONPATH: scripts/ci
         run: |
           pytest_version=$(sed -n '/^name = "pytest"$/{n;p;}' uv.lock | cut -d'"' -f2)
           uv run --no-project --with "pytest==$pytest_version" \
-            pytest -q -p no:cacheprovider -c /dev/null --rootdir . docs/tests
+            pytest -q -p no:cacheprovider -p pytest_gate_skips -c /dev/null --rootdir . docs/tests
 
   workflows:
     name: Lint GitHub workflows
@@ -218,18 +220,18 @@ jobs:
           workspaces: worker
           # Each kind builds different crates.
           key: ${{ matrix.kind }}
-      - name: Build iki-wasm (without the web app)
-        if: matrix.kind != 'browser'
-        run: scripts/build-wasm.sh
+      - name: Build the WASM modules declared by this checkout
+        run: make test-wasm
       - name: Build iki-worker
         if: matrix.kind == 'worker'
         working-directory: worker
         run: cargo build --locked -p iki-worker
-      - name: Build the web app (with iki-wasm)
+      - name: Build and check the web app and accessibility assets
         if: matrix.kind == 'browser'
         run: |
           pnpm install --frozen-lockfile
-          pnpm --filter @ikisci/app build
+          pnpm --filter @ikisci/app build:web
+          uv run --locked python scripts/ci/check_test_prerequisites.py web
       # The browsers' system packages, kept between runs: Ubuntu's mirrors are
       # sometimes too slow from the runners to download them in time.
       # A stalled cache service once held this step for the job's whole timeout: give
