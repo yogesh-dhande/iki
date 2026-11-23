@@ -43,5 +43,11 @@ describe("a component's element", () => {
         open(e, "PRT-000002");
       }),
     ).toEqual([{ type: "iki-open", detail: { entity: "PRT-000002" }, bubbles: true }]);
+    const record = "00000000-0000-7000-8000-00000000e002";
+    expect(
+      heard((e) => {
+        open(e, record, 4);
+      }),
+    ).toEqual([{ type: "iki-open", detail: { entity: record, revision: 4 }, bubbles: true }]);
   });
 });

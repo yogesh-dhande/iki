@@ -842,6 +842,8 @@ class EntityType:
     result: ResultSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
+    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
+    draws_received: str | None = None
     #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.

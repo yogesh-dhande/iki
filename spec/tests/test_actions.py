@@ -173,6 +173,12 @@ def test_the_example_actions_and_environments_are_valid() -> None:
     assert (wanted.cpu, wanted.memory, wanted.gpu_count) == (8, 96 * 1024**3, 1)
 
 
+def test_an_action_cannot_replace_draw_evidence(tmp_path: Path) -> None:
+    types = TYPES.replace("hrid: { prefix: ASY }", "hrid: { prefix: ASY }\ndraws_received: score")
+    types = types.replace("score: { type: float,", "score: { type: json,")
+    assert codes(make(tmp_path, files={"types/types.yaml": types})) == ["updates-draws-received"]
+
+
 def test_a_minimal_action_is_valid(tmp_path: Path) -> None:
     result = make(tmp_path)
     assert result.problems == []
