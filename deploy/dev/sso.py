@@ -2319,29 +2319,79 @@ def receive_at_core(
     if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
         fail(f"{request['hrid']}'s receipt counted {outcomes}")
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "A2"]:
-        fail(f"{incoming['hrid']} holds {contents}, not two tubes at A1 and A2")
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "A2"),
+    ]:
+        fail(f"{incoming['hrid']} did not receive the expected tubes at A1 and A2: {contents}")
     ok(f"the core received {request['hrid']}'s tubes, one damaged, put away in {incoming['hrid']}")
+
+    def review(plan: dict[str, Any], decision: str | None) -> str:
+        """Check the two tubes and the empty slot before approving this version."""
+        lines = plan["lines"]
+        actual = {
+            (line["entity"], line["expected"], line["found"], line["finding"], line["resolution"])
+            for line in lines
+        }
+        expected = {
+            (tubes[0]["id"], "A1", "A1", "matched", None),
+            (tubes[1]["id"], "A2", "B1", "wrong_slot", decision),
+            (None, None, "A2", "empty", None),
+        }
+        if (
+            plan["container"]["id"] != incoming["id"]
+            or plan["status"] != "open"
+            or actual != expected
+            or any(line["resolution_stale"] for line in lines)
+        ):
+            fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
+        return str(next(line["id"] for line in lines if line["entity"] == tubes[1]["id"]))
+
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
+    if started.status_code != 201:
+        fail(
+            f"starting a count for {incoming['hrid']} answered {started.status_code}: "
+            f"{started.text[:300]}"
+        )
     count = f"/reconciliations/{started.json()['id']}"
     scans = [
         {"position": "A1", "code": first},
         {"position": "A2", "code": None},
         {"position": "B1", "code": second},
     ]
-    found = api_call(alice, "POST", f"{count}/scans", {"scans": scans}).json()
-    wrong = next(x for x in found["lines"] if x["finding"] == "wrong_slot")
-    api_call(alice, "PATCH", f"{count}/lines/{wrong['id']}", {"resolution": "moved"})
-    finished = api_call(alice, "POST", f"{count}/complete", {"note": "Weekly count"})
+    observed = api_call(alice, "POST", f"{count}/scans", {"scans": scans})
+    if observed.status_code != 200:
+        fail(f"scanning {incoming['hrid']} answered {observed.status_code}: {observed.text[:300]}")
+    found = observed.json()
+    wrong = review(found, None)
+    resolved = api_call(
+        alice,
+        "PATCH",
+        f"{count}/lines/{wrong}",
+        {"resolution": "moved", "plan_revision": found["plan_revision"]},
+    )
+    if resolved.status_code != 200:
+        fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")
+    plan = resolved.json()
+    review(plan, "moved")
+    finished = api_call(
+        alice,
+        "POST",
+        f"{count}/complete",
+        {"note": "Weekly count", "plan_revision": plan["plan_revision"]},
+    )
     if finished.status_code != 200:
         fail(
             f"reconciling {incoming['hrid']} answered {finished.status_code}: {finished.text[:300]}"
         )
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
-    if [c["position"] for c in contents] != ["A1", "B1"]:
+    if [(c["id"], c["position"]) for c in contents] != [
+        (tubes[0]["id"], "A1"),
+        (tubes[1]["id"], "B1"),
+    ]:
         fail(f"after reconciling, {incoming['hrid']} holds {contents}")
-    ok(f"reconciling {incoming['hrid']} by scan moved the tube found at B1 to where it was")
+    ok(f"reconciling {incoming['hrid']} by scan moved {tubes[1]['hrid']} from A2 to B1")
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
