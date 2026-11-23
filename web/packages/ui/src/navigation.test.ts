@@ -26,7 +26,11 @@ describe("the page header", () => {
       about: { href: "/guide", label: "Guide" },
     };
     const crumb = header.querySelector<HTMLAnchorElement>('[href="/projects"]');
+    const crumbText = crumb?.firstChild;
+    const current = header.querySelector('[aria-current="page"]');
+    const currentText = current?.firstChild;
     const action = header.querySelector<HTMLButtonElement>(".page-actions button:last-child");
+    const actionText = action?.firstChild;
     action?.focus();
     input.focus();
     header.data = {
@@ -43,10 +47,12 @@ describe("the page header", () => {
     expect(document.activeElement).toBe(input);
     expect(header.querySelector(".page-actions button")).toBe(action);
     expect(action?.textContent).toBe("Download");
+    expect.soft(action?.firstChild).toBe(actionText);
     action?.focus();
     expect(document.activeElement).toBe(action);
     expect(header.querySelector("nav a")).toBe(crumb);
     expect(crumb?.textContent).toBe("Workspaces");
+    expect.soft(crumb?.firstChild).toBe(crumbText);
     crumb?.focus();
     header.data = { ...header.data, ancestors: [...(header.data.ancestors ?? [])].reverse() };
     expect(document.activeElement).toBe(crumb);
@@ -64,8 +70,11 @@ describe("the page header", () => {
     expect((acted.mock.calls[0]?.[0] as CustomEvent).detail).toEqual({ id: "export" });
 
     const toggle = header.querySelector<HTMLButtonElement>(".page-about");
+    const aboutIcon = toggle?.querySelector("svg");
+    expect(aboutIcon).toBeInstanceOf(SVGElement);
     toggle?.click();
     const about = header.querySelector<HTMLAnchorElement>('[role="dialog"] a');
+    const aboutText = about?.firstChild;
     about?.focus();
     header.data = {
       ...header.data,
@@ -74,6 +83,10 @@ describe("the page header", () => {
     };
     expect(header.querySelector('[role="dialog"] a')).toBe(about);
     expect(about?.textContent).toBe("Handbook");
+    expect.soft(about?.firstChild).toBe(aboutText);
+    expect(current?.textContent).toBe("New review");
+    expect.soft(current?.firstChild).toBe(currentText);
+    expect(header.querySelector(".page-about svg")).toBe(aboutIcon);
     expect(document.activeElement).toBe(about);
     about?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key: "Escape" }));
     expect(document.activeElement).toBe(toggle);
