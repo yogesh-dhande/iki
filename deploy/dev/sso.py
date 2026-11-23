@@ -36,6 +36,7 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
 
@@ -1442,6 +1443,7 @@ def lims() -> None:
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
     bookings(alice, project)
     signatures(alice, project, first)
+    plate_assay(alice, project)
 
 
 def signing(
@@ -2448,6 +2450,124 @@ def give_lab_roles(alice: requests.Session, project: dict[str, Any], *roles: str
     )
     if given.status_code != 200:
         fail(f"giving alice {', '.join(roles)} answered HTTP {given.status_code}")
+
+
+def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import a MARS export, trace an excluded well and sign the synthetic research result."""
+    prefix = "iki/plate_assays."
+    give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer")
+
+    def matching(kind: str, field: str, value: str) -> list[dict[str, Any]]:
+        query = {
+            "project": project["id"],
+            "type": kind,
+            "where": {"field": field, "op": "eq", "value": value},
+            "limit": 100,
+        }
+        response = api_call(alice, "POST", "/entities/search", query)
+        if response.status_code != 200:
+            fail(f"finding {kind} by {field} answered HTTP {response.status_code}: {response.text}")
+        found: list[dict[str, Any]] = response.json()["items"]
+        return found
+
+    sample_name = "Synthetic MARS dilution standard"
+    samples = matching("acme/example.Sample", "name", sample_name)
+    sample = (
+        samples[0]
+        if samples
+        else created(alice, project, "acme/example.Sample", {"name": sample_name, "kind": "other"})
+    )
+    name = "Synthetic MARS endpoint assay"
+    plates = matching(prefix + "AssayPlate", "name", name)
+    if plates:
+        plate = record(alice, plates[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/plate_assays/tests/data/mars-96-series.csv"
+        )
+        source = upload(alice, project, fixture.name, fixture.read_bytes(), "text/csv")
+        assignments = [
+            {
+                "well": f"A{column + 1}",
+                "sample": sample["id"],
+                "concentration": 2**column,
+                "concentration_unit": "nM",
+                "replicate": 1,
+            }
+            for column in range(8)
+        ]
+        assignments.extend(
+            {"well": well, "control": control, "replicate": 1}
+            for well, control in (("A9", "blank"), ("A10", "reference"))
+        )
+        plate = created(
+            alice,
+            project,
+            prefix + "AssayPlate",
+            {"name": name, "size": "plate_96", "assignments": assignments, "reader_file": source},
+        )
+    plate_input = {"plate": plate["id"]}
+    if not plate["values"].get("committed"):
+        launch(alice, project, prefix + "preview_reader", plate_input)
+        preview = record(alice, plate["id"])["values"]["preview"]
+        if preview["issues"] or len(preview["readings"]) != 10:
+            fail(f"{plate['hrid']}: expected eight sample wells and two controls: {preview}")
+        launch(alice, project, prefix + "commit_reader", plate_input)
+    [read] = matching(prefix + "PlateRead", "plate", plate["id"])
+    measurements = matching(prefix + "WellMeasurement", "plate", plate["id"])
+    measured = {m["values"]["well"]: m for m in measurements}
+    if len(measurements) != 10 or set(measured) != {f"A{i}" for i in range(1, 11)}:
+        fail(f"{plate['hrid']} has unexpected measured wells: {list(measured)}")
+    if (
+        set(read["values"]["measurements"]) != {m["id"] for m in measurements}
+        or any(
+            m["values"]["reader_file"] != plate["values"]["reader_file"]
+            or m["values"]["channel"] != "Absorbance 484 nm"
+            for m in measurements
+        )
+        or measured["A9"]["values"]["control"] != "blank"
+        or measured["A10"]["values"]["control"] != "reference"
+    ):
+        fail(f"{read['hrid']} does not match the source file, channel and controls on the plate")
+    results = matching(prefix + "AssayResult", "read", read["id"])
+    reason = "Simulated dispensing error"
+    if not results:
+        launch(
+            alice,
+            project,
+            prefix + "fit_curve",
+            {"read": read["id"], "sample": sample["id"]},
+            {"endpoint_kind": "IC50", "exclusions": f"A4: {reason}"},
+        )
+        results = matching(prefix + "AssayResult", "read", read["id"])
+    [result] = results
+    entity = record(alice, result["id"])
+    values = entity["values"]
+    excluded = [p for p in values["points"] if p.get("exclusion_reason")]
+    if (
+        set(values["measurements"]) != {measured[f"A{i}"]["id"] for i in range(1, 9)}
+        or len(excluded) != 1
+        or excluded[0]["reading"] != measured["A4"]["id"]
+        or excluded[0]["exclusion_reason"] != reason
+        or excluded[0]["excluded_by"] != api_call(alice, "GET", "/me").json()["id"]
+        or values["point_count"] != 7
+        or values["concentration_unit"] != "nM"
+        or values["endpoint_kind"] != "IC50"
+        or values["qualifier"] != "within_range"
+        # This synthetic CSV was generated with a 12 nM midpoint and small residuals.
+        or not 11 < values["endpoint_value"] < 13
+        or not 0 < values["ci_low"] < 12 < values["ci_high"]
+    ):
+        fail(f"{entity['hrid']} has unexpected fit evidence: {values}")
+    if values["review"] == "recorded":
+        signature = signing(alice, entity, "signed", "alice", field="review")
+        if signature["status"] != "signed" or not signature["set"]:
+            fail(f"signing the plate result {entity['hrid']} gave {signature}")
+    proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
+    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        fail(f"{entity['hrid']} has no verifiable research sign-off")
+    ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
 
 
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:

@@ -58,6 +58,8 @@ dev = [
   # The small_molecule plugin's actions use it (plugins/small_molecule/requirements.txt pins
   # the same release for its environment); its tests run them.
   "rdkit==2026.9.2",
+  # The plate reader plugin fits four-parameter curves and their confidence intervals.
+  "scipy==1.18.1",
   "pytest-xdist>=3.8.0",
 ]
 
@@ -231,6 +233,7 @@ DJANGO_SETTINGS_MODULE = "iki_test_settings"
 pythonpath = ["server/tests", "sdk/python/tests", "deploy/live", "deploy/gcp/tests", "deploy/aws/tests", "scripts/ci"]
 addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
 testpaths = [
+  "plugins/plate_assays/tests",
   "server/tests",
   "cli/tests",
   "spec/tests",

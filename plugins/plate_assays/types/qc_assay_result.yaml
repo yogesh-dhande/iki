@@ -1,0 +1,55 @@
+apiVersion: iki/v1
+kind: EntityType
+name: QCAssayResult
+label: QC assay result
+extends: AssayResult
+schema_version: 1
+hrid: { prefix: QAR }
+fields:
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          correctable:
+            check: state.from == "submitted" || state.from == "reviewed"
+            message: Return a submitted or reviewed result for correction.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          recorded_fit:
+            check: state.from == "recorded" && record.review_flow == "regulated_qc" && record.fit_status != null && record.fit_version != null
+            message: Submit a recorded fit produced under the regulated QC flow.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: QA releases an independently reviewed submission.
+          independent:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release requires a signer independent of the analyst, reviewer and editors.

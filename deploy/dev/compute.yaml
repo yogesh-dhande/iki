@@ -51,6 +51,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/plate_assays.assay-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/example_lims.lims-tools
 templates: [{ template: backend-small }]
 ---

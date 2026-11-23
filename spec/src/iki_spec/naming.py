@@ -101,6 +101,7 @@ FIRST_PARTY = frozenset(
         "iki/plasmid",
         "iki/complex",
         "iki/lots",
+        "iki/plate_assays",
         "iki/example_lims",
         "iki/example_models",
     }
