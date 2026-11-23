@@ -15,7 +15,10 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import { rowLabel, slotsOf, type Occupant, type Shape, type Slot } from "./storage";
+import { FINDINGS, rowLabel, slotsOf, type Occupant, type Shape, type Slot } from "./storage";
+
+/** What each mark on a position says: a reconciliation's findings, and where one goes. */
+const FOUND: Record<string, string> = { ...FINDINGS, suggested: "where one goes" };
 
 export type MapMode = "open" | "select" | "pick";
 
@@ -144,32 +147,25 @@ export function BoxMap({
         role="grid"
         aria-label={label}
         aria-multiselectable={mode === "select" ? "true" : undefined}
-        aria-rowcount={shape.rows + (numbered ? 0 : 1)}
-        aria-colcount={shape.columns + (numbered ? 0 : 1)}
         ref={grid}
         style={style}
       >
         {numbered ? null : (
-          <div className="box-map-row box-map-head" role="row" aria-rowindex={1}>
-            <span className="box-map-corner" role="columnheader" aria-colindex={1}>
+          <div className="box-map-row box-map-head" role="row">
+            <span className="box-map-corner" role="columnheader">
               <span className="visually-hidden">Row</span>
             </span>
             {rows[0]?.map((s) => (
-              <span
-                key={s.column}
-                className="box-map-colhead"
-                role="columnheader"
-                aria-colindex={s.column + 1}
-              >
+              <span key={s.column} className="box-map-colhead" role="columnheader">
                 {s.column}
               </span>
             ))}
           </div>
         )}
         {rows.map((cells, r) => (
-          <div className="box-map-row" role="row" key={r} aria-rowindex={r + (numbered ? 1 : 2)}>
+          <div className="box-map-row" role="row" key={r}>
             {numbered ? null : (
-              <span className="box-map-rowhead" role="rowheader" aria-colindex={1}>
+              <span className="box-map-rowhead" role="rowheader">
                 {rowLabel(shape, r + 1)}
               </span>
             )}
@@ -199,10 +195,8 @@ export function BoxMap({
                   role="gridcell"
                   className={classes}
                   data-slot={key}
-                  aria-colindex={slot.column + (numbered ? 0 : 1)}
                   aria-selected={mode === "select" ? isSelected : undefined}
                   aria-current={isMarked ? "location" : undefined}
-                  aria-label={finding ? `${name}: ${finding}` : name}
                   title={name}
                   tabIndex={isActive ? 0 : -1}
                   onFocus={() => {
@@ -216,6 +210,11 @@ export function BoxMap({
                     onActivate?.(slot);
                   }}
                 >
+                  {/* Its name is its text, not a label over what it shows (which is cut short
+                      to fit), so nothing visible is left out of what's heard. */}
+                  <span className="visually-hidden">
+                    {finding ? `${name}: ${FOUND[finding] ?? finding}` : name}
+                  </span>
                   <span className="box-map-pos" aria-hidden="true">
                     {slot.label}
                   </span>

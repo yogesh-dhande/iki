@@ -460,8 +460,7 @@ class RequestTypeOut(Schema):
     )
     receives_by: list[str] = Field(
         default_factory=list,
-        description="The lab roles in the service that receive it: any of its Editors, if "
-        "none.",
+        description="The lab roles in the service that receive it: any of its Editors, if none.",
     )
 
 

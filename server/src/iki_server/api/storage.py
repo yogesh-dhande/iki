@@ -645,21 +645,23 @@ def scan(request: HttpRequest, params: Query[ScanParams]) -> dict[str, Any]:
     code = params.code
     found = storage.find(me, code)[:20]
     refs = _refs(me, [e.pk for e in found])
-    return {
-        "code": code,
-        "items": [
+    items = []
+    for e in found:
+        if e.pk not in refs:
+            continue
+        where = _location(me, e) if storage.spec(e.type) is not None else None
+        items.append(
             {
                 **refs[e.pk],
                 "id": e.pk,
-                "position": None,
-                "storable": storage.spec(e.type) is not None,
+                # Its position in the last container its path shows.
+                "position": where["position"] if where else None,
+                "storable": where is not None,
                 "container": storage.is_container(e.type),
-                "location": _location(me, e) if storage.spec(e.type) is not None else None,
+                "location": where,
             }
-            for e in found
-            if e.pk in refs
-        ],
-    }
+        )
+    return {"code": code, "items": items}
 
 
 class CheckedOutOut(StepOut):

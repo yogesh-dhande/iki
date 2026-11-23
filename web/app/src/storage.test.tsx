@@ -163,6 +163,19 @@ describe("a container's page", () => {
         })),
       };
     });
+    // The box they go to: C1 free, C2 taken, so the second goes in C3.
+    answer("GET /api/v1/storage/containers/BOX-000015", {
+      ...container(),
+      id: "00000000-0000-7000-8000-0000000b0002",
+      hrid: "BOX-000015",
+      title: "Spare box",
+      contents: [{ ...occupant(40, 3, 2), position: "C2" }].map((o) => ({
+        ...o,
+        row: 3,
+        column: 2,
+      })),
+      location: { ...container().location, path: [] },
+    });
     await user.click(within(bar).getByRole("button", { name: "Move…" }));
     const dialog = await screen.findByRole("dialog", { name: "Move 2 records" });
     const to = within(dialog).getByRole("textbox", { name: "Container" });
@@ -179,10 +192,11 @@ describe("a container's page", () => {
     });
     const sent = calls("POST", "/api/v1/storage/moves").map((c) => c.body);
     expect(sent).toHaveLength(2);
+    expect(sent[0]).toMatchObject({ preview: true });
     expect(sent[1]).toEqual({
       items: [
         { record: occupant(11, 1, 1).id, to: "BOX-000015", position: "C1" },
-        { record: occupant(12, 1, 2).id, to: "BOX-000015", position: null },
+        { record: occupant(12, 1, 2).id, to: "BOX-000015", position: "C3" },
       ],
       reason: "Consolidating",
       confirmations: {},

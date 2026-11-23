@@ -203,7 +203,7 @@ describe("the box map", () => {
       />,
     );
     expect(screen.queryAllByRole("columnheader")).toHaveLength(0);
-    expect(screen.getByRole("gridcell", { name: "6, empty: missing" })).toBeTruthy();
+    expect(screen.getByRole("gridcell", { name: "6, empty: Missing" })).toBeTruthy();
   });
 
   it("names a position as its tooltip does", () => {

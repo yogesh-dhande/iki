@@ -4,7 +4,7 @@
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
@@ -13,7 +13,15 @@ import { fieldErrors, iki, meQuery, problemOf, useApiMutation } from "./api";
 import { ENTITIES, typesQuery } from "./entities";
 import { PersonPicker } from "./entity-inputs";
 import { cameraUnavailable, makeDetector, useScanner } from "./scan";
-import { STORAGE, stepName, type Location, type Step } from "./storage";
+import {
+  containerQuery,
+  indexOf,
+  slotsOf,
+  STORAGE,
+  stepName,
+  type Location,
+  type Step,
+} from "./storage";
 import { Button, ProblemAlert, RadioField, TextField, useMessages } from "./ui";
 
 // --- Scanning -----------------------------------------------------------------------------------
@@ -243,21 +251,22 @@ export function WherePath({ location, label }: { location: Location; label: stri
       </p>
     );
   }
+  // Each step's position is where the path goes on inside it: the last, the record's own.
+  const last = location.path.length - 1;
   return (
     <nav aria-label={label} className="where-path">
       <ol>
         {location.hidden ? <li className="muted">A place you can’t open</li> : null}
-        {location.path.map((s) => (
-          <li key={s.id}>
+        {location.path.map((s, i) => (
+          <li key={s.id} aria-current={i === last ? "location" : undefined}>
             <StepLink step={s} />
-            {s.position ? <span className="where-position">{s.position}</span> : null}
+            {s.position ? (
+              <span className={i === last ? "where-position where-here" : "where-position"}>
+                {s.position}
+              </span>
+            ) : null}
           </li>
         ))}
-        {location.position ? (
-          <li aria-current="location">
-            <span className="where-position where-here">{location.position}</span>
-          </li>
-        ) : null}
       </ol>
     </nav>
   );
@@ -335,6 +344,35 @@ function Confirmations({
 
 type Planned = Awaited<ReturnType<typeof previewMoves>>;
 
+/**
+ * Positions in a container from `start` on, one each for `records`, in its grid's order:
+ * free ones, or those the records themselves leave. The first is `start` as given, so a
+ * position that isn't one is said to be by the server; past the grid's last position the
+ * rest are left to the server's next free ones.
+ */
+async function fromPosition(
+  client: QueryClient,
+  container: string,
+  start: string,
+  records: readonly Chosen[],
+): Promise<(string | null)[]> {
+  if (records.length < 2) return [start];
+  const found = await client.query(containerQuery(container)).catch(() => null);
+  const shape = found?.shape;
+  if (!found || !shape) return [start];
+  const leaving = new Set(records.map((r) => r.id));
+  const open = slotsOf(
+    shape,
+    found.contents.filter((o) => !o.id || !leaving.has(o.id)),
+  )
+    .flat()
+    .filter((s) => !s.occupant)
+    .sort((a, b) => indexOf(shape, a.row, a.column) - indexOf(shape, b.row, b.column));
+  const first = open.findIndex((s) => s.label.toUpperCase() === start.toUpperCase());
+  if (first < 0) return [start];
+  return records.map((_, i) => open[first + i]?.label ?? null);
+}
+
 async function previewMoves(body: {
   items: { record: string; to: string | null; position: string | null }[];
   reason: string;
@@ -369,21 +407,32 @@ export function MoveDialog({
   const [planned, setPlanned] = useState<Planned | null>(null);
   const needed = useConfirms(records, "move");
   const { say } = useMessages();
-  const items = () =>
+  const client = useQueryClient();
+  // Where each goes, as the preview worked it out: the move sends the same.
+  const [positions, setPositions] = useState<(string | null)[]>([]);
+  const items = (at: readonly (string | null)[]) =>
     records.map((r, i) => ({
       record: r.id,
       to: where === "out" ? null : to.trim(),
-      // The first from the position given, and the rest each in the next free one.
-      position: where === "out" || !start.trim() || i > 0 ? null : start.trim(),
+      position: where === "out" ? null : (at[i] ?? null),
     }));
-  const preview = useApiMutation(
-    () => previewMoves({ items: items(), reason: reason.trim(), confirmations: {}, preview: true }),
-    [],
-  );
+  const preview = useApiMutation(async () => {
+    const at =
+      where === "out" || !start.trim()
+        ? []
+        : await fromPosition(client, to.trim(), start.trim(), records);
+    setPositions(at);
+    return previewMoves({
+      items: items(at),
+      reason: reason.trim(),
+      confirmations: {},
+      preview: true,
+    });
+  }, []);
   const move = useApiMutation(
     () =>
       previewMoves({
-        items: items(),
+        items: items(positions),
         reason: reason.trim(),
         confirmations: confirmed,
         preview: false,

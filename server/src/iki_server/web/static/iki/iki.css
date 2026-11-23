@@ -7922,6 +7922,12 @@ input[type="file"]::file-selector-button {
   margin-top: 0;
 }
 
+/* A map scrolls within its column, rather than widening it past the screen. */
+.reconcile > *,
+.putaway > * {
+  min-width: 0;
+}
+
 .resolve-list {
   margin: 0;
   padding: 0;

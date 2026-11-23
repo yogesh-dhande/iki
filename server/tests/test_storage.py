@@ -193,6 +193,8 @@ def test_a_freezer_holds_racks_and_boxes_and_a_box_says_where_it_is(world: World
     for code, hrid in (("AT-0003", freezer["hrid"]), ("TB-0001", sample["hrid"])):
         found = api.get("/storage/scan", code=code).json()["items"]
         assert [m["hrid"] for m in found] == [hrid]
+    # A tube's is where it is in its box, which is last in its path.
+    assert api.get("/storage/scan", code="TB-0001").json()["items"][0]["position"] == "C4"
     found = api.get("/storage/scan", code=cryo["hrid"].lower()).json()["items"]
     assert [(m["hrid"], m["container"]) for m in found] == [(cryo["hrid"], True)]
     assert api.get("/storage/scan", code="nothing-at-all").json()["items"] == []
