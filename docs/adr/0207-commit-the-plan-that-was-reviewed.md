@@ -11,17 +11,30 @@ a one-row preview of sheet B. The import wrote B's row and stored the reason
 entered for A. The row's provenance identified B correctly. The approval still
 referred to content the person had never reviewed. [Spreadsheet imports](0178-spreadsheets-are-imported-by-mapping-previewing-then-one-run.md)
 
+A storage reconciliation showed the same issue after every line was valid.
+One editor reviewed a move to A3. Another editor rescanned the tube at A4 and
+authorised that move. The first editor’s old completion then recorded A4 under
+their identity with the note “Completed count after reviewing A3”. In a bulk
+move, a next-free allocation similarly replaced a displayed pair of slots.
+In a signed bundle import, a registry change swapped which of two records
+kept its source identifier while every aggregate count remained equal.
+[Storage reconciliation](0180-where-material-is-and-how-its-received-moved-and-counted.md) · [Bundle imports](0096-bundles-carry-entities-between-deployments-with-their-history.md)
+
 ## Decision
 
 **An approval authorises the exact content that was reviewed, and is void if
 that content changes.** At commit, the server verifies the plan shown to the
-person. Iki supports two ways to bind the write to that plan.
+person. Field-level validation answers “Is each value valid?” The identity of
+the reviewed revision answers “Is this the thing the person approved?” A valid
+replacement passes the first check and still requires a fresh approval. Iki
+binds a write to its review in either of two ways.
 
 - The client submits the concrete choices it displayed, including the affected
   records and their destinations. Under the write lock, the server checks that
   each choice still applies and commits those choices together.
 - The server gives the reviewed plan an identity, such as an import's preview
-  round. The client returns that identity with its approval. Under the same
+  round, a reconciliation revision, or the identity of an approved bundle
+  plan. The client returns that identity with its approval. Under the same
   lock used for the write, the server checks that the identity still names the
   current reviewed plan.
 
