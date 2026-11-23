@@ -1286,6 +1286,44 @@
         "title": "AppPluginComponentOut",
         "type": "object"
       },
+      "AppliedMappingOut": {
+        "properties": {
+          "columns": {
+            "description": "Mapped columns, including the column index, header and how each was read.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "header_row": {
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/SheetLocaleOut"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedMappingMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "template",
+          "header_row",
+          "locale",
+          "columns"
+        ],
+        "title": "AppliedMappingOut",
+        "type": "object"
+      },
       "AppliedStarterOut": {
         "properties": {
           "flow": {
@@ -24462,6 +24500,17 @@
       },
       "SpreadsheetImportOut": {
         "properties": {
+          "applied_mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedMappingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact mapping confirmed at commit, kept on the import."
+          },
           "can": {
             "additionalProperties": {
               "type": "boolean"
@@ -24541,7 +24590,7 @@
                 "type": "null"
               }
             ],
-            "description": "The saved mapping it was mapped by."
+            "description": "The saved mapping it was mapped by, pinned on committed imports."
           },
           "mappings": {
             "description": "The project's saved mappings for the type, best matched first.",

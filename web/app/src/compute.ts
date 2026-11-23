@@ -17,7 +17,7 @@ export const OVERVIEW_POLL_MS = 15_000;
 
 export const overviewQuery = queryOptions({
   queryKey: [...COMPUTE, "overview"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/overview")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/overview", { signal })),
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
@@ -67,7 +67,7 @@ export function workersQuery(filter: WorkerFilter) {
   return infiniteQueryOptions({
     queryKey: [...COMPUTE, "workers", filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/compute/workers", {
           params: {
@@ -78,6 +78,7 @@ export function workersQuery(filter: WorkerFilter) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -88,9 +89,12 @@ export function workersQuery(filter: WorkerFilter) {
 /** Registration tokens, newest first, revoked ones included: few enough for one page. */
 export const registrationsQuery = queryOptions({
   queryKey: [...COMPUTE, "registration-tokens"],
-  queryFn: async () =>
+  queryFn: async ({ signal }) =>
     unwrap(
-      await iki.GET("/api/v1/compute/registration-tokens", { params: { query: { limit: 100 } } }),
+      await iki.GET("/api/v1/compute/registration-tokens", {
+        params: { query: { limit: 100 } },
+        signal,
+      }),
     ).items,
 });
 
@@ -100,7 +104,7 @@ export type QuotaScopeKind = "team" | "project";
 /** Every quota, the organization's first, with how much of each is in use now. */
 export const quotasQuery = queryOptions({
   queryKey: [...COMPUTE, "quotas"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/quotas")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/quotas", { signal })),
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
@@ -113,12 +117,13 @@ export const quotasQuery = queryOptions({
 export function quotaScopesQuery(kind: QuotaScopeKind, search: string, teams: string[] = []) {
   return queryOptions({
     queryKey: [...COMPUTE, "quota-scopes", kind, search.trim(), teams],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/compute/quota-scopes", {
           params: {
             query: { kind, search: search.trim(), ...(teams.length ? { team: teams } : {}) },
           },
+          signal,
         }),
       ),
     staleTime: 30_000,
@@ -154,7 +159,7 @@ export const SLURM = [...COMPUTE, "slurm"] as const;
 /** The clusters the deployment's Slurm templates name, with their workers and accounts. */
 export const slurmClustersQuery = queryOptions({
   queryKey: SLURM,
-  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/slurm")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/slurm", { signal })),
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
@@ -163,13 +168,14 @@ export function slurmAccountsQuery(cluster: string) {
   return infiniteQueryOptions({
     queryKey: [...SLURM, cluster, "accounts"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/compute/slurm/{cluster}/accounts", {
           params: {
             path: { cluster },
             query: { limit: 50, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,

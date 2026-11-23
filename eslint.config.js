@@ -5,6 +5,27 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+// Raw HTML would bypass React's escaping, and Trusted Types refuse it anyway.
+const RAW_HTML = {
+  selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+  message: "Render text, not HTML: the CSP's Trusted Types refuse raw HTML.",
+};
+
+// TanStack cancels a query (unmount, a new key) through its signal. page-reads.ts adds the
+// document's lifetime to every page read, but only the query can pass its own signal.
+const QUERY_SIGNAL = {
+  selector: "Property[key.name='queryFn'] > :function:not(:has(Identifier[name='signal']))",
+  message: "Pass the query's signal to its reads, so TanStack can cancel them.",
+};
+
+// A read that sends JSON (a search, a preview) is a page read by its meaning, not its method:
+// it selects fetchPageRead, which stops it with the page. A write never does, so it finishes.
+const POST_READ = {
+  selector:
+    "Property[key.name='queryFn'] CallExpression[callee.object.name='iki'][callee.property.name=/^(POST|PUT|PATCH|DELETE)$/]:not(:has(Property[key.name='fetch'][value.name='fetchPageRead']))",
+  message: "A query's read that sends JSON selects fetchPageRead, so it stops with the page.",
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -77,15 +98,13 @@ export default tseslint.config(
     ...jsxA11y.flatConfigs.strict,
     rules: {
       ...jsxA11y.flatConfigs.strict.rules,
-      // Raw HTML would bypass React's escaping, and Trusted Types refuse it anyway.
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
-          message: "Render text, not HTML: the CSP's Trusted Types refuse raw HTML.",
-        },
-      ],
+      "no-restricted-syntax": ["error", RAW_HTML],
     },
+  },
+  {
+    files: ["web/app/**/*.{ts,tsx}"],
+    ignores: ["**/*.test.{ts,tsx}"],
+    rules: { "no-restricted-syntax": ["error", RAW_HTML, QUERY_SIGNAL, POST_READ] },
   },
   {
     // Iki's bridge in plugins' components' frames: a module, in the browser (ADR 0084).

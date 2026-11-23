@@ -16,10 +16,11 @@ export type ProjectChange = Schemas["ProjectChangeOut"];
 export function projectChangesQuery(projectId: string, limit = 8) {
   return queryOptions({
     queryKey: [...ENTITIES, "project-changes", projectId, limit],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/changes", {
           params: { path: { project_id: projectId }, query: { limit } },
+          signal,
         }),
       ),
   });
@@ -32,17 +33,20 @@ export function latestRequestsQuery(
 ) {
   return queryOptions({
     queryKey: [...ENTITIES, "latest-requests", projectId, sides],
-    queryFn: async (): Promise<Entity[]> => {
+    queryFn: async ({ signal }): Promise<Entity[]> => {
       const latest = async (where: Schemas["Condition"]) =>
         unwrap(
-          await searchEntities({
-            project: projectId,
-            exact_type: false,
-            archived: false,
-            limit: LATEST_REQUESTS,
-            where,
-            sort: { field: "updated_at", descending: true },
-          }),
+          await searchEntities(
+            {
+              project: projectId,
+              exact_type: false,
+              archived: false,
+              limit: LATEST_REQUESTS,
+              where,
+              sort: { field: "updated_at", descending: true },
+            },
+            signal,
+          ),
         ).items;
       const found = await Promise.all([
         sides.received ? latest(sentTo(projectId) as Schemas["Condition"]) : [],

@@ -81,7 +81,7 @@ export function nameableQuery(projectId: string, role: string | null | undefined
   const key = ["people", projectId, role ?? "", q.trim()] as const;
   return queryOptions({
     queryKey: key,
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/people", {
           params: {
@@ -92,6 +92,7 @@ export function nameableQuery(projectId: string, role: string | null | undefined
               ...(q.trim() ? { q: q.trim() } : {}),
             },
           },
+          signal,
         }),
       ),
     placeholderData: (previous, previousQuery) => {
@@ -131,7 +132,7 @@ export function workQuery(filter: WorkFilter) {
   return infiniteQueryOptions({
     queryKey: [...WORK, filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const query = {
         limit: 50,
         sort: filter.sort ?? "due",
@@ -142,8 +143,8 @@ export function workQuery(filter: WorkFilter) {
       };
       return unwrap(
         filter.open
-          ? await iki.GET("/api/v1/me/work/open", { params: { query } })
-          : await iki.GET("/api/v1/me/work", { params: { query } }),
+          ? await iki.GET("/api/v1/me/work/open", { params: { query }, signal })
+          : await iki.GET("/api/v1/me/work", { params: { query }, signal }),
       );
     },
     getNextPageParam: (last) => last.next_cursor ?? undefined,

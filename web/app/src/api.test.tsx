@@ -13,7 +13,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   chooseWatch,
   iki,
+  markAllNotifications,
   projectPagesQuery,
+  projectsQuery,
   queryClient,
   rolesQuery,
   useApiMutation,
@@ -263,5 +265,203 @@ describe("queries belonging to the current page", () => {
     answer(`GET ${current}`, { mode: "default" });
     await queryClient.query(watchQuery("TUB-2"));
     expect(calls("GET").map((request) => request.path)).toEqual([current]);
+  });
+
+  /** The browser's transport: each request held until the test answers it, or rejected with
+   * its signal's reason once that aborts, as fetch does. */
+  function holding() {
+    const sent: { request: Request; answer: (body: unknown) => void }[] = [];
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+      const request = new Request(input, init);
+      return new Promise<Response>((resolve, reject) => {
+        sent.push({
+          request,
+          answer: (body) => {
+            resolve(Response.json(body));
+          },
+        });
+        request.signal.addEventListener("abort", () => {
+          reject(request.signal.reason as Error);
+        });
+      });
+    });
+    const paths = () => sent.map(({ request }) => new URL(request.url).search);
+    return { sent, spy, paths };
+  }
+
+  /** Leaving: as a navigation begins, then once the page has gone. */
+  const leaving = {
+    beforeunload: () => window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
+    pagehide: () => {
+      transition("pagehide");
+    },
+  };
+
+  it.each([
+    {
+      write: "PUT",
+      save: () => chooseWatch("TUB-1", "muted"),
+      answer: { mode: "muted" },
+    },
+    {
+      write: "POST",
+      save: () => markAllNotifications("2026-11-23T12:00:00Z"),
+      answer: { marked: 3 },
+    },
+  ])("lets a $write already sent finish though the page goes away", async (write) => {
+    for (const leave of Object.values(leaving)) {
+      const { sent, spy } = holding();
+      try {
+        const saving = write.save();
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(1);
+        });
+        const save = sent[0];
+        expect(save?.request.method).toBe(write.write);
+        leave();
+        try {
+          expect(save?.request.signal.aborted).toBe(false);
+          save?.answer(write.answer);
+          await expect(saving).resolves.toEqual(write.answer);
+        } finally {
+          transition("pagehide");
+          transition("pageshow");
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    }
+  });
+
+  it.each(Object.keys(leaving) as (keyof typeof leaving)[])(
+    "stops a search, a read that POSTs, at %s, quietly",
+    async (event) => {
+      const { sent, spy } = holding();
+      const failed = vi.spyOn(console, "error");
+      try {
+        const found = queryClient.infiniteQuery(entitiesQuery({}));
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(1);
+        });
+        const search = sent[0];
+        expect(search?.request.method).toBe("POST");
+        leaving[event]();
+        try {
+          expect(search?.request.signal.aborted).toBe(true);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const state = queryClient.getQueryState(entitiesQuery({}).queryKey);
+          expect(state?.status).toBe("pending");
+          expect(state?.error).toBeNull();
+          expect(sent).toHaveLength(1);
+        } finally {
+          transition("pagehide");
+          transition("pageshow");
+        }
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(2);
+        });
+        sent[1]?.answer({ items: [], next_cursor: null });
+        await expect(found).resolves.toMatchObject({ pages: [{ items: [] }] });
+        expect(failed).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+        failed.mockRestore();
+      }
+    },
+  );
+
+  it("stops every project's pages when the page goes away, quietly, and reads them again on its return", async () => {
+    const { sent, spy, paths } = holding();
+    const failed = vi.spyOn(console, "error");
+    try {
+      const all = queryClient.query(projectsQuery);
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(1);
+      });
+      sent[0]?.answer({ items: [{ name: "Kinase Atlas" }], next_cursor: "two" });
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(2);
+      });
+      const second = sent[1];
+      transition("pagehide");
+      try {
+        expect(second?.request.signal.aborted).toBe(true);
+        // Neither a failure to show or retry, nor a page after the one it stopped.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(sent).toHaveLength(2);
+        const state = queryClient.getQueryState(projectsQuery.queryKey);
+        expect(state?.status).toBe("pending");
+        expect(state?.error).toBeNull();
+        expect(state?.fetchFailureCount).toBe(0);
+      } finally {
+        transition("pageshow");
+      }
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(3);
+      });
+      sent[2]?.answer({ items: [{ name: "Kinase Atlas" }], next_cursor: "two" });
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(4);
+      });
+      sent[3]?.answer({ items: [{ name: "Assay Requests" }], next_cursor: null });
+      await expect(all).resolves.toEqual([{ name: "Kinase Atlas" }, { name: "Assay Requests" }]);
+      expect(paths()).toEqual([
+        "?limit=100",
+        "?limit=100&cursor=two",
+        "?limit=100",
+        "?limit=100&cursor=two",
+      ]);
+      expect(failed).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      failed.mockRestore();
+    }
+  });
+
+  it("stops every project's pages when the query is cancelled in the app", async () => {
+    const { sent, spy } = holding();
+    try {
+      const observer = new QueryObserver(queryClient, projectsQuery);
+      const unsubscribe = observer.subscribe(() => undefined);
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(1);
+      });
+      sent[0]?.answer({ items: [{ name: "Kinase Atlas" }], next_cursor: "two" });
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(2);
+      });
+      // The form that wanted them closed.
+      unsubscribe();
+      expect(sent[1]?.request.signal.aborted).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(sent).toHaveLength(2);
+      const state = queryClient.getQueryState(projectsQuery.queryKey);
+      expect(state?.error).toBeNull();
+      expect(state?.fetchFailureCount).toBe(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("still gives a loader the projects it awaits when the form that shared their read closes", async () => {
+    const { sent, spy } = holding();
+    try {
+      const observer = new QueryObserver(queryClient, projectsQuery);
+      const unsubscribe = observer.subscribe(() => undefined);
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(1);
+      });
+      // A route's loader asks for them while the form's read is on the wire, then the form goes.
+      const loading = queryClient.query(projectsQuery);
+      unsubscribe();
+      expect(sent[0]?.request.signal.aborted).toBe(true);
+      await vi.waitFor(() => {
+        expect(sent).toHaveLength(2);
+      });
+      sent[1]?.answer({ items: [{ name: "Kinase Atlas" }], next_cursor: null });
+      await expect(loading).resolves.toEqual([{ name: "Kinase Atlas" }]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
