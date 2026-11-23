@@ -1,0 +1,96 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: adenylated_strand
+description: >-
+  PDB 8V1W, chain C, is 5′-phosphorylated GTCGGAC with AMP attached to its
+  terminal phosphate (https://doi.org/10.2210/pdb8V1W/pdb).
+  The two phosphate groups form a pyrophosphate linkage with net loss of
+  one H2O. Sum the neutral strand and AMP formulas, subtract that loss, and
+  apply RDKit's periodic table to the resulting free-acid species.
+action: compute_composition
+inputs:
+  conjugate:
+    - values:
+        name: Adenylated DNA, PDB 8V1W chain C
+        carrier: [{ kind: oligo_conjugate }]
+        attachments: [{ site: 5′ phosphate, copies: 1, loss_formula: H2O }]
+      included:
+        carrier.molecule:
+          - type: iki/oligo.Oligonucleotide
+            values: { bases: GTCGGAC, molecular_formula: C68H87N28O43P7 }
+        attachments.part:
+          - values: { name: Adenosine 5′-monophosphate, molecular_formula: C10H14N5O7P }
+expect:
+  output:
+    updates:
+      conjugate:
+        - values:
+            molecular_formula: C78H99N33O49P8
+            molecular_weight: 2530.62
+            monoisotopic_mass: 2529.417
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: discrete_peg
+description: >-
+  Synthetic accounting example, with diglycine (PubChem CID 11163) and
+  discrete m-PEG4-acid (PubChem CID 21941826). An amide bond removes H2O
+  from the free amine and acid. The expected values apply RDKit's periodic
+  table to that theoretical species, with no measured mass asserted.
+action: compute_composition
+inputs:
+  conjugate:
+    - values:
+        carrier: [{ kind: pegylated_protein }]
+        attachments: [{ site: N terminus, copies: 1, loss_formula: H2O }]
+      included:
+        carrier.molecule:
+          - type: iki/protein.Protein
+            values: { name: Diglycine, sequence: GG }
+        attachments.part:
+          - values:
+              name: m-PEG4-acid
+              smiles: COCCOCCOCCOCCC(=O)O
+              molecular_formula: C10H20O6
+expect:
+  output:
+    updates:
+      conjugate:
+        - values:
+            molecular_formula: C14H26N2O8
+            molecular_weight: 350.37
+            monoisotopic_mass: 350.1689
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: distributed_adc
+description: >-
+  Brentuximab vedotin has a distribution of intact drug loads (Agilent
+  application note 5994-3522EN, table 1, measured in the lots plugin).
+  The registered design lacks a single elemental composition. Its carrier
+  still supplies its heavy and light chain copy counts for reduced-chain DAR.
+action: compute_composition
+inputs:
+  conjugate:
+    - values:
+        carrier: [{ kind: antibody_drug }]
+        attachments: [{ site: interchain cysteines }]
+      included:
+        carrier.molecule:
+          - type: iki/antibody.Antibody
+            values:
+              name: Brentuximab
+              components: [{ role: heavy, copies: 2 }, { role: light, copies: 2 }]
+        attachments.part:
+          - values: { name: Vedotin }
+expect:
+  output:
+    updates:
+      conjugate:
+        - values:
+            molecular_formula: null
+            molecular_weight: null
+            monoisotopic_mass: null
+            carrier_heavy_copies: 2
+            carrier_light_copies: 2
+            composition_note: Unspecified or distributed loading has no single formula or mass.
