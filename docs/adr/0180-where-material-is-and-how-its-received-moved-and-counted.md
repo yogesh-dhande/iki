@@ -203,11 +203,17 @@ on the record: its size, format and copies. The browser draws barcodes with
 bwip-js (MIT).
 
 **Scanning works with what labs have.** A USB or Bluetooth scanner types the
-code and Enter as a keyboard does, quickly. On Iki's storage, receiving and
-counting pages, a scan anywhere is taken as a scan: when nothing editable has
-focus, and also when a field does, by its speed (each key within 50 ms of
-the last, at least four characters, then Enter or Tab), and what it typed
-into the field is taken back out. On a tablet, the camera reads codes where
+code and a final Enter or Tab as a keyboard does. On Iki's storage, receiving
+and counting pages, typing in an editable field belongs to that field. With
+focus elsewhere, at least four characters form a scan if the gaps between
+them, including the final Enter or Tab, are at most 50 ms, with one gap
+allowed up to 250 ms. This accommodates a brief scheduling or rendering
+stall while excluding a person's steadily slower typing. Two consecutive
+characters within 50 ms identify a possible scan. From then until its
+terminator, a longer pause or a second stall rejects the whole code. Iki
+consumes the terminator either way so it cannot activate the focused
+control. For an unreadable scan the scan box asks the person to try again
+or type the code. On a tablet, the camera reads codes where
 the browser has `BarcodeDetector`; elsewhere, Iki says so and offers the
 code typed.
 
