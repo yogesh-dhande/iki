@@ -6579,6 +6579,91 @@ input[type="file"]::file-selector-button {
   min-height: var(--slot-size);
 }
 
+/* --- Observations: who recorded what, each change, and why ------------------------------- */
+
+/* A line's history, and what changed under someone, span the line below what it is. */
+.receive-line > .line-history,
+.receive-stale {
+  grid-column: 1 / -1;
+}
+
+.receive-stale .alert {
+  margin: 0;
+}
+
+.line-history-toggle {
+  min-height: calc(24rem / 13);
+  padding: 0 calc(6rem / 13);
+  font-size: var(--text-sm);
+  color: var(--accent);
+}
+
+.line-history .observation-history {
+  margin-top: 0.5rem;
+  padding: 0.75rem 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.observation-trail {
+  margin-bottom: 0.5rem;
+}
+
+.observation-title,
+.observation-change {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.observation-changes {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.observation-changes li,
+.stale-changes li {
+  overflow-wrap: anywhere;
+}
+
+.observation-change {
+  margin-bottom: 0.25rem;
+}
+
+.receive-removed {
+  border-left-style: dashed;
+  color: var(--muted);
+}
+
+.removed-lines {
+  margin-top: 1.25rem;
+}
+
+.removed-lines h3 {
+  margin: 0 0 0.25rem;
+  font-size: var(--text-md);
+}
+
+.scan-follow {
+  margin: -0.5rem 0 1rem;
+}
+
+.slot-evidence {
+  margin: 0 0 1rem;
+}
+
+.slot-evidence-line p {
+  margin: 0;
+}
+
+.resolve-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+}
+
+.resolve-history .line-history {
+  flex: 1 1 100%;
+}
+
 /* A tablet held upright, and a phone: one column, the map first. */
 @media (max-width: 64rem) {
   .reconcile,
