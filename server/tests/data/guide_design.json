@@ -1,0 +1,253 @@
+{
+  "recorded_by": "server/tests/data/record_guide_design.py",
+  "shared": {
+    "target": "pUC19 (L09137.2), bases 1,901 to 2,000",
+    "searched": "pUC19 (L09137.2) and pBR322 (J01749.1)",
+    "values": {
+      "name": "bla guides",
+      "nuclease": "spcas9",
+      "guides_found": 8,
+      "guides": [
+        {
+          "protospacer": "CACCACGATGCCTGTAGCAA",
+          "pam": "TGG",
+          "strand": "reverse",
+          "start": 1937,
+          "end": 1956,
+          "cuts": [1939],
+          "gc": 55.0,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": 78.9,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "CACCACGATGCCTGCAGCAA",
+              "pam": "TGG",
+              "strand": "reverse",
+              "start": 3604,
+              "mismatched": [15],
+              "score": 26.8
+            }
+          ]
+        },
+        {
+          "protospacer": "AACGTTGTTGCCATTGCTAC",
+          "pam": "AGG",
+          "strand": "forward",
+          "start": 1924,
+          "end": 1943,
+          "cuts": [1940],
+          "gc": 45.0,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": 76.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "AACGTTGTTGCCATTGCTGC",
+              "pam": "AGG",
+              "strand": "forward",
+              "start": 3591,
+              "mismatched": [19],
+              "score": 31.5
+            }
+          ]
+        },
+        {
+          "protospacer": "TGCCATTGCTACAGGCATCG",
+          "pam": "TGG",
+          "strand": "forward",
+          "start": 1932,
+          "end": 1951,
+          "cuts": [1948],
+          "gc": 55.0,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": 64.3,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "TGCCATTGCTGCAGGCATCG",
+              "pam": "TGG",
+              "strand": "forward",
+              "start": 3599,
+              "mismatched": [11],
+              "score": 55.5
+            }
+          ]
+        },
+        {
+          "protospacer": "GTGGTGTCACGCTCGTCGTT",
+          "pam": "TGG",
+          "strand": "forward",
+          "start": 1951,
+          "end": 1970,
+          "cuts": [1967],
+          "gc": 60.0,
+          "flags": [],
+          "specificity": 50.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "GTGGTGTCACGCTCGTCGTT",
+              "pam": "TGG",
+              "strand": "forward",
+              "start": 3618,
+              "mismatched": [],
+              "score": 100.0
+            }
+          ]
+        },
+        {
+          "protospacer": "GTCACGCTCGTCGTTTGGTA",
+          "pam": "TGG",
+          "strand": "forward",
+          "start": 1956,
+          "end": 1975,
+          "cuts": [1972],
+          "gc": 55.0,
+          "flags": [],
+          "specificity": 50.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "GTCACGCTCGTCGTTTGGTA",
+              "pam": "TGG",
+              "strand": "forward",
+              "start": 3623,
+              "mismatched": [],
+              "score": 100.0
+            }
+          ]
+        },
+        {
+          "protospacer": "GGTATGGCTTCATTCAGCTC",
+          "pam": "CGG",
+          "strand": "forward",
+          "start": 1972,
+          "end": 1991,
+          "cuts": [1988],
+          "gc": 50.0,
+          "flags": [],
+          "specificity": 50.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "GGTATGGCTTCATTCAGCTC",
+              "pam": "CGG",
+              "strand": "forward",
+              "start": 3639,
+              "mismatched": [],
+              "score": 100.0
+            }
+          ]
+        },
+        {
+          "protospacer": "ACGTTGCGCAAACTATTAAC",
+          "pam": "TGG",
+          "strand": "reverse",
+          "start": 1909,
+          "end": 1928,
+          "cuts": [1911],
+          "gc": 40.0,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": 50.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "ACGTTGCGCAAACTATTAAC",
+              "pam": "TGG",
+              "strand": "reverse",
+              "start": 3576,
+              "mismatched": [],
+              "score": 100.0
+            }
+          ]
+        },
+        {
+          "protospacer": "TCGCCTTGATCGTTGGGAAC",
+          "pam": "CGG",
+          "strand": "reverse",
+          "start": 1994,
+          "end": 2013,
+          "cuts": [1996],
+          "gc": 55.0,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": 50.0,
+          "off_targets": 1,
+          "hits": [
+            {
+              "where": "pBR322",
+              "protospacer": "TCGCCTTGATCGTTGGGAAC",
+              "pam": "CGG",
+              "strand": "reverse",
+              "start": 3661,
+              "mismatched": [],
+              "score": 100.0
+            }
+          ]
+        }
+      ],
+      "searched": "pUC19 (2,686 bp), pBR322 (4,361 bp)",
+      "designed_with": "SpCas9 (Streptococcus pyogenes), reading NGG after a 20-base protospacer, cutting bluntly 3 bases from the PAM; Jinek et al., Science 337:816, 2012, and Gasiunas et al., PNAS 109:E2579, 2012, for the NGG PAM and the blunt cut 3 bp from it; Hsu et al., Nat Biotechnol 31:827, 2013, for cleavage at NAG; off-targets searched to 3 mismatches, on NGG, NAG; specificity by the aggregate formula the CRISPR Design tool published at crispr.mit.edu, over that tool's own single-site formula and position weights, which are the site's documentation and not Hsu et al. 2013"
+    }
+  },
+  "polylinker": {
+    "target": "pUC19 (L09137.2), bases 400 to 500",
+    "searched": "nothing",
+    "values": {
+      "name": "Cas12a in the polylinker",
+      "nuclease": "ascas12a",
+      "guides_found": 2,
+      "guides": [
+        {
+          "protospacer": "ACACAGGAAACAGCTATGACCAT",
+          "pam": "TTTC",
+          "strand": "reverse",
+          "start": 462,
+          "end": 484,
+          "cuts": [466, 461],
+          "gc": 43.5,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": null,
+          "off_targets": 0,
+          "hits": []
+        },
+        {
+          "protospacer": "CTGTGTGAAATTGTTATCCGCTC",
+          "pam": "TTTC",
+          "strand": "forward",
+          "start": 479,
+          "end": 501,
+          "cuts": [496, 501],
+          "gc": 43.5,
+          "flags": [
+            "it doesn't begin with a G: the U6 promoter starts transcription at a purine, so a G is usually added or the first base changed (Mali et al. 2013; Ran et al., Nat Protoc 8:2281, 2013)"
+          ],
+          "specificity": null,
+          "off_targets": 0,
+          "hits": []
+        }
+      ],
+      "searched": "nothing: no sequence was given to search",
+      "designed_with": "AsCas12a / LbCas12a (Cpf1), reading TTTV before a 23-base protospacer, cutting staggered after the 18th and 23rd bases of the protospacer, leaving a 5-base 5' overhang; Zetsche et al., Cell 163:759, 2015, for the staggered cut after the 18th and 23rd bases and the 5-base 5' overhang; Kim HK et al., Nat Methods 14:153, 2017, for the TTTV PAM of AsCas12a and LbCas12a; off-targets searched to 3 mismatches, on TTTV; no specificity computed: the design named nothing to search"
+    }
+  }
+}
