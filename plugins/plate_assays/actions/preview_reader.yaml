@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: preview_reader
+label: Preview reader and well assignments
+description: >-
+  Join the BMG MARS endpoint absorbance matrix to this plate layout.
+  Use an export in OD (AU) with a decimal point. The preview displays the
+  joined values and identifies missing, repeated and unassigned wells.
+inputs: { plate: { type: AssayPlate, schema: ">=1" } }
+effects: { updates: [{ input: plate, fields: [preview] }] }
+runs_on: { tier: backend, environment: assay-tools }
+command: [python, ./scripts/assays.py, preview]
+timeout: 5m

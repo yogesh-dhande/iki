@@ -1,0 +1,54 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: synthetic_serial_dilution_across_two_rows
+action: assign_dilution_series
+# Concentration ratios in a serial dilution: NIST J. Res. 98 (1993), p. 653.
+description: Synthetic twofold dilution of a standard from 40 nM, each dose in two wells.
+inputs:
+  plate:
+    - values: { size: plate_96, assignments: [{ well: C1, control: blank, replicate: 1 }] }
+  sample: [{ type: iki/core.Organism, values: {} }]
+params:
+  start_well: A01
+  direction: across
+  start_concentration: 40
+  concentration_unit: nM
+  fold_dilution: 2
+  steps: 3
+  replicates: 2
+expect:
+  output:
+    updates:
+      plate:
+        - require_unchanged: true
+          values:
+            preview: null
+            assignments:
+              - { well: C1, control: blank }
+              - { well: A1, concentration: 40, replicate: 1 }
+              - { well: B1, concentration: 40, replicate: 2 }
+              - { well: A2, concentration: 20, replicate: 1 }
+              - { well: B2, concentration: 20, replicate: 2 }
+              - { well: A3, concentration: 10, replicate: 1 }
+              - { well: B3, concentration: 10, replicate: 2 }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_control_protects_its_well
+action: assign_dilution_series
+inputs:
+  plate:
+    - values: { size: plate_384, assignments: [{ well: P24, control: blank, replicate: 1 }] }
+  sample: [{ type: iki/core.Organism, values: {} }]
+params: { start_well: O24, direction: down, start_concentration: 2, steps: 2 }
+expect: { error: P24 is already assigned }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: dilution_does_not_wrap_at_a_plate_edge
+action: assign_dilution_series
+inputs:
+  plate: [{ values: { size: plate_96 } }]
+  sample: [{ type: iki/core.Organism, values: {} }]
+params: { start_well: H12, direction: across, start_concentration: 2, steps: 2 }
+expect: { error: The dilution series extends beyond the plate }
