@@ -48,7 +48,7 @@ def test_a_page_of_the_main_frame_has_the_bar_then_its_title(world: World) -> No
     html = html_of(world, "team_member", "/teams/")
     main = re.search(
         r'<main id="main" class="app-main" tabindex="-1">\s*<header class="page-top">.*?</header>'
-        r'\s*<div class="page-body page-wide">',
+        r'\s*<div class="page-body page-wide">(?P<body>.*?)</main>',
         html,
         re.S,
     )
@@ -56,9 +56,13 @@ def test_a_page_of_the_main_frame_has_the_bar_then_its_title(world: World) -> No
     top = bar(html)
     assert crumbs(top) == ['<span aria-current="page">Teams</span>']
     assert '<div class="page-top-actions"></div>' in top
-    assert re.search(r'<div class="page-title-row">\s*<h1>Teams</h1>\s*</div>', heading(html))
+    assert re.search(
+        r'<div class="page-title-row">\s*<h1>Teams</h1>\s*</div>', heading(main["body"])
+    )
     assert html.count("<h1") == 1
-    assert "page-header" not in html
+    # The old header wrapper is gone. Its name also appears in the shared stylesheet URL.
+    class_values = re.findall(r'\sclass="([^"]*)"', html)
+    assert all("page-header" not in value.split() for value in class_values)
 
 
 def test_a_pages_crumbs_actions_and_description(world: World) -> None:

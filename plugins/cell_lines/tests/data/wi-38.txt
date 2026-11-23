@@ -1,0 +1,5 @@
+ID   WI-38
+AC   CVCL_0579
+DR   ATCC; CCL-75
+DR   Coriell; AG06814-J
+//
