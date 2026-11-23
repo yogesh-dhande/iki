@@ -16,7 +16,7 @@ function reportStatus(report: Report): string {
     return "Blocking findings require review before deployment.";
   }
   if (report.types.some((t) => t.sampled)) {
-    return "Check incomplete. Review the sampled types before deployment.";
+    return "Check incomplete. Review the sampled checks before deployment.";
   }
   return report.blocking ? "Deployment requires review." : "No blocking findings.";
 }
@@ -58,9 +58,14 @@ function ReportDetails({ report }: { report: Report }) {
             <code>{item.type}</code>
           </h3>
           <p>
-            {item.sampled
-              ? `Sampled ${records(item.checked)}. Affected counts are lower bounds.`
-              : `Checked ${records(item.checked)}.`}
+            {item.sampled ? (
+              <>
+                Sampled {item.checked.toLocaleString()} of {records(item.total)} for{" "}
+                <code>{item.sampled_checks.join(", ")}</code>.
+              </>
+            ) : (
+              `Checked all ${records(item.total)}.`
+            )}
             {item.findings.length === 0 ? " No findings among the records checked." : ""}
           </p>
           {item.findings.length > 0 ? (
@@ -74,7 +79,7 @@ function ReportDetails({ report }: { report: Report }) {
                   {finding.kind.replaceAll("_", " ")}
                   <p>{finding.message}</p>
                   <p>
-                    {item.sampled ? "At least " : ""}
+                    {finding.sampled ? "At least " : "Exactly "}
                     {records(finding.count, "affected ")}
                     {finding.examples.length > 0 ? (
                       <>

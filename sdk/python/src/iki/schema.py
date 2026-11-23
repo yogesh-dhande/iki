@@ -3016,12 +3016,14 @@ class PluginCandidateIn(TypedDict):
 
 class PluginFindingOut(TypedDict):
     blocking: bool
-    #: Affected records among those checked.
+    #: Number of affected records. A sampled count is a lower bound.
     count: int
     #: Example record HRIDs.
     examples: list[str]
     kind: str
     message: str
+    #: Whether this finding counts only a sample of the records.
+    sampled: bool
     subject: str
 
 
@@ -3037,9 +3039,15 @@ class PluginPreflightOut(TypedDict):
 
 
 class PluginTypePreflightOut(TypedDict):
+    #: Records checked by the sampled checks, or the total if complete.
     checked: int
     findings: list[PluginFindingOut]
+    #: Whether any checks had incomplete coverage.
     sampled: bool
+    #: Checks limited to the sample, including checks with no findings.
+    sampled_checks: list[str]
+    #: Exact number of eligible records of this type.
+    total: int
     type: str
 
 

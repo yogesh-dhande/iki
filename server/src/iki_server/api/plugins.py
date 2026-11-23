@@ -25,14 +25,21 @@ class PluginFindingOut(Schema):
     subject: str
     message: str
     blocking: bool
-    count: int = Field(description="Affected records among those checked.")
+    count: int = Field(description="Number of affected records. A sampled count is a lower bound.")
+    sampled: bool = Field(description="Whether this finding counts only a sample of the records.")
     examples: list[str] = Field(description="Example record HRIDs.")
 
 
 class PluginTypePreflightOut(Schema):
     type: str
-    checked: int
-    sampled: bool
+    total: int = Field(description="Exact number of eligible records of this type.")
+    checked: int = Field(
+        description="Records checked by the sampled checks, or the total if complete."
+    )
+    sampled: bool = Field(description="Whether any checks had incomplete coverage.")
+    sampled_checks: list[str] = Field(
+        description="Checks limited to the sample, including checks with no findings."
+    )
     findings: list[PluginFindingOut]
 
 
@@ -54,8 +61,9 @@ class PluginPreflightOut(Schema):
 )
 def preflight(request: HttpRequest, name: str, payload: PluginCandidateIn) -> dict[str, Any]:
     """Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.
-    The report reads current records and identifies the sampled types. It requires an Org Admin
-    and a token's admin scope with access to all projects."""
+    The report gives exact impact counts where SQL can evaluate the change. It identifies checks
+    that ran on a sample and the number of records they checked. Requires an Org Admin and a token's
+    admin scope with access to all projects."""
     require(caller(request), Action.ORG_MANAGE)
     try:
         return impact.preview_manifest(name, payload.plugin).as_dict()

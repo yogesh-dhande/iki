@@ -76,6 +76,7 @@ from iki_server.org import holds
 from iki_server.plugins import baseline, preflight, sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
 from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import naming, releases
 
 Key = tuple[str, str]
@@ -249,24 +250,32 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
             report = preflight.compare(current, proposed, revision, plugin)
             if not report.blocking or report.candidate_revision in acknowledged:
                 continue
-            refusals.append(f"{plugin.name} {plugin.version}, checked against {revision}:")
-            for result in report.types:
-                if result.sampled:
-                    refusals.append(
-                        f"  {result.type}: checked a sample of {result.checked} records."
-                    )
-                refusals.extend(
-                    f"  {result.type} {finding.subject} ({finding.count} affected): "
-                    f"{finding.message}"
-                    for finding in result.findings
-                    if finding.blocking
-                )
-            refusals.append(f"  --acknowledge-preflight {report.candidate_revision}")
+            refusals.extend(_preflight_refusal(report))
         if refusals:
             raise DeployError(
                 "Plugin preflight requires review before deploying. Correct the records or "
                 "acknowledge the reviewed candidate:\n" + "\n".join(refusals)
             )
+
+
+def _preflight_refusal(report: PreflightReport) -> list[str]:
+    lines = [f"{report.plugin} {report.version}, checked against {report.configuration_revision}:"]
+    for result in report.types:
+        if result.sampled:
+            checks = ", ".join(result.sampled_checks)
+            lines.append(
+                f"  Sampled {result.checked:,} of {result.total:,} {result.type} records "
+                f"for {checks}."
+            )
+        for finding in result.findings:
+            if finding.blocking:
+                precision = "at least" if finding.sampled else "exactly"
+                lines.append(
+                    f"  {result.type} {finding.subject} ({precision} {finding.count:,} affected): "
+                    f"{finding.message}"
+                )
+    lines.append(f"  --acknowledge-preflight {report.candidate_revision}")
+    return lines
 
 
 def _migrate_iki(stdout: Any, installed: Iterable[str]) -> None:  # noqa: ANN401 - a stream

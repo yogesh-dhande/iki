@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import * as download from "./download";
 import { PluginPreflight } from "./plugin-preflight";
 import { answer, calls, problem } from "./test-server";
 
@@ -18,7 +19,9 @@ const report = {
   types: [
     {
       type: "acme/dna.DNASequence",
-      checked: 1000,
+      total: 200000,
+      checked: 500,
+      sampled_checks: ["rule sequence_ok", "rule still_valid"],
       sampled: true,
       findings: [
         {
@@ -26,8 +29,18 @@ const report = {
           subject: "lab_id",
           message: backfill,
           blocking: true,
-          count: 2,
+          sampled: false,
+          count: 2000,
           examples: ["DNA-001", "DNA-002"],
+        },
+        {
+          kind: "rule",
+          subject: "sequence_ok",
+          message: "The proposed rule would hold these records for review.",
+          blocking: true,
+          sampled: true,
+          count: 3,
+          examples: ["DNA-003"],
         },
       ],
     },
@@ -52,11 +65,20 @@ describe("plugin schema preflight", () => {
     expect(calls("POST", path)[0]?.body).toEqual(manifest);
     expect(calls("POST", path)[0]?.headers.get("X-CSRFToken")).toBe("test-csrf-token");
     expect(screen.getByRole("heading", { name: "acme/dna.DNASequence" })).toBeVisible();
-    expect(screen.getByText(/Sampled 1,000 records/)).toBeVisible();
-    expect(screen.getByText(/At least 2 affected records/)).toBeVisible();
+    expect(screen.getByText(/Sampled 500 of 200,000 records/)).toBeVisible();
+    expect(screen.getByText(/rule still_valid/)).toBeVisible();
+    expect(screen.getByText(/Exactly 2,000 affected records/)).toBeVisible();
+    expect(screen.getByText(/At least 3 affected records/)).toBeVisible();
     expect(screen.getByText("DNA-002")).toBeVisible();
     expect(screen.getByText(backfill)).toBeVisible();
-    expect(screen.getByRole("button", { name: "Download report (JSON)" })).toBeEnabled();
+    const save = vi.spyOn(download, "saveFile").mockImplementation(() => undefined);
+    try {
+      await user.click(screen.getByRole("button", { name: "Download report (JSON)" }));
+      const blob = save.mock.calls[0]?.[0];
+      expect(await blob?.text()).toBe(JSON.stringify(report, null, 2) + "\n");
+    } finally {
+      save.mockRestore();
+    }
     await user.upload(screen.getByLabelText("Proposed plugin manifest"), file("!"));
     expect(screen.queryByText(report.candidate_revision)).toBeNull();
     await user.click(run);
@@ -84,7 +106,7 @@ describe("plugin schema preflight", () => {
     const user = userEvent.setup();
     answer("POST " + path, {
       ...report,
-      types: [{ type: "acme/dna.DNASequence", checked: 1000, sampled: true, findings: [] }],
+      types: [{ ...report.types[0], findings: [] }],
     });
     render(<PluginPreflight plugin={plugin} />);
     await user.upload(screen.getByLabelText("Proposed plugin manifest"), file());

@@ -57,10 +57,11 @@ iki plugin preflight build/plugins/iki_plugin_iki__dna/manifest.json --url https
 
 Under **Admin → Plugins**, upload that `manifest.json` on the plugin's
 detail page or use the Plugins list for a new installation. Both let you
-download the report. Compare the configuration
-revision with the deployed lockfile's digest. Read each type's affected
-counts and example record IDs. A sampled type gives a lower bound on
-affected records, even if the sample had no conflicts. Pass `--json` to
+download the report. Compare the configuration revision with the deployed
+lockfile's digest. Each finding gives an affected count and example record
+IDs. SQL checks give exact counts for the whole type. For checks that
+examined a sample, review the number of records checked. Findings from
+partial samples give lower bounds. Pass `--json` to
 the CLI to save the report for the review.
 
 The migrate Job repeats the check before it writes. Fix blocking findings

@@ -13227,7 +13227,7 @@
             "type": "boolean"
           },
           "count": {
-            "description": "Affected records among those checked.",
+            "description": "Number of affected records. A sampled count is a lower bound.",
             "title": "Count",
             "type": "integer"
           },
@@ -13247,6 +13247,11 @@
             "title": "Message",
             "type": "string"
           },
+          "sampled": {
+            "description": "Whether this finding counts only a sample of the records.",
+            "title": "Sampled",
+            "type": "boolean"
+          },
           "subject": {
             "title": "Subject",
             "type": "string"
@@ -13258,6 +13263,7 @@
           "message",
           "blocking",
           "count",
+          "sampled",
           "examples"
         ],
         "title": "PluginFindingOut",
@@ -13309,6 +13315,7 @@
       "PluginTypePreflightOut": {
         "properties": {
           "checked": {
+            "description": "Records checked by the sampled checks, or the total if complete.",
             "title": "Checked",
             "type": "integer"
           },
@@ -13320,8 +13327,22 @@
             "type": "array"
           },
           "sampled": {
+            "description": "Whether any checks had incomplete coverage.",
             "title": "Sampled",
             "type": "boolean"
+          },
+          "sampled_checks": {
+            "description": "Checks limited to the sample, including checks with no findings.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sampled Checks",
+            "type": "array"
+          },
+          "total": {
+            "description": "Exact number of eligible records of this type.",
+            "title": "Total",
+            "type": "integer"
           },
           "type": {
             "title": "Type",
@@ -13330,8 +13351,10 @@
         },
         "required": [
           "type",
+          "total",
           "checked",
           "sampled",
+          "sampled_checks",
           "findings"
         ],
         "title": "PluginTypePreflightOut",
@@ -34403,7 +34426,7 @@
     },
     "/api/v1/plugins/{name}/preflight": {
       "post": {
-        "description": "Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.\nThe report reads current records and identifies the sampled types. It requires an Org Admin\nand a token's admin scope with access to all projects.",
+        "description": "Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.\nThe report gives exact impact counts where SQL can evaluate the change. It identifies checks\nthat ran on a sample and the number of records they checked. Requires an Org Admin and a token's\nadmin scope with access to all projects.",
         "operationId": "iki_server_api_plugins_preflight",
         "parameters": [
           {

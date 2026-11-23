@@ -1761,7 +1761,7 @@ def test_deploy_requires_review_before_adding_a_rule_existing_records_break(
     v2 = build_to(lab.parent, "v2", "lab")
 
     message = refused(v2, database)
-    assert "acme/lab.Sample" in message and "minimum_count" in message
+    assert "acme/lab.Sample minimum_count (exactly 2 affected)" in message
     acknowledgement = re.search(r"--acknowledge-preflight (\S+)", message)
     assert acknowledgement, message
     assert applied(database, "acme__lab") == ["0001_initial"]
@@ -1774,6 +1774,28 @@ def test_deploy_requires_review_before_adding_a_rule_existing_records_break(
     assert reviewed.returncode == 0, reviewed.stdout + reviewed.stderr
     assert applied(database, "acme__lab") == ["0001_initial", "0002_notes"]
     assert query(database, "SELECT revision FROM iki_plugin_baseline") != previous
+
+
+def test_mixed_preflight_refusal_identifies_partial_checks_and_exact_counts() -> None:
+    from iki_server.plugins.deploy import _preflight_refusal
+    from iki_server.plugins.preflight_types import Finding, Report, TypeReport
+
+    result = TypeReport(
+        type="acme/lab.Sample",
+        checked=500,
+        sampled=True,
+        total=200_000,
+        sampled_checks=["minimum_count", "aliquots"],
+        findings=[
+            Finding("backfill", "notes", "Supply a value.", True, 34_782, []),
+            Finding("rule", "minimum_count", "Below the minimum.", True, 8, [], sampled=True),
+        ],
+    )
+    report = Report("acme/lab", "2", "deployed", "candidate", [result])
+    message = "\n".join(_preflight_refusal(report))
+    assert "Sampled 500 of 200,000 acme/lab.Sample records for minimum_count, aliquots." in message
+    assert "notes (exactly 34,782 affected)" in message
+    assert "minimum_count (at least 8 affected)" in message
 
 
 def test_deploy_needs_the_current_manifest_when_plugin_migrations_are_applied(

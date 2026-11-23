@@ -32,20 +32,32 @@ schema that stored them even though the Job is running the proposed build.
 The report identifies that baseline and separately gives the digest of the
 proposed manifest. A change to the proposed manifest changes its digest.
 
-The report groups findings by type. It gives affected counts and example
-HRIDs for backfills, values outside a new field's allowed values or
-bounds, rules and uniqueness conflicts, and records in a removed state.
-For a change of canonical unit it describes the conversion or reports why
-the old unit cannot be converted. For each changed concrete type, the check
-uses the index on type, HRID and record ID to select up to 500 records in
-that order. One extra key tells it whether there are more. Each type says
-how many records were checked and whether the check was sampled. Counts
-in a sample are lower bounds. The check also caps list-table reads at
-4,096 items per selected list table for the sample and reference lookups
-at 1,024 targets per type. It excludes records with partially read lists
-and reports rules with unread references as unchecked. For an amount
-ledger, changing the declared unit leaves existing balances in their
-stored unit. The report identifies the records needing a data migration.
+For each affected concrete type, PostgreSQL counts all the records that
+need a required-field backfill, have an invalid scalar value, share a
+unique value or overlap a range, or still occupy a removed state. A
+constraint declared on a parent compares records across its subtypes.
+The database aggregates scalar predicates over the deployed tables. It
+checks primitive lists in their array columns, counting each owning
+record once per finding even when multiple elements fail. For
+uniqueness it groups equal values within their project or registry and
+counts all records in the conflicting groups. The example list is capped
+at five HRIDs per finding. A canonical quantity unit change gives
+the conversion and the count of values it affects. An amount ledger
+keeps its stored unit, so balances needing a data migration are counted
+by that unit.
+
+Save rules written in CEL, HELM grammar validation, and checks that
+need separate list tables or referenced records use the index on type,
+HRID and record ID to read up to 500 records per concrete type. The
+report names those checks and shows their coverage. If a check used a
+partial sample, its count is a lower bound. SQL findings within the same report
+still carry exact counts. The check caps list-table reads at 4,096
+items per selected list table and reference lookups at 1,024 targets
+per type. It excludes records with partially read lists and reports
+rules with unread references as unchecked. Transition and draw guards
+are evaluated when a person requests a state change or a withdrawal
+(ADRs 0128 and 0139). Their actor, destination state or draw purpose
+comes from that request.
 
 `migrate_deployment` repeats the check against the target before making
 changes. A blocking finding or incomplete sample stops the deploy.

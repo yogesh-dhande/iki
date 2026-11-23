@@ -22,7 +22,9 @@ REPORT = {
     "types": [
         {
             "type": "acme/dna.DNASequence",
-            "checked": 100,
+            "total": 200000,
+            "checked": 500,
+            "sampled_checks": ["rule sequence_ok", "rule still_valid"],
             "sampled": True,
             "findings": [
                 {
@@ -30,9 +32,19 @@ REPORT = {
                     "subject": "topology",
                     "message": "Stored topology is absent from the proposed enum.",
                     "blocking": True,
-                    "count": 3,
+                    "sampled": False,
+                    "count": 2000,
                     "examples": ["DNA-000002"],
-                }
+                },
+                {
+                    "kind": "rule",
+                    "subject": "sequence_ok",
+                    "message": "The proposed rule would hold these records for review.",
+                    "blocking": True,
+                    "sampled": True,
+                    "count": 3,
+                    "examples": ["DNA-000003"],
+                },
             ],
         },
     ],
@@ -78,7 +90,14 @@ def test_plugin_preflight(
         assert str(report["configuration_revision"]) in output
         assert str(report["candidate_revision"]) in output
         if blocked:
-            for word in ("3", "sampled", "topology", "DNA-000002"):
+            for word in (
+                "Exactly 2,000 affected",
+                "At least 3 affected",
+                "Sampled 500 of 200,000 records",
+                "rule still_valid",
+                "topology",
+                "DNA-000002",
+            ):
                 assert word in output
 
 
@@ -89,12 +108,21 @@ def test_a_clean_sample_still_requires_review(
     report = {
         **REPORT,
         "types": [
-            {"type": "acme/dna.DNASequence", "checked": 500, "sampled": True, "findings": []}
+            {
+                "type": "acme/dna.DNASequence",
+                "checked": 500,
+                "total": 200000,
+                "sampled_checks": ["rule still_valid"],
+                "sampled": True,
+                "findings": [],
+            }
         ],
     }
     monkeypatch.setattr(Client, "request", lambda *a, **k: report)
     assert main(["plugin", "preflight", str(manifest)]) == 1
-    assert "Sample" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Sampled 500 of 200,000 records" in output
+    assert "rule still_valid" in output
 
 
 def test_bad_preflight_inputs_and_refusals(

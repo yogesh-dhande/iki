@@ -824,6 +824,7 @@ def test_plugin_preflight_shows_and_downloads_the_checked_revision(
     )
     page.get_by_role("button", name="Run preflight").click()
     page.get_by_text(example, exact=True).first.wait_for()
+    page.get_by_text("Exactly 1 affected record", exact=False).first.wait_for()
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
     assert_clean(page)
     with page.expect_download() as downloading:
@@ -836,7 +837,12 @@ def test_plugin_preflight_shows_and_downloads_the_checked_revision(
     page.get_by_text(report["candidate_revision"], exact=True).wait_for()
     page.get_by_text(report["configuration_revision"], exact=True).wait_for()
     affected = next(t for t in report["types"] if t["type"] == type_name)
-    assert any(f["count"] and example in f["examples"] for f in affected["findings"])
+    assert affected["checked"] == affected["total"] == 1
+    assert affected["sampled_checks"] == []
+    assert any(
+        f["count"] == 1 and not f["sampled"] and example in f["examples"]
+        for f in affected["findings"]
+    )
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

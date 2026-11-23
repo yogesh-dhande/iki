@@ -59,13 +59,17 @@ def _print_report(report: "PluginPreflightOut", out: TextIO) -> None:
     out.write(f"Checked configuration  {report['configuration_revision']}\n")
     out.write(f"Candidate manifest     {report['candidate_revision']}\n")
     for row in report["types"]:
-        scope = "sampled" if row["sampled"] else "checked"
-        out.write(f"\n{row['type']} ({row['checked']} records {scope})\n")
+        population = f"{row['total']:,} {'record' if row['total'] == 1 else 'records'}"
+        out.write(f"\n{row['type']} ({population})\n")
+        if row["sampled"]:
+            checks = ", ".join(row["sampled_checks"])
+            out.write(f"  Sampled {row['checked']:,} of {population} for {checks}.\n")
         for finding in row["findings"]:
             severity = "Blocking" if finding["blocking"] else "Info"
+            precision = "At least" if finding["sampled"] else "Exactly"
             out.write(
                 f"  {severity}  {finding['subject']} ({finding['kind']})  {finding['message']}\n"
-                f"    {finding['count']} affected among the records {scope}."
+                f"    {precision} {finding['count']:,} affected."
             )
             if finding["examples"]:
                 out.write(" Examples: " + ", ".join(finding["examples"]))

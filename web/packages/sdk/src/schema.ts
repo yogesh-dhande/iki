@@ -2503,8 +2503,9 @@ export interface paths {
         /**
          * Check a candidate plugin against existing records
          * @description Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.
-         *     The report reads current records and identifies the sampled types. It requires an Org Admin
-         *     and a token's admin scope with access to all projects.
+         *     The report gives exact impact counts where SQL can evaluate the change. It identifies checks
+         *     that ran on a sample and the number of records they checked. Requires an Org Admin and a token's
+         *     admin scope with access to all projects.
          */
         post: operations["iki_server_api_plugins_preflight"];
         delete?: never;
@@ -10889,7 +10890,7 @@ export interface components {
             blocking: boolean;
             /**
              * Count
-             * @description Affected records among those checked.
+             * @description Number of affected records. A sampled count is a lower bound.
              */
             count: number;
             /**
@@ -10901,6 +10902,11 @@ export interface components {
             kind: string;
             /** Message */
             message: string;
+            /**
+             * Sampled
+             * @description Whether this finding counts only a sample of the records.
+             */
+            sampled: boolean;
             /** Subject */
             subject: string;
         };
@@ -10927,12 +10933,28 @@ export interface components {
         };
         /** PluginTypePreflightOut */
         PluginTypePreflightOut: {
-            /** Checked */
+            /**
+             * Checked
+             * @description Records checked by the sampled checks, or the total if complete.
+             */
             checked: number;
             /** Findings */
             findings: components["schemas"]["PluginFindingOut"][];
-            /** Sampled */
+            /**
+             * Sampled
+             * @description Whether any checks had incomplete coverage.
+             */
             sampled: boolean;
+            /**
+             * Sampled Checks
+             * @description Checks limited to the sample, including checks with no findings.
+             */
+            sampled_checks: string[];
+            /**
+             * Total
+             * @description Exact number of eligible records of this type.
+             */
+            total: number;
             /** Type */
             type: string;
         };
