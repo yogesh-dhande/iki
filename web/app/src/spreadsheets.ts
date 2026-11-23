@@ -79,10 +79,11 @@ export function busy(state: SheetImport["state"] | undefined): boolean {
 export function importQuery(id: string) {
   return queryOptions({
     queryKey: [SPREADSHEETS, id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}", {
           params: { path: { import_id: id } },
+          signal,
         }),
       ),
     refetchInterval: (query) => (busy(query.state.data?.state) ? 1000 : false),

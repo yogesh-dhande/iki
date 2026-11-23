@@ -4,14 +4,16 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { queryClient } from "./api";
 import { entity, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import {
   columnName,
   columnsWith,
   counted,
+  importQuery,
   importable,
   parseRanges,
   rangesText,
@@ -351,6 +353,68 @@ describe("where an import starts", () => {
 });
 
 describe("an import's steps", () => {
+  it("keeps an acknowledged header when an older refresh arrives", async () => {
+    const initial = sheet();
+    const newer = sheet({ header_row: 3, first_row: 4 });
+    onImport(initial);
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    const header = await screen.findByRole("spinbutton", { name: "Header row" });
+    let finishRead!: (snapshot: SheetImport) => void;
+    const slowRead = new Promise<SheetImport>((resolve) => {
+      finishRead = resolve;
+    });
+    answer(`GET ${BASE}`, () => slowRead);
+    const refresh = queryClient.refetchQueries({ queryKey: importQuery(ID).queryKey });
+    await waitFor(() => expect(calls("GET", BASE)).toHaveLength(2));
+    answer(`PATCH ${BASE}`, newer);
+    await user.clear(header);
+    await user.type(header, "3{Enter}");
+    const first = screen.getByRole("spinbutton", { name: "First row" });
+    await waitFor(() => expect(first).toHaveValue(4));
+    await act(async () => {
+      finishRead(initial);
+      await refresh;
+    });
+    expect(queryClient.getQueryData(importQuery(ID).queryKey)).toEqual(newer);
+    expect(header).toHaveValue(3);
+    expect(first).toHaveValue(4);
+  });
+
+  it("keeps the newer selection when an earlier visit's save finishes last", async () => {
+    onImport(sheet());
+    let finishOld!: (snapshot: SheetImport) => void;
+    const old = new Promise<SheetImport>((resolve) => {
+      finishOld = resolve;
+    });
+    answer(`PATCH ${BASE}`, () => old);
+    const path = `/projects/kinase-atlas/entities/import/${ID}/`;
+    const { router, user } = await renderApp(path);
+    const header = await screen.findByRole("spinbutton", { name: "Header row" });
+    await user.clear(header);
+    await user.type(header, "2{Enter}");
+    await waitFor(() => expect(calls("PATCH", BASE)).toHaveLength(1));
+
+    await act(() => router.navigate({ to: "/" }));
+    await screen.findByRole("heading", { name: /Welcome/ });
+    await act(() => router.navigate({ href: path }));
+    const newer = sheet({ header_row: 3, first_row: 4 });
+    answer(`PATCH ${BASE}`, newer);
+    answer(`GET ${BASE}`, newer);
+    const again = await screen.findByRole("spinbutton", { name: "Header row" });
+    await user.clear(again);
+    await user.type(again, "3{Enter}");
+    const first = screen.getByRole("spinbutton", { name: "First row" });
+    await waitFor(() => expect(first).toHaveValue(4));
+    await act(async () => {
+      finishOld(sheet({ header_row: 2, first_row: 3 }));
+      await old;
+    });
+    await waitFor(() => expect(queryClient.isMutating()).toBe(0));
+    expect(queryClient.getQueryData(importQuery(ID).queryKey)).toEqual(newer);
+    expect(again).toHaveValue(3);
+    expect(first).toHaveValue(4);
+  });
+
   it("shows the sheet's first rows, its header marked and the rows it leaves out", async () => {
     onImport(sheet({ skip: [[4, 4]] }));
     await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);

@@ -21,7 +21,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
 
 import { fieldErrors, problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
@@ -1532,9 +1532,22 @@ export function SpreadsheetImportStart() {
 
 /** An import, at whichever step it's at. */
 export function SpreadsheetImportPage() {
-  const project = useProject();
   const { importId } = useParams({ from: "/projects/$slug/entities/import/$importId" });
-  const found = useQuery(importQuery(importId));
+  return <SpreadsheetImportEditor key={importId} importId={importId} />;
+}
+
+function SpreadsheetImportEditor({ importId }: { importId: string }) {
+  const project = useProject();
+  const generation = useRef(0);
+  const [saving, setSaving] = useState(false);
+  const [changeProblem, setChangeProblem] = useState<ReturnType<typeof problemOf>>();
+  const found = useQuery({ ...importQuery(importId), enabled: !saving });
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
   const types = useSuspenseQuery(typesQuery).data;
   const client = useQueryClient();
   const navigate = useNavigate();
@@ -1557,11 +1570,29 @@ export function SpreadsheetImportPage() {
   }
   const type = types.find((t) => t.name === made.type);
   const apply = (choice: SheetChange) => {
-    change.mutate(choice, {
-      onSuccess: (next) => {
-        client.setQueryData(importQuery(importId).queryKey, next);
+    const edit = ++generation.current;
+    const query = { queryKey: importQuery(importId).queryKey, exact: true };
+    setSaving(true);
+    setChangeProblem(undefined);
+    void client.cancelQueries(query);
+    void change.mutateAsync(choice).then(
+      (next) => {
+        if (edit !== generation.current) {
+          // Another edit or visit owns this screen. Read the persisted result,
+          // including other accepted edits, instead of publishing this old snapshot.
+          void client.invalidateQueries(query);
+          return;
+        }
+        void client.cancelQueries(query);
+        client.setQueryData(query.queryKey, next);
+        setSaving(false);
       },
-    });
+      (error: unknown) => {
+        if (edit !== generation.current) return;
+        setChangeProblem(problemOf(error));
+        setSaving(false);
+      },
+    );
   };
   const current =
     made.state === "mapping" || made.state === "reading"
@@ -1611,18 +1642,10 @@ export function SpreadsheetImportPage() {
       {made.state === "mapping" ? (
         <>
           {step === "rows" ? (
-            <ChooseRows
-              made={made}
-              change={apply}
-              problem={change.error ? problemOf(change.error) : undefined}
-            />
+            <ChooseRows made={made} change={apply} problem={changeProblem} />
           ) : (
             <>
-              <MapColumns
-                made={made}
-                change={apply}
-                problem={change.error ? problemOf(change.error) : undefined}
-              />
+              <MapColumns made={made} change={apply} problem={changeProblem} />
               <NumbersAndDates made={made} change={apply} />
             </>
           )}
