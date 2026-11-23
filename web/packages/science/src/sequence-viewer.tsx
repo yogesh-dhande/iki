@@ -172,8 +172,10 @@ function SequenceView({
   const ids = useId();
   const { sequence, alphabet, feature } = data;
   const { features, recordedFeatures, libraryFeatures } = useMemo(() => {
-    const recorded = Array.isArray(data.features) ? data.features : [];
-    const annotated = Array.isArray(data.library?.features) ? data.library.features : [];
+    const recorded: readonly unknown[] = Array.isArray(data.features) ? data.features : [];
+    const annotated: readonly unknown[] = Array.isArray(data.library?.features)
+      ? data.library.features
+      : [];
     const features = readFeatures([...recorded, ...annotated], sequence.length);
     return {
       features,
