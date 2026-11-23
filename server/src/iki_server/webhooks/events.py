@@ -143,6 +143,31 @@ _register(
         org=True,
     ),
     EventType(
+        "storage.moved",
+        "Someone puts a record away, moves it, takes it out of storage, checks it out or in, "
+        "hands it over or receives it (ADR 0180): `kind`, where it was (`from`) and went "
+        "(`to`), each a container and a position, its `custodian`, and the `operation` a "
+        "bulk move's records share.",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "request.receipt_completed",
+        "A service completes a receipt of a request's material (ADR 0180): the `request`, "
+        "the `service`, and how many of its lines were matched, missing, extra, damaged or "
+        "rejected (`outcomes`).",
+        project=True,
+        org=True,
+    ),
+    EventType(
+        "storage.reconciled",
+        "Someone completes a reconciliation of a container's contents with what's recorded "
+        "in it (ADR 0180): how many were matched, missing, unexpected or in the wrong "
+        "position (`findings`), and how many moved.",
+        project=True,
+        org=True,
+    ),
+    EventType(
         "entity.assigned",
         "Someone names people in a record's assignment field, or takes them off it (ADR "
         "0122): `field`, and who was `added` and `removed`.",
@@ -490,6 +515,41 @@ def _amount_moved(
     return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
 
 
+def _moved(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    """Where a record went (ADR 0180): identifiers and positions, never values."""
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    keys = ("kind", "from", "to", "custodian", "operation", "reason")
+    return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
+
+
+def _receipt(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    return event.action, {
+        "entity": entity_data(target),
+        "project": project_data(event.project),
+        "receipt": {"id": event.data.get("receipt")},
+        "service": event.data.get("service"),
+        "outcomes": event.data.get("outcomes"),
+    }
+
+
+def _reconciled(
+    event: AuditEvent, target: models.Model | None
+) -> tuple[str, dict[str, Any]] | None:
+    from iki_server.entities.models import Entity
+
+    if not isinstance(target, Entity) or event.project is None:
+        return None
+    keys = ("reconciliation", "findings", "moved", "operation")
+    return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
+
+
 FROM_AUDIT: dict[str, Builder] = {
     "request.submitted": _request,
     "request.received": _request,
@@ -497,6 +557,9 @@ FROM_AUDIT: dict[str, Builder] = {
     "project.intake_changed": _intake,
     "budget.threshold_reached": _budget,
     "entity.amount_moved": _amount_moved,
+    "storage.moved": _moved,
+    "request.receipt_completed": _receipt,
+    "storage.reconciled": _reconciled,
     "entity.assigned": _assigned,
     "entity.linked": _entity_link,
     "entity.unlinked": _entity_link,

@@ -63,21 +63,114 @@ def _variables(type_name: str) -> dict[str, Any]:
     return rules.draw_variables(registry.types()[type_name].label, shape(type_name).fields())
 
 
+def follows(type_name: str) -> tuple[str, ...]:
+    """The references whose records a draw from ``type_name``'s also meets (ADR 0180)."""
+    from iki_server.amounts.services import spec
+
+    found = spec(type_name)
+    return found.follows if found is not None else ()
+
+
+def followed(entity: Entity, values: Mapping[str, Any] | None = None) -> list[tuple[str, Entity]]:
+    """The records ``entity``'s material came from, as its type's ``follows`` names them,
+    each with its field's label: its lot, its sample."""
+    names = follows(entity.type)
+    if not names:
+        return []
+    if values is None:
+        from iki_server.entities.services import current_values_of
+
+        values = current_values_of([entity])[entity.pk]
+    fields = shape(entity.type).fields()
+    ids = {n: str(values[n]) for n in names if values.get(n)}
+    found = {str(e.pk): e for e in Entity.objects.filter(pk__in=list(ids.values()))}
+    return [
+        (fields[n].label.lower(), found[pk])
+        for n, pk in ids.items()
+        if pk in found and found[pk].pk != entity.pk
+    ]
+
+
+def source_of(entity: Entity, values: Mapping[str, Any] | None = None) -> Entity | None:
+    """The draw's source: the record the first of its type's ``follows`` names."""
+    found = followed(entity, values)
+    return found[0][1] if found else None
+
+
+def purpose_refusals(
+    user: User, entity: Entity, purpose: DrawPurpose, values: Mapping[str, Any] | None = None
+) -> str | None:
+    """Whether ``user`` may draw from ``entity`` for ``purpose``: its type's roles in its
+    project, and each followed record's in that record's, where its type names any. A
+    purpose other than routine use is refused unless one of them declares it."""
+    sources = followed(entity, values)
+    own = purpose_roles(entity.type).get(purpose)
+    theirs = [(n, s) for n, s in sources if purpose_roles(s.type).get(purpose) is not None]
+    if own is None and not theirs:
+        return purpose_refusal(user, entity.type, entity.owner_project, purpose)
+    if own is not None:
+        refused = purpose_refusal(user, entity.type, entity.owner_project, purpose)
+        if refused is not None:
+            return refused
+    for name, source in theirs:
+        refused = purpose_refusal(user, source.type, source.owner_project, purpose)
+        if refused is not None:
+            return f"Its {name}, {source.hrid}: {refused}"
+    return None
+
+
 def refusals(
     entity: Entity,
     purposes: Sequence[str],
     values: Mapping[str, Any] | None = None,
     *,
     operation: str = "draw",
+    depth: int = 0,
 ) -> dict[str, str]:
-    """The reason each purpose is refused, using the same checks for display and withdrawal."""
+    """The reason each purpose is refused, using the same checks for display and withdrawal:
+    its own draw guards, then those of what its material came from (ADR 0180), which also
+    refuse it while a state holds their amount."""
     conditions = draw_guards(entity.type)
-    if not conditions:
+    names = follows(entity.type) if depth < 3 else ()
+    if not conditions and not names:
         return {}
     if values is None:
         from iki_server.entities.services import current_values_of
 
         values = current_values_of([entity])[entity.pk]
+    own = _own_refusals(entity, purposes, values, operation) if conditions else {}
+    if not names:
+        return own
+    from iki_server.amounts.services import held
+    from iki_server.entities import states
+
+    for name, source in followed(entity, values):
+        from iki_server.entities.services import current_values_of
+
+        theirs = current_values_of([source])[source.pk]
+        holding = held(source, theirs)
+        if holding is not None:
+            state = states.state_fields(source.type)[holding]
+            current = state.states.get(theirs.get(holding) or "")
+            said = current.label if current is not None else state.label
+            for p in purposes:
+                own.setdefault(
+                    p,
+                    f"Its {name}, {source.hrid}, is {said}: none of it can be taken until that "
+                    "changes.",
+                )
+            continue
+        for p, message in refusals(
+            source, purposes, theirs, operation=operation, depth=depth + 1
+        ).items():
+            own.setdefault(p, f"Its {name}, {source.hrid}: {message}")
+    return own
+
+
+def _own_refusals(
+    entity: Entity, purposes: Sequence[str], values: Mapping[str, Any], operation: str
+) -> dict[str, str]:
+    conditions = draw_guards(entity.type)
     fields = shape(entity.type).fields()
     reads = {n for g in conditions for n in g.reads}
     record = {

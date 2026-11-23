@@ -1,0 +1,19 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Box
+label: Box
+schema_version: 1
+description: A cryobox of tubes, its grid set as it's made (ADR 0180).
+hrid: { prefix: BOX }
+storage:
+  holds: [Tube]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+  barcode: barcode
+  label: "{{ name }}"
+fields:
+  name: { type: string, required: true, max_length: 200 }
+  rows: { type: int, required: true, immutable: true, min: 1, max: 10, default: 9 }
+  columns: { type: int, required: true, immutable: true, min: 1, max: 12, default: 9 }
+  barcode: { type: string, unique: true, indexed: true, max_length: 64 }
+display:
+  title: "{{ name }}"

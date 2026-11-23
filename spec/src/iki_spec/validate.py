@@ -42,6 +42,9 @@ from iki_spec import (
 from iki_spec.identity import IDENTITY_TYPES, NUCLEIC_FORMATS, SEQUENCE_FORMATS
 from iki_spec.model import (
     BUILTIN_TYPES,
+    GRID_COLUMNS,
+    GRID_POSITIONS,
+    GRID_ROWS,
     Action,
     Amount,
     Component,
@@ -50,6 +53,7 @@ from iki_spec.model import (
     Export,
     Extension,
     Field,
+    Grid,
     Guard,
     LabRole,
     Plugin,
@@ -57,6 +61,7 @@ from iki_spec.model import (
     ResultSpec,
     RowRole,
     State,
+    Storage,
     Track,
     Trigger,
     TypeNotification,
@@ -728,12 +733,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             for n, x in (body.get("notifications") or {}).items()
             if isinstance(x, dict)
         },
-        request=RequestSpec(
-            service_fields=tuple(body["request"].get("service_fields") or ()),
-            sends=tuple(body["request"].get("sends") or ()),
-        )
-        if isinstance(body.get("request"), dict)
-        else None,
+        request=_request(body.get("request"), plugin),
         result=ResultSpec(
             of=body["result"]["of"],
             released_field=body["result"]["released"]["field"],
@@ -742,6 +742,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         if isinstance(body.get("result"), dict)
         else None,
         amount=_amount(body.get("amount"), plugin),
+        storage=_storage(body.get("storage"), plugin),
         refines={
             name: {
                 role: RowRole.from_manifest(role, r, plugin=plugin)
@@ -767,6 +768,40 @@ def _amount(data: Any, plugin: str) -> Amount | None:  # noqa: ANN401 - YAML
         aliquots=qualify(aliquots["type"], plugin) if "type" in aliquots else None,
         aliquots_of=aliquots.get("of"),
         material=data.get("material"),
+        follows=tuple(data.get("follows") or ()),
+    )
+
+
+def _request(data: Any, plugin: str) -> RequestSpec | None:  # noqa: ANN401 - YAML
+    if not isinstance(data, dict):
+        return None
+    given = data.get("receives")
+    receives: dict[str, Any] = given if isinstance(given, dict) else {}
+    return RequestSpec(
+        service_fields=tuple(data.get("service_fields") or ()),
+        sends=tuple(data.get("sends") or ()),
+        receives=receives.get("field"),
+        receives_by=tuple(lab_role_name(role, plugin) for role in receives.get("by") or ()),
+    )
+
+
+def _storage(data: Any, plugin: str) -> Storage | None:  # noqa: ANN401 - YAML
+    if not isinstance(data, dict):
+        return None
+    grid = data.get("grid")
+    return Storage(
+        holds=tuple(qualify(t, plugin) for t in data.get("holds") or ()),
+        grid=Grid(
+            rows=grid["rows"],
+            columns=grid["columns"],
+            labels=grid.get("labels", "letter_number"),
+            order=grid.get("order", "by_row"),
+        )
+        if isinstance(grid, dict)
+        else None,
+        barcode=data.get("barcode"),
+        label=data.get("label"),
+        confirm=tuple(data.get("confirm") or ()),
     )
 
 
@@ -1284,6 +1319,151 @@ class _Semantics:
         if entity_type.result is not None:
             self.result(entity_type, source, every)
         self.amount(entity_type, source, every)
+        if entity_type.storage is not None:
+            self.storage(entity_type, source, every)
+
+    # Where material is kept (ADR 0180) --------------------------------------------------------
+
+    def storage_of(self, entity_type: EntityType) -> Storage | None:
+        """Where ``entity_type``'s records are kept: its own ``storage`` or its nearest
+        ancestor's."""
+        return next(
+            (t.storage for t in [entity_type, *self.ancestors(entity_type)] if t.storage),
+            None,
+        )
+
+    def storage(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        """What a container holds, its grid's shape, its barcode, its label's line and what
+        needs a scan: each of the type's own or its ancestors' fields, of the kind it needs."""
+        spec = entity_type.storage
+        assert spec is not None  # noqa: S101 - only called with one
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        if any(t.identity for t in lineage):
+            self.add(
+                "storage-on-identity",
+                f"`{entity_type.name}` has an identity, so each project has one record of each "
+                "of its entries: its records aren't things the lab keeps somewhere.",
+                source,
+                ("storage",),
+                key=True,
+                hint="Give `storage` to a type of what the lab keeps (a tube, a box) that "
+                "refers to the entry.",
+            )
+            return
+        present = {n: f for n, (f, _) in every.items() if not f.removed}
+        for index, held in enumerate(spec.holds):
+            at: Path = ("storage", "holds", index)
+            target = self.reference(held, source, at)
+            if target is not None and self.storage_of(target) is None:
+                self.add(
+                    "storage-holds-unstored",
+                    f"`{target.qualified_name}` has no `storage`, so its records aren't kept "
+                    "anywhere.",
+                    source,
+                    at,
+                    hint=f"Give `{target.name}` `storage`, even `storage: {{}}`.",
+                )
+        if spec.grid is not None:
+            if not spec.holds:
+                self.add(
+                    "storage-grid-without-holds",
+                    f"`{entity_type.name}` has positions, but holds nothing.",
+                    source,
+                    ("storage", "grid"),
+                    key=True,
+                    hint="Say what it holds, such as `holds: [Tube]`.",
+                )
+            self.grid(spec.grid, source, present)
+        if spec.barcode is not None:
+            f = present.get(spec.barcode)
+            if f is None or f.type != "string" or not f.unique:
+                self.add(
+                    "storage-barcode",
+                    f"`barcode` names a unique string field of the type, and `{spec.barcode}` "
+                    + (
+                        "isn't one."
+                        if f is None
+                        else f"is a {f.type} field."
+                        if f.type != "string"
+                        else "isn't unique: a scan finds one record."
+                    ),
+                    source,
+                    ("storage", "barcode"),
+                    hint="Such as `barcode: { type: string, unique: true, max_length: 64 }`.",
+                )
+        if spec.label is not None:
+            for problem, hint in _title_problems(spec.label, present):
+                self.add("storage-label", problem, source, ("storage", "label"), hint=hint)
+        if "draw" in spec.confirm and not any(t.amount for t in lineage):
+            self.add(
+                "storage-confirm-without-amount",
+                f"`{entity_type.name}` has no amount to draw, so no draw needs a scan.",
+                source,
+                ("storage", "confirm"),
+                hint="Leave `draw` off, or give the type an `amount`.",
+            )
+
+    def grid(self, grid: Grid, source: Document, present: dict[str, Field]) -> None:
+        """A grid's rows and columns: numbers within what Iki keeps, or the type's own
+        required, immutable int fields bounded by them, so a container's shape never
+        changes under what's in it."""
+        largest = {"rows": GRID_ROWS, "columns": GRID_COLUMNS}
+        sizes: dict[str, int] = {}
+        for side in ("rows", "columns"):
+            value = getattr(grid, side)
+            at: Path = ("storage", "grid", side)
+            if isinstance(value, int):
+                if not 1 <= value <= largest[side]:
+                    self.add(
+                        "storage-grid",
+                        f"A grid has from 1 to {largest[side]} {side}, not {value}.",
+                        source,
+                        at,
+                    )
+                sizes[side] = value
+                continue
+            f = present.get(value)
+            bounded = (
+                f is not None
+                and f.min is not None
+                and f.max is not None
+                and f.min >= 1
+                and f.max <= largest[side]
+            )
+            if f is None or f.type != "int" or not (f.required and f.immutable) or not bounded:
+                self.add(
+                    "storage-grid",
+                    f"`{side}` is a number, or names a required, immutable int field of the "
+                    f"type from 1 to at most {largest[side]}, and `{value}` "
+                    + (
+                        "isn't one."
+                        if f is None
+                        else f"is a {f.type} field."
+                        if f.type != "int"
+                        else "isn't both required and immutable: a container's shape can't "
+                        "change under what's in it."
+                        if not (f.required and f.immutable)
+                        else f"isn't bounded from 1 to at most {largest[side]}."
+                    ),
+                    source,
+                    at,
+                    hint=f"Such as `{side}: {{ type: int, required: true, immutable: true, "
+                    f"min: 1, max: {largest[side]} }}`.",
+                )
+                continue
+            assert f.max is not None  # noqa: S101 - bounded
+            sizes[side] = int(f.max)
+        if len(sizes) == 2 and sizes["rows"] * sizes["columns"] > GRID_POSITIONS:
+            self.add(
+                "storage-grid",
+                f"A grid has at most {GRID_POSITIONS} positions, and this one can have "
+                f"{sizes['rows'] * sizes['columns']}.",
+                source,
+                ("storage", "grid"),
+                hint="Lower its rows' or columns' maximum.",
+            )
 
     # Requests between projects (ADR 0132) -------------------------------------------------------
 
@@ -1396,6 +1576,55 @@ class _Semantics:
                     source,
                     at,
                 )
+        if spec.receives is not None:
+            self.receives(entity_type, spec, source, every)
+
+    def receives(
+        self,
+        entity_type: EntityType,
+        spec: RequestSpec,
+        source: Document,
+        every: dict[str, tuple[Field, EntityType]],
+    ) -> None:
+        """What a request's service receives (ADR 0180): references it sends, to records
+        kept somewhere, and the service's lab roles that receive them."""
+        name = spec.receives
+        assert name is not None  # noqa: S101 - only called with one
+        at: Path = ("request", "receives", "field")
+        found = every.get(name)
+        f = found[0] if found is not None and not found[0].removed else None
+        kind = f.items if f is not None and f.type == "list" else f
+        if f is None or kind is None or kind.type != "ref" or name not in spec.sends:
+            self.add(
+                "request-receives",
+                f"`receives` names a reference, or a list of them, that the request sends, and "
+                f"`{name}` "
+                + (
+                    "isn't one of its fields."
+                    if f is None
+                    else "isn't one it sends."
+                    if kind is not None and kind.type == "ref"
+                    else f"is a {f.type} field."
+                ),
+                source,
+                at,
+                hint="Such as `tubes: { type: list, items: { type: ref, to: Tube } }`, listed "
+                "in `sends` too.",
+            )
+        else:
+            for target in kind.to:
+                found_type = self.types.get(target)
+                if found_type is not None and self.storage_of(found_type) is None:
+                    self.add(
+                        "request-receives",
+                        f"`{name}` refers to `{target}`, which has no `storage`: a receipt puts "
+                        "what it receives away.",
+                        source,
+                        at,
+                        hint=f"Give `{found_type.name}` `storage`.",
+                    )
+        for index, role in enumerate(spec.receives_by):
+            self.lab_role(role, source, ("request", "receives", "by", index))
 
     def service_field(self, f: Field, source: Document, at: Path) -> None:
         """A field the service writes: the asking project creates the request without it, and
@@ -1805,6 +2034,19 @@ class _Semantics:
             self.aliquots(entity_type, amount, source)
         if amount.material is not None:
             self.material(amount.material, every, source)
+        for index, name in enumerate(amount.follows):
+            found = every.get(name)
+            f = found[0] if found is not None else None
+            if f is None or f.removed or f.type != "ref":
+                self.add(
+                    "amount-follows",
+                    f"`follows` names references of the type, to where its material came from, "
+                    f"and `{name}` "
+                    + ("isn't one." if f is None or f.removed else f"is a {f.type} field."),
+                    source,
+                    ("amount", "follows", index),
+                    hint="Such as `lot: { type: ref, to: iki/lots.Lot }`.",
+                )
 
     def amount_unit(self, code: str, unit: units.Unit, source: Document, at: Path) -> None:
         try:

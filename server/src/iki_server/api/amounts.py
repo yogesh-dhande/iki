@@ -41,6 +41,7 @@ from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
 from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
+from iki_server.storage import services as storage
 
 router = Router(tags=["amounts"])
 
@@ -71,6 +72,15 @@ class MovementOut(Schema):
     unit: str
     given: GivenOut | None = Field(description="What was asked for, in the unit it was asked in.")
     counterpart: UUID | None = Field(description="The other record, if there is one.")
+    used_in: UUID | None = Field(
+        None, description="What a draw went into, such as an analysis or an experiment."
+    )
+    source: UUID | None = Field(
+        None,
+        description="Where a container's material came from, as its type's `follows` says: "
+        "its lot (ADR 0180).",
+    )
+    confirmed: str = Field("", description="The code scanned to confirm it, if one was.")
     operation: UUID = Field(
         description="One per request: a transfer's two movements, and a split's and its "
         "aliquots', share it."
@@ -85,7 +95,8 @@ class MovementOut(Schema):
 
 class MovementsOut(Page[MovementOut]):
     refs: dict[str, RefOut] = Field(
-        description="The counterparts you can read, by ID.", default_factory=dict
+        description="The counterparts, sources and what draws went into that you can read, by ID.",
+        default_factory=dict,
     )
 
 
@@ -99,6 +110,18 @@ class AmountTakeIn(Schema):
 
 class DrawIn(AmountTakeIn):
     purpose: DrawPurpose = Field(DrawPurpose.ROUTINE, description="Why material is being drawn.")
+    used_in: str | None = Field(
+        None,
+        max_length=64,
+        description="What it went into, by ID or HRID: a record in a project you edit, such as "
+        "an analysis or an experiment, which depends on it from then on (ADR 0180).",
+    )
+    confirm: str = Field(
+        "",
+        max_length=200,
+        description="The code scanned from it, for a type that asks for one before a draw: "
+        "its barcode or HRID.",
+    )
 
 
 class TransferIn(AmountTakeIn):
@@ -157,6 +180,9 @@ def movement_out(m: Movement) -> dict[str, Any]:
         if m.given_value is not None
         else None,
         "counterpart": m.counterpart_id,
+        "used_in": m.used_in_id,
+        "source": m.source_id,
+        "confirmed": m.confirmed,
         "operation": m.operation,
         "user": m.user,
         "via": m.via,
@@ -172,12 +198,21 @@ def _refs_out(me: User, ids: set[Any]) -> dict[str, dict[str, Any]]:
     return {str(pk): ref for pk, ref in refs.items()}
 
 
-def _record(me: User, ref: str, *, edit: bool = True) -> Entity:
+def _record(me: User, ref: str, *, edit: bool = True, keeper: bool = False) -> Entity:
+    """The record, if it has an amount the caller may change: Editor in its project, or,
+    for a draw (``keeper``), in the project whose storage keeps it (ADR 0180)."""
     entity = _find(me, ref)
     if services.spec(entity.type) is None:
         raise Problem(404, f"{entity.hrid} is a {entity.type}, which has no amount.")
     if edit and not access.can_edit(me, entity):
-        raise Problem(403, f"Changing {entity.hrid}'s amount needs Editor in its project.")
+        if keeper and storage.holds_material(me, entity):
+            return entity
+        raise Problem(
+            403,
+            f"Drawing from {entity.hrid} needs Editor in its project, or in the project keeping it."
+            if keeper
+            else f"Changing {entity.hrid}'s amount needs Editor in its project.",
+        )
     return entity
 
 
@@ -219,20 +254,44 @@ def list_movements(request: HttpRequest, ref: str, params: Query[PageParams]) ->
     result = page(movements, params, key="id", newest_first=True)
     items: list[Movement] = result["items"]
     result["items"] = [movement_out(m) for m in items]
-    result["refs"] = _refs_out(me, {m.counterpart_id for m in items if m.counterpart_id})
+    result["refs"] = _refs_out(
+        me,
+        {
+            ref
+            for m in items
+            for ref in (m.counterpart_id, m.used_in_id, m.source_id)
+            if ref is not None
+        },
+    )
     return result
 
 
 @router.post("/entities/{ref}/amount/draw", response=AmountMovedOut, summary="Draw from its amount")
 def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
-    """Takes some of it for the given purpose. A purpose you cannot use answers 403.
+    """Takes some of it for the given purpose, saying what it went into. Editors of its
+    project may draw, and so may those of the project keeping it (ADR 0180). A purpose you
+    cannot use answers 403.
     An insufficient balance, a state hold or a draw guard refusing the draw answers 422.
     Two people drawing at once take turns."""
     me = caller(request)
-    entity = _record(me, ref)
+    entity = _record(me, ref, keeper=True)
+    used_in = None
+    if payload.used_in:
+        try:
+            used_in = _find(me, payload.used_in)
+        except Problem:
+            raise _invalid(services.Wrong({"used_in": ["isn't a record you can read."]})) from None
+        if not access.can_edit(me, used_in):
+            raise Problem(403, f"Saying {used_in.hrid} used material needs Editor in its project.")
     try:
         movement = services.draw(
-            me, entity, _given(payload.amount), purpose=payload.purpose, reason=payload.reason
+            me,
+            entity,
+            _given(payload.amount),
+            purpose=payload.purpose,
+            reason=payload.reason,
+            used_in=used_in,
+            confirm=payload.confirm,
         )
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None

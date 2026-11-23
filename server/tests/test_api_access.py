@@ -636,6 +636,123 @@ def _worker(w: World) -> Any:
     return worker
 
 
+# --- Storage (ADR 0180) -------------------------------------------------------------------------
+
+
+def _box(w: World, *, project: Any = None, rows: int = 2) -> Any:
+    from iki_server.entities import services as entities
+
+    return entities.create(
+        w.users["editor"],
+        "acme/protein.Box",
+        project or w.project,
+        {"name": "Box", "rows": rows, "columns": 2},
+    ).entity
+
+
+def _tube(w: World, *, project: Any = None, into: Any = None, out: bool = False) -> Any:
+    import uuid
+
+    from iki_server.entities import services as entities
+    from iki_server.storage import services as storage
+
+    found = entities.create(
+        w.users["editor"],
+        "acme/protein.Tube",
+        project or w.project,
+        {"barcode": f"T-{uuid.uuid4().hex[:8]}"},
+        amount={"value": "10", "unit": "uL"},
+    ).entity
+    if into is not None:
+        storage.move(w.users["editor"], [storage.Wanted(found, into, None)], reason="Put away")
+    if out:
+        storage.check_out(w.users["editor"], [found], to=w.users["editor"], reason="Thawing")
+    return found
+
+
+def stored(suffix: str = "", body: Any = None) -> Build:
+    """A tube in a box of the project."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        box = _box(w)
+        tube = _tube(w, into=box)
+        return suffix.format(tube=tube.pk, box=box.pk), body
+
+    return build
+
+
+def storage_moves(w: World) -> tuple[Any, ...]:
+    box, tube = _box(w), _tube(w)
+    items = [{"record": str(tube.pk), "to": str(box.pk), "position": "A1"}]
+    return "/storage/moves", {"items": items, "reason": "Put away"}
+
+
+def storage_check_out(w: World) -> tuple[Any, ...]:
+    tube = _tube(w, into=_box(w))
+    return "/storage/check-out", {"records": [str(tube.pk)], "reason": "Thawing"}
+
+
+def storage_check_in(w: World) -> tuple[Any, ...]:
+    tube = _tube(w, into=_box(w), out=True)
+    return "/storage/check-in", {"items": [{"record": str(tube.pk)}], "reason": "Done"}
+
+
+def storage_hand_over(w: World) -> tuple[Any, ...]:
+    tube = _tube(w, into=_box(w), out=True)
+    body = {"record": str(tube.pk), "to": str(w.users["admin"].pk), "reason": "Bench 4"}
+    return "/storage/hand-over", body
+
+
+def storage_labels(w: World) -> tuple[Any, ...]:
+    return "/storage/labels", {"records": [str(_tube(w).pk)], "size": "cryo", "format": "zpl"}
+
+
+def _received(w: World) -> Any:
+    """An assay request sending a tube to a core, whose analyst has started receiving it."""
+    from iki_server.accounts.models import User
+    from iki_server.entities import requests
+    from iki_server.entities import services as entities
+    from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
+    from iki_server.storage import receipts
+
+    core = _service(w)
+    tube = _tube(w)
+    found = entities.create(
+        w.users["editor"],
+        "acme/protein.AssayRequest",
+        w.project,
+        {"title": "Purity", "tubes": [str(tube.pk)]},
+    ).entity
+    requests.submit(w.users["editor"], found, core, expected_revision=1)
+    tech = User.objects.create_user(f"tech-{w.project.pk}@example.com", "Tech")
+    grant = ProjectMembership.objects.create(project=core, user=tech, role=ProjectRole.EDITOR)
+    LabRoleGrant.objects.create(membership=grant, role="acme/protein.analyst")
+    return found, receipts.start(tech, found)
+
+
+def receipt(suffix: str = "", body: Any = None) -> Build:
+    def build(w: World) -> tuple[Any, ...]:
+        found, started = _received(w)
+        line = started.lines.get()
+        path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
+        return path, body
+
+    return build
+
+
+def reconciliation(suffix: str = "", body: Any = None) -> Build:
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.storage import reconciliations
+
+        box = _box(w)
+        tube = _tube(w, into=box)
+        started = reconciliations.start(w.users["editor"], box)
+        line = started.lines.get(entity=tube)
+        return suffix.format(reconciliation=started.pk, line=line.pk), body
+
+    return build
+
+
 #: Entities are read by anyone with a role in one of their projects. Org Admins see that
 #: projects exist, but read their data only with a role, like everyone else.
 ENTITY_READERS = ("viewer", "editor", "runner", "admin", "via_team", "mixed")
@@ -1064,6 +1181,121 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
             "/aliquots", {"count": 1, "each": {"value": 1, "unit": "uL"}, "values": {"label": "A"}}
         ),
         editors(201),
+    ),
+    # Storage (ADR 0180): read by whoever reads the record; a container's contents changed
+    # by its project's Editors.
+    ("GET", "/storage/places", fixed("/storage/places"), row(200)),
+    ("GET", "/storage/containers/{ref}", stored("/storage/containers/{box}"), readers(200)),
+    ("GET", "/entities/{ref}/location", stored("/entities/{tube}/location"), readers(200)),
+    (
+        "GET",
+        "/entities/{ref}/location/events",
+        stored("/entities/{tube}/location/events"),
+        readers(200),
+    ),
+    ("POST", "/storage/moves", storage_moves, readers(422, **dict.fromkeys(ENTITY_EDITORS, 200))),
+    (
+        "POST",
+        "/storage/check-out",
+        storage_check_out,
+        readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
+    ),
+    (
+        "POST",
+        "/storage/check-in",
+        storage_check_in,
+        readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
+    ),
+    (
+        "POST",
+        "/storage/hand-over",
+        storage_hand_over,
+        readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
+    ),
+    ("GET", "/storage/scan", fixed("/storage/scan?code=T-1"), row(200)),
+    ("GET", "/storage/checked-out", fixed("/storage/checked-out"), row(200)),
+    ("GET", "/storage/labels", fixed("/storage/labels"), row(200)),
+    ("POST", "/storage/labels", storage_labels, readers(200)),
+    # A request's receipts: read by its readers; received by the core's analysts alone,
+    # whom this world has none of.
+    ("GET", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(200)),
+    ("POST", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(403)),
+    ("GET", "/receipts/{receipt_id}", receipt("/receipts/{receipt}"), readers(200)),
+    (
+        "PATCH",
+        "/receipts/{receipt_id}",
+        receipt("/receipts/{receipt}", {"handed_over_by": "Courier"}),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/scan",
+        receipt("/receipts/{receipt}/scan", {"code": "T-1"}),
+        readers(403),
+    ),
+    (
+        "PATCH",
+        "/receipts/{receipt_id}/lines/{line_id}",
+        receipt("/receipts/{receipt}/lines/{line}", {"outcome": "matched"}),
+        readers(403),
+    ),
+    (
+        "DELETE",
+        "/receipts/{receipt_id}/lines/{line_id}",
+        receipt("/receipts/{receipt}/lines/{line}"),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/complete",
+        receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
+        readers(403),
+    ),
+    ("POST", "/receipts/{receipt_id}/cancel", receipt("/receipts/{receipt}/cancel"), readers(403)),
+    # A container's reconciliations: read by its readers, made by its project's Editors.
+    (
+        "GET",
+        "/storage/containers/{ref}/reconciliations",
+        stored("/storage/containers/{box}/reconciliations"),
+        readers(200),
+    ),
+    (
+        "POST",
+        "/storage/containers/{ref}/reconciliations",
+        stored("/storage/containers/{box}/reconciliations"),
+        editors(201),
+    ),
+    (
+        "GET",
+        "/reconciliations/{reconciliation_id}",
+        reconciliation("/reconciliations/{reconciliation}"),
+        readers(200),
+    ),
+    (
+        "POST",
+        "/reconciliations/{reconciliation_id}/scans",
+        reconciliation(
+            "/reconciliations/{reconciliation}/scans", {"scans": [{"position": "A2", "code": None}]}
+        ),
+        editors(200),
+    ),
+    (
+        "PATCH",
+        "/reconciliations/{reconciliation_id}/lines/{line_id}",
+        reconciliation("/reconciliations/{reconciliation}/lines/{line}", {"resolution": None}),
+        editors(200),
+    ),
+    (
+        "POST",
+        "/reconciliations/{reconciliation_id}/complete",
+        reconciliation("/reconciliations/{reconciliation}/complete", {"missing_rest": True}),
+        editors(200),
+    ),
+    (
+        "POST",
+        "/reconciliations/{reconciliation_id}/cancel",
+        reconciliation("/reconciliations/{reconciliation}/cancel"),
+        editors(200),
     ),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
     ("POST", "/entities/{ref}/take", sample_take, readers(403)),

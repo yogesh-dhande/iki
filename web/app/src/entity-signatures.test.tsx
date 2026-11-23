@@ -161,6 +161,7 @@ function lot(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"
     can: {
       edit: true,
       edit_amount: false,
+      draw: false,
       states: {
         status: [
           {

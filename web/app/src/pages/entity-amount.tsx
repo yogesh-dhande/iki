@@ -209,7 +209,7 @@ function AmountDialog({
           moved: unwrap(
             await iki.POST("/api/v1/entities/{ref}/amount/draw", {
               params: { path: { ref } },
-              body: { amount: quantity, purpose, reason: reason.trim() },
+              body: { amount: quantity, purpose, reason: reason.trim(), confirm: "" },
             }),
           ),
           aliquots: [],

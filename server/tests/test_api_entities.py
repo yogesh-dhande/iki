@@ -117,6 +117,7 @@ def test_creating_answers_201_with_its_etag_and_location(world: World) -> None:
     assert body["can"] == {
         "edit": True,
         "edit_amount": False,
+        "draw": False,
         "draw_purposes": [],
         "states": {},
         "sign": [],
@@ -214,6 +215,7 @@ def test_entities_are_found_by_id_or_hrid_and_cached_by_etag(world: World) -> No
     assert by_hrid.json()["can"] == {
         "edit": False,
         "edit_amount": False,
+        "draw": False,
         "draw_purposes": [],
         "states": {},
         "sign": [],
@@ -264,6 +266,7 @@ def test_an_owner_project_you_cant_see_is_null(world: World, other: Project) -> 
     assert seen["owner_project"] is None and seen["can"] == {
         "edit": False,
         "edit_amount": False,
+        "draw": False,
         "draw_purposes": [],
         "states": {},
         "sign": [],

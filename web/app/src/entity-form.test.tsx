@@ -635,7 +635,9 @@ describe("editing an entity", () => {
   });
 
   it("isn't offered for archived entities or to people who can't edit", async () => {
-    onSample(sample({ can: { edit: false, edit_amount: false, states: {}, sign: [] } }));
+    onSample(
+      sample({ can: { edit: false, edit_amount: false, draw: false, states: {}, sign: [] } }),
+    );
     await renderApp("/entities/SMP-000001/");
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
@@ -977,7 +979,7 @@ describe("a detached plugin's data", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/entities/SMP-000001",
-      sample({ can: { edit: false, edit_amount: false, states: {}, sign: [] } }),
+      sample({ can: { edit: false, edit_amount: false, draw: false, states: {}, sign: [] } }),
     );
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
     answer("GET /api/v1/entities/SMP-000001/projects", []);

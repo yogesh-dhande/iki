@@ -113,6 +113,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     can: {
       edit: true,
       edit_amount: false,
+      draw: false,
       sign: [],
       states: {
         status: [
@@ -222,6 +223,7 @@ describe("a record's state fields", () => {
         can: {
           edit: false,
           edit_amount: false,
+          draw: false,
           sign: [],
           states: {
             status: [can("received", "Received"), can("in_testing", "In testing")],

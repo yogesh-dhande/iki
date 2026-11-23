@@ -98,6 +98,9 @@ function movement(
     unit: "uL",
     given: null,
     counterpart: null,
+    used_in: null,
+    source: null,
+    confirmed: "",
     operation: "00000000-0000-7000-8000-000000000001",
     user: {
       id: "00000000-0000-7000-8000-000000000002",
@@ -125,7 +128,14 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     title: "SMP-000001",
     values: { label: "S-1", custody: "in_lab" },
     amount: amount("250"),
-    can: { edit: true, edit_amount: true, draw_purposes: ["routine"], states: {}, sign: [] },
+    can: {
+      edit: true,
+      edit_amount: true,
+      draw: true,
+      draw_purposes: ["routine"],
+      states: {},
+      sign: [],
+    },
     draw_refusals: {},
     ...overrides,
   });
@@ -202,6 +212,7 @@ describe("a record's amount", () => {
       amount: { value: "12.5", unit: "uL" },
       purpose: "routine",
       reason: "SEC",
+      confirm: "",
     });
     expect(await screen.findByText("SMP-000001 has 237.5 uL now.")).toBeInTheDocument();
   });
@@ -244,6 +255,7 @@ describe("a record's amount", () => {
       amount: { value: "2", unit: "uL" },
       purpose: "qa_sampling",
       reason: "",
+      confirm: "",
     });
   });
 
@@ -312,7 +324,7 @@ describe("a record's amount", () => {
     onSample(
       sample({
         amount: null,
-        can: { edit: false, edit_amount: false, states: {}, sign: [] },
+        can: { edit: false, edit_amount: false, draw: false, states: {}, sign: [] },
         draw_refusals: { routine: expired, qa_sampling: expired },
       }),
     );

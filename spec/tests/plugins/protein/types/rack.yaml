@@ -1,0 +1,14 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Rack
+label: Rack
+schema_version: 1
+description: A freezer rack of four shelves of five boxes (ADR 0180).
+hrid: { prefix: RCK }
+storage:
+  holds: [Box]
+  grid: { rows: 4, columns: 5 }
+fields:
+  name: { type: string, required: true, max_length: 200 }
+display:
+  title: "{{ name }}"
