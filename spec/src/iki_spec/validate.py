@@ -1502,17 +1502,67 @@ class _Semantics:
             return
         names = set(state.live_states)
         for index, name in enumerate(spec.released_states):
+            at: Path = ("result", "released", "states", index)
             if name not in names:
-                self.state_ref(name, names, source, ("result", "released", "states", index))
+                self.state_ref(name, names, source, at)
             elif name == state.initial:
                 self.add(
                     "result-released-initial",
                     f"`{name}` is where new results start, so they'd go back before anyone "
                     "reviewed them.",
                     source,
-                    ("result", "released", "states", index),
+                    at,
                     hint="Release a result from a state the service sets after reviewing it.",
                 )
+            elif state.states[name].on_edit:
+                self.add(
+                    "result-release-on-edit",
+                    f"A result in `{name}` is already released to its requester. "
+                    "Give earlier states the return for correction.",
+                    source,
+                    at,
+                )
+            elif spec.requires_review(state, name) and not state.states[name].locks:
+                self.add(
+                    "result-release-lock",
+                    f"`{name}` must lock the result to preserve the values signed for at release.",
+                    source,
+                    at,
+                )
+        for st in state.states.values():
+            if st.on_edit in spec.released_states:
+                self.add(
+                    "result-release-on-edit",
+                    f"Correcting a result in `{st.name}` would release it to the requester. "
+                    "Return it to a state before release.",
+                    source,
+                    ("result", "released", "states"),
+                )
+
+    def state_on_edit(self, f: Field, state: State, source: Document, at: Path) -> None:
+        """A correction needs a locking source and a destination the editor can enter."""
+        name = state.on_edit
+        if name is None:
+            return
+        target = f.states.get(name)
+        if state.removed or f.removed:
+            message = f"`{state.name}` belongs to a removed field or state, so no one edits it."
+        elif not state.locks:
+            message = f"`{state.name}` must lock the record to require a return on edit."
+        elif target is None or target.removed:
+            self.state_ref(name, set(f.live_states), source, (*at, "on_edit"))
+            return
+        elif target.name == state.name:
+            message = f"An edit in `{state.name}` must return the record to a different state."
+        elif target.locks:
+            message = f"`{name}` locks the record, so the correction cannot change its values."
+        elif target.signatures:
+            message = f"Entering `{name}` requires a signature, so an edit cannot set it."
+        elif not target.set_by:
+            message = f"An edit cannot return a record to `{name}` because no lab role can set it."
+        else:
+            return
+        self.add("state-on-edit", message, source, (*at, "on_edit"))
 
     def state_signatures(self, f: Field, state: State, source: Document, at: Path) -> None:
         """The electronic signatures setting a state needs (ADR 0126): who gives each, and
@@ -1570,6 +1620,7 @@ class _Semantics:
             for index, role in enumerate(state.set_by):
                 self.lab_role(role, source, (*at, "set_by", index))
             self.state_signatures(f, state, source, at)
+            self.state_on_edit(f, state, source, at)
             if f.removed and f.moved_to is not None:
                 continue  # Where its records go is the field's `moved_to`.
             if state.removed:

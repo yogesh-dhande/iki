@@ -99,6 +99,22 @@ iki.entities.set_state(
     "SAM-000012", "status", "in_testing", revision=sample["revision"], reason="Rerun"
 )
 
+# A locked result may allow a correction. The same update returns it for review,
+# and history records the reason alongside the state change and the edited values.
+result = iki.entities.get("ANR-000012")
+if result["can"]["correct"]:
+    iki.entities.update(
+        result["id"],
+        {"purity": 97.5},
+        revision=result["revision"],
+        reason="Corrected the transcribed purity from the instrument report",
+    )
+
+# Read the measured values at the revision QA signed for a request.
+for release in iki.entities.request("REQ-000007")["result_releases"]:
+    if release["signed_revision"] is not None:
+        values = iki.entities.revision(release["entity"], release["signed_revision"])["values"]
+
 # Fields can name people (ADR 0122), by ID or email address; a state that locks
 # a record locks whom it names too.
 iki.entities.update("SAM-000013", {"reviewer": "ana@example.com"}, revision=4)

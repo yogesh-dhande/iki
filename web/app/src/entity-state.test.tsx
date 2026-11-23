@@ -112,6 +112,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
     locked_by: [],
     can: {
       edit: true,
+      correct: false,
       edit_amount: false,
       sign: [],
       states: {
@@ -221,6 +222,7 @@ describe("a record's state fields", () => {
         locked_by: ["status", "custody"],
         can: {
           edit: false,
+          correct: false,
           edit_amount: false,
           sign: [],
           states: {
@@ -244,6 +246,54 @@ describe("a record's state fields", () => {
     expect(screen.getByText("Locked", { selector: ".badge" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("warns before saving a correction and records why with the edit", async () => {
+    const reviewed = sample({
+      values: { name: "Lot 7", status: "reviewed", custody: "in_lab" },
+      can: { ...sample().can, edit: false, correct: true },
+      locked: true,
+      locked_by: ["status"],
+    });
+    onSample(reviewed);
+    answer("GET /api/v1/entity-types", [
+      {
+        ...SAMPLE,
+        fields: SAMPLE.fields.map((f) =>
+          f.name !== "status"
+            ? f
+            : {
+                ...f,
+                states: f.states.map((s) =>
+                  s.name === "reviewed" ? { ...s, on_edit: "received" } : s,
+                ),
+              },
+        ),
+      },
+    ]);
+    answer(`PATCH /api/v1/entities/${SAMPLE_ID}`, sample({ revision: 3 }));
+    const { user } = await renderApp("/entities/SMP-000001/");
+    await user.click(await screen.findByRole("link", { name: "Edit" }));
+    const name = await screen.findByRole("textbox", { name: /^Name/ });
+    const warning = "Saving these changes will return Status from Reviewed to Received.";
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    await user.type(name, "B");
+    expect(screen.getByRole("alert")).toHaveTextContent(warning);
+    expect(calls("PATCH")).toHaveLength(0);
+    await user.keyboard("{Backspace}");
+    expect(screen.queryByText(warning)).not.toBeInTheDocument();
+    await user.type(name, "C");
+    const reason = screen.getByRole("textbox", { name: "Reason" });
+    expect(reason).toBeRequired();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(reason).toHaveFocus();
+    expect(calls("PATCH")).toHaveLength(0);
+    await user.type(reason, "Corrected the lot label.");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved revision 3 of SMP-000001.");
+    const sent = calls("PATCH")[0];
+    expect(sent?.body).toEqual({ values: { name: "Lot 7C" }, reason: "Corrected the lot label." });
+    expect(sent?.headers.get("If-Match")).toBe('"2"');
   });
 
   it("are described on its type's page", async () => {

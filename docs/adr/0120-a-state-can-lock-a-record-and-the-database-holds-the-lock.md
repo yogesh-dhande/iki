@@ -50,6 +50,10 @@ an insert, update or delete for a locked record, whatever wrote it. A
 migration that rewrites values without changing them, a unit conversion
 (ADR 0033), sets `iki.unlocked` for its own transaction.
 
+A locking state may declare a reasoned return on edit. Iki then performs the
+authorized transition and edit in one transaction. The database lock still
+covers every write to the protected values. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
+
 ## Consequences
 
 - A locked record's values are what they were when it locked, whichever

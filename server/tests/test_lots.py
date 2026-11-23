@@ -121,6 +121,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "names_its_maker",
         "not_its_maker",
         "not_who_recorded_it",
+        "not_who_edited_it",
         "a_person",
     }
     assert {s for st in states.values() for s in st.set_by} == {"iki/lots.qa"}
@@ -776,6 +777,9 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             "recorded_by_alice_by_quinn": why_not(quinn, by_eve),
             "bought_by_whoever_recorded_it": why_not(alice, bought),
         }}
+        services.update(quinn, by_eve, {{"notes": "Corrected testing record"}},
+                        expected_revision=by_eve.revision)
+        who["edited_by_quinn"] = why_not(quinn, by_eve)
 
         # Its mass, checked as it's saved: an edit 18.8 Da off is held at once, with no
         # run, so it can't be released; exactly 2 Da off is within 2 Da, however the two
@@ -965,6 +969,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         "recorded_by_alice": "You recorded this lot, so someone else in QA releases it.",
         "recorded_by_alice_by_quinn": None,
         "bought_by_whoever_recorded_it": None,
+        "edited_by_quinn": "You edited this lot's record, so someone else in QA releases it.",
     }
     mass = result["mass"]
     assert mass["within"] == []

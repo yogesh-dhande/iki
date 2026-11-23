@@ -112,7 +112,7 @@ annotated from.
   - Its `status` goes Planned → Checked → Built → Verified, each state set by the lab
     roles that may, with guards: it's Checked only once the plan matches its product,
     Built only from Checked, and Verified only from Built by someone other than whoever
-    built it
+    built it or edited its record since it entered Built
     ([ADR 0128](../../docs/adr/0128-guards-say-when-a-state-may-be-set.md)). Verified
     locks it. It can be Abandoned from anywhere, with a reason.
   - Whoever recorded a plan hears when a check finds it doesn't make its product, and

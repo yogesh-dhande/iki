@@ -38,6 +38,8 @@ when. Every guard of the state must hold. A guard reads:
   at its creation;
 - `last`: for each state field, the latest change into each of its states,
   null if it's never been in it;
+- `edits`: for each state field and state, the editors and changed fields
+  since its most recent entry. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
 - `holds`: the rules holding it for review;
 - `signatures`: for a state set by signing for it, the signatures given for
   the change so far, each `{index, meaning, by, at}`, empty for any other;

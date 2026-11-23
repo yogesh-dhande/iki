@@ -57,7 +57,7 @@ class SignatureAuthenticationOut(Schema):
 
 
 class SignatureCheckOut(Schema):
-    name: Literal["document", "key", "signature", "row", "content", "record", "change"]
+    name: Literal["document", "key", "signature", "row", "content", "record", "change", "review"]
     ok: bool
     detail: str
 

@@ -33,6 +33,7 @@ fields:
         label: Approved
         set_by: [reviewer]
         locks: true
+        on_edit: in_testing
         guards:
           reviewed:
             check: state.from == "in_review"

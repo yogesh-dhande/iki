@@ -779,6 +779,7 @@ def update(
     hold_reason: str = "",
     acting_in: Project | None = None,
     taking: bool = False,
+    allow_correction: bool = False,
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -789,7 +790,8 @@ def update(
     service (ADR 0132) is changed by two sides, each only in its own fields: ``user``
     writes as the sides they're an Editor of, or as ``acting_in``'s alone (a run in that
     project). ``taking``: someone takes the record in an assignment field (ADR 0122), as
-    its lab role lets them.
+    its lab role lets them. A direct edit can opt into a declared reasoned return
+    with ``allow_correction``. Other operations keep every state lock.
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -804,9 +806,18 @@ def update(
             raise Refused(purged(locked))
         if locked.archived_at is not None:
             raise Refused("The entity is archived: restore it before changing it.")
-        why = states.locked_why(locked)
-        if why:
-            raise Refused(why)
+        returns: dict[str, str] = {}
+        if (
+            allow_correction
+            and not by_run
+            and locked.locked_by
+            and locked.released_review_revision is None
+        ):
+            returns = states.on_edit(states.state_fields(locked.type), states.values_of(locked))
+        if not returns or set(locked.locked_by) != returns.keys():
+            why = states.locked_why(locked)
+            if why:
+                raise Refused(why)
         form = shape(locked.type)
         why = frozen(form)
         if why:
@@ -885,6 +896,10 @@ def update(
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
+            # A list stored as item rows reads back as [] when cleared, including
+            # when the client sends null. Compare what will actually be stored.
+            if converted is None and not f.required and _is_list(f):
+                converted = []
             if converted == current:
                 continue
             if part.entry:
@@ -897,8 +912,18 @@ def update(
                 new[name] = converted
         if not errors and new:
             errors = unique.taken(project, form, new, entity=locked.pk)
-        if not errors and (new or for_entry):
-            changing = {**new, **for_entry}
+        if errors:
+            raise Invalid(errors)
+        changing = {**new, **for_entry}
+        if changing:
+            if returns:
+                states.return_for_edit(user, locked, returns, reason)
+                # _write saves the typed row, including its state and entity revision.
+                # Its in-memory value must include the returns recorded above.
+                locked.refresh_from_db()
+                instance = _specific(locked)
+                rows = Rows.of(instance)
+                changing.update(returns)
             errors = rules.check(
                 user,
                 form.entity_type,
@@ -911,8 +936,7 @@ def update(
         holding: list[checking.Broken] = []
         found: list[checking.Broken] = []
         changed: frozenset[str] = frozenset()
-        if new or for_entry:
-            changing = {**new, **for_entry}
+        if changing:
             current = lambda n: changing[n] if n in changing else rows.get(n)  # noqa: E731
             changed = frozenset(changing)
             found = [

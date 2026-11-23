@@ -369,6 +369,8 @@ class State:
     #: A record in it is held (ADR 0139): none of its amount is drawn, transferred or split
     #: off, as for a sample in quarantine.
     holds_amount: bool = False
+    #: A correction returns this field to the named state and records the editor's reason.
+    on_edit: str | None = None
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
@@ -379,6 +381,7 @@ class State:
             description=data.get("description"),
             set_by=tuple(lab_role_name(r, plugin) for r in data.get("set_by") or ()),
             locks=bool(data.get("locks", False)),
+            on_edit=data.get("on_edit"),
             holds_amount=bool(data.get("holds_amount", False)),
             reason=data.get("reason"),
             removed=bool(data.get("removed", False)),
@@ -722,6 +725,20 @@ class ResultSpec:
     #: The state field, and its states, in which it's released to the asking project.
     released_field: str
     released_states: tuple[str, ...] = ()
+
+    def requires_review(self, field: Field, state: str) -> bool:
+        """Whether this signed release follows a separately signed review (ADR 0179)."""
+        if field.name != self.released_field or state not in self.released_states:
+            return False
+        target = field.states.get(state)
+        if target is None or target.removed or not target.signatures:
+            return False
+        return any(
+            sig.meaning == "review"
+            for other in field.states.values()
+            if other.name != state and not other.removed
+            for sig in other.signatures
+        )
 
 
 @dataclass(frozen=True)

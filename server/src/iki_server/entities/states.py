@@ -17,7 +17,9 @@ restored or moved to another registry entry. Its state fields stay settable by
 their roles, which is how it's unlocked. The services refuse with
 :func:`locked_why`, and the database refuses too: ``iki_entity.locked_by``
 names the state fields locking it, and triggers on the tables holding a
-record's values refuse changes while it names any (:func:`install_guards`).
+record's values refuse changes while it names any (:func:`install_guards`). A state
+can declare an ``on_edit`` return (ADR 0179). A reasoned correction takes that
+transition and writes the changed values in the same transaction.
 
 A state's ``guards`` (ADR 0128, :mod:`iki_server.entities.guards`) say when it may be
 set: which state it follows, who mustn't set it after setting another (four eyes), what
@@ -46,14 +48,17 @@ from iki_server.org.services import Refused
 from iki_spec.model import Field, State
 
 __all__ = [
+    "CorrectionReason",
     "GuardRefused",
     "NeedsSignatures",
     "Option",
     "install_guards",
     "locked_why",
     "locking",
+    "on_edit",
     "options",
     "refusal",
+    "return_for_edit",
     "set_state",
     "state_fields",
     "values_of",
@@ -89,6 +94,18 @@ def locking(fields: Mapping[str, Field], values: Mapping[str, Any]) -> list[str]
     return [name for name, f in fields.items() if values.get(name) in f.locking_states]
 
 
+def on_edit(fields: Mapping[str, Field], values: Mapping[str, Any]) -> dict[str, str]:
+    """The destination of each current state that returns the record on a value edit."""
+    return {
+        name: st.on_edit
+        for name, f in fields.items()
+        if not f.removed
+        and (st := f.states.get(values.get(name, ""))) is not None
+        and not st.removed
+        and st.on_edit is not None
+    }
+
+
 def values_of(entity: Entity) -> dict[str, str]:
     """A record's state fields' values, read from its type's tables. Empty for a registry
     entry, and for a type without state fields."""
@@ -114,6 +131,8 @@ def _label(f: Field, state: str | None) -> str:
 def locked_why(entity: Entity, *, doing: str = "be changed") -> str | None:
     """Why a record can't change now because a state locks it, or None if it can: which
     state fields lock it, and the states that would unlock it, with who sets them."""
+    if entity.released_review_revision is not None:
+        return _final_release(entity)
     if not entity.locked:
         return None
     fields = state_fields(entity.type)
@@ -140,6 +159,14 @@ def locked_why(entity: Entity, *, doing: str = "be changed") -> str | None:
     return f"{entity.hrid} is locked by {_and(held)}: it can’t {doing}{how}."
 
 
+def _final_release(entity: Entity) -> str:
+    return (
+        f"{entity.hrid} was released to the requesting project after signing "
+        f"for its reviewed revision {entity.released_review_revision}. "
+        "Its values and states are final."
+    )
+
+
 def _either(words: list[str]) -> str:
     return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " or " + words[-1]
 
@@ -157,6 +184,10 @@ class GuardRefused(Refused):
     def __init__(self, message: str, guard: str) -> None:
         super().__init__(message)
         self.guard = guard
+
+
+class CorrectionReason(Invalid):
+    """A correction needs a reason in the edit request."""
 
 
 @dataclass(frozen=True)
@@ -283,6 +314,8 @@ def refusal(
             "It’s the service’s: the project the request is sent to sets it, once it’s submitted.",
             False,
         )
+    if entity.released_review_revision is not None:
+        return _final_release(entity), False
     if entity.purged_at is not None:
         return "Its plugin's data was purged.", False
     if entity.archived_at is not None:
@@ -375,6 +408,20 @@ def set_state(
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
         return write(locked, f, state, user, reason)
+
+
+def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reason: str) -> None:
+    """Take each return under the edit's row lock, checking its actual predecessor.
+    A refused transition or failed value edit rolls them all back."""
+    reason = reason.strip()
+    if not reason:
+        raise CorrectionReason({"reason": ["Say why these reviewed values need a correction."]})
+    if len(reason) > MAX_REASON:
+        raise CorrectionReason({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
+    number = locked.revision
+    for name, target in targets.items():
+        change = set_state(user, locked, name, target, expected_revision=number, reason=reason)
+        number = change.number
 
 
 class NeedsSignatures(Refused):

@@ -106,6 +106,8 @@ class Entity(models.Model):
         db_default=models.Value([], output_field=ArrayField(models.CharField(max_length=50))),
         db_comment="The state fields whose states lock it (ADR 0125).",
     )
+    #: A signed result delivered to its requester holds this reviewed revision for good.
+    released_review_revision = models.PositiveIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(db_default=Now())
     #: Its plugin's data was purged (ADR 0092): this row is its tombstone, and its values
     #: are gone. It's in no list or search, and reading it says so.
@@ -165,6 +167,11 @@ class Entity(models.Model):
                 ),
                 name="iki_entity_superseded",
             ),
+            models.CheckConstraint(
+                condition=Q(released_review_revision__isnull=True)
+                | (Q(revision=models.F("released_review_revision") + 2) & ~Q(locked_by=[])),
+                name="iki_released_review_locked",
+            ),
             # An ID names one entry, or one record without an entry. Records of an entry
             # share its ID.
             models.UniqueConstraint(
@@ -190,7 +197,7 @@ class Entity(models.Model):
     @property
     def locked(self) -> bool:
         """Whether a state field locks it (ADR 0125): its other values can't change."""
-        return bool(self.locked_by)
+        return bool(self.locked_by) or self.released_review_revision is not None
 
     @property
     def is_entry(self) -> bool:

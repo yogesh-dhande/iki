@@ -265,7 +265,7 @@ fields:
       received: { label: Received, set_by: [analyst] }
       in_testing: { label: In testing, set_by: [analyst, reviewer, qa], reason: optional }
       in_review: { label: In review, set_by: [analyst] }
-      approved: { label: Approved, set_by: [reviewer], locks: true }
+      approved: { label: Approved, set_by: [reviewer], locks: true, on_edit: in_testing }
       released:
         { label: Released, set_by: [qa], locks: true, description: Its results can be used. }
   custody:
@@ -291,6 +291,15 @@ fields:
   registry entry, while the field is in it. A record is locked while any of
   its state fields is in a state that locks. State fields stay settable by
   their roles, which is how a record is unlocked.
+- A locking state can name the state to return to on a correction. In the
+  example, `on_edit: in_testing` means changing any record value while
+  approved returns the record to testing. The editor sees the return before
+  saving and supplies a reason. The editor must be allowed to edit the
+  record and enter the destination, including its lab role and guards.
+  The return and the value change succeed together. Earlier signatures
+  remain with their revisions and the corrected values need fresh review.
+  A destination must be a different, live, unlocked state with `set_by`
+  and no required signatures (`state-on-edit`, `unknown-state`).
 - `signatures` makes setting a state an electronic signature under 21 CFR
   Part 11 ([ADR 0126](../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
   it's set by the last of them, once each is given on the same revision,
@@ -315,8 +324,9 @@ fields:
       - { meaning: approval, label: QA release, statement: I release this lot for use. }
   ```
 
-- A state field is set on its own, never with a record's other values, nor
-  by an action's results (`updates-state`). It's a type's own: an extension
+- A person selects a state through its state transition. A value edit can
+  trigger the declared `on_edit` return. An action's results can't set a
+  state (`updates-state`). It's a type's own: an extension
   (`state-field-in-extension`) or a list (`state-field-in-list`) can't have
   one, and it's never part of an identity. Subtypes have their parents'.
 - A state can't be taken out of a manifest once records may be in it: it's
@@ -480,13 +490,16 @@ approved:
     four_eyes:
       check: last.status.in_review == null || last.status.in_review.by != actor.person
       message: You submitted it for review, so someone else approves it.
+    independent_measurement:
+      check: edits.status.in_testing.all(e, !("purity" in e.fields) || e.by != actor.person)
+      message: Someone else must review the purity you recorded.
     a_person:
       check: actor.agent == null
       message: Approve it yourself, in Iki, not through an app or agent.
 ```
 
 - A guard reads what a rule does, with every state field in `record`, and:
-  `actor` (`person`, the person acting or null for a service account;
+  `actor` (`person`, the person acting or an empty string for a service account;
   `agent`, the app or agent acting for them, with `name` and `client_id`, or
   null; `roles`, their lab roles in the record's project; and
   `service_account`), `state` (`field`, `from` and `to`), `history` (each
@@ -498,6 +511,17 @@ approved:
   with its `index`, `meaning`, `by` (the signer) and `at`), so a plugin says
   whether one person may give two:
   `signatures.all(s, s.by != actor.person)`.
+- `edits.<state field>.<state>` lists the record's value edits since the
+  latest entry into that state, oldest first. Each has `by` (the editing
+  account's ID, empty for a system change) and `fields` (the names it
+  changed). The initial entry includes values set at creation. Later edits
+  count even after another person changes the value back. Re-entering the
+  named state starts a fresh list. A state the record has never entered has
+  an empty list. Changes to the record's shared registry entry have their
+  own revision history. `by` identifies a service account when it made the
+  edit. Signed approvals require a person. An unsigned approval that also
+  requires a person can check `!actor.service_account` alongside the editor
+  check.
 - One that can't be worked out refuses the change, whatever's empty. `when`
   limits it to changes it's true of.
 - The record's page offers only the states its person may set, saying why
@@ -640,7 +664,12 @@ fields:
   (`result-of-not-a-request`, `result-of-changes`). `released.field` is
   one of its state fields (`result-released-without-states`), and its
   states are that field's (`unknown-state`), not its initial one
-  (`result-released-initial`).
+  (`result-released-initial`). The states that release a result can neither
+  declare nor be the destination of an `on_edit` return (`result-release-on-edit`).
+  When the release field has a separate state signed for with meaning
+  `review`, a signed release must lock the record (`result-release-lock`).
+  It releases the revision that completed review. The requester receives the
+  result with those reviewed values.
 
 ### Amounts
 
@@ -2274,11 +2303,11 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
-| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                         | States                          |
+| `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
-| `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`                                                                                                                                                                             | Requests between projects       |
+| `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |

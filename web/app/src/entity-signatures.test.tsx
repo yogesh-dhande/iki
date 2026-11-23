@@ -160,6 +160,7 @@ function lot(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"
     locked_by: [],
     can: {
       edit: true,
+      correct: false,
       edit_amount: false,
       states: {
         status: [
@@ -214,6 +215,21 @@ afterEach(() => {
 });
 
 describe("a record's signatures", () => {
+  it.each([
+    [3, true],
+    [4, false],
+  ] as const)(
+    "marks only the revision that carried the signature as signed (revision %d)",
+    async (revision, signed) => {
+      onLot([{ ...GIVEN, status: "carried", carried_by: 3 }]);
+      answer("GET /api/v1/entities/LOT-000001", lot({ revision }));
+      await renderApp("/entities/LOT-000001/");
+      // Wait for the shared signatures query. The record still lists its past signatures.
+      expect(await screen.findByText("Carried")).toBeInTheDocument();
+      expect(Boolean(screen.queryByText("Signed", { selector: ".badge" }))).toBe(signed);
+    },
+  );
+
   it("lists the signatures a state needs, each one this person may give or why not", async () => {
     onLot();
     await renderApp("/entities/LOT-000001/");

@@ -635,10 +635,40 @@ describe("editing an entity", () => {
   });
 
   it("isn't offered for archived entities or to people who can't edit", async () => {
-    onSample(sample({ can: { edit: false, edit_amount: false, states: {}, sign: [] } }));
+    onSample(
+      sample({ can: { edit: false, correct: false, edit_amount: false, states: {}, sign: [] } }),
+    );
     await renderApp("/entities/SMP-000001/");
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  });
+
+  it("keeps a draft visible if someone releases the record before the save", async () => {
+    onSample();
+    answer(
+      "GET /api/v1/entities/" + SAMPLE_ID,
+      sample({
+        revision: 4,
+        locked: true,
+        locked_by: ["review"],
+        can: { ...sample().can, edit: false, correct: false },
+      }),
+    );
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, problem(412, "stale", "Someone changed it."));
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), "B");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(
+      await screen.findByText(
+        "You can no longer edit this record. Your unsaved values are shown below.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Plasma AB");
+    expect(screen.getByRole("button", { name: "Save changes" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(calls("PATCH")).toHaveLength(1);
   });
 });
 
@@ -977,7 +1007,7 @@ describe("a detached plugin's data", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/entities/SMP-000001",
-      sample({ can: { edit: false, edit_amount: false, states: {}, sign: [] } }),
+      sample({ can: { edit: false, correct: false, edit_amount: false, states: {}, sign: [] } }),
     );
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
     answer("GET /api/v1/entities/SMP-000001/projects", []);

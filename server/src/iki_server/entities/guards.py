@@ -12,6 +12,7 @@ iki-wasm here and in browsers alike, over:
 - ``history`` and ``last``: each state field's changes, oldest first, and the latest
   change into each of its states (null if it's never been in it), each with who made it,
   through which agent, when and why. A record's initial state is a change at its creation;
+- ``edits``: who set which of the record's value fields since it last entered a state;
 - ``holds``: the rules holding it for review (ADR 0127).
 
 So a plugin can say which state may follow which (``state.from == "approved"``), keep
@@ -23,9 +24,9 @@ worked out, whatever the reason: a guard fails closed.
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +35,7 @@ import structlog
 from iki_server.entities import checking, registry
 from iki_server.entities.models import Entity, Revision, RevisionKind, RuleHold
 from iki_server.entities.values import shape
+from iki_server.plugins.models import HistoryChange
 from iki_spec import rules as spec_rules
 from iki_spec.model import Field, Guard, State
 
@@ -70,7 +72,7 @@ def variables_of(type_name: str, field: str) -> dict[str, Any]:
     return spec_rules.guard_variables(record, states, roles, fields[field])
 
 
-def _change(revision: Any, field: str, frm: str, to: str) -> dict[str, Any]:  # noqa: ANN401 - a Revision
+def _change(revision: Revision, frm: str, to: str) -> dict[str, Any]:
     agent = revision.agent
     return {
         "from": frm,
@@ -82,26 +84,62 @@ def _change(revision: Any, field: str, frm: str, to: str) -> dict[str, Any]:  # 
     }
 
 
-def _history(entity: Entity, states: Mapping[str, Field]) -> dict[str, list[dict[str, Any]]]:
-    out: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    revisions = (
-        Revision.objects.filter(
-            entity_id=entity.pk, kind__in=[RevisionKind.CREATED, RevisionKind.STATE_CHANGED]
-        )
-        .select_related("agent")
-        .order_by("number")
+def _history(
+    entity: Entity, states: Mapping[str, Field], values: Mapping[str, Any], *, with_edits: bool
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, list[dict[str, Any]]]]]:
+    from iki_server.signatures.services import history_changes
+
+    renames = (
+        [
+            change
+            for change in history_changes(entity, 0)
+            if change.kind == HistoryChange.Kind.RENAME and not change.part.endswith("#entry")
+        ]
+        if with_edits
+        else []
     )
-    for revision in revisions:
+
+    def current_name(name: str, at: datetime) -> str:
+        # Append-only revisions keep the spelling at the time. The history table now
+        # has the name the intervening migrations gave it, as a field-specific guard does.
+        for change in renames:
+            if change.made_at > at and name == change.name:
+                name = change.to
+        return name
+
+    history: dict[str, list[dict[str, Any]]] = {name: [] for name in states}
+    edits: list[dict[str, Any]] = []
+    # An entry points into the one chronological edit list. Re-entry replaces its offset.
+    starts: dict[tuple[str, str], int] = {}
+    kinds = [RevisionKind.CREATED, RevisionKind.STATE_CHANGED]
+    if with_edits:
+        kinds.append(RevisionKind.EDITED)
+    revisions = Revision.objects.filter(entity_id=entity.pk, kind__in=kinds).select_related("agent")
+    created = None
+    for revision in revisions.order_by("number"):
         if revision.kind == RevisionKind.CREATED:
-            # Where it started: each state field's initial state, as its creation set it.
-            for name, f in states.items():
-                if f.initial:
-                    out[name].append(_change(revision, name, "", f.initial))
-        elif revision.state_field in states:
-            out[revision.state_field].append(
-                _change(revision, revision.state_field, revision.state_from, revision.state_to)
-            )
-    return {name: out.get(name, []) for name in states}
+            created = revision
+        elif (name := current_name(revision.state_field, revision.created_at)) in states:
+            history[name].append(_change(revision, revision.state_from, revision.state_to))
+            starts[name, revision.state_to] = len(edits)
+        if with_edits:
+            names = (current_name(n, revision.created_at) for n in revision.changed_fields)
+            if fields := [n for n in names if n not in states]:
+                edits.append(
+                    {"by": str(revision.user_id) if revision.user_id else "", "fields": fields}
+                )
+    if created is not None:
+        # Where this record actually started, even after a change to the type's default.
+        for name, f in states.items():
+            initial = history[name][0]["from"] if history[name] else values.get(name, f.initial)
+            if initial:
+                history[name].insert(0, _change(created, "", initial))
+                starts.setdefault((name, initial), 0)
+    return history, {
+        name: {s: edits[starts.get((name, s), len(edits)) :] for s in f.states}
+        for name, f in states.items()
+        if with_edits
+    }
 
 
 def _actor(user: User, roles: frozenset[str], plugin: str) -> dict[str, Any]:
@@ -146,7 +184,14 @@ def refusals(
         form, values.get, reads, referenced, entity_id=entity.pk, hrid=entity.hrid
     )
     missing = checking.unread(form, values.get, reads, referenced)
-    history = _history(entity, state_fields)
+    # Only guards mentioning the variable need the record's ordinary edit revisions.
+    with_edits = any(
+        "edits" in source
+        for s in guarded
+        for g in s.guards.values()
+        for source in (g.check, g.when or "", g.message)
+    )
+    history, edits = _history(entity, state_fields, values, with_edits=with_edits)
     last = {
         name: {
             s: next((c for c in reversed(changes) if c["to"] == s), None)
@@ -167,6 +212,7 @@ def refusals(
         "actor": _actor(user, roles, plugin),
         "history": history,
         "last": last,
+        "edits": edits,
         "holds": held,
         "signatures": list(signatures),
     }

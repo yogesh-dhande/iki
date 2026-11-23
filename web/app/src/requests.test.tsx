@@ -399,6 +399,26 @@ describe("a request's page", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the requesting project which revision QA signed", async () => {
+    const seen = request({}, SENT);
+    onRequest(seen);
+    const result = entity({ id: RESULT_ID, hrid: "ARS-000001", type: RESULT.name });
+    answer(`GET /api/v1/entities/${ASK_ID}/request`, {
+      request: seen,
+      sent: [],
+      results: [result],
+      result_releases: [
+        { entity: RESULT_ID, reviewed_revision: 4, signed_revision: 5, released_revision: 6 },
+      ],
+    });
+    await renderApp("/entities/ARQ-000001/");
+    const results = await screen.findByRole("list", { name: "Results" });
+    const receipt = within(results).getByRole("link", {
+      name: "Reviewed revision 4 · Signed revision 5 · Released at revision 6",
+    });
+    expect(receipt).toHaveAttribute("href", "/entities/ARS-000001/audit/");
+  });
+
   it("shows the service its results, and what it was sent", async () => {
     const seen = request({}, { ...SENT, yours: ["service"] });
     onRequest(seen, CORE);

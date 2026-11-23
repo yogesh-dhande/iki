@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
+from iki_spec import rules
 from iki_spec.identity import Kind, identity_hash
+from iki_spec.validate import load_plugin
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "plugins"
@@ -51,6 +53,24 @@ def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
         "plugin", "makemigrations", plugin, *withs(dependencies), "--check", "--no-input", cwd=ROOT
     )
     assert current.returncode == 0, current.stdout + current.stderr
+
+
+def test_the_reviewer_is_independent_of_post_build_edits() -> None:
+    loaded = load_plugin(PLUGINS / "plasmid", dependencies=[PLUGINS / "dna"])
+    assert loaded.plugin is not None
+    assembly = loaded.plugin.types["iki/plasmid.Assembly"]
+    status = assembly.fields["status"]
+    guard = status.states["verified"].guards["independent_verifier"]
+    schema = rules.record_schema(assembly.label, assembly.fields, None)
+    variables = rules.guard_variables(schema, {"status": status}, [], status)
+    for editor in ("reviewer", "other"):
+        context = {
+            "actor": {"person": "reviewer"},
+            "edits": {"status": {"built": [{"by": editor, "fields": ["product"]}]}},
+        }
+        ((outcome,),) = rules.evaluate(variables, [(guard.check, rules.CONDITION)], [context])
+        assert outcome.error is None
+        assert outcome.value is (editor != "reviewer")
 
 
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:

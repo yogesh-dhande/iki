@@ -1062,7 +1062,9 @@ export interface paths {
         head?: never;
         /**
          * Change, archive or restore
-         * @description Send only the values to change. Each change is a revision, with your reason.
+         * @description Send only the values to change and the ETag you read. If `can.correct` is true,
+         *     changing a value requires a reason. Each locking state returns to its declared `on_edit`
+         *     destination, and the return and edit revisions commit together (ADR 0179).
          *     To restore an archived entity and change it, send both: it's restored first.
          */
         patch: operations["iki_server_api_entities_patch_entity"];
@@ -1644,8 +1646,8 @@ export interface paths {
          * @description Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
          *     as a revision of its own, with your reason. It needs one of the state's lab roles in the
          *     record's project (ADR 0116): `can.states` lists each state with whether you may and why
-         *     not. A state that locks the record freezes its other fields until the field is set to
-         *     one that doesn't; state fields stay settable. A state that needs electronic signatures
+         *     not. A state that locks the record may declare a return on a reasoned edit (ADR 0179).
+         *     State fields stay settable. A state that needs electronic signatures
          *     (ADR 0126) is set only by them, in the web app: this answers 409 `signatures_required`
          *     for it. Send If-Match with the ETag you read.
          */
@@ -6453,7 +6455,7 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
+             * @description A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).
              */
             locked: boolean;
             /**
@@ -6828,6 +6830,12 @@ export interface components {
         /** EntityCan */
         EntityCan: {
             /**
+             * Correct
+             * @description You may attempt a reasoned correction. Each locking field declares an `on_edit` destination you have permission to enter, and the first return's guards allow it. Later guards see each preceding return in the same save (ADR 0179).
+             * @default false
+             */
+            correct: boolean;
+            /**
              * Draw Purposes
              * @description The purposes you may draw for. State holds and draw guards still apply.
              */
@@ -6993,7 +7001,7 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
+             * @description A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).
              */
             locked: boolean;
             /**
@@ -7068,7 +7076,7 @@ export interface components {
             hold_reason?: string | null;
             /**
              * Reason
-             * @description Why, for the record.
+             * @description Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.
              * @default
              */
             reason: string;
@@ -7639,7 +7647,7 @@ export interface components {
             row?: components["schemas"]["RowOut"] | null;
             /**
              * States
-             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
+             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
              */
             states: components["schemas"]["StateOut"][];
             /**
@@ -9672,7 +9680,7 @@ export interface components {
             id: string;
             /**
              * Locked
-             * @description A state locks it (ADR 0125): its other fields can't change, and it can't be archived, restored or moved, until each field in `locked_by` is set to a state that doesn't lock.
+             * @description A state locks it (ADR 0125). Archiving, restoring and moving need every lock lifted first. A reasoned value edit may return it for review (see `can.correct`).
              */
             locked: boolean;
             /**
@@ -10666,7 +10674,7 @@ export interface components {
             row?: components["schemas"]["RowOut"] | null;
             /**
              * States
-             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}, never with other values. Empty otherwise.
+             * @description State fields (ADR 0125): its states, in order. It's set on its own, with POST /entities/{ref}/states/{field}. A correction can also return it to the current state's `on_edit` destination. Empty otherwise.
              */
             states: components["schemas"]["StateOut"][];
             /**
@@ -11916,6 +11924,11 @@ export interface components {
             asking_project: components["schemas"]["ProjectRef"] | null;
             request: components["schemas"]["EntityOut"];
             /**
+             * Result Releases
+             * @description The revisions delivered to this request.
+             */
+            result_releases: components["schemas"]["ResultReleaseOut"][];
+            /**
              * Results
              * @description Its results that you can read: for the asking project, those the service released back; for the service, all of them.
              */
@@ -12001,6 +12014,32 @@ export interface components {
              * @default
              */
             reason: string;
+        };
+        /**
+         * ResultReleaseOut
+         * @description Receive the exact versions at GET /entities/{entity}/revisions/{number}.
+         */
+        ResultReleaseOut: {
+            /**
+             * Entity
+             * Format: uuid
+             */
+            entity: string;
+            /**
+             * Released Revision
+             * @description The revision that released the result.
+             */
+            released_revision: number;
+            /**
+             * Reviewed Revision
+             * @description The revision the reviewer signed, if required.
+             */
+            reviewed_revision: number | null;
+            /**
+             * Signed Revision
+             * @description The revision signed for release, if signed.
+             */
+            signed_revision: number | null;
         };
         /**
          * ResultTypeOut
@@ -14098,7 +14137,7 @@ export interface components {
              * Name
              * @enum {string}
              */
-            name: "document" | "key" | "signature" | "row" | "content" | "record" | "change";
+            name: "document" | "key" | "signature" | "row" | "content" | "record" | "change" | "review";
             /** Ok */
             ok: boolean;
         };
@@ -14934,11 +14973,16 @@ export interface components {
             label: string;
             /**
              * Locks
-             * @description A record in it is locked: its other fields can't change, and it can't be archived, restored or moved, until its state field is set to a state that doesn't.
+             * @description Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.
              */
             locks: boolean;
             /** Name */
             name: string;
+            /**
+             * On Edit
+             * @description The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).
+             */
+            on_edit?: string | null;
             /**
              * Reason
              * @description Whether setting it asks why: required, optional, or not at all (null).
