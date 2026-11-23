@@ -82,6 +82,27 @@ def viewer_lab_roles(w: World) -> tuple[str, Any]:
     return path, {"roles": ["acme/protein.qa"]}
 
 
+def starter_choice(operation: str) -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+
+        requester = Project.objects.create(team=w.team, name="Assay requester")
+        ProjectMembership.objects.create(
+            project=requester, user=w.users["admin"], role=ProjectRole.EDITOR
+        )
+        # The fixture deployment has no such starter. Only an authorized project Admin
+        # reaches the catalog lookup.
+        return f"/starters/dose-response/{operation}", {
+            "project": str(w.project.pk),
+            "requester_project": str(requester.pk),
+            "version": "1.0.0",
+            "flow": "research",
+            "role_assignments": {},
+        }
+
+    return build
+
+
 def _webhook(w: World, *, org: bool = False) -> Any:
     from iki_server.webhooks import services as webhooks
 
@@ -1094,8 +1115,33 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/search", fixed("/search?q=kin"), row(200)),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
     ("POST", "/plugins/{name}/preflight", plugin_candidate, ORG_ADMIN_ONLY),
+    ("GET", "/starters", fixed("/starters"), row(200)),
+    (
+        "GET",
+        "/starters",
+        lambda w: (f"/starters?project={w.project.pk}", None),
+        visible(200, org_admin=403),
+    ),
+    (
+        "POST",
+        "/starters/{starter}/preview",
+        starter_choice("preview"),
+        visible(403, admin=404),
+    ),
+    (
+        "POST",
+        "/starters/{starter}/apply",
+        starter_choice("apply"),
+        visible(403, admin=404),
+    ),
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
     ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),
+    (
+        "GET",
+        "/entity-types/{name}/flow",
+        fixed("/entity-types/acme/dna.DNASequence/flow"),
+        row(200),
+    ),
     ("GET", "/entities", fixed("/entities"), row(200)),
     ("POST", "/entities/search", lambda w: ("/entities/search", {"q": "kin"}), row(200)),
     ("GET", "/entities/search.csv", fixed("/entities/search.csv?q=kin"), row(200)),

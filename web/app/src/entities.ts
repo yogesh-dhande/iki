@@ -34,20 +34,23 @@ export const typesQuery = queryOptions({
 export function typeQuery(name: string) {
   return queryOptions({
     ...typesQuery,
-    select: (types: EntityType[]) => {
-      const found = types.find((t) => t.name === name);
-      if (!found) {
-        throw new ApiError({
-          type: "about:blank",
-          title: "Not Found",
-          status: 404,
-          detail: `There’s no entity type ${name}.`,
-          code: "not_found",
-        });
-      }
-      return found;
-    },
+    select: (types: EntityType[]) => typeNamed(types, name),
   });
+}
+
+/** The installed type by its name, or the API's 404 for one that isn't. */
+export function typeNamed(types: EntityType[], name: string): EntityType {
+  const found = types.find((t) => t.name === name);
+  if (!found) {
+    throw new ApiError({
+      type: "about:blank",
+      title: "Not Found",
+      status: 404,
+      detail: `There’s no entity type ${name}.`,
+      code: "not_found",
+    });
+  }
+  return found;
 }
 
 export interface EntityFilter {

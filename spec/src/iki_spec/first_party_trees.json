@@ -20,7 +20,8 @@
       "bd3ef7f15f14a6be0439d1728d07857c29f48099"
     ],
     "iki/cell_lines": [
-      "669310dacb04752cb1ccdebab110ff578a8dc7b8"
+      "669310dacb04752cb1ccdebab110ff578a8dc7b8",
+      "ab194ddef2f93264f02aead3960a6a8cb3970731"
     ],
     "iki/complex": [
       "780a4315f60f3e764568272e9b0c9b2f0083cea7",
@@ -78,7 +79,8 @@
       "1d462b16b3197f307c7098d2152b65e8e8d8bc3f",
       "ccb6b1733587e132cf48b5734131149f3a04db2d",
       "70a99498332a3f77090d24e7750ba1f3c56b3a5e",
-      "9df5aa50ef6fa037bae85b2eb15b7cbc9e8a87c1"
+      "9df5aa50ef6fa037bae85b2eb15b7cbc9e8a87c1",
+      "9b5c636000fa1ddb5b4fa70e744142f99980c3bf"
     ],
     "iki/example_models": [
       "3667e222ea15d2c33f34083206e6896ad8e78d36",
@@ -134,7 +136,8 @@
       "44a0eb2d9d8661ee4155ee6fe44fe5daa53a37cc"
     ],
     "iki/plate_assays": [
-      "c32078e932aae67d30c25cd770f1a1f5ef8e85f2"
+      "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",
+      "d1f79552e4cb8a8745b7529ea0fafbad16804a28"
     ],
     "iki/polymer": [
       "cc56225c938a51b2f7fe385320b7216e50a6cb15",
