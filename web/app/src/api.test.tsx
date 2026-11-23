@@ -13,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   chooseWatch,
   iki,
+  markAllNotifications,
   projectPagesQuery,
   projectsQuery,
   queryClient,
@@ -288,27 +289,86 @@ describe("queries belonging to the current page", () => {
     return { sent, spy, paths };
   }
 
-  it("lets a save already sent finish though the page goes away", async () => {
-    const { sent, spy } = holding();
-    try {
-      const saving = chooseWatch("TUB-1", "muted");
-      await vi.waitFor(() => {
-        expect(sent).toHaveLength(1);
-      });
-      const save = sent[0];
-      expect(save?.request.method).toBe("PUT");
+  /** Leaving: as a navigation begins, then once the page has gone. */
+  const leaving = {
+    beforeunload: () => window.dispatchEvent(new Event("beforeunload", { cancelable: true })),
+    pagehide: () => {
       transition("pagehide");
+    },
+  };
+
+  it.each([
+    {
+      write: "PUT",
+      save: () => chooseWatch("TUB-1", "muted"),
+      answer: { mode: "muted" },
+    },
+    {
+      write: "POST",
+      save: () => markAllNotifications("2026-11-23T12:00:00Z"),
+      answer: { marked: 3 },
+    },
+  ])("lets a $write already sent finish though the page goes away", async (write) => {
+    for (const leave of Object.values(leaving)) {
+      const { sent, spy } = holding();
       try {
-        expect(save?.request.signal.aborted).toBe(false);
-        save?.answer({ mode: "muted" });
-        await expect(saving).resolves.toEqual({ mode: "muted" });
+        const saving = write.save();
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(1);
+        });
+        const save = sent[0];
+        expect(save?.request.method).toBe(write.write);
+        leave();
+        try {
+          expect(save?.request.signal.aborted).toBe(false);
+          save?.answer(write.answer);
+          await expect(saving).resolves.toEqual(write.answer);
+        } finally {
+          transition("pagehide");
+          transition("pageshow");
+        }
       } finally {
-        transition("pageshow");
+        spy.mockRestore();
       }
-    } finally {
-      spy.mockRestore();
     }
   });
+
+  it.each(Object.keys(leaving) as (keyof typeof leaving)[])(
+    "stops a search, a read that POSTs, at %s, quietly",
+    async (event) => {
+      const { sent, spy } = holding();
+      const failed = vi.spyOn(console, "error");
+      try {
+        const found = queryClient.infiniteQuery(entitiesQuery({}));
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(1);
+        });
+        const search = sent[0];
+        expect(search?.request.method).toBe("POST");
+        leaving[event]();
+        try {
+          expect(search?.request.signal.aborted).toBe(true);
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const state = queryClient.getQueryState(entitiesQuery({}).queryKey);
+          expect(state?.status).toBe("pending");
+          expect(state?.error).toBeNull();
+          expect(sent).toHaveLength(1);
+        } finally {
+          transition("pagehide");
+          transition("pageshow");
+        }
+        await vi.waitFor(() => {
+          expect(sent).toHaveLength(2);
+        });
+        sent[1]?.answer({ items: [], next_cursor: null });
+        await expect(found).resolves.toMatchObject({ pages: [{ items: [] }] });
+        expect(failed).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+        failed.mockRestore();
+      }
+    },
+  );
 
   it("stops every project's pages when the page goes away, quietly, and reads them again on its return", async () => {
     const { sent, spy, paths } = holding();
