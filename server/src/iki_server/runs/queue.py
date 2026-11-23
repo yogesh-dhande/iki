@@ -42,8 +42,7 @@ from django.utils import timezone
 from opentelemetry import metrics
 
 from iki_server.audit import log as audit
-from iki_server.entities import registry, services
-from iki_server.entities.values import shape, to_json
+from iki_server.entities import registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.runs import (
@@ -555,21 +554,7 @@ def payload(job: Job, run: ActionRun) -> dict[str, Any]:
     files |= included_files
     includes = {name: tuple(i.get("include") or ()) for name, i in run.spec["inputs"].items()}
     for row in rows:
-        entity = row.entity
-        values = services.values_at(entity, row.revision, row.entry_revision)
-        fields = shape(entity.type).fields()
-        for name, value in values.items():
-            if name in fields:
-                files |= input_files.file_ids(fields[name], value)
-        document: dict[str, Any] = {
-            "id": str(entity.pk),
-            "hrid": entity.hrid,
-            **({"entry_id": str(entity.entry_id)} if entity.entry_id is not None else {}),
-            "type": entity.type,
-            "schema_version": registry.types()[entity.type].schema_version,
-            "revision": row.revision,
-            "values": {n: to_json(fields[n], v) for n, v in values.items() if n in fields},
-        }
+        document = included.document(row.entity, row.revision, row.entry_revision, files)
         if includes.get(row.name):
             pinned = nested.get((row.run_id, row.name, row.position), {})
             document["included"] = {f: pinned.get(f, []) for f in includes[row.name]}
