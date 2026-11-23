@@ -42,7 +42,8 @@ annotated from.
   - Its rules hold at every save, however it's written — by an action, through the API,
     by a bulk import or in a bundle
     ([ADR 0127](../../docs/adr/0127-plugins-rules-are-checked-at-every-save.md)): a
-    plasmid's sequence is circular; one under a material transfer agreement names the
+    plasmid's sequence is double-stranded and its topology agrees with the sequence;
+    one under a material transfer agreement names the
     agreement; one at BSL-2 or above names its biosafety approval.
   - A plasmid here is **circular or linear**. Most are circles; linear plasmids are real
     — _Kluyveromyces lactis_ carries pGKL1 and pGKL2 (INSDC X01095.1 and X01104.1),
@@ -134,6 +135,25 @@ annotated from.
   (`forward_melting_temperature`, `reverse_melting_temperature`), the `tm_method` those
   were computed under, and `products_found`, which is more than one where the primers don't
   say which molecule they mean.
+
+## Find a vector's history and verification
+
+When a project knows which build supplied its material, set `source_assembly`
+to the project's assembly. The assembly's stated product must be the plasmid's
+registered sequence. Open that assembly for the backbone, inserts and cloning
+method. Leave the field empty for an externally sourced vector with unknown
+build history. The **Graph** also shows the provenance of registered products.
+Several assemblies can produce the same sequence. The plasmid record holds
+the hosts (including bacterial,
+mammalian, yeast and viral), copy number, biosafety level, annotated selection
+markers, replication origins and promoters. Its project record identifies the
+source and MTA.
+
+For the material in a particular tube, open its `iki/lots.PlasmidPrep` and
+the **Verification** tab. Each verification links the evidence and outcome
+to that physical prep and to a revision of the project's plasmid record.
+Opening a recorded result shows the reviewer and its sign-off history.
+[Prep verification in the lots plugin](../lots/README.md#verify-a-plasmid-prep)
 
 ## Lab roles
 

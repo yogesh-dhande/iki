@@ -2,15 +2,15 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/lots
-version: 0.2.0
+version: 0.4.0
 title: Lots
 description: >-
   Lots of any registered entity: what was made or bought at one time, how much of it is
   left, what was measured of it, its certificates of analysis, and whether QA released
   it. Oligonucleotide synthesis lots with their mass by ESI-MS checked against the
-  computed one, plasmid preps, lots of proteins and of complexes such as antibodies with
-  their concentration by A280 from the sequence's ε, conjugate lots with their DAR, and polymer lots with
-  their Mn, Mw and dispersity; and a lot of anything else.
+  computed one, plasmid preps with signed verification evidence, lots of proteins and
+  complexes with their concentration by A280, conjugate lots with their DAR, polymer
+  lots with their Mn, Mw and dispersity, and generic lots of other registered entities.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/lots
@@ -18,6 +18,9 @@ dependencies:
   iki/conjugate:
     types:
       Conjugate: ">=1"
+  iki/polymer:
+    types:
+      Polymer: ">=1"
   iki/protein:
     types:
       Protein: ">=3"
@@ -27,10 +30,26 @@ dependencies:
   iki/plasmid:
     types:
       Plasmid: ">=1"
+settings:
+  verification_flow:
+    type: enum
+    label: Plasmid verification review
+    values: [research, regulated_qc]
+    default: research
+    description: >-
+      Research requires a single reviewer signature. Regulated QC requires signed submission,
+      independent review and QA release. Each verification keeps the choice made at recording.
 roles:
+  verification_analyst:
+    label: Verification analyst
+    description: Submits the evidence and outcome for a physical plasmid prep.
+  verification_reviewer:
+    label: Verification reviewer
+    description: Reviews a prep’s evidence against the pinned plasmid revision and signs the outcome.
   qa:
     label: Lot QA
     description: >-
       Draws samples for quality testing and releases lots for use once their records and
-      certificates of analysis meet their specification. Puts lots on hold or rejects
-      them, says when they've expired, and returns released ones to quarantine for correction.
+      certificates of analysis meet their specification. Puts lots on hold or rejects them,
+      says when they've expired, and returns released ones to quarantine for correction.
+      Signs the release of independently reviewed plasmid verification records.

@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: prep_verifications
+label: Verification
+description: A physical prep's verification records, with their pinned references, evidence and review decisions.
+module: ./components/prep-verifications.js
+element: prep-verifications
+entities:
+  type: PlasmidVerification
+  fields:
+    [
+      plasmid,
+      plasmid_revision,
+      plasmid_record_id,
+      alignment,
+      alignment_revision,
+      report,
+      outcome,
+      review_flow,
+      review,
+      reviewer,
+    ]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: PlasmidPrep
+    search:
+      where: { field: prep, op: eq, value: "{{ entity }}" }
+      sort: created_at
+      descending: true
+events: { run: { actions: [record_plasmid_verification] } }
