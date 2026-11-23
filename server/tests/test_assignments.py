@@ -482,10 +482,14 @@ def test_a_stale_bulk_assignment_changes_no_records(world: World) -> None:
     requested = {"entities": ids, "field": "analyst", "person": pk(world, "runner")}
     no_revision = bulk_editor.post("/entities/assign", requested)
     assert no_revision.status_code == 428, no_revision.content
-    partial_revision = bulk_editor.post(
-        "/entities/assign", {**requested, "expected_revisions": {ids[0]: revisions[ids[0]]}}
+    partial_revision = problem(
+        bulk_editor.post(
+            "/entities/assign", {**requested, "expected_revisions": {ids[0]: revisions[ids[0]]}}
+        ),
+        422,
+        "validation_failed",
     )
-    assert partial_revision.status_code == 422, partial_revision.content
+    assert partial_revision["errors"][0]["pointer"] == "#/expected_revisions"
 
     changed = edit(world, ids[1], {"analyst": pk(world, "viewer")})
     assert changed.status_code == 200, changed.content

@@ -277,8 +277,15 @@ def assign(request: HttpRequest, payload: AssignIn) -> dict[str, Any]:
             code="precondition_required",
         )
     if set(revisions) != set(payload.entities):
-        raise _invalid(
-            Invalid({"expected_revisions": ["must name exactly the selected entities."]})
+        raise Problem(
+            422,
+            "The revisions must match the selection.",
+            errors=[
+                {
+                    "pointer": "#/expected_revisions",
+                    "detail": "Send the observed revision for exactly the selected entities.",
+                }
+            ],
         )
     try:
         done = assignments.reassign(
