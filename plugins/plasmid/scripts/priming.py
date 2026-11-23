@@ -65,6 +65,26 @@ LONGEST_PRODUCT = 20_000
 #: What a run keeps at most: sites of all the primers, and products of one reaction.
 MOST_SITES = 500
 MOST_PRODUCTS = 20
+#: These conditions are what the temperatures here are computed at, and the text is shown
+#: to whoever checks our numbers against their own, so it has to keep describing what the
+#: code does. It says "25 nM of each strand" because that is what this path computes, for
+#: every primer including a self-complementary one -- two species at 25 nM, with no
+#: symmetry term. For a palindrome that is the wrong convention: SantaLucia 1998 has one
+#: species at the whole concentration and the symmetry term applied, which the DNA plugin's
+#: primer fields, the sequence viewer and ``thermodynamics::matched_melting_temperature``
+#: all do, and which this path deliberately does not, because the parity oracle in
+#: ``server/tests/oracles/priming_before.py`` pins it to the behaviour it was ported from.
+#: ``GGATCC`` reads -13.7 here and -11.4 there.
+#:
+#: So do not change this text on its own: it would turn a true description of a flaw into a
+#: false description of a fix. The arithmetic, this text, the Rust constant it mirrors in
+#: ``worker/crates/iki-wasm/src/priming.rs``, the ``tm_method`` written onto records, the
+#: fixtures in ``plugins/plasmid/tests/priming.yaml`` and the parity assertions move in one
+#: commit, with the oracle keeping its old text and old reference.
+#:
+#: And do not reach for Biopython's ``selfcomp=True`` by itself: ``Tm_NN`` then reads
+#: ``dnac1`` as the total, so with ``dnac1=25, dnac2=25`` it gives -13.758 for ``GGATCC``,
+#: 0.04 degrees further from right. The flag and the concentration go together.
 CONDITIONS_TEXT = (
     "SantaLucia 1998 nearest-neighbour (Biopython Tm_NN, DNA_NN3), 50 mM Na+, no Mg2+ or "
     "dNTPs, 25 nM of each strand"

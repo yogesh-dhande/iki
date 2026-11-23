@@ -418,6 +418,12 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
     // One strand pairs with itself at the whole concentration, and loses the symmetry
     // term; otherwise it pairs with its complement at a quarter of it (SantaLucia 1998,
     // equation 3, as Biopython reads the two strands' concentrations).
+    //
+    // A zero second concentration is what says "self-complementary" here, and the only
+    // thing that sets it is the fold in `matched_melting_temperature`, which has already
+    // added it to the first. A caller that passed a legitimate zero -- a duplex whose
+    // second strand really is absent -- would get the symmetry term it hasn't earned, so
+    // that caller needs an explicit flag rather than this inference.
     let self_complementary = conditions.other_strand == 0.0;
     let strands = if self_complementary {
         enthalpy += SYMMETRY.0;
@@ -528,11 +534,22 @@ fn owczarzy(conditions: &Conditions, fraction: f64, length: f64) -> Option<f64> 
 /// gives for the first, and the duplex carries his symmetry term (1998, equation 3). An
 /// oligo and a separate complement at the same total concentration melt about 3 degrees
 /// lower, which is the difference this avoids reporting.
+///
+/// The symmetry term and the concentration have to move together, and reading Biopython
+/// for the convention is a trap worth naming: its `Tm_NN` takes `dnac1` as the *total*
+/// strand concentration once `selfcomp` is set, where otherwise it takes `dnac1` and
+/// `dnac2` as the two strands' and uses `dnac1 - dnac2 / 2`. So setting `selfcomp=True`
+/// while leaving `dnac1=25, dnac2=25` is not the fix it looks like: for `GGATCC` at 50 mM
+/// Na+ it gives -13.758 against the -13.719 it gave before, 0.04 degrees in the wrong
+/// direction, where the answer is -11.384 with `selfcomp=True, dnac1=50`. Half the
+/// correction without the other half is worse than neither.
 #[must_use]
 pub fn matched_melting_temperature(bases: &[u8], conditions: &Conditions) -> Option<f64> {
     let complement: Vec<u8> = bases.iter().map(|base| complement(*base)).collect();
     let mut conditions = *conditions;
     if bases.iter().rev().eq(complement.iter()) {
+        // The two halves of the correction, together: one species at the whole
+        // concentration here, and the symmetry term where this zero is read below.
         conditions.strand += conditions.other_strand;
         conditions.other_strand = 0.0;
     }
