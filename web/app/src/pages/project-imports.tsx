@@ -3,7 +3,7 @@
  * settings uploads one, and the import's page shows what Iki found when it checked it, and
  * the plan for each entity and person, before anything changes.
  */
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { isProblem, unwrap, type Schemas } from "@ikisci/sdk";
 import {
   infiniteQueryOptions,
   queryOptions,
@@ -14,7 +14,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useId, useRef, useState, type SubmitEvent } from "react";
 
 import { whileWorking } from "../activity";
-import { iki, problemOf, useApiMutation, type Project } from "../api";
+import { iki, problemOf, queryClient, useApiMutation, type Project } from "../api";
 import { formatSize } from "../entities";
 import { required, useForm } from "../forms";
 import { UploadStatus } from "../file-upload";
@@ -96,18 +96,27 @@ function importQuery(id: string) {
   });
 }
 
-// Keyed by its state too: applying it gives renumbered entities their HRIDs, and placeholders.
-function plannedQuery(id: string, state: Import["state"], action: Action | undefined) {
+function planResponse<T>(id: string, result: { data?: T; error?: unknown; response: Response }): T {
+  if (isProblem(result.error) && result.error.code === "stale_plan") {
+    void queryClient.invalidateQueries({ queryKey: importQuery(id).queryKey, exact: true });
+  }
+  return unwrap(result);
+}
+
+// Applying a reviewed plan also fills in the generated HRIDs and placeholder accounts.
+function plannedQuery(made: Import, action: Action | undefined) {
   return infiniteQueryOptions({
-    queryKey: [IMPORTS, id, state, "entities", action ?? "all"],
+    queryKey: [IMPORTS, made.id, made.planned_at, made.state, "entities", action ?? "all"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
-      unwrap(
+      planResponse(
+        made.id,
         await iki.GET("/api/v1/imports/{import_id}/entities", {
           params: {
-            path: { import_id: id },
+            path: { import_id: made.id },
             query: {
               limit: 100,
+              ...(made.planned_at ? { planned_at: made.planned_at } : {}),
               ...(action ? { action } : {}),
               ...(pageParam ? { cursor: pageParam } : {}),
             },
@@ -118,16 +127,21 @@ function plannedQuery(id: string, state: Import["state"], action: Action | undef
   });
 }
 
-function peopleQuery(id: string, state: Import["state"]) {
+function peopleQuery(made: Import) {
   return infiniteQueryOptions({
-    queryKey: [IMPORTS, id, state, "people"],
+    queryKey: [IMPORTS, made.id, made.planned_at, made.state, "people"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) =>
-      unwrap(
+      planResponse(
+        made.id,
         await iki.GET("/api/v1/imports/{import_id}/people", {
           params: {
-            path: { import_id: id },
-            query: { limit: 100, ...(pageParam ? { cursor: pageParam } : {}) },
+            path: { import_id: made.id },
+            query: {
+              limit: 100,
+              ...(made.planned_at ? { planned_at: made.planned_at } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
           },
         }),
       ),
@@ -408,8 +422,16 @@ export function ImportPage() {
       {made.state === "applied" ? <Applied made={made} /> : null}
       <Source made={made} />
       {made.plan ? <Plan made={made} plan={made.plan} /> : null}
-      {made.plan?.applicable && (made.state === "planned" || made.state === "failed") ? (
-        <Apply made={made} plan={made.plan} project={project} />
+      {made.planned_at &&
+      made.plan?.applicable &&
+      (made.state === "planned" || made.state === "failed") ? (
+        <Apply
+          key={`${made.id}/${made.planned_at}`}
+          made={made}
+          plannedAt={made.planned_at}
+          plan={made.plan}
+          project={project}
+        />
       ) : null}
       <Discard made={made} project={project} />
     </>
@@ -525,8 +547,12 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
           </li>
         </ul>
       </section>
-      <Entities made={made} />
-      <People made={made} />
+      {made.state !== "discarded" ? (
+        <>
+          <Entities made={made} />
+          <People made={made} />
+        </>
+      ) : null}
       <Types plan={plan} />
       {plan.outside.count ? <Outside plan={plan} /> : null}
     </>
@@ -535,7 +561,7 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
 
 function Entities({ made }: { made: Import }) {
   const [action, setAction] = useState<Action | "">("");
-  const list = useInfiniteQuery(plannedQuery(made.id, made.state, action || undefined));
+  const list = useInfiniteQuery(plannedQuery(made, action || undefined));
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <section className="card">
@@ -615,7 +641,7 @@ function Entities({ made }: { made: Import }) {
 }
 
 function People({ made }: { made: Import }) {
-  const list = useInfiniteQuery(peopleQuery(made.id, made.state));
+  const list = useInfiniteQuery(peopleQuery(made));
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   return (
     <section className="card">
@@ -757,10 +783,12 @@ function Applied({ made }: { made: Import }) {
 
 function Apply({
   made,
+  plannedAt,
   plan,
   project,
 }: {
   made: Import;
+  plannedAt: string;
   plan: NonNullable<Import["plan"]>;
   project: Project;
 }) {
@@ -769,10 +797,11 @@ function Apply({
   const [asking, setAsking] = useState(false);
   const apply = useApiMutation(
     async (why: string) =>
-      unwrap(
+      planResponse(
+        made.id,
         await iki.POST("/api/v1/imports/{import_id}/apply", {
           params: { path: { import_id: made.id } },
-          body: { reason: why },
+          body: { reason: why, planned_at: plannedAt },
         }),
       ),
     [[IMPORTS]],
@@ -824,6 +853,12 @@ function Apply({
               setAsking(false);
               setReason("");
               say(`Importing ${made.name} into ${project.name}.`);
+            },
+            onError: (error) => {
+              if (error.code === "stale_plan") {
+                setAsking(false);
+                say(error.problem.detail);
+              }
             },
           });
         }}

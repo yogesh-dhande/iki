@@ -44,7 +44,11 @@ SHARED = (
     "deploy/plugins.Dockerfile",
     "deploy/worker.Dockerfile",
     "server/Dockerfile",
+    "server/iki_wasm.wasm.sha256",
     "worker/Dockerfile",
+    "scripts/build-dna-annotation-wasm.sh",
+    "scripts/verify-server-wasm.sh",
+    "plugins/plasmid/data/dna-annotation.wasm.sha256",
     # What those images are built from besides the code below: the locked dependencies
     # (the server's Python and its transport to the cloud's APIs; the worker's Rust) and
     # the worker's toolchain and manifest, which `cargo build --locked` reads.

@@ -211,7 +211,7 @@ def test_only_selected_annotation_tests_need_the_installed_module(
     module.write_bytes(b"\0asm\x01\0\0\0")
     (installed / "rust-standard-library.html").write_text("Rust standard library")
     digest = hashlib.sha256(module.read_bytes()).hexdigest()
-    (source / "data" / "dna-annotation.sha256").write_text(digest + "\n")
+    (source / "data" / "dna-annotation.wasm.sha256").write_text(digest + "\n")
     monkeypatch.setattr(workers, "files", lambda _package: installed)
     answers: dict[str, dict[str, object]] = {
         "iki/plasmid.annotate_dna_sequence": {"output": OUTPUT, "annotation_digest": digest},
