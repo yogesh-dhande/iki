@@ -72,15 +72,29 @@ and the tracked file is the authority, since every deliberate change to the Rust
 moves it.
 
 **The digest is of the module built for Linux x86-64**, which is what every
-image, CI job and deployment runs. The build is reproducible there — the
-checkout's path and the cargo home are remapped out of it, so Docker and a Linux
-machine give the same bytes, which was measured — but **not across host
-platforms**: rustc links its own precompiled `wasm32-unknown-unknown` standard
-library, and the copy shipped for macOS arm64 is not byte-identical to the one
-shipped for Linux x86-64. The same source gives
-`2a76cea5408f51d2aa3782a97c27fffe8cf81fbb9c777bf659d5a9624dfcc8fd` on macOS
-arm64. Claiming one digest for both platforms would have made the check fail for
-half the people running it, so each step does what it can honestly do:
+image, CI job and deployment runs. This is not an assumption about what should
+follow from remapped paths; it is what three builders were measured to produce
+from this commit's Rust:
+
+| builder                                                                          | digest                    |
+| -------------------------------------------------------------------------------- | ------------------------- |
+| Docker `linux/amd64`, the server image's wasm stage, run from a macOS arm64 host | `ffcbfe9f…bd33`           |
+| the Linux x86-64 test VM, natively, via `--check` in `make check-rust`           | `ffcbfe9f…bd33` (matched) |
+| macOS arm64, natively                                                            | `2a76cea5…c8fd` (differs) |
+
+So the build is reproducible **within** Linux x86-64 — two different builders,
+one in a container and one on bare metal, agree to the byte, with the checkout's
+path and the cargo home remapped out of it — and is **not** reproducible across
+host platforms, nor expected to be: rustc links its own precompiled
+`wasm32-unknown-unknown` standard library, and the copy shipped for macOS arm64
+is not byte-identical to the one shipped for Linux x86-64. A macOS arm64 build
+matching this digest would be a surprise, not a requirement.
+
+This was worth measuring rather than reasoning about. A byte-identical claim
+across platforms was asserted elsewhere in the project on the same reasoning and
+was wrong for a larger module; one digest claimed for both platforms would have
+failed the check for every developer on a Mac. Each step therefore does what it
+can honestly do:
 
 - `scripts/build-plasmid-tools-wasm.sh` builds the module for the tests on this
   machine, and compares it with the digest only where the comparison means
@@ -92,8 +106,9 @@ half the people running it, so each step does what it can honestly do:
   nothing, since it is where the digest's bytes come from;
 - iki-spec's distribution build backend runs the plain build, so a wheel carries
   the module for the platform it was built on;
-- CI's Rust job, on Linux x86-64, runs `--check`, which is where a module that
-  has drifted from its source is caught.
+- the merge gate's Rust job, on Linux x86-64, runs `--check`, which is where a
+  module that has drifted from its source is caught — and is the only place the
+  tracked digest is actually compared, since a developer on a Mac cannot.
 
 `iki deploy build` exports each pinned plugin with `git archive`, which carries
 the digest and not the module. So iki-spec's wheel carries the built modules
