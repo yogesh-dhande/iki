@@ -152,6 +152,34 @@ and badges) under the same bar.
   card, seen signed out (signing in and out, setup), have no header: nothing
   is above them to lead back to.
 
+**Keep links and buttons in place while content loads.** Put an action that
+is already usable above sections that load later. If a section belongs above
+the action, reserve its final height or let it settle before exposing the
+action. Test with a real mouse press over the control, let the delayed content
+render, then release at the same coordinates. Check across browsers that the
+intended action takes effect, including what it submitted if it changed data.
+
+- **Controls moved during a press.** On a project's overview the Requests
+  shortcut moved, and a browser test intermittently stayed on the overview.
+  On Home, assigned work moved a project link by 148 px. Home keeps work
+  first in a scrollable area with space reserved even when empty, so a new
+  assignment arriving after the page loads also leaves project links in place.
+  The Workers list moved **Make token**. On the receiving form, **Complete
+  receipt** could submit an empty placement list during a box lookup.
+- **The pressed node matters too.** One saved view moved the sidebar's
+  **New project** shortcut by 64 px. Even with an empty saved-views response
+  and the shortcut stationary, Firefox lost a click in the shared sidebar
+  preview when a redraw replaced the pressed SVG path inside the mounted anchor.
+  The app's React sidebar kept the path and opened the form in the same test.
+  In a reduced test, Chromium, Firefox and WebKit all navigated when the path
+  stayed mounted, and all lost the click when it was replaced. The timing of
+  the original gate's requests and pointer events is unknown.
+- **Two more candidates came from inspecting the layout.** The compact box
+  map loads above a tube's **Move**, **Check out** and **Print** actions.
+  Spreadsheet preview rows load above **Import**. These controls act on
+  stable record or import IDs and the user's choices. Whether a pointer press
+  can miss on either screen still needs a browser measurement.
+
 **A record shows its values. Who changed them is on demand.** The line under
 each field goes. Each field has a small history button that shows its last
 change and links to the trail. The record has an **Audit trail** tab: every

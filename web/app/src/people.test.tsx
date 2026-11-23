@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { ME as SEARCHER, searchWords, validateFilters } from "./filters";
 import { narrowNameable } from "./people";
-import { answer, calls, FakeEventSource, ME, page, type Sent } from "./test-server";
+import { answer, calls, FakeEventSource, ME, page, problem, type Sent } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000e601";
 const ANA = "00000000-0000-7000-8000-0000000000a1";
@@ -300,6 +300,136 @@ describe("suggesting people as they're typed", () => {
     await user.type(picker, "bo");
     expect(await screen.findByText("Searching…")).toBeInTheDocument();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  });
+});
+
+describe("Home work and projects", () => {
+  function holdAnswer(path: string, value: unknown) {
+    let release = (): void => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    answer(`GET ${path}`, async () => {
+      await held;
+      return value;
+    });
+    return () => {
+      release();
+      return held;
+    };
+  }
+
+  function yourWork() {
+    const section = within(screen.getByRole("region", { name: "Your work" }));
+    expect(section.getByRole("link", { name: "Go to My work" })).toHaveAttribute("href", "/work/");
+    return section;
+  }
+
+  it("keeps ready projects available and focused while assigned work loads", async () => {
+    withTypes();
+    const releaseWork = holdAnswer("/api/v1/me/work", page([]));
+    answer("GET /api/v1/projects", page([KINASE]));
+    await renderApp("/");
+    const home = within(screen.getByRole("main"));
+    expect(home.getByRole("heading", { name: "Welcome, Rosalind" })).toBeVisible();
+    expect(home.getByRole("link", { name: "New project" })).toHaveAttribute(
+      "href",
+      "/projects/new/",
+    );
+    const project = await home.findByRole("link", { name: KINASE.name });
+    expect(calls("GET", "/api/v1/me/work")).toHaveLength(1);
+    expect(project).toHaveAttribute("href", "/projects/kinase-atlas/");
+    expect(yourWork().getByRole("status")).toHaveTextContent(/loading/i);
+    project.focus();
+
+    await act(releaseWork);
+    expect(await yourWork().findByText("Nothing’s assigned to you.")).toBeVisible();
+    expect(project).toHaveFocus();
+  });
+
+  it("requests both lists at once and keeps a focused assignment when projects arrive", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [SAMPLE]);
+    const releaseWork = holdAnswer(
+      "/api/v1/me/work",
+      page([{ entity: sample(), fields: ["analyst"], due: null }]),
+    );
+    const releaseProjects = holdAnswer("/api/v1/projects", page([KINASE]));
+    await renderApp("/");
+    const home = within(screen.getByRole("main"));
+    expect(home.getByRole("link", { name: "New project" })).toBeVisible();
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/me/work")).toHaveLength(1);
+      expect(calls("GET", "/api/v1/projects").some((c) => c.query.get("member") === "true")).toBe(
+        true,
+      );
+    });
+    await act(releaseWork);
+    const assigned = await home.findByRole("link", { name: "Lot 7 (SMP-000001)" });
+    expect(yourWork().getByRole("link", { name: "Lot 7 (SMP-000001)" })).toBe(assigned);
+    expect(home.queryByRole("link", { name: KINASE.name })).not.toBeInTheDocument();
+    assigned.focus();
+
+    await act(releaseProjects);
+    expect(await home.findByRole("link", { name: KINASE.name })).toBeVisible();
+    expect(assigned).toHaveFocus();
+  });
+
+  it("keeps projects usable while state labels for assigned work arrive", async () => {
+    withTypes();
+    const releaseTypes = holdAnswer("/api/v1/entity-types", [SAMPLE]);
+    answer("GET /api/v1/me/work", page([{ entity: sample(), fields: ["analyst"], due: null }]));
+    answer("GET /api/v1/projects", page([KINASE]));
+    await renderApp("/");
+    const home = within(screen.getByRole("main"));
+    const project = await home.findByRole("link", { name: KINASE.name });
+    expect(home.getByRole("link", { name: "New project" })).toBeVisible();
+    expect(yourWork().queryByText(/In testing/)).not.toBeInTheDocument();
+    project.focus();
+
+    await act(releaseTypes);
+    expect(await yourWork().findByText(/In testing/)).toBeVisible();
+    expect(project).toHaveFocus();
+  });
+
+  it("shows the first five assignments in server order with a link to all work", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [SAMPLE]);
+    answer("GET /api/v1/projects", page([]));
+    const assigned = Array.from({ length: 6 }, (_, i) => {
+      const n = String(i + 1);
+      return {
+        entity: sample({
+          id: `${SAMPLE_ID.slice(0, -1)}${n}`,
+          hrid: `SMP-00000${n}`,
+          title: `Lot ${n}`,
+        }),
+        fields: ["analyst"],
+        due: null,
+      };
+    });
+    answer("GET /api/v1/me/work", page(assigned));
+    await renderApp("/");
+    await screen.findByRole("link", { name: "Lot 1 (SMP-000001)" });
+    const rows = yourWork().getAllByRole("listitem");
+    expect(rows.map((row) => within(row).getByRole("link").textContent)).toEqual(
+      assigned.slice(0, 5).map(({ entity }) => `${entity.title} (${entity.hrid})`),
+    );
+  });
+
+  it("explains a work failure in Your work and keeps its navigation and projects available", async () => {
+    withTypes();
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(
+      "GET /api/v1/me/work",
+      problem(403, "forbidden", "Your assigned work could not be read."),
+    );
+    await renderApp("/");
+    const home = within(screen.getByRole("main"));
+    expect(await home.findByRole("link", { name: KINASE.name })).toBeVisible();
+    expect(await yourWork().findByRole("alert")).toHaveTextContent(
+      "Your assigned work could not be read.",
+    );
   });
 });
 

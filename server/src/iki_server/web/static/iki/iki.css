@@ -2364,6 +2364,17 @@ input:focus-visible {
   margin-bottom: 1.5rem;
 }
 
+/* Home keeps its projects in place when assigned records arrive over the event stream. */
+.home-work-items {
+  block-size: clamp(5rem, 16svh, 9rem);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.home-work-items > :first-child {
+  margin-block: 0;
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));

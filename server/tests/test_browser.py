@@ -3553,6 +3553,118 @@ def test_one_id_in_two_projects_each_with_its_own_record(open_as: Any, world: Wo
     assert_clean(viewer)
 
 
+@pytest.mark.parametrize("arrival", ["projects-first", "work-first", "live-work"])
+def test_home_links_stay_under_the_pointer_as_the_other_list_arrives(
+    open_as: Any, world: World, arrival: str
+) -> None:
+    from iki_server.entities import services as entities
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    user = world.users["team_member"]
+    membership = ProjectMembership.objects.create(
+        user=user, project=world.project, role=ProjectRole.EDITOR
+    )
+    LabRoleGrant.objects.create(
+        membership=membership, role="acme/protein.analyst", granted_by=world.users["admin"]
+    )
+    permissions.forget(user)
+
+    def assign_sample(number: int = 1) -> None:
+        entities.create(
+            world.users["admin"],
+            "acme/protein.Sample",
+            world.project,
+            {"label": f"Assigned sample {number}", "analyst": str(user.pk)},
+        )
+
+    if arrival == "projects-first":
+        assign_sample()
+    elif arrival == "work-first":
+        for number in range(1, 7):
+            assign_sample(number)
+
+    page: Page = open_as("team_member", "/teams/")
+    if arrival == "projects-first":
+        page.set_viewport_size({"width": 390, "height": 844})
+    elif arrival == "live-work":
+        # The available CSS viewport of a 640px-wide window at 200% zoom.
+        page.set_viewport_size({"width": 320, "height": 440})
+    work_url = "**/api/v1/me/work?**"
+    projects_url = "**/api/v1/projects?**"
+    work: list[Route] = []
+    projects: list[Route] = []
+    events_url = "**/api/v1/events"
+    events: list[Route] = []
+    page.route(work_url, lambda route: work.append(route))
+    page.route(projects_url, lambda route: projects.append(route))
+    # The stream’s first ready supersedes an in-flight work request. Release its
+    # handshake explicitly, so a cold request cannot be replaced behind the test.
+    page.route(events_url, lambda route: events.append(route))
+    with (
+        page.expect_request(work_url),
+        page.expect_request(projects_url),
+        page.expect_request(events_url),
+    ):
+        page.goto("/")
+    main = page.get_by_role("main")
+    main.get_by_role("link", name="New project", exact=True).wait_for()
+    records = main.get_by_role("region", name="Your work").get_by_role(
+        "link", name=re.compile(r"SMP-\d+")
+    )
+    project = main.get_by_role("link", name=world.project.name, exact=True)
+    (work_response,) = work
+    (projects_response,) = projects
+    if arrival == "work-first":
+        work_response.continue_()
+        record = records.last
+        record.wait_for()
+        area = main.get_by_role("group", name="Assigned records")
+        area.focus()
+        expect(area).to_be_focused()
+        area.press("End")
+        page.wait_for_function(
+            "el => el.scrollTop > 0 && el.scrollHeight - el.clientHeight - el.scrollTop <= 1",
+            arg=area.element_handle(),
+        )
+        record.hover()
+        position = record.bounding_box()
+        href = record.get_attribute("href")
+        assert href
+        page.mouse.down()
+        projects_response.continue_()
+        project.wait_for()
+        assert record.bounding_box() == position
+        page.mouse.up()
+        expect(page).to_have_url(re.compile(re.escape(href) + "$"))
+    else:
+        projects_response.continue_()
+        if arrival == "live-work":
+            with page.expect_response(work_url) as empty:
+                work_response.continue_()
+            assert empty.value.json()["items"] == []
+            page.unroute(work_url)
+            (stream,) = events
+            with page.expect_response(work_url) as ready:
+                stream.continue_()
+            assert ready.value.json()["items"] == []
+            page.evaluate(NEXT_FRAMES)
+        project.hover()
+        position = project.bounding_box()
+        page.mouse.down()
+        if arrival == "live-work":
+            # The real assignment commits a work event, then Home refreshes over SSE.
+            assign_sample()
+        else:
+            work_response.continue_()
+        records.first.wait_for()
+        assert page.evaluate(NO_SIDEWAYS_SCROLL)
+        assert project.bounding_box() == position
+        page.mouse.up()
+        expect(page).to_have_url(re.compile(rf"/projects/{world.project.slug}/$"))
+    page.context.close()
+
+
 def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
     open_as: Any, world: World
 ) -> None:

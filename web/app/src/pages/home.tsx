@@ -1,59 +1,72 @@
 import { useInfiniteQuery, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import { meQuery, othersProjectsQuery, projectPagesQuery } from "../api";
+import { meQuery, othersProjectsQuery, problemOf, projectPagesQuery } from "../api";
 import { recordSearch, typesQuery } from "../entities";
 import { provisionedOverScim, usePageTitle } from "../layout";
 import { dueText, workQuery, workStates } from "../people";
 import { registriesQuery } from "../registries";
-import { Button, buttonClass, Loading, PageHeader } from "../ui";
+import { Button, buttonClass, Loading, PageHeader, ProblemAlert } from "../ui";
 import { PluginSections } from "./plugin-sections";
 import { ProjectRows } from "./project-rows";
 
 /** How many of what's assigned to you the home page lists: the rest are on My work. */
 const WORK_SHOWN = 5;
 
-/** The first of what's assigned to you (ADR 0122), soonest due first, if there's any. */
+/** The first of what's assigned to you (ADR 0122), soonest due first. */
 function YourWork() {
   const work = useInfiniteQuery(workQuery({}));
-  const types = useQuery(typesQuery).data;
+  const types = useQuery(typesQuery);
   const items = work.data?.pages[0]?.items ?? [];
-  if (!items.length) return null;
-  const more = items.length > WORK_SHOWN || Boolean(work.data?.pages[0]?.next_cursor);
   return (
     <section aria-labelledby="work-title">
-      <h2 id="work-title">Your work</h2>
-      <ul className="rows">
-        {items.slice(0, WORK_SHOWN).map(({ entity, due }) => (
-          <li className="row" key={entity.id}>
-            <div className="row-main">
-              <Link
-                className="row-title"
-                to="/entities/$ref/"
-                params={{ ref: entity.hrid }}
-                search={recordSearch(entity)}
-              >
-                {entity.title !== entity.hrid ? `${entity.title} (${entity.hrid})` : entity.hrid}
-              </Link>
-              <span className="row-meta">
-                {[
-                  ...workStates(
-                    types?.find((t) => t.name === entity.type),
-                    entity,
-                  ),
-                  entity.owner_project?.name,
-                  due ? `Due ${dueText(due).text}` : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <p>
-        <Link to="/work/">{more ? "See all your work" : "Go to My work"}</Link>
-      </p>
+      <div className="section-header">
+        <h2 className="section-title" id="work-title">
+          Your work
+        </h2>
+        <Link to="/work/">Go to My work</Link>
+      </div>
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region */}
+      <div className="home-work-items" role="group" aria-label="Assigned records" tabIndex={0}>
+        {work.isPending || (items.length > 0 && types.isPending) ? (
+          <Loading label="Loading your work…" />
+        ) : work.isLoadingError ? (
+          <ProblemAlert problem={problemOf(work.error)} />
+        ) : items.length ? (
+          <ul className="rows">
+            {items.slice(0, WORK_SHOWN).map(({ entity, due }) => (
+              <li className="row" key={entity.id}>
+                <div className="row-main">
+                  <Link
+                    className="row-title"
+                    to="/entities/$ref/"
+                    params={{ ref: entity.hrid }}
+                    search={recordSearch(entity)}
+                  >
+                    {entity.title !== entity.hrid
+                      ? `${entity.title} (${entity.hrid})`
+                      : entity.hrid}
+                  </Link>
+                  <span className="row-meta">
+                    {[
+                      ...workStates(
+                        types.data?.find((t) => t.name === entity.type),
+                        entity,
+                      ),
+                      entity.owner_project?.name,
+                      due ? `Due ${dueText(due).text}` : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">Nothing’s assigned to you.</p>
+        )}
+      </div>
     </section>
   );
 }
