@@ -61,13 +61,10 @@ inputs:
   lot:
     - included:
         conjugate:
-          - type: iki/antibody.Antibody
+          - type: iki/conjugate.Conjugate
             values:
-              name: brentuximab
-              format: igg
-              components:
-                - { part: 00000000-0000-7000-8003-000000000001, copies: 2, role: heavy }
-                - { part: 00000000-0000-7000-8003-000000000002, copies: 2, role: light }
+              carrier_heavy_copies: 2
+              carrier_light_copies: 2
       values:
         dar_method: rp_hplc_reduced
         a280: 0.9
@@ -107,13 +104,10 @@ inputs:
   lot:
     - included:
         conjugate:
-          - type: iki/antibody.Antibody
+          - type: iki/conjugate.Conjugate
             values:
-              name: a Fab
-              format: fab
-              components:
-                - { part: 00000000-0000-7000-8003-000000000001, copies: 1, role: heavy }
-                - { part: 00000000-0000-7000-8003-000000000002, copies: 1, role: light }
+              carrier_heavy_copies: 1
+              carrier_light_copies: 1
       values:
         dar_method: lc_ms_reduced
         drug_loads:
