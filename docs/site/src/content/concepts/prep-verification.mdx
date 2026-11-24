@@ -4,7 +4,7 @@ description: How Iki checks that a plasmid prep holds the plasmid it should, fro
 audience: bench
 band: "For scientists, QA and lab managers, and plugin authors who need its types and actions."
 topic: Lots and preps
-doIt:
+guide:
   text: Check a prep from its long reads or a sequencing service's consensus FASTA.
   label: Check a plasmid prep
   href: "repo:plugins/plasmid_sequencing/README.md"
@@ -29,18 +29,10 @@ export const percent = (d) => `${Math.round(d.fraction * 100)}%`;
 export const number = (n) => n.toLocaleString("en-US");
 
 <Layer n={1} id="short" title="In short">
-  <p class="lead">
-    A plasmid prep is a tube of plasmid DNA made from a plasmid your lab has registered. A{" "}
-    <strong>verification</strong> records whether the tube holds that plasmid: Iki compares the
-    prep's sequencing with the plasmid's registered sequence, and a reviewer records the outcome and
-    signs it.
-  </p>
+  <p class="lead">A plasmid prep is a tube of plasmid DNA made from a plasmid your lab has registered. A <strong>verification</strong> records whether the tube holds that plasmid: Iki compares the prep's sequencing with the plasmid's registered sequence, and a reviewer records the outcome and signs it.</p>
   <ul>
     <li>The comparison is computed once from the sequencing, and can't be edited.</li>
-    <li>
-      The outcome is the reviewer's: a match, a discrepancy or inconclusive, with notes and
-      signatures.
-    </li>
+    <li>The outcome is the reviewer's: a match, a discrepancy or inconclusive, with notes and signatures.</li>
     <li>Releasing the lot the prep belongs to is a separate step.</li>
   </ul>
 </Layer>
@@ -130,17 +122,7 @@ mark at each difference. Choose a layer to show or hide it, or read the same in 
     src="/viewers/whole-plasmid/puc19-srr17915342/"
     title={`Whole-plasmid map of pUC19 checked against ${puc19.data.accession}`}
   />
-  <figcaption>
-    The alignment's Map tab, as Iki shows it. The data:{" "}
-    <a href={github(puc19.data.reads)} class="out">
-      the 41 reads
-    </a>{" "}
-    and{" "}
-    <a href={github(puc19.data.reference)} class="out">
-      L09137.2
-    </a>
-    .
-  </figcaption>
+  <figcaption>The alignment's Map tab, as Iki shows it. The data: <a href={github(puc19.data.reads)} class="out">the 41 reads</a> and <a href={github(puc19.data.reference)} class="out">L09137.2</a>.</figcaption>
 </figure>
 
 <blockquote class="verdict">
@@ -221,69 +203,20 @@ verification, and QA must be someone else again.
   <Cards>
     <div>
       <h3>Record types</h3>
-      <p>
-        Plasmid verification:{" "}
-        <a class="mono out" href={github("plugins/lots/types/plasmid_verification.yaml")}>
-          iki/lots.PlasmidVerification
-        </a>
-      </p>
-      <p>
-        Whole-plasmid alignment:{" "}
-        <a
-          class="mono out"
-          href={github("plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml")}
-        >
-          iki/plasmid_sequencing.WholePlasmidAlignment
-        </a>
-      </p>
-      <p>
-        Every field type:{" "}
-        <a class="out" href={github("spec/README.md")}>
-          the plugin spec
-        </a>
-      </p>
+      <p>Plasmid verification: <a class="mono out" href={github("plugins/lots/types/plasmid_verification.yaml")}>iki/lots.PlasmidVerification</a></p>
+      <p>Whole-plasmid alignment: <a class="mono out" href={github("plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml")} >iki/plasmid_sequencing.WholePlasmidAlignment</a></p>
+      <p>Every field type: <a class="out" href={github("spec/README.md")}>the plugin spec</a></p>
     </div>
     <div>
       <h3>Actions</h3>
-      <p>
-        Check a prep's reads:{" "}
-        <a
-          class="mono out"
-          href={github("plugins/plasmid_sequencing/actions/verify_plasmid_reads.yaml")}
-        >
-          verify_plasmid_reads
-        </a>
-      </p>
-      <p>
-        Check a consensus FASTA:{" "}
-        <a
-          class="mono out"
-          href={github("plugins/plasmid_sequencing/actions/verify_plasmid_consensus.yaml")}
-        >
-          verify_plasmid_consensus
-        </a>
-      </p>
-      <p>
-        Record the outcome:{" "}
-        <a class="mono out" href={github("plugins/lots/actions/record_plasmid_verification.yaml")}>
-          record_plasmid_verification
-        </a>
-      </p>
+      <p>Check a prep's reads: <a class="mono out" href={github("plugins/plasmid_sequencing/actions/verify_plasmid_reads.yaml")} >verify_plasmid_reads</a></p>
+      <p>Check a consensus FASTA: <a class="mono out" href={github("plugins/plasmid_sequencing/actions/verify_plasmid_consensus.yaml")} >verify_plasmid_consensus</a></p>
+      <p>Record the outcome: <a class="mono out" href={github("plugins/lots/actions/record_plasmid_verification.yaml")}>record_plasmid_verification</a></p>
     </div>
     <div>
       <h3>REST API</h3>
-      <p>
-        Run an action:{" "}
-        <a class="mono" href="/reference/api/post-actions-name-runs/">
-          POST /actions/&#123;name&#125;/runs
-        </a>
-      </p>
-      <p>
-        Its signatures:{" "}
-        <a class="mono" href="/reference/api/get-entities-ref-signatures/">
-          GET /entities/&#123;ref&#125;/signatures
-        </a>
-      </p>
+      <p>Run an action: <a class="mono" href="/reference/api/post-actions-name-runs/">POST /actions/&#123;name&#125;/runs</a></p>
+      <p>Its signatures: <a class="mono" href="/reference/api/get-entities-ref-signatures/">GET /entities/&#123;ref&#125;/signatures</a></p>
     </div>
   </Cards>
 </Layer>

@@ -113,7 +113,7 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
             <span class="tags">
               {s.audiences.map((a) => (
                 <span class="tag" data-audience={a}>
-                  {a === "bench" ? "Bench" : a === "run" ? "Run" : "Build"}
+                  {AUDIENCES[a].label}
                 </span>
               ))}
             </span>
@@ -131,9 +131,10 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
     <section class="wrap block" aria-labelledby="ideas-h">
       <div class="ideas-row">
         <div class="ideas">
-          <h2 id="ideas-h">The ideas behind Iki</h2>
+          <h2 id="ideas-h">Concepts</h2>
           <p class="block-sub">
-            What records, reviews, plugins and compute are in Iki, and the rules each one follows.
+            How Iki's records, reviews, plugins and compute work, with a worked example on real
+            data.
           </p>
           <ul class="ideas-list">
             {CONCEPTS.map((item) => (

@@ -4,7 +4,7 @@ import { getCollection, render } from "astro:content";
 import ItemLink from "../../components/ItemLink.astro";
 import Toc from "../../components/Toc.astro";
 import Doc from "../../layouts/Doc.astro";
-import { BENCH_NAV, itemOf } from "../../lib/site.ts";
+import { itemOf, SIDE_NAV } from "../../lib/site.ts";
 
 export async function getStaticPaths() {
   return (await getCollection("concepts")).map((entry) => ({
@@ -32,10 +32,10 @@ const layers = [
   audience={data.audience}
   band={data.band}
 >
-  <nav slot="nav" class="section-nav" aria-label="Bench guides and concepts">
-    {BENCH_NAV.map((group) => (
+  <nav slot="nav" class="section-nav" aria-label="Pages for this audience">
+    {SIDE_NAV[data.audience].map((group) => (
       <>
-        <h2>{group.heading}</h2>
+        <h2>{group.section}</h2>
         <ul>
           {group.items.map((item) => (
             <li>
@@ -54,9 +54,9 @@ const layers = [
   <aside slot="aside" class="side" aria-label="On this page">
     <Toc items={layers} />
     <div class="side-box audience">
-      <h2>Do it</h2>
-      <p>{data.doIt.text}</p>
-      <ItemLink item={itemOf(data.doIt)} />
+      <h2>Guides</h2>
+      <p>{data.guide.text}</p>
+      <ItemLink item={itemOf(data.guide)} />
     </div>
   </aside>
 </Doc>

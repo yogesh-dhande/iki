@@ -1,0 +1,10 @@
+# Prettier reads the ignore file in the directory it runs from, so this repeats the root's
+# rule for runs from here (pnpm --filter, or a shell in docs/site): Prettier formats MDX as
+# MDX 1 did, reflowing text inside JSX onto lines of its own, which MDX 3 reads as
+# paragraphs (and splits links and sentences).
+src/content/**/*.mdx
+
+# What the build writes.
+src/generated/
+dist/
+.astro/

@@ -280,6 +280,18 @@ def test_search_finds_pages_offline(browser: Browser, site: str) -> None:
     page.context.close()
 
 
+def test_no_sentence_is_split_into_paragraphs() -> None:
+    """MDX turns text reflowed onto lines of its own inside an element into paragraphs: a
+    caption or a link broken into pieces, as Prettier's MDX formatting does."""
+    split = re.compile(r"<(a|figcaption|h3|p|strong|span)\b[^>]*>\s*<p>")
+    found = [
+        str(page.relative_to(DIST))
+        for page in DIST.rglob("*.html")
+        if split.search(page.read_text(encoding="utf-8"))
+    ]
+    assert found == []
+
+
 def test_no_page_cites_a_design_record() -> None:
     """The design records (ADRs) are on the developers' architecture site, not this one."""
     cited = re.compile(r"\bADRs? \d{4}\b|/decisions/|docs/adr/")

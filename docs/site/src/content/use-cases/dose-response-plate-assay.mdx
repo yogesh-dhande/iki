@@ -14,10 +14,6 @@ steps:
   - { id: receive, role: Coordinator, label: Receive }
   - { id: read, role: Analyst, label: Read and fit }
   - { id: sign, role: "Reviewer, QA", label: Sign and return }
-understand:
-  - label: "Review flows: Research and Regulated QC"
-  - label: "States, locks and signatures"
-  - label: Excluding a well from a fit
 reference:
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
   - { label: iki starter, href: "repo:cli/README.md#iki-starter" }
@@ -140,18 +136,11 @@ signs in again with the organization's sign-in provider, and signs the revision 
     <tbody>
       <tr>
         <td>Research</td>
-        <td>
-          The assay reviewer checks the recorded fit and the A4 exclusion, then sets{" "}
-          <strong>Signed off</strong>.
-        </td>
+        <td>The assay reviewer checks the recorded fit and the A4 exclusion, then sets <strong>Signed off</strong>.</td>
       </tr>
       <tr>
         <td>Regulated QC</td>
-        <td>
-          The analyst signs <strong>Submitted</strong>. An independent reviewer checks the readings
-          and the exclusion and signs <strong>Independently reviewed</strong>. QA signs{" "}
-          <strong>QA released</strong>.
-        </td>
+        <td>The analyst signs <strong>Submitted</strong>. An independent reviewer checks the readings and the exclusion and signs <strong>Independently reviewed</strong>. QA signs <strong>QA released</strong>.</td>
       </tr>
     </tbody>
   </table>

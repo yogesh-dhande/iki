@@ -22,8 +22,8 @@ export const collections = {
       band: z.string(),
       /** Where it sits: "Lots and preps". */
       topic: z.string(),
-      /** The task page, or document, that does what the concept explains. */
-      doIt: z.object({ text: z.string(), label: z.string(), href: z.string() }),
+      /** The guide that does what the concept explains. */
+      guide: z.object({ text: z.string(), label: z.string(), href: z.string() }),
     }),
   }),
   useCases: defineCollection({
@@ -38,7 +38,8 @@ export const collections = {
         z.object({ label: z.string(), value: z.string(), code: z.boolean().default(false) }),
       ),
       steps: z.array(z.object({ id: z.string(), role: z.string(), label: z.string() })),
-      understand: z.array(link),
+      /** The concept pages that explain it. */
+      concepts: z.array(link).default([]),
       reference: z.array(link),
       aside: z.object({ title: z.string(), text: z.string(), href: z.string() }).optional(),
     }),

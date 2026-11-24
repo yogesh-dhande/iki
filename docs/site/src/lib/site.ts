@@ -94,8 +94,6 @@ export const DOORS: Record<Audience, Item[]> = {
   bench: [
     { label: "Run a dose-response plate assay", href: PAGES.doseResponse },
     { label: "Check a plasmid prep against its sequence", href: PAGES.prepVerification },
-    { label: "Sign a result, and check who signed it" },
-    { label: "Import a spreadsheet of records" },
     { label: "Receive tubes against a request", source: "plugins/example_lims/README.md" },
   ],
   run: [
@@ -123,17 +121,8 @@ export const DOORS: Record<Audience, Item[]> = {
   ],
 };
 
-/** The ideas behind Iki: each concept's page, or planned. */
-export const CONCEPTS: Item[] = [
-  { label: "Records, revisions and where each value came from" },
-  { label: "Registries and project records" },
-  { label: "States, locks and signatures" },
-  { label: "Prep verification", href: PAGES.prepVerification },
-  { label: "Plugins, record types and actions" },
-  { label: "Workers and compute" },
-  { label: "Review flows: Research and Regulated QC" },
-  { label: "Coding agents, through MCP" },
-];
+/** The concept pages. */
+export const CONCEPTS: Item[] = [{ label: "Prep verification", href: PAGES.prepVerification }];
 
 /** The references. */
 export const REFERENCES: Item[] = [
@@ -143,26 +132,20 @@ export const REFERENCES: Item[] = [
   { label: "Python SDK and MCP server", source: "sdk/python/README.md" },
 ];
 
-/** The bench's left-hand navigation on its concept pages. */
-export const BENCH_NAV: { heading: string; items: Item[] }[] = [
-  {
-    heading: "Do it",
-    items: [
-      { label: "Run a dose-response plate assay", href: PAGES.doseResponse },
-      { label: "Check a plasmid prep", source: "plugins/plasmid_sequencing/README.md" },
-      { label: "Record a prep's verification", source: "plugins/lots/README.md" },
-    ],
-  },
-  {
-    heading: "Understand it",
-    items: [
-      { label: "Lots and preps" },
-      { label: "Prep verification", href: PAGES.prepVerification },
-      { label: "States, locks and signatures" },
-      { label: "Corrections" },
-    ],
-  },
-];
+/** A door's left-hand navigation: its pages, grouped under the top navigation's own
+ * section names, in its order, so a page is filed under one name everywhere. Only pages of
+ * this site: nothing planned, and nothing elsewhere. */
+export const SIDE_NAV: Record<Audience, { section: Section; items: Item[] }[]> = {
+  bench: [
+    {
+      section: "Use cases",
+      items: [{ label: "Run a dose-response plate assay", href: PAGES.doseResponse }],
+    },
+    { section: "Concepts", items: [{ label: "Prep verification", href: PAGES.prepVerification }] },
+  ],
+  run: [],
+  build: [],
+};
 
 export const FOOTER: Item[] = [
   { label: "Contributing", source: "CONTRIBUTING.md" },

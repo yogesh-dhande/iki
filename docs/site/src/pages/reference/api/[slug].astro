@@ -26,11 +26,21 @@ const { endpoint: e } = Astro.props;
 const { doc } = api();
 const here = endpointPath(e.slug);
 
-// The site's pages that link here.
-const pages = [
-  ...(await getCollection("useCases")).map((entry) => ({ entry, href: `/use-cases/${entry.id}/` })),
-  ...(await getCollection("concepts")).map((entry) => ({ entry, href: `/concepts/${entry.id}/` })),
-].filter(({ entry }) => `${entry.body ?? ""}${JSON.stringify(entry.data)}`.includes(here));
+// The site's pages that link here, by the section they're in.
+const linking = (
+  entries: { id: string; body?: string | undefined; data: object }[],
+  base: string,
+) =>
+  entries
+    .filter((entry) => `${entry.body ?? ""}${JSON.stringify(entry.data)}`.includes(here))
+    .map((entry) => ({
+      title: (entry.data as { title: string }).title,
+      href: `${base}${entry.id}/`,
+    }));
+const related = [
+  { section: "Use cases", pages: linking(await getCollection("useCases"), "/use-cases/") },
+  { section: "Concepts", pages: linking(await getCollection("concepts"), "/concepts/") },
+].filter((group) => group.pages.length > 0);
 
 const elsewhere = sameCall(e.method, e.path);
 const ok = e.responses.find((r) => r.status.startsWith("2"));
@@ -141,20 +151,18 @@ const query = e.parameters.filter((p) => p.in !== "path");
   </section>
 
   <aside slot="aside" class="side" aria-label="Related">
-    <div class="side-box">
-      <h2>Used in these guides</h2>
-      {pages.length ? (
+    {related.map((group) => (
+      <div class="side-box">
+        <h2>{group.section}</h2>
         <ul>
-          {pages.map(({ entry, href }) => (
+          {group.pages.map((page) => (
             <li>
-              <a href={href}>{entry.data.title}</a>
+              <a href={page.href}>{page.title}</a>
             </li>
           ))}
         </ul>
-      ) : (
-        <p class="note">No guide uses this call yet.</p>
-      )}
-    </div>
+      </div>
+    ))}
     <div class="side-box quiet">
       <h2>Same call elsewhere</h2>
       {elsewhere.sdk.length + elsewhere.mcp.length > 0 ? (
