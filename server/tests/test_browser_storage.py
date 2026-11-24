@@ -1672,3 +1672,93 @@ def test_a_tube_kept_in_custody_is_received_without_a_location_and_awaits_put_aw
     checked(page)
     fits(page)
     page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    sent = sent_to_a_core(world, 3)
+    tubes, incoming = sent["tubes"], sent["incoming"]
+    colleague = another_receiver(world, sent["core"], "tech2", "Tech Two")
+    theirs = ref(entities.create(colleague, TUBE, sent["core"], {"barcode": "OTHER-1"}))
+    page, path = received_and_handed_over(open_as, sent, color_scheme)
+    complete = page.get_by_role("button", name="Complete receiving")
+    page.get_by_role("textbox", name=re.compile("^Box")).fill(incoming["hrid"])
+    page.get_by_role("button", name="Show its free positions").click()
+    plan = page.get_by_role("table", name=re.compile(rf"^{incoming['hrid']} Incoming · \d+ free$"))
+    expect(plan).to_have_accessible_name(f"{incoming['hrid']} Incoming · 4 free")
+    choices = [plan.get_by_role("combobox", name=f"Where {t['hrid']} goes") for t in tubes]
+    # The first chosen by hand, the second where it's shown, the third kept in custody.
+    choices[0].select_option("B2")
+    expect(choices[1]).to_have_value("A1")
+    choices[2].select_option(label="Keep in my custody")
+    expect(complete).to_have_accessible_description(
+        f"Ready: 2 put away in {incoming['hrid']} and 1 kept in your custody."
+    )
+
+    # Meanwhile the second operator puts their tube in A1, the well shown for the second.
+    other = open_as("tech2", "/storage/", color_scheme)
+    status, body = send(
+        other,
+        "POST",
+        "/storage/moves",
+        {
+            "items": [{"record": str(theirs["id"]), "to": str(incoming["id"]), "position": "A1"}],
+            "reason": "Put away",
+            "confirmations": {str(theirs["id"]): iki_label(theirs)},
+        },
+    )
+    assert status == 200, body
+    with page.expect_response(f"**{path}/complete") as answered:
+        complete.click()
+    assert answered.value.status == 422
+
+    # Refused on that tube, which is open again; A1 is read again as taken.
+    refusal = page.get_by_role("region", name="Complete", exact=True).get_by_role("alert")
+    expect(refusal).to_contain_text(f"{tubes[1]['hrid']}: {incoming['hrid']} has something at A1")
+    expect(plan).to_have_accessible_name(f"{incoming['hrid']} Incoming · 3 free")
+    expect(choices[1]).to_have_value("")
+    expect(choices[1]).to_have_attribute("aria-invalid", "true")
+    expect(choices[1]).to_have_accessible_description(re.compile("has something at A1"))
+    for choice in choices:
+        expect(choice.get_by_role("option", name=re.compile(r", A1$"))).to_have_count(0)
+    taken = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
+    expect(taken).to_have_accessible_name(re.compile(f"^A1, {theirs['hrid']}"))
+    expect(choices[0]).to_have_value("B2")
+    expect(choices[2]).to_have_value("keep")
+    expect(complete).to_be_disabled()
+    # Nothing was completed, placed or taken into custody.
+    now = held_by(page, path)
+    assert now["receipt"]["status"] == "open"
+    assert now["out"] == [] and now["waiting"] == []
+    box = page.request.get(f"/api/v1/storage/containers/{incoming['id']}")
+    assert box.ok
+    assert {o["position"]: o["ref"]["hrid"] for o in box.json()["contents"] if o["ref"]} == {
+        "A1": theirs["hrid"]
+    }
+    # Chromium and WebKit log the refusal as a failed load: that, and nothing else.
+    expected_refusals(page, "422")
+    checked(page)
+
+    # Another well for it, and it completes as shown.
+    choices[1].select_option("B1")
+    expect(complete).to_be_enabled()
+    with page.expect_response(f"**{path}/complete") as answered:
+        complete.click()
+    assert answered.value.status == 200
+    page.get_by_role("heading", level=2, name="Received").wait_for()
+    done = held_by(page, path)
+    lines = {line["code"]: line for line in done["receipt"]["lines"]}
+    assert (lines["RC000"]["put_away"]["hrid"], lines["RC000"]["put_away"]["position"]) == (
+        incoming["hrid"],
+        "B2",
+    )
+    assert (lines["RC001"]["put_away"]["hrid"], lines["RC001"]["put_away"]["position"]) == (
+        incoming["hrid"],
+        "B1",
+    )
+    assert (lines["RC002"]["put_away"], lines["RC002"]["received_unplaced"]) == (None, True)
+    assert [x["id"] for x in done["waiting"]] == [str(tubes[2]["id"])]
+    other.context.close()
+    page.context.close()
