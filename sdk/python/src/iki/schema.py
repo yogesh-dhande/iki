@@ -1104,7 +1104,7 @@ class DecisionOut(TypedDict):
 
 
 class DeclineIn(TypedDict):
-    #: Why, for the record and for the agent.
+    #: Required. Why, for the record and for the agent.
     note: NotRequired[str]
 
 
@@ -2697,8 +2697,8 @@ class MetricOut(TypedDict):
 
 
 class MoveIn(TypedDict):
-    #: Why, for the record.
-    reason: NotRequired[str]
+    #: Why the holder is moving it.
+    reason: str
 
 
 class MoveItemIn(TypedDict):

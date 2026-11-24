@@ -7636,7 +7636,7 @@ export interface components {
         DeclineIn: {
             /**
              * Note
-             * @description Why, for the record and for the agent.
+             * @description Required. Why, for the record and for the agent.
              * @default
              */
             note: string;
@@ -10995,8 +10995,7 @@ export interface components {
         MoveIn: {
             /**
              * Reason
-             * @description Why, for the record.
-             * @default
+             * @description Why the holder is moving it.
              */
             reason: string;
         };

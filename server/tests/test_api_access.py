@@ -1630,7 +1630,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/run-approvals/{approval_id}/decline",
-        approval("/decline", {}),
+        approval("/decline", {"note": "No longer needed"}),
         readers(403, runner=200),
     ),
     ("GET", "/runs/{ref}/attempts/{attempt}/log", run("/attempts/1/log"), readers(200)),

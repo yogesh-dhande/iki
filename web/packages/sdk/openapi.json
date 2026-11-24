@@ -4576,7 +4576,7 @@
         "properties": {
           "note": {
             "default": "",
-            "description": "Why, for the record and for the agent.",
+            "description": "Required. Why, for the record and for the agent.",
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
@@ -11644,13 +11644,16 @@
       "MoveIn": {
         "properties": {
           "reason": {
-            "default": "",
-            "description": "Why, for the record.",
+            "description": "Why the holder is moving it.",
             "maxLength": 2000,
+            "minLength": 1,
             "title": "Reason",
             "type": "string"
           }
         },
+        "required": [
+          "reason"
+        ],
         "title": "MoveIn",
         "type": "object"
       },

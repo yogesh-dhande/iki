@@ -15,7 +15,15 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { AgentRows, Through } from "../agent";
-import { iki, meQuery, problemOf, projectByIdQuery, useApiMutation, type Project } from "../api";
+import {
+  fieldErrors,
+  iki,
+  meQuery,
+  problemOf,
+  projectByIdQuery,
+  useApiMutation,
+  type Project,
+} from "../api";
 import { capacityText, slurmRequestText, type AttemptSlurm } from "../compute";
 import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
@@ -738,6 +746,8 @@ function asker(approval: Approval): string {
 function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
   const [declining, setDeclining] = useState(false);
   const [note, setNote] = useState("");
+  const [missing, setMissing] = useState(false);
+  const reasonField = useRef<HTMLDivElement>(null);
   const { say } = useMessages();
   const others = approval.runs.length - 1;
   const approve = useApiMutation(
@@ -762,8 +772,11 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
   const closeDecline = () => {
     setDeclining(false);
     setNote("");
+    setMissing(false);
     decline.reset();
   };
+  const declineProblem = decline.error ? problemOf(decline.error) : undefined;
+  const noteError = missing ? "Say why it’s declined." : fieldErrors(declineProblem)["note"];
   const count = approval.runs.length;
   const these = count > 1 ? `these ${String(count)} runs` : "this run";
   const consent = approval.consent;
@@ -848,9 +861,15 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
         cancelLabel="Keep waiting"
         confirmVariant="danger"
         busy={decline.isPending}
-        problem={decline.error ? problemOf(decline.error) : undefined}
+        problem={declineProblem}
         onCancel={closeDecline}
         onConfirm={() => {
+          // A decline says why: the server refuses a blank one, so it isn't sent.
+          if (!note.trim()) {
+            setMissing(true);
+            reasonField.current?.querySelector("textarea")?.focus();
+            return;
+          }
           decline.mutate(undefined, {
             onSuccess: () => {
               closeDecline();
@@ -864,15 +883,21 @@ function ApprovalRequest({ run, approval }: { run: Run; approval: Approval }) {
           were declined. To run {count > 1 ? "them" : "it"} later, start {count > 1 ? "them" : "it"}{" "}
           again.
         </p>
-        <TextField
-          label="Note"
-          value={note}
-          onChange={setNote}
-          maxLength={2000}
-          optional
-          multiline
-          help="Why, for the record. The app that asked can read it."
-        />
+        <div ref={reasonField}>
+          <TextField
+            label="Reason"
+            value={note}
+            onChange={(value) => {
+              setNote(value);
+              setMissing(false);
+              if (decline.isError) decline.reset();
+            }}
+            error={noteError}
+            maxLength={2000}
+            multiline
+            help="Why, for the record. The app that asked can read it."
+          />
+        </div>
       </ConfirmDialog>
     </section>
   );

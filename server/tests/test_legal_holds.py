@@ -6,7 +6,7 @@ from org_world import World, build_world, post
 
 from iki_server.audit.models import AuditEvent
 from iki_server.org import holds
-from iki_server.org.models import LegalHold
+from iki_server.org.models import LegalHold, OrgRole, OrgRoleAssignment
 from iki_server.org.services import Refused
 
 pytestmark = pytest.mark.django_db
@@ -29,10 +29,10 @@ def test_org_admins_place_and_release_holds_and_each_is_audited(world: World) ->
     with pytest.raises(Refused, match="Say what the hold is for"):
         holds.place(admin, world.project, "   ")
 
-    holds.release(admin, hold)
+    holds.release(admin, hold, reason="Case closed")
     assert holds.is_held(world.project)  # the inspection's hold is still on
-    holds.release(admin, other)
-    holds.release(admin, other)  # releasing twice changes nothing
+    holds.release(admin, other, reason="Inspection complete")
+    holds.release(admin, other, reason="Repeat request")  # Releasing twice changes nothing.
     assert not holds.is_held(world.project)
     assert list(holds.held_projects()) == []
 
@@ -40,8 +40,18 @@ def test_org_admins_place_and_release_holds_and_each_is_audited(world: World) ->
     assert [(e.action, e.actor, e.project, e.data) for e in events] == [
         ("legal_hold.placed", admin, world.project, {"matter": "Case 24-117"}),
         ("legal_hold.placed", admin, world.project, {"matter": "FDA inspection"}),
-        ("legal_hold.released", admin, world.project, {"matter": "Case 24-117"}),
-        ("legal_hold.released", admin, world.project, {"matter": "FDA inspection"}),
+        (
+            "legal_hold.released",
+            admin,
+            world.project,
+            {"matter": "Case 24-117", "reason": "Case closed"},
+        ),
+        (
+            "legal_hold.released",
+            admin,
+            world.project,
+            {"matter": "FDA inspection", "reason": "Inspection complete"},
+        ),
     ]
 
 
@@ -51,7 +61,7 @@ def test_only_org_admins_place_or_release_them(world: World, who: str) -> None:
         holds.place(world.users[who], world.project, "Case 24-117")
     hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
     with pytest.raises(PermissionDenied):
-        holds.release(world.users[who], hold)
+        holds.release(world.users[who], hold, reason="Matter closed")
 
 
 def test_the_page_lists_them_for_auditors_and_lets_org_admins_change_them(world: World) -> None:
@@ -78,9 +88,48 @@ def test_the_page_lists_them_for_auditors_and_lets_org_admins_change_them(world:
     )
     assert refused.status_code == 403
 
-    released = post(admin, "/admin/legal-holds/", {"action": "release", "hold": str(hold.pk)})
+    releaser = world.users["editor"]
+    OrgRoleAssignment.objects.create(user=releaser, role=OrgRole.ORG_ADMIN)
+    other_admin = world.browser("editor")
+    # Release opens the hold's row, asking why; an auditor's page has no such form.
+    asking = other_admin.get(f"/admin/legal-holds/?release={hold.pk}").content.decode()
+    assert 'name="reason"' in asking and "Release the hold</button>" in asking
+    assert (
+        'name="reason"'
+        not in world.browser("auditor")
+        .get(f"/admin/legal-holds/?release={hold.pk}")
+        .content.decode()
+    )
+    assert 'name="reason"' not in other_admin.get("/admin/legal-holds/?release=x").content.decode()
+    release = {"action": "release", "hold": str(hold.pk)}
+    for reason in ({}, {"reason": "   "}, {"reason": "x" * 2001}):
+        denied = post(other_admin, "/admin/legal-holds/", {**release, **reason})
+        # The row asks again, with what's wrong, and nothing is released.
+        assert denied.status_code == 200
+        page = denied.content.decode()
+        assert (
+            "Keep the release reason to 2,000 characters."
+            if reason.get("reason", "").strip()
+            else "Say why the legal hold is being released."
+        ) in page
+        assert 'aria-invalid="true"' in page
+        assert holds.is_held(world.project)
+    assert not AuditEvent.objects.filter(action="legal_hold.released").exists()
+
+    released = post(other_admin, "/admin/legal-holds/", {**release, "reason": "  Case closed  "})
     assert released.status_code == 302
     assert not holds.is_held(world.project)
+    hold.refresh_from_db()
+    assert (hold.placed_by, hold.released_by, hold.release_reason) == (
+        world.users["org_admin"],
+        releaser,
+        "Case closed",
+    )
+    release_event = AuditEvent.objects.get(action="legal_hold.released", target_id=hold.pk)
+    assert release_event.actor_id == releaser.pk
+    assert release_event.data == {"matter": "Case 24-117", "reason": "Case closed"}
+    # Released holds say why.
+    assert "Case closed" in other_admin.get("/admin/legal-holds/").content.decode()
 
 
 def test_people_in_the_project_arent_told(world: World) -> None:
