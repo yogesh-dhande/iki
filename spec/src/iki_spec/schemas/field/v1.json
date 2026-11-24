@@ -192,6 +192,7 @@
             "rna_sequence",
             "protein_sequence",
             "helm",
+            "atom_loss_formula",
             "email",
             "uri",
             "hostname"

@@ -7,6 +7,10 @@ from typing import Any
 
 import pytest
 
+from iki_spec.identity import identity_hash, kind_of
+from iki_spec.model import Field
+from iki_spec.yamlsource import read_documents
+
 SCRIPT = Path(__file__).resolve().parents[2] / "plugins/conjugate/scripts/composition.py"
 # Real constituents, synthetic attachment examples. Diglycine and discrete m-PEG4 acid
 # are PubChem CIDs 11163 and 21941826. IUPAC Gold Book P04479 defines amide water loss.
@@ -59,6 +63,34 @@ def run(
     monkeypatch.setenv("IKI_OUTPUT", str(output))
     runpy.run_path(str(SCRIPT), run_name="__main__")
     return json.loads(output.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [("D2O", "[2H]2O"), ("T2O", "[3H]2O"), ("H2O", "OH2"), ("HHO", "H2O")],
+)
+def test_conjugate_identity_reads_atom_counts(left: str, right: str) -> None:
+    manifest = SCRIPT.parents[1] / "types" / "conjugate.yaml"
+    documents, problems = read_documents(manifest, manifest.name)
+    assert not problems
+    fields = documents[0].data["fields"]
+    row_kind = kind_of(
+        Field.from_manifest("attachments", fields["attachments"], plugin="iki/conjugate"), {}
+    )
+
+    def digest(loss: str | None) -> str:
+        rows = [
+            {
+                "part": "01890a5d-ac96-774b-bcce-b302099a8057",
+                "copies": 1,
+                "site": "A",
+                "loss_formula": loss,
+            }
+        ]
+        return identity_hash("iki/conjugate.Conjugate", {"attachments": (row_kind, rows)})
+
+    assert digest(left) == digest(right)
+    assert len({digest(v) for v in ("D2O", "T2O", "H2O", "none", None)}) == 5
 
 
 def test_defined_conjugate_of_discrete_peg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

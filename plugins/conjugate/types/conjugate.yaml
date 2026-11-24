@@ -4,7 +4,7 @@ kind: EntityType
 name: Conjugate
 label: Conjugate
 label_plural: Conjugates
-schema_version: 1
+schema_version: 2
 hrid: { prefix: CJG }
 description: >-
   One carrier with one or more covalent attachments. Register a defined
@@ -94,11 +94,10 @@ fields:
           type: string
           max_length: 200
           label: Atoms lost per attachment
-          pattern: '^(none|((\[[1-9][0-9]*[A-Z][a-z]?\]|[A-Z][a-z]?)([1-9][0-9]*)?)+)$'
-          pattern_help: "a neutral elemental formula such as H2O or [13C]O2, or none"
+          format: atom_loss_formula
           description: >-
-            Total atoms lost from both reactants per attachment, in Hill
-            order, including isotope labels such as [13C] where specified.
+            Total atoms lost from both reactants per attachment. The registry compares
+            elemental and isotope counts and retains the submitted formula spelling.
             Enter “none” for a verified atom-conserving conjugation.
             Leave empty when the elemental change is unknown.
         peg_grade:

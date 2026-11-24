@@ -23,6 +23,15 @@ can represent a complete linker–payload. A discrete PEG chain can be
 registered as a compound. For a polydisperse PEG, the row identifies its
 precursor and states the grade.
 
+The registry compares elemental losses by the number of each element and
+isotope. For example, D2O and [2H]2O have one identity, as do H2O, OH2
+and HHO. An unspecified loss differs from an explicit loss of zero atoms
+(`none`). The entry retains the first submitted rows. A project that registers
+its own record with a different spelling retains those rows in its creation
+history. On upgrade an existing canonical key keeps its entry. Otherwise
+the oldest active equivalent entry receives that key. Pre-existing duplicate
+entries keep their identifiers and links for the registrar to reconcile.
+
 An action computes a theoretical elemental formula for one defined species
 by adding the carrier and each attached compound in its stated number of
 copies, subtracting the declared leaving atoms per attachment. It records
