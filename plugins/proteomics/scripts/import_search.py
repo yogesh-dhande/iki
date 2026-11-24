@@ -9,7 +9,7 @@ import math
 import os
 import re
 import zlib
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -19,6 +19,7 @@ MISSING = {"", "null", "na", "nan", "n/a"}
 PREVIEW_ROWS = 12
 MZTAB_LEVELS = {"PRT": "protein_group", "PEP": "peptide", "PSM": "spectrum_match"}
 MZTAB_HEADERS = {"PRH": "PRT", "PEH": "PEP", "PSH": "PSM"}
+MZTAB_DECOY_COLUMN = re.compile(r"opt_(?:global_)?cv_(?:MS:1002217|PRIDE:0000303)(?:_|$)", re.I)
 
 
 @contextmanager
@@ -67,12 +68,17 @@ def accession_list(*values: str) -> list[str]:
     return list(accessions)
 
 
-def numeric(row: dict[str, str], columns: Iterable[str]) -> dict[str, float | str | None]:
+def numeric(
+    row: dict[str, str], columns: Iterable[str], *, keep_nan: bool = False
+) -> dict[str, float | str | None]:
     result: dict[str, float | str | None] = {}
     for column in columns:
         if column not in row:
             continue
         raw = row[column].strip()
+        if keep_nan and raw.lower() == "nan":
+            result[column] = "NaN"
+            continue
         if raw.lower() in MISSING:
             result[column] = None
             continue
@@ -91,15 +97,28 @@ def hit(
     row: dict[str, str],
     quantities: Iterable[str],
     scores: Iterable[str] = (),
+    *,
+    keep_nan: bool = False,
     **details: object,
 ) -> dict[str, Any]:
     return {
         "level": level,
         "accessions": accessions,
-        "quantities": numeric(row, quantities),
-        "scores": numeric(row, scores),
+        "quantities": numeric(row, quantities, keep_nan=keep_nan),
+        "scores": numeric(row, scores, keep_nan=keep_nan),
         **details,
     }
+
+
+def mztab_decoy(row: dict[str, str]) -> bool | None:
+    flags = {
+        value.strip().lower() for column, value in row.items() if MZTAB_DECOY_COLUMN.match(column)
+    } - MISSING
+    if not flags:
+        return None
+    if not flags <= {"0", "1", "false", "true"}:
+        raise ValueError("An mzTab decoy flag must be 0, 1, true or false.")
+    return bool(flags & {"1", "true"})
 
 
 def mztab_rows(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
@@ -143,6 +162,8 @@ def mztab_rows(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
             spectrum=row.get("spectra_ref"),
             modifications=row.get("modifications"),
             mztab_version=version,
+            keep_nan=True,
+            decoy=mztab_decoy(row),
         )
 
 
@@ -164,7 +185,7 @@ def maxquant_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator
             for key in ("Reverse", "Potential contaminant", "Only identified by site")
             if row.get(key) == "+"
         ]
-        yield hit(
+        identification = hit(
             "protein_group" if protein else ("precursor" if "Raw file" in header else "peptide"),
             accession_list(row[accession]),
             row,
@@ -177,6 +198,11 @@ def maxquant_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator
             flags=flags,
             decoy="Reverse" in flags,
         )
+        # Zero is MaxQuant's missing-value sentinel for abundance. Ratios can be zero.
+        for column, value in identification["quantities"].items():
+            if value == 0 and column.startswith(("Intensity", "LFQ intensity", "iBAQ")):
+                identification["quantities"][column] = None
+        yield identification
 
 
 def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[dict[str, Any]]:
@@ -203,7 +229,7 @@ def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[di
             decoy=is_decoy,
             **context,
         )
-        if not accessions:
+        if is_decoy or not accessions:
             continue
         key = (row["Protein.Group"], context["run"], context["channel"])
         group = hit(
@@ -212,7 +238,7 @@ def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[di
             row,
             quantities,
             ("PG.Q.Value", "Global.PG.Q.Value"),
-            decoy=is_decoy,
+            decoy=False,
             **context,
         )
         values = group["quantities"]
@@ -232,6 +258,10 @@ def diann_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[di
 
 def fragpipe_rows(header: list[str], rows: Iterable[dict[str, str]]) -> Iterator[dict[str, Any]]:
     # Column definitions: https://fragpipe.nesvilab.org/docs/tutorial_fragpipe_outputs.html
+    if "Spectrum" in header or {"Charge", "M/Z"} <= set(header):
+        raise ValueError(
+            "Choose a FragPipe protein or peptide TSV. PSM and ion tables are unsupported."
+        )
     if "Protein ID" not in header:
         raise ValueError("Choose a FragPipe protein or peptide TSV with the Protein ID column.")
     sequence = next((key for key in ("Peptide Sequence", "Peptide") if key in header), None)
@@ -268,6 +298,31 @@ def parsed(format_: str, source: Iterable[str]) -> Iterator[dict[str, Any]]:
         yield from adapter(header, rows)
 
 
+def exclusion_of(row: dict[str, Any]) -> str:
+    if row.get("decoy"):
+        return "decoy"
+    flags = row.get("flags", ())
+    if "Potential contaminant" in flags:
+        return "contaminant"
+    if "Only identified by site" in flags:
+        return "site_only"
+    return ""
+
+
+def mztab_identification(row: dict[str, Any], exclusion: str) -> tuple[str, ...] | None:
+    # mzTab 1.0 sections 6.4.2 and 6.5.2 repeat an identification for each accession.
+    level = row["level"]
+    if level == "spectrum_match":
+        psm_id = row["reported_id"]
+        if psm_id and psm_id.lower() not in MISSING:
+            return level, exclusion, psm_id
+    if level == "peptide":
+        sequence = row["sequence"]
+        if sequence and sequence.lower() not in MISSING:
+            return level, exclusion, sequence, row.get("modifications") or ""
+    return None
+
+
 def identity(record: dict[str, Any]) -> str:
     return str(record.get("entry_id") or record["id"])
 
@@ -293,38 +348,59 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
     summaries = []
     preview = []
     totals: Counter[str] = Counter()
+    excluded_totals: defaultdict[str, Counter[str]] = defaultdict(Counter)
     with artifact.open("w", encoding="utf-8") as output:
         for report_id in report_ids:
             file = run["files"][report_id]
             counts: Counter[str] = Counter()
+            excluded: defaultdict[str, Counter[str]] = defaultdict(Counter)
+            seen: dict[tuple[str, ...], dict[str, Any] | None] = {}
             with lines_at(Path(file["path"])) as source:
                 try:
                     for row in parsed(format_, source):
+                        exclusion = exclusion_of(row)
                         parents = [
                             by_accession[accession]
                             for accession in row["accessions"]
-                            if accession in by_accession and not row.get("decoy")
+                            if accession in by_accession and not exclusion
                         ]
                         row["registered_proteins"] = [identity(protein) for protein in parents]
                         selected_proteins.update(
                             {identity(protein): protein for protein in parents}
                         )
                         row["report"] = report_id
-                        counts[row["level"]] += 1
+                        # The artifact retains each source row, including evidence per accession.
                         output.write(json.dumps(row, allow_nan=False) + "\n")
-                        if len(preview) < PREVIEW_ROWS:
-                            preview.append(row)
+                        key = mztab_identification(row, exclusion) if format_ == "mztab" else None
+                        if key is not None and key in seen:
+                            earlier = seen[key]
+                            if earlier is not None:
+                                for field in ("accessions", "registered_proteins"):
+                                    earlier[field] = list(
+                                        dict.fromkeys(earlier[field] + row[field])
+                                    )
+                            continue
+                        counter = excluded[exclusion] if exclusion else counts
+                        counter[row["level"]] += 1
+                        preview_row = row if len(preview) < PREVIEW_ROWS else None
+                        if preview_row is not None:
+                            preview.append(preview_row)
+                        if key is not None:
+                            seen[key] = preview_row
                 except (ValueError, csv.Error) as exc:
                     raise ValueError(f"{file['name']}: {exc}") from None
-            if not counts:
+            if not counts and not excluded:
                 raise ValueError(f"{file['name']} contains no recognized identification rows.")
             totals.update(counts)
+            for exclusion, counter in excluded.items():
+                excluded_totals[exclusion].update(counter)
             summaries.append(
                 {
                     "file": report_id,
                     "name": file["name"],
                     "sha256": file["sha256"],
                     "counts": counts,
+                    "excluded_counts": excluded,
                 }
             )
     values = dataset["values"]
@@ -349,6 +425,7 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                     "version": params["version"],
                     "summary": {
                         "counts": totals,
+                        "excluded_counts": excluded_totals,
                         "sources": summaries,
                         "preview": preview,
                         "unmatched_accessions": [
