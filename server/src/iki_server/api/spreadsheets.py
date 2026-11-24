@@ -12,6 +12,12 @@ The web app's importer uses these, and so can scripts, the CLI and the SDK:
 3. ``POST …/preview``, then ``GET`` it until it's ``previewed``: its ``counts`` say what
    importing does, and ``GET …/rows`` lists each row's problems and duplicates.
 4. ``POST …/commit``. Its ``run`` writes the records, all of them or none.
+
+Every read of an import carries an ``ETag``, its ``revision``: one more with each change to
+what it imports. ``PATCH``, ``…/preview``, ``…/commit`` and ``…/mappings`` must send it
+back as ``If-Match`` (428 without it). If it's moved on since, from another tab or a
+script, the request is refused (412, ``stale``) and changes nothing: read it again, and
+choose from what it is now.
 """
 
 from datetime import datetime
@@ -19,12 +25,13 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.http import HttpRequest
-from ninja import Field, Query, Router, Schema
+from django.http import HttpRequest, HttpResponse
+from ninja import Field, HeaderEx, P, Query, Router, Schema
 from ninja.responses import Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
+from iki_server.api.entities import _expected
 from iki_server.api.files import _storage
 from iki_server.api.pagination import PageParams, page, page_by
 from iki_server.api.problems import Problem
@@ -270,6 +277,10 @@ class SheetProblemOut(Schema):
 
 class SpreadsheetImportOut(Schema):
     id: UUID
+    revision: int = Field(
+        description="One more with each change to what it imports. Send it back as If-Match "
+        "to change, preview, commit or save its mapping."
+    )
     project: UUID = Field(alias="project_id")
     type: str
     file: WorkbookRef
@@ -351,6 +362,15 @@ def _writable(me: User, import_id: UUID) -> SpreadsheetImport:
     return found
 
 
+def _etag(imported: SpreadsheetImport) -> str:
+    return f'"{imported.revision}"'
+
+
+def _one(me: User, imported: SpreadsheetImport, response: HttpResponse) -> dict[str, Any]:
+    response["ETag"] = _etag(imported)
+    return _out(me, imported)
+
+
 def _invalid(error: Invalid) -> Problem:
     return Problem(
         422,
@@ -365,6 +385,15 @@ def _invalid(error: Invalid) -> Problem:
 def _call(work: Any) -> Any:  # noqa: ANN401 - whatever it returns
     try:
         return work()
+    except services.Stale as stale:
+        raise Problem(
+            412,
+            f"It changed since you read it, in another tab or session: it’s at revision "
+            f"{stale.current} now, and nothing was changed. Read it again, then choose from "
+            "what it is now.",
+            code="stale",
+            headers={"ETag": f'"{stale.current}"'},
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     except Refused as error:
@@ -473,6 +502,7 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
     )
     return {
         "id": imported.pk,
+        "revision": imported.revision,
         "project_id": imported.project_id,
         "type": imported.type,
         "file": {
@@ -541,7 +571,7 @@ def _has_default(type_name: str, name: str) -> bool:
     summary="Import a spreadsheet",
 )
 def start_import(
-    request: HttpRequest, project_id: UUID, payload: SpreadsheetImportIn
+    request: HttpRequest, project_id: UUID, payload: SpreadsheetImportIn, response: HttpResponse
 ) -> Status[Any]:
     """Starts importing a workbook the project has (an XLSX workbook, or a CSV file) as
     records of a type. Iki reads it, then suggests how its columns map. Needs an Editor."""
@@ -549,7 +579,7 @@ def start_import(
     target = project(me, project_id, Action.PROJECT_EDIT)
     _storage()
     made = _call(lambda: services.start(me, target, payload.file, payload.type))
-    return Status(201, _out(me, _find(me, made.pk)))
+    return Status(201, _one(me, _find(me, made.pk), response))
 
 
 @router.get(
@@ -579,9 +609,10 @@ def list_imports(
     response=SpreadsheetImportOut,
     summary="A spreadsheet import",
 )
-def get_import(request: HttpRequest, import_id: UUID) -> dict[str, Any]:
+def get_import(request: HttpRequest, import_id: UUID, response: HttpResponse) -> dict[str, Any]:
+    """Its ``ETag`` is its revision: send it back as If-Match to change it."""
     me = caller(request)
-    return _out(me, _find(me, import_id))
+    return _one(me, _find(me, import_id), response)
 
 
 @router.patch(
@@ -590,13 +621,21 @@ def get_import(request: HttpRequest, import_id: UUID) -> dict[str, Any]:
     summary="Choose what a spreadsheet import imports",
 )
 def change_import(
-    request: HttpRequest, import_id: UUID, payload: SpreadsheetImportChange
+    request: HttpRequest,
+    import_id: UUID,
+    payload: SpreadsheetImportChange,
+    response: HttpResponse,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
     """Its sheet, header row and rows, and how its columns map (or a saved mapping to map
-    them by). Choosing another sheet or header row maps the columns afresh, unless the
-    columns are given too. A preview starts again."""
+    them by), from the revision you read (If-Match). What's given is checked together, on
+    the sheet it chooses, and saved all at once or not at all. Choosing another sheet
+    takes its rows afresh (its header row as Iki finds it, every row after it), but for
+    those given with it. Choosing another sheet or header row maps the columns afresh,
+    unless the columns are given too. A preview starts again."""
     me = caller(request)
     found = _writable(me, import_id)
+    expected = _expected(if_match)
     given = payload.dict(exclude_unset=True)
     choice = services.Choice(
         sheet=given.get("sheet"),
@@ -610,8 +649,8 @@ def change_import(
         mapping=given.get("mapping"),
         locale=given.get("locale"),
     )
-    _call(lambda: services.change(me, found, choice))
-    return _out(me, _find(me, import_id))
+    _call(lambda: services.change(me, found, choice, expected_revision=expected))
+    return _one(me, _find(me, import_id), response)
 
 
 @router.post(
@@ -619,14 +658,20 @@ def change_import(
     response={202: SpreadsheetImportOut},
     summary="Check a spreadsheet import's rows",
 )
-def preview_import(request: HttpRequest, import_id: UUID) -> Status[Any]:
+def preview_import(
+    request: HttpRequest,
+    import_id: UUID,
+    response: HttpResponse,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+) -> Status[Any]:
     """Checks every row as importing would write it, a chunk at a time: what's wrong with
-    each, by its column, and the records each would duplicate. Poll it until it's
-    ``previewed``."""
+    each, by its column, and the records each would duplicate. Send the revision you read
+    (If-Match): it's what's checked. Poll it until it's ``previewed``."""
     me = caller(request)
     found = _writable(me, import_id)
-    _call(lambda: services.preview(me, found))
-    return Status(202, _out(me, _find(me, import_id)))
+    expected = _expected(if_match)
+    _call(lambda: services.preview(me, found, expected_revision=expected))
+    return Status(202, _one(me, _find(me, import_id), response))
 
 
 @router.get(
@@ -664,20 +709,30 @@ def _row_out(row: PreviewRow) -> dict[str, Any]:
     summary="Import a previewed spreadsheet",
 )
 def commit_import(
-    request: HttpRequest, import_id: UUID, payload: SpreadsheetCommitIn
+    request: HttpRequest,
+    import_id: UUID,
+    payload: SpreadsheetCommitIn,
+    response: HttpResponse,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> Status[Any]:
     """Writes its rows as records, all of them or none, as a run of
-    ``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with
-    problems stop it, unless ``skip_problems`` leaves them out."""
+    ``iki/core.import_spreadsheet``, which checks them again as they are now. Send the
+    revision whose preview you read (If-Match). Rows with problems stop it, unless
+    ``skip_problems`` leaves them out."""
     me = caller(request)
     found = _writable(me, import_id)
+    expected = _expected(if_match)
     _storage()
     _call(
         lambda: services.commit(
-            me, found, skip_problems=payload.skip_problems, reason=payload.reason
+            me,
+            found,
+            expected_revision=expected,
+            skip_problems=payload.skip_problems,
+            reason=payload.reason,
         )
     )
-    return Status(202, _out(me, _find(me, import_id)))
+    return Status(202, _one(me, _find(me, import_id), response))
 
 
 @router.delete(
@@ -699,11 +754,18 @@ def discard_import(request: HttpRequest, import_id: UUID) -> Status[None]:
     response={201: SavedMappingOut},
     summary="Save a spreadsheet import's mapping",
 )
-def save_mapping(request: HttpRequest, import_id: UUID, payload: SavedMappingIn) -> Status[Any]:
+def save_mapping(
+    request: HttpRequest,
+    import_id: UUID,
+    payload: SavedMappingIn,
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+) -> Status[Any]:
     """Keeps how its columns map, by their headers, for the project's next sheet of the same
-    kind: one from the same instrument or vendor maps itself."""
+    kind: one from the same instrument or vendor maps itself. Send the revision you read
+    (If-Match): its mapping is what's kept."""
     me = caller(request)
     found = _writable(me, import_id)
+    expected = _expected(if_match)
     replace = None
     if payload.replace is not None:
         replace = SavedMapping.objects.filter(
@@ -711,7 +773,11 @@ def save_mapping(request: HttpRequest, import_id: UUID, payload: SavedMappingIn)
         ).first()
         if replace is None:
             raise Problem(404, "No such saved mapping for this type in the project.")
-    saved = _call(lambda: services.save_mapping(me, found, payload.name, replace=replace))
+    saved = _call(
+        lambda: services.save_mapping(
+            me, found, payload.name, expected_revision=expected, replace=replace
+        )
+    )
     return Status(
         201, SavedMapping.objects.select_related("created_by", "updated_by").get(pk=saved.pk)
     )

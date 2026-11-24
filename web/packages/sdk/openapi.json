@@ -25579,6 +25579,11 @@
           "requested_by": {
             "$ref": "#/components/schemas/PersonRef"
           },
+          "revision": {
+            "description": "One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.",
+            "title": "Revision",
+            "type": "integer"
+          },
           "run": {
             "anyOf": [
               {
@@ -25673,6 +25678,7 @@
         },
         "required": [
           "id",
+          "revision",
           "project",
           "type",
           "file",
@@ -44917,6 +44923,7 @@
         ]
       },
       "get": {
+        "description": "Its ``ETag`` is its revision: send it back as If-Match to change it.",
         "operationId": "iki_server_api_spreadsheets_get_import",
         "parameters": [
           {
@@ -44956,7 +44963,7 @@
         ]
       },
       "patch": {
-        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by). Choosing another sheet or header row maps the columns afresh, unless the\ncolumns are given too. A preview starts again.",
+        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by), from the revision you read (If-Match). What's given is checked together, on\nthe sheet it chooses, and saved all at once or not at all. Choosing another sheet\ntakes its rows afresh (its header row as Iki finds it, every row after it), but for\nthose given with it. Choosing another sheet or header row maps the columns afresh,\nunless the columns are given too. A preview starts again.",
         "operationId": "iki_server_api_spreadsheets_change_import",
         "parameters": [
           {
@@ -44967,6 +44974,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -45008,7 +45031,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/commit": {
       "post": {
-        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with\nproblems stop it, unless ``skip_problems`` leaves them out.",
+        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Send the\nrevision whose preview you read (If-Match). Rows with problems stop it, unless\n``skip_problems`` leaves them out.",
         "operationId": "iki_server_api_spreadsheets_commit_import",
         "parameters": [
           {
@@ -45019,6 +45042,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -45060,7 +45099,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/mappings": {
       "post": {
-        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself.",
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept.",
         "operationId": "iki_server_api_spreadsheets_save_mapping",
         "parameters": [
           {
@@ -45071,6 +45110,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -45112,7 +45167,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/preview": {
       "post": {
-        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Poll it until it's\n``previewed``.",
+        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Send the revision you read\n(If-Match): it's what's checked. Poll it until it's ``previewed``.",
         "operationId": "iki_server_api_spreadsheets_preview_import",
         "parameters": [
           {
@@ -45123,6 +45178,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],

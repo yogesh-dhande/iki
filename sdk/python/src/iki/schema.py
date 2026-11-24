@@ -5611,6 +5611,8 @@ class SpreadsheetImportOut(TypedDict):
     #: How the mapped columns' numbers and dates read, on the sheet's own cells.
     readings: list[ColumnReadingOut]
     requested_by: PersonRef
+    #: One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.
+    revision: int
     run: ImportRunRef | None
     #: If its run didn't write it: why, by row and column.
     run_problems: list[SheetProblemOut]

@@ -919,11 +919,11 @@ def workbook_import(w: World) -> tuple[str, Any]:
     }
 
 
-def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
+def spreadsheet_import(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
     """The editor's import of a manifest, its columns mapped: only they see it until it's
-    committed."""
+    committed. A change to it says the revision it was read at."""
 
-    def build(w: World) -> tuple[str, Any]:
+    def build(w: World) -> tuple[Any, ...]:
         from iki_server.spreadsheets.models import SpreadsheetImport
 
         made = SpreadsheetImport.objects.create(
@@ -946,7 +946,8 @@ def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
             sheet="manifest",
             columns=[{"index": 0, "field": "label"}],
         )
-        return f"/spreadsheet-imports/{made.pk}{suffix}", body
+        headers = {"If-Match": f'"{made.revision}"'} if if_match else None
+        return f"/spreadsheet-imports/{made.pk}{suffix}", body, headers
 
     return build
 
@@ -2059,14 +2060,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "PATCH",
         "/spreadsheet-imports/{import_id}",
-        spreadsheet_import(body={"header_row": 1}),
+        spreadsheet_import(body={"header_row": 1}, if_match=True),
         row(404, editor=200),
     ),
     ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/preview",
-        spreadsheet_import("/preview"),
+        spreadsheet_import("/preview", if_match=True),
         row(404, editor=202),
     ),
     (
@@ -2078,13 +2079,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/spreadsheet-imports/{import_id}/commit",
-        spreadsheet_import("/commit", {}),
+        spreadsheet_import("/commit", {}, if_match=True),
         row(404, editor=409),
     ),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/mappings",
-        spreadsheet_import("/mappings", {"name": "Plate reader"}),
+        spreadsheet_import("/mappings", {"name": "Plate reader"}, if_match=True),
         row(404, editor=201),
     ),
     (

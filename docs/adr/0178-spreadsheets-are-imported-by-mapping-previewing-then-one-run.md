@@ -201,6 +201,18 @@ it to choose and map, `POST …/preview`, `GET …/rows`, `POST …/commit`;
 `/projects/{id}/spreadsheet-mappings` lists saved mappings. The web app's
 steps are components a plugin's page can use.
 
+Each change to what an import imports is a new `revision` of it, its ETag. A
+change, a preview, a commit and saving its mapping send the revision they were
+made from as `If-Match`, as an entity's edit does, and one made from a revision
+it has moved on from is refused (412) and changes nothing. A change's choices
+are checked together, against the sheet it chooses, and another sheet takes its
+rows afresh but for those given with it. The web app sends the person's choices
+one at a time, each from the revision the one before left, and never shows an
+older revision than one it has shown: a slow request or answer can't leave the
+page showing a mapping other than the one saved. If the import changed in
+another tab, the page shows what's saved and holds back what the person chose
+that wasn't, to save on it or let go.
+
 ## Consequences
 
 - Positive: a sheet's every problem is seen before anything is written, by

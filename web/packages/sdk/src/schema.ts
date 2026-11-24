@@ -4257,7 +4257,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A spreadsheet import */
+        /**
+         * A spreadsheet import
+         * @description Its ``ETag`` is its revision: send it back as If-Match to change it.
+         */
         get: operations["iki_server_api_spreadsheets_get_import"];
         put?: never;
         post?: never;
@@ -4271,8 +4274,11 @@ export interface paths {
         /**
          * Choose what a spreadsheet import imports
          * @description Its sheet, header row and rows, and how its columns map (or a saved mapping to map
-         *     them by). Choosing another sheet or header row maps the columns afresh, unless the
-         *     columns are given too. A preview starts again.
+         *     them by), from the revision you read (If-Match). What's given is checked together, on
+         *     the sheet it chooses, and saved all at once or not at all. Choosing another sheet
+         *     takes its rows afresh (its header row as Iki finds it, every row after it), but for
+         *     those given with it. Choosing another sheet or header row maps the columns afresh,
+         *     unless the columns are given too. A preview starts again.
          */
         patch: operations["iki_server_api_spreadsheets_change_import"];
         trace?: never;
@@ -4289,8 +4295,9 @@ export interface paths {
         /**
          * Import a previewed spreadsheet
          * @description Writes its rows as records, all of them or none, as a run of
-         *     ``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with
-         *     problems stop it, unless ``skip_problems`` leaves them out.
+         *     ``iki/core.import_spreadsheet``, which checks them again as they are now. Send the
+         *     revision whose preview you read (If-Match). Rows with problems stop it, unless
+         *     ``skip_problems`` leaves them out.
          */
         post: operations["iki_server_api_spreadsheets_commit_import"];
         delete?: never;
@@ -4311,7 +4318,8 @@ export interface paths {
         /**
          * Save a spreadsheet import's mapping
          * @description Keeps how its columns map, by their headers, for the project's next sheet of the same
-         *     kind: one from the same instrument or vendor maps itself.
+         *     kind: one from the same instrument or vendor maps itself. Send the revision you read
+         *     (If-Match): its mapping is what's kept.
          */
         post: operations["iki_server_api_spreadsheets_save_mapping"];
         delete?: never;
@@ -4332,8 +4340,8 @@ export interface paths {
         /**
          * Check a spreadsheet import's rows
          * @description Checks every row as importing would write it, a chunk at a time: what's wrong with
-         *     each, by its column, and the records each would duplicate. Poll it until it's
-         *     ``previewed``.
+         *     each, by its column, and the records each would duplicate. Send the revision you read
+         *     (If-Match): it's what's checked. Poll it until it's ``previewed``.
          */
         post: operations["iki_server_api_spreadsheets_preview_import"];
         delete?: never;
@@ -17060,6 +17068,11 @@ export interface components {
              */
             readings: components["schemas"]["ColumnReadingOut"][];
             requested_by: components["schemas"]["PersonRef"];
+            /**
+             * Revision
+             * @description One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.
+             */
+            revision: number;
             run: components["schemas"]["ImportRunRef"] | null;
             /**
              * Run Problems
@@ -25367,7 +25380,9 @@ export interface operations {
     iki_server_api_spreadsheets_change_import: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
@@ -25393,7 +25408,9 @@ export interface operations {
     iki_server_api_spreadsheets_commit_import: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
@@ -25419,7 +25436,9 @@ export interface operations {
     iki_server_api_spreadsheets_save_mapping: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
@@ -25445,7 +25464,9 @@ export interface operations {
     iki_server_api_spreadsheets_preview_import: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
