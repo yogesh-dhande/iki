@@ -41,8 +41,7 @@ function shortText(occupant: BoxOccupant): string {
   if (!occupant.identifier) return "";
   if (occupant.count !== undefined) return String(occupant.count);
   if (occupant.name && occupant.name !== occupant.identifier) return occupant.name;
-  const digits = /(\d+)$/.exec(occupant.identifier);
-  return digits ? String(Number(digits[1])) : occupant.identifier;
+  return /0*(\d+)$/.exec(occupant.identifier)?.[1] ?? occupant.identifier;
 }
 
 function boxNode<T extends "span" | "div">(
