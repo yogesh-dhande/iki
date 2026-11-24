@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: SpecificationVersion
 label: Specification version
-schema_version: 1
+schema_version: 2
 hrid: { prefix: SPV }
 description: A specification's acceptance criteria and methods at a single effective date.
 fields:
@@ -23,6 +23,8 @@ fields:
       type: row
       fields:
         attribute: { type: string, required: true, max_length: 120 }
+        procedure: { type: string, max_length: 200, label: Plate assay procedure ID }
+        procedure_revision: { type: string, max_length: 80, label: Plate assay procedure revision }
         method: { type: string, required: true, max_length: 200 }
         unit: { type: string, required: true, max_length: 50 }
         lower: { type: float, label: Inclusive lower limit }

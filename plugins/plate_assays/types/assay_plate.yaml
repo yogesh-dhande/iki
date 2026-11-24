@@ -2,10 +2,12 @@ apiVersion: iki/v1
 kind: EntityType
 name: AssayPlate
 label: Assay plate
-schema_version: 1
+schema_version: 2
 hrid: { prefix: APL }
 description: The reader export and the samples, dilution series and controls assigned to its wells.
 fields:
+  procedure: { type: string, max_length: 200, label: Analytical procedure ID }
+  procedure_revision: { type: string, max_length: 80, label: Procedure revision }
   name: { type: string, required: true, max_length: 200 }
   size: { type: enum, values: [plate_96, plate_384], required: true }
   reader_file:
@@ -50,9 +52,11 @@ rules:
     check: >-
       record.preview != null &&
       record.reader_file == record.preview.source.reader_file &&
+      record.procedure == ("procedure" in record.preview.source ? record.preview.source.procedure : null) &&
+      record.procedure_revision == ("procedure_revision" in record.preview.source ? record.preview.source.procedure_revision : null) &&
       record.size == record.preview.source.size &&
       record.assignments == record.preview.source.assignments &&
       (record.request == null ? record.preview.source.request == null :
        record.request.id == record.preview.source.request)
-    fields: [size, reader_file, assignments, request]
+    fields: [size, reader_file, assignments, request, procedure, procedure_revision]
     message: The measurements for this layout have been committed. Start a new plate for a corrected layout or reader file.

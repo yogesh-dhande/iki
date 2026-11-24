@@ -28,10 +28,14 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
     source = Path(run["files"][file_id]["path"]).read_bytes()
     assignments = values.get("assignments") or []
     size = values["size"]
+    procedure = {key: values[key] for key in ("procedure", "procedure_revision") if values.get(key)}
+    if procedure and (len(procedure) != 2 or not all(text.strip() for text in procedure.values())):
+        raise ValueError("Give both the analytical procedure ID and its revision.")
     preview = preview_reader(source, SIZES[size], assignments)
     # Bind the reviewed preview to the *specific* file, assignments and request. Even a
     # correction giving identical numerical results requires another preview.
     preview["source"] = {
+        **procedure,
         "reader_file": file_id,
         "sha256": hashlib.sha256(source).hexdigest(),
         "size": size,
@@ -77,6 +81,7 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
             "type": f"{PLUGIN}.PlateRead",
             "values": {
                 **source_fields,
+                **procedure,
                 "name": values["name"],
                 "import_key": plate["id"],
                 "request": values.get("request"),
@@ -169,6 +174,7 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     result_type = result_types[flow]
     result = {
         **fitted,
+        **{k: read_values[k] for k in ("procedure", "procedure_revision") if read_values.get(k)},
         "read": read["id"],
         "sample": sample,
         "review_flow": flow,
