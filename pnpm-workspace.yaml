@@ -1,5 +1,8 @@
 packages:
   - "web/app"
+  # The docs site (ikisci.org, `make docs`) and the tooling Iki's docs sites share.
+  - "docs/site"
+  - "docs/tooling"
   - "web/packages/*"
   # Builds the small_molecule plugin's depiction component from RDKit.js.
   - "plugins/small_molecule/web"
@@ -15,4 +18,9 @@ onlyBuiltDependencies: []
 allowBuilds:
   "@scarf/scarf": false
 strictDepBuilds: true
+# Astro (the docs site) can resize images with sharp, whose libvips binaries are
+# LGPL-3.0. The docs site has no images to resize and uses Astro's passthrough image
+# service, so sharp isn't installed at all.
+ignoredOptionalDependencies:
+  - sharp
 engineStrict: true

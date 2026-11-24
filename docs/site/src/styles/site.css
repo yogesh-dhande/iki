@@ -1,0 +1,326 @@
+/* The docs site on @ikisci/ui's tokens (tokens.css: the app's palette in both themes,
+   Inter) and a few of its own: each audience's colour, and the ink links are set in.
+   Each pair below follows tokens.css: --iki-light picks the first value, --iki-dark the
+   second, so a reader's choice (data-theme) or their system's applies to all of them. */
+
+:root {
+  --accent-ink: var(--iki-light, #0b5d50) var(--iki-dark, #7fd6cb);
+  --bench: var(--iki-light, #0b6e5f) var(--iki-dark, #3fb8ad);
+  --bench-soft: var(--iki-light, #e3f2ed) var(--iki-dark, #173a35);
+  --run: var(--iki-light, #2557a7) var(--iki-dark, #8fb3ff);
+  --run-soft: var(--iki-light, #e8eefa) var(--iki-dark, #1c2740);
+  --build: var(--iki-light, #a14a00) var(--iki-dark, #f0a35e);
+  --build-soft: var(--iki-light, #fbefe3) var(--iki-dark, #33230f);
+  --code-bg: var(--surface-2);
+  /* An audience's colour on its pages; the site's accent elsewhere. */
+  --aud: var(--accent);
+  --aud-soft: var(--accent-soft);
+  --aud-ink: var(--accent-ink);
+  --gutter: 32px;
+  --header-height: 64px;
+}
+
+[data-audience="bench"] {
+  --aud: var(--bench);
+  --aud-soft: var(--bench-soft);
+  --aud-ink: var(--bench);
+}
+[data-audience="run"] {
+  --aud: var(--run);
+  --aud-soft: var(--run-soft);
+  --aud-ink: var(--run);
+}
+[data-audience="build"] {
+  --aud: var(--build);
+  --aud-soft: var(--build-soft);
+  --aud-ink: var(--build);
+}
+
+@media (max-width: 720px) {
+  :root {
+    --gutter: 16px;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-padding-top: 24px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+
+main {
+  display: block;
+}
+
+a {
+  color: var(--accent-ink);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+code,
+kbd,
+pre,
+.mono {
+  font-family: var(--mono);
+}
+code {
+  font-size: 0.9em;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+.wrap--doc {
+  max-width: 1360px;
+}
+.wrap--wide {
+  max-width: 1400px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+.skip:focus {
+  top: 8px;
+}
+
+/* Running text: paragraphs and lists set for reading. */
+.prose > :first-child {
+  margin-top: 0;
+}
+.prose p,
+.prose li {
+  font-size: 16px;
+  line-height: 1.65;
+}
+.prose p,
+.prose ul,
+.prose ol {
+  margin: 0 0 14px;
+}
+.prose li + li {
+  margin-top: 4px;
+}
+.prose h2 {
+  margin: 40px 0 12px;
+  font-size: 24px;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+.prose h3 {
+  margin: 28px 0 8px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+.prose blockquote {
+  margin: 0 0 14px;
+  padding: 12px 18px;
+  border-left: 3px solid var(--border-strong);
+  color: var(--muted);
+}
+.prose :not(pre) > code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow-wrap: anywhere;
+}
+.prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+.prose th,
+.prose td {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.prose th {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+/* A framed table in running text keeps its frame's look. */
+.prose .table {
+  margin: 0 0 16px;
+}
+.prose .table table {
+  display: table;
+  margin: 0;
+}
+.prose .table th,
+.prose .table td {
+  border: 0;
+  font-size: 14px;
+}
+.prose .table thead th {
+  background: none;
+}
+
+/* Code as the mockups set it: a quiet block that scrolls on its own, never the page. */
+pre {
+  margin: 0 0 14px;
+  padding: 16px 18px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  tab-size: 2;
+}
+pre code {
+  font-size: inherit;
+}
+
+/* A table with a frame that scrolls sideways on a phone, as the mockups' tables do. */
+.table {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.table thead tr {
+  background: var(--surface-2);
+  text-align: left;
+}
+.table th,
+.table td {
+  padding: 10px 14px;
+  vertical-align: top;
+  text-align: left;
+}
+.table th {
+  font-weight: 600;
+}
+.table tbody tr {
+  border-top: 1px solid var(--border);
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* A label in an audience's colour: "Bench", "Build". */
+.tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--aud-ink);
+  background: var(--aud-soft);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+/* A link out to the repository: marked, so a reader knows it leaves the site. Running
+   text's links to it carry the mark too. */
+.out::after,
+.prose a[href^="https://github.com/"]::after {
+  content: "";
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-left: 0.3em;
+  vertical-align: 0.05em;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 1.5h6v6M10.5 1.5 4 8M8.5 7v3.5h-7v-7H5' fill='none' stroke='black' stroke-width='1.4'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  opacity: 0.7;
+}
+
+/* Planned: named, so the map is whole, but not a link yet. */
+.planned {
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Without scripts, controls that need them aren't offered. */
+:root:not([data-scripted]) .needs-script {
+  display: none !important;
+}

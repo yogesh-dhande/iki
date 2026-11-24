@@ -1,0 +1,42 @@
+---
+// One of @ikisci/science's interactive viewers, in a frame of its own: the viewers add
+// styles as they draw, which only a frame's policy allows (docs/tooling/src/csp.ts). The
+// frame follows the page's theme and grows to fit what it draws.
+interface Props {
+  src: string;
+  title: string;
+  /** Its height before it's measured, and without scripts, in px. */
+  height?: number;
+}
+const { src, title, height = 720 } = Astro.props;
+---
+
+<iframe
+  class:list={["viewer", `h-${height}`]}
+  src={src}
+  title={title}
+  loading="lazy"
+  data-viewer
+></iframe>
+
+<script>
+  import { fitFrames } from "../scripts/viewer.ts";
+
+  fitFrames(document);
+</script>
+
+<style>
+  .viewer {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color-scheme: normal;
+  }
+  .h-720 {
+    height: 720px;
+  }
+  .h-560 {
+    height: 560px;
+  }
+</style>

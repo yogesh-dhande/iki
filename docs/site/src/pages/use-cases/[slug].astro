@@ -1,0 +1,151 @@
+---
+// A use case: one task done end to end, its steps by who does them, on real (or plainly
+// synthetic) data, with what explains it and what it calls on the side.
+import { getCollection, render } from "astro:content";
+
+import ItemLink from "../../components/ItemLink.astro";
+import Doc from "../../layouts/Doc.astro";
+import { itemOf } from "../../lib/site.ts";
+
+export async function getStaticPaths() {
+  return (await getCollection("useCases")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { data } = entry;
+---
+
+<Doc
+  title={data.title}
+  description={data.description}
+  section="Use cases"
+  audience={data.audience}
+  band={data.band}
+  measure={900}
+>
+  <p class="eyebrow">
+    <a href="/use-cases/">Use cases</a> / {data.topic}
+  </p>
+  <h1 class="doc-title">{data.title}</h1>
+  <p class="lede">{data.description}</p>
+  <dl class="facts">
+    {data.facts.map((fact) => (
+      <div>
+        <dt>{fact.label}</dt>
+        <dd class:list={{ mono: fact.code }}>{fact.value}</dd>
+      </div>
+    ))}
+  </dl>
+  <nav aria-label="Steps" class="chips">
+    <ol>
+      {data.steps.map((step, index) => (
+        <li>
+          <a href={`#${step.id}`}>
+            <span class="chip-role">{step.role}</span>
+            <span>
+              {index + 1}. {step.label}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </nav>
+  <Content />
+  <aside slot="aside" class="side" aria-label="Related">
+    <div class="side-box">
+      <h2>Understand it</h2>
+      <ul>
+        {data.understand.map((link) => (
+          <li>
+            <ItemLink item={itemOf(link)} />
+            {link.note && <span class="note"> {link.note}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+    <div class="side-box">
+      <h2>Reference</h2>
+      <ul class="mono-list">
+        {data.reference.map((link) => (
+          <li>
+            <ItemLink item={itemOf(link)} class="mono" />
+          </li>
+        ))}
+      </ul>
+    </div>
+    {data.aside && (
+      <div class="side-box quiet">
+        <h2>{data.aside.title}</h2>
+        <p>{data.aside.text}</p>
+        <ItemLink item={itemOf({ label: "The worked fit", href: data.aside.href })} />
+      </div>
+    )}
+  </aside>
+</Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+    gap: 16px 24px;
+    margin: 24px 0 0;
+    padding: 18px 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .facts dt {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .facts dd {
+    margin: 4px 0 0;
+    font-weight: 500;
+  }
+  .facts dd.mono {
+    font-size: 13px;
+  }
+  .chips ol {
+    list-style: none;
+    margin: 20px 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .chips a {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    min-height: 36px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+  }
+  .chips a:hover {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
+  }
+  .chip-role {
+    font-weight: 600;
+    color: var(--aud-ink);
+  }
+  .mono-list :global(a) {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+  }
+</style>

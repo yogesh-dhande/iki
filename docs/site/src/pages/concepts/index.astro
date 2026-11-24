@@ -1,0 +1,29 @@
+---
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+import { CONCEPTS } from "../../lib/site.ts";
+---
+
+<Doc
+  title="Concepts"
+  description="The ideas behind Iki, each read in layers from a short summary to the rules in full."
+  section="Concepts"
+>
+  <h1 class="doc-title">Concepts</h1>
+  <p class="intro">
+    Each concept page reads in the same order: in short, how it works, a worked example, the rules
+    in full, then reference. Until its page is written, a concept links to the decision that sets it
+    out.
+  </p>
+  <Listing items={CONCEPTS} />
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 28px;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+</style>

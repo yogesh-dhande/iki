@@ -56,6 +56,7 @@ def test_a_test_s_kind_is_the_setup_it_needs() -> None:
     assert kind_of(["worker_e2e", "django_db"]) == "worker"
     assert kind_of(["browser"]) == "browser"
     assert kind_of(["built_web_app"]) == "browser"
+    assert kind_of(["built_docs"]) == "browser"
     assert kind_of(["built_web_app", "wasm"]) == "browser"
 
 

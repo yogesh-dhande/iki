@@ -1,0 +1,209 @@
+---
+import { TOP_NAV, type Section } from "../lib/site.ts";
+import { REPOSITORY } from "../lib/repo.ts";
+
+interface Props {
+  section?: Section | undefined;
+}
+const { section } = Astro.props;
+---
+
+<header class="site-header">
+  <div class="wrap wrap--wide bar">
+    <a class="brand" href="/">
+      <span class="name">iki</span>
+      <span class="docs">docs</span>
+    </a>
+    <nav aria-label="Site" class="nav">
+      {TOP_NAV.map((item) => (
+        <a
+          href={item.href}
+          aria-current={
+            item.label === section
+              ? Astro.url.pathname === item.href
+                ? "page"
+                : "true"
+              : undefined
+          }
+        >
+          {item.label}
+        </a>
+      ))}
+    </nav>
+    <div class="tools">
+      <form role="search" class="search needs-script" data-search>
+        <label for="site-search" class="sr-only">
+          Search the docs
+        </label>
+        <input
+          id="site-search"
+          name="q"
+          type="search"
+          autocomplete="off"
+          placeholder="Search guides, types, API"
+          aria-controls="search-results"
+          aria-describedby="search-status"
+        />
+      </form>
+      <a class="github out" href={REPOSITORY}>
+        GitHub
+      </a>
+    </div>
+  </div>
+  <div class="results-wrap" data-search-panel hidden>
+    <div class="wrap wrap--wide">
+      <section id="search-results" class="results" aria-label="Search results">
+        <p id="search-status" class="status" role="status"></p>
+        <ol class="hits"></ol>
+      </section>
+    </div>
+  </div>
+</header>
+
+<script>
+  import { startSearch } from "../scripts/search.ts";
+
+  startSearch(document);
+</script>
+
+<style>
+  .site-header {
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 28px;
+    min-height: var(--header-height);
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    text-decoration: none;
+    color: var(--text);
+  }
+  .name {
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.02em;
+  }
+  .docs {
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .nav a {
+    color: var(--text);
+    text-decoration: none;
+    padding: 4px 0;
+  }
+  .nav a:hover {
+    text-decoration: underline;
+  }
+  .nav a[aria-current] {
+    color: var(--accent-ink);
+  }
+  .tools {
+    flex: 1 1 220px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  .search {
+    flex: 0 1 280px;
+    min-width: 0;
+    margin: 0;
+  }
+  .search input {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    background: var(--surface-2);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+  }
+  .search input::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  .github {
+    font-size: 14px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .results-wrap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 5;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    box-shadow: var(--shadow-menu);
+    max-height: min(70vh, 640px);
+    overflow-y: auto;
+  }
+  .results {
+    padding: 16px 0 20px;
+    max-width: 760px;
+    margin-left: auto;
+  }
+  .status {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .hits {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .hits :global(li) {
+    border-top: 1px solid var(--border);
+  }
+  .hits :global(a) {
+    display: block;
+    padding: 10px 0;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .hits :global(a:hover .hit-title),
+  .hits :global(a:focus-visible .hit-title) {
+    text-decoration: underline;
+  }
+  .hits :global(.hit-title) {
+    display: block;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--accent-ink);
+  }
+  .hits :global(.hit-excerpt) {
+    display: block;
+    margin-top: 2px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .hits :global(mark) {
+    background: var(--accent-soft);
+    color: var(--text);
+    border-radius: 2px;
+  }
+</style>

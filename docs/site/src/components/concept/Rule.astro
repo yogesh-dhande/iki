@@ -1,0 +1,55 @@
+---
+// One rule, in full, behind its summary: the first is open, the rest a reader opens.
+interface Props {
+  summary: string;
+  open?: boolean;
+  id: string;
+}
+const { summary, open = false, id } = Astro.props;
+---
+
+<details class="rule" open={open} id={id}>
+  <summary>
+    <svg class="chev" aria-hidden="true" width="12" height="12" viewBox="0 0 12 12">
+      <path d="M4 2 L8 6 L4 10" fill="none" stroke="currentColor" stroke-width="1.6"></path>
+    </svg>
+    {summary}
+  </summary>
+  <div class="prose body">
+    <slot />
+  </div>
+</details>
+
+<style>
+  .rule {
+    border-bottom: 1px solid var(--border);
+    padding: 14px 0;
+  }
+  summary {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    list-style: none;
+    min-height: 24px;
+  }
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  .chev {
+    flex: none;
+    transition: transform 120ms ease;
+  }
+  .rule[open] .chev {
+    transform: rotate(90deg);
+  }
+  .body {
+    padding: 10px 0 0 22px;
+  }
+  .body :global(p:last-child),
+  .body :global(ul:last-child) {
+    margin-bottom: 0;
+  }
+</style>

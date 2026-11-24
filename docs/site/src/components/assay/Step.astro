@@ -1,0 +1,59 @@
+---
+// One step of a use case: its number, what it does, and whose step it is.
+interface Props {
+  n: number;
+  id: string;
+  title: string;
+  role: string;
+}
+const { n, id, title, role } = Astro.props;
+---
+
+<section class="step" id={id} aria-labelledby={`${id}-h`}>
+  <h2 id={`${id}-h`}>
+    <span class="n" aria-hidden="true">
+      {n}
+    </span>
+    <span>{title}</span>
+    <span class="role">{role}</span>
+  </h2>
+  <div class="prose">
+    <slot />
+  </div>
+</section>
+
+<style>
+  .step {
+    margin-top: 44px;
+  }
+  h2 {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin: 0 0 14px;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+  }
+  .n {
+    display: inline-grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--aud-soft);
+    color: var(--aud-ink);
+    font-size: 15px;
+    letter-spacing: 0;
+  }
+  .role {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    color: var(--muted);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    padding: 2px 9px;
+  }
+</style>

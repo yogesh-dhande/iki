@@ -1,0 +1,40 @@
+---
+import { AUDIENCES, type Audience } from "../lib/site.ts";
+
+interface Props {
+  audience: Audience;
+  text: string;
+}
+const { audience, text } = Astro.props;
+---
+
+<div class="band" data-audience={audience}>
+  <div class="wrap wrap--doc row">
+    <span class="who">{AUDIENCES[audience].label}</span>
+    <span class="text">{text}</span>
+  </div>
+</div>
+
+<style>
+  .band {
+    background: var(--aud-soft);
+    border-bottom: 1px solid var(--border);
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+    align-items: center;
+    min-height: 40px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    font-size: 13px;
+  }
+  .who {
+    font-weight: 600;
+    color: var(--aud-ink);
+  }
+  .text {
+    color: var(--muted);
+  }
+</style>

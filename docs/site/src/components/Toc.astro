@@ -1,0 +1,25 @@
+---
+// On this page: its sections, the one being read marked as the reader scrolls.
+interface Props {
+  items: { id: string; label: string }[];
+  heading?: string;
+}
+const { items, heading = "On this page" } = Astro.props;
+---
+
+<nav class="toc" aria-labelledby="toc-h" data-toc>
+  <h2 id="toc-h">{heading}</h2>
+  <ol>
+    {items.map((item) => (
+      <li>
+        <a href={`#${item.id}`}>{item.label}</a>
+      </li>
+    ))}
+  </ol>
+</nav>
+
+<script>
+  import { followSections } from "../scripts/toc.ts";
+
+  followSections(document);
+</script>

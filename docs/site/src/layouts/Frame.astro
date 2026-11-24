@@ -1,0 +1,35 @@
+---
+// A viewer's frame: a page of its own, holding one interactive viewer and its data. Its
+// policy lets the viewer add styles (docs/tooling/src/csp.ts); the page that holds it sizes
+// it and gives it its theme (src/scripts/viewer.ts).
+import "@ikisci/ui/fonts.css";
+import "@ikisci/ui/tokens.css";
+
+interface Props {
+  title: string;
+}
+const { title } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>
+
+<style is:global>
+  html,
+  body {
+    margin: 0;
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--font);
+  }
+</style>

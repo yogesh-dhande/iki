@@ -9782,7 +9782,7 @@ export interface components {
         HelmIn: {
             /**
              * Helm
-             * @description HELM strings, HELM 2 (ending V2.0) or HELM 1, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.
+             * @description HELM strings, HELM 2 (ending V2.0) or HELM 1, such as `RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`.
              */
             helm: string[];
         };

@@ -2083,7 +2083,7 @@ class HelmGroupOut(TypedDict):
 
 
 class HelmIn(TypedDict):
-    #: HELM strings, HELM 2 (ending V2.0) or HELM 1, such as RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0.
+    #: HELM strings, HELM 2 (ending V2.0) or HELM 1, such as `RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`.
     helm: list[str]
 
 

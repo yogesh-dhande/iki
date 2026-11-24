@@ -1,0 +1,36 @@
+---
+import { getCollection } from "astro:content";
+
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+
+const items = (await getCollection("useCases")).map((entry) => ({
+  label: entry.data.title,
+  href: `/use-cases/${entry.id}/`,
+  text: entry.data.description,
+  note: entry.data.topic,
+}));
+---
+
+<Doc
+  title="Use cases"
+  description="Iki's use cases: one task done end to end on real or plainly synthetic data, step by step and by role."
+  section="Use cases"
+>
+  <h1 class="doc-title">Use cases</h1>
+  <p class="intro">
+    One task done end to end, on real or plainly synthetic data, with each step marked by who does
+    it.
+  </p>
+  <Listing items={items} />
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 28px;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+</style>

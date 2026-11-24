@@ -1,0 +1,81 @@
+---
+// A guide's or a concept's page: its audience's band, then up to three columns, which
+// stack on a phone: the audience's navigation, the page, and what's related to it.
+import AudienceBand from "../components/AudienceBand.astro";
+import type { Audience, Section } from "../lib/site.ts";
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  section: Section;
+  /** Whose page it is: its band and colour. A page for everyone has neither. */
+  audience?: Audience | undefined;
+  band?: string | undefined;
+  /** The main column's widest, in px: 780 for concepts, 900 for use cases. */
+  measure?: number;
+}
+const { title, description, section, audience, band, measure = 780 } = Astro.props;
+const hasNav = Astro.slots.has("nav");
+---
+
+<Base title={title} description={description} section={section} audience={audience}>
+  {audience && band && <AudienceBand audience={audience} text={band} />}
+  <div class:list={["wrap wrap--doc columns", { "has-nav": hasNav }]}>
+    {hasNav && <slot name="nav" />}
+    <main
+      id="content"
+      class:list={["main", measure === 900 ? "measure-wide" : "measure"]}
+      data-pagefind-body
+    >
+      <slot />
+    </main>
+    <slot name="aside" />
+  </div>
+</Base>
+
+<style>
+  .columns {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 40px;
+    padding-top: 40px;
+    padding-bottom: 80px;
+  }
+  .columns:not(.has-nav) {
+    gap: 48px;
+  }
+  .main {
+    flex: 999 1 560px;
+    min-width: 0;
+  }
+  .measure {
+    max-width: 780px;
+  }
+  .measure-wide {
+    flex-basis: 640px;
+    max-width: 900px;
+  }
+  .columns > :global(nav),
+  .columns > :global(aside) {
+    flex: 1 1 220px;
+    min-width: 0;
+  }
+  .columns > :global(nav) {
+    max-width: 260px;
+  }
+  .columns > :global(aside) {
+    max-width: 300px;
+  }
+  /* On a phone the page comes first, then what's related, then the section's map. */
+  @media (max-width: 1000px) {
+    .columns > :global(nav) {
+      order: 3;
+      max-width: none;
+    }
+    .columns > :global(aside) {
+      max-width: none;
+    }
+  }
+</style>

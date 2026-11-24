@@ -1,0 +1,408 @@
+---
+// A1, the home page: who are you? Three doors, then the worked examples and the ideas.
+import { getCollection } from "astro:content";
+
+import ItemLink from "../components/ItemLink.astro";
+import Base from "../layouts/Base.astro";
+import { doseResponse, puc19 } from "../lib/examples.ts";
+import { github } from "../lib/repo.ts";
+import { AUDIENCES, CONCEPTS, DOORS, PAGES, REFERENCES, type Audience } from "../lib/site.ts";
+
+const decisions = (await getCollection("decisions")).filter((d) => d.data.kind === "decision");
+const reads = puc19.values;
+const excluded = doseResponse.exclusion.well;
+
+interface Specimen {
+  title: string;
+  text: string;
+  href: string;
+  out: boolean;
+  audiences: Audience[];
+  source: string;
+}
+const specimens: Specimen[] = [
+  {
+    title: "Dose-response plate to a signed IC50",
+    text: `A MARS export mapped to wells, ${excluded} excluded with its reason, the curve reviewed and released.`,
+    href: PAGES.doseResponse,
+    out: false,
+    audiences: ["bench"],
+    source: "iki/plate_assays · synthetic readings",
+  },
+  {
+    title: "pUC19 checked from public nanopore reads",
+    text: `${reads.reads_total} MinION reads against ${puc19.data.accession}: ${reads.differences.length} differences named, placed and reviewed.`,
+    href: `${PAGES.prepVerification}#example`,
+    out: false,
+    audiences: ["bench"],
+    source: `iki/plasmid_sequencing · ${puc19.data.run}`,
+  },
+  {
+    title: "Trastuzumab Fv from its two chains",
+    text: "Numbered by ANARCI, assembled, its liabilities found and its structure predicted.",
+    href: github("plugins/antibody/README.md"),
+    out: true,
+    audiences: ["bench", "build"],
+    source: "iki/antibody · PDB 1N8Z chains",
+  },
+  {
+    title: "Aspirin and caffeine as compounds",
+    text: "Aspirin drawn another way is the same compound; caffeine fetched from PubChem.",
+    href: github("plugins/small_molecule/README.md"),
+    out: true,
+    audiences: ["bench"],
+    source: "iki/small_molecule · CID 2244, 2519",
+  },
+];
+const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
+  ...AUDIENCES[id],
+  items: DOORS[id],
+}));
+---
+
+<Base
+  title="Iki documentation"
+  description="Iki is an open-source platform for scientific data: typed records, actions that run on them, and the lineage of every result. Guides for scientists, admins and plugin authors."
+>
+  <main id="content" data-pagefind-body>
+    <section class="wrap hero">
+      <p class="kicker">Iki documentation</p>
+      <h1>Start from what you do in the lab, in the cluster, or in the code.</h1>
+      <p class="lede">
+        Iki is an open-source platform for scientific data. Scientists work with typed records (DNA,
+        proteins, antibodies, compounds, datasets) and run actions on them. Every run, every
+        revision and the origin of every value is recorded, so the lineage of any result can be
+        traced.
+      </p>
+      <p class="status">Status: early development. Nothing here is ready for production use yet.</p>
+    </section>
+
+    <section id="doors" class="wrap doors-section" aria-labelledby="doors-h">
+      <h2 id="doors-h" class="sr-only">
+        Guides by audience
+      </h2>
+      <div class="doors">
+        {doors.map((door) => (
+          <article class="door" data-audience={door.id} aria-labelledby={`door-${door.id}`}>
+            <p class="door-label">{door.label}</p>
+            <h3 id={`door-${door.id}`}>{door.who}</h3>
+            <p class="door-does">{door.does}</p>
+            <ul class="door-list">
+              {door.items.map((item) => (
+                <li>
+                  <ItemLink item={item} class="door-item" />
+                </li>
+              ))}
+            </ul>
+            <a class="door-all" href={door.all}>
+              All guides{" "}
+              {door.id === "bench"
+                ? "for the bench"
+                : door.id === "run"
+                  ? "for admins"
+                  : "for builders"}
+            </a>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="wrap block" aria-labelledby="real-h">
+      <div class="block-head">
+        <h2 id="real-h">See it on real data</h2>
+        <p>Worked end to end by the example plugins, and checked in CI.</p>
+      </div>
+      <div class="specimens">
+        {specimens.map((s) => (
+          <a class:list={["specimen", { out: s.out }]} href={s.href}>
+            <span class="tags">
+              {s.audiences.map((a) => (
+                <span class="tag" data-audience={a}>
+                  {a === "bench" ? "Bench" : a === "run" ? "Run" : "Build"}
+                </span>
+              ))}
+            </span>
+            <span class="specimen-title">
+              {s.title}
+              {s.out && <span class="sr-only"> (on GitHub)</span>}
+            </span>
+            <span class="specimen-text">{s.text}</span>
+            <span class="specimen-source mono">{s.source}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section class="wrap block" aria-labelledby="ideas-h">
+      <div class="ideas-row">
+        <div class="ideas">
+          <h2 id="ideas-h">The ideas behind Iki</h2>
+          <p class="block-sub">
+            Each concept page reads in the same order: in short, how it works, a worked example, the
+            rules in full, then reference. Until its page is written, a concept links to the
+            decision that sets it out.
+          </p>
+          <ul class="ideas-list">
+            {CONCEPTS.map((item) => (
+              <li>
+                <ItemLink item={{ label: item.label, href: item.href ?? "" }} />
+                {item.note && <span class="note">{item.note}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div class="reference-box" id="reference">
+          <h2>Reference</h2>
+          <p>
+            Generated from the source on every build, and linked back to the guides that use it.
+          </p>
+          <ul>
+            {REFERENCES.map((item) => (
+              <li>
+                <ItemLink item={item} />
+                {item.note && <span class="note"> {item.note}</span>}
+              </li>
+            ))}
+            <li>
+              <a href="/decisions/">Decisions (ADRs)</a>
+              <span class="note"> {decisions.length} records of why Iki is built as it is</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+</Base>
+
+<style>
+  .hero {
+    padding-top: 72px;
+    padding-bottom: 40px;
+  }
+  .kicker {
+    margin: 0 0 16px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 0;
+    max-width: 880px;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.035em;
+    font-weight: 700;
+  }
+  .lede {
+    margin: 20px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .status {
+    margin: 20px 0 0;
+    display: inline-flex;
+    font-size: 13px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 6px 12px;
+  }
+  .doors-section {
+    padding-bottom: 64px;
+  }
+  .doors {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+    gap: 20px;
+  }
+  .door {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-top: 4px solid var(--aud);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 28px;
+  }
+  .door-label {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--aud-ink);
+  }
+  .door h3 {
+    margin: 6px 0 0;
+    font-size: 24px;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+  }
+  .door-does {
+    margin: 10px 0 20px;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .door-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    font-size: 15px;
+  }
+  .door-list li + li {
+    border-top: 1px solid var(--border);
+  }
+  .door-list :global(.door-item) {
+    display: block;
+    padding: 9px 0;
+  }
+  .door-all {
+    margin-top: auto;
+    padding-top: 20px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--aud-ink);
+  }
+  .block {
+    padding-bottom: 64px;
+  }
+  .block-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px 24px;
+    margin-bottom: 20px;
+  }
+  h2 {
+    margin: 0;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+  }
+  .block-head p,
+  .block-sub {
+    margin: 0;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .block-sub {
+    margin: 8px 0 20px;
+    max-width: 640px;
+  }
+  .specimens {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
+    gap: 16px;
+  }
+  .specimen {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .specimen.out::after {
+    display: none;
+  }
+  .specimen:hover {
+    border-color: var(--border-strong);
+  }
+  .specimen:hover .specimen-title {
+    text-decoration: underline;
+  }
+  .tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .specimen-title {
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .specimen-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .specimen-source {
+    margin-top: auto;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .ideas-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 32px;
+  }
+  .ideas {
+    flex: 1 1 520px;
+    min-width: 0;
+  }
+  .ideas-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+    gap: 0 24px;
+    font-size: 15px;
+  }
+  .ideas-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px 12px;
+    border-top: 1px solid var(--border);
+    padding: 12px 0;
+  }
+  .note {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .reference-box {
+    flex: 1 1 340px;
+    min-width: 0;
+    background: var(--surface-2);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .reference-box h2 {
+    margin: 0 0 8px;
+    font-size: 20px;
+    letter-spacing: 0;
+  }
+  .reference-box p {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .reference-box ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 15px;
+  }
+  @media (max-width: 720px) {
+    .hero {
+      padding-top: 48px;
+    }
+    h1 {
+      font-size: 38px;
+    }
+  }
+</style>

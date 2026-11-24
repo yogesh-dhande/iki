@@ -12,7 +12,7 @@ web_files=()
 while IFS= read -r -d '' path; do
     case "$path" in
         *.py|*.pyi) python_files+=("$path") ;;
-        *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.css|*.scss|*.html|*.json|*.md|*.yaml|*.yml)
+        *.ts|*.tsx|*.mts|*.cts|*.js|*.jsx|*.mjs|*.cjs|*.css|*.scss|*.html|*.json|*.md|*.yaml|*.yml|*.astro)
             web_files+=("$path") ;;
     esac
 done <"$tmp/files"
@@ -73,6 +73,9 @@ if (( ${#web_files[@]} )); then
     fi
     # pnpm exec in a new checkout can implicitly install its dependencies. Run the
     # installed workspace binary directly, with the staged configuration and ignore file.
+    # The configuration's plugins (prettier-plugin-astro) resolve from the installed
+    # dependencies, an environment like uv's.
+    ln -s "$repo/node_modules" "$tree/node_modules"
     if ! (cd "$tree" && "$repo/node_modules/.bin/prettier" --check -- "${web_files[@]}"); then
         echo 'Format the files, stage the fixes and retry the commit:' >&2
         show_command pnpm exec prettier --write -- "${web_files[@]}"

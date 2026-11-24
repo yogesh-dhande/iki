@@ -1,0 +1,62 @@
+---
+import { getCollection, render } from "astro:content";
+
+import ItemLink from "../../components/ItemLink.astro";
+import Toc from "../../components/Toc.astro";
+import Doc from "../../layouts/Doc.astro";
+import { BENCH_NAV, itemOf } from "../../lib/site.ts";
+
+export async function getStaticPaths() {
+  return (await getCollection("concepts")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { data } = entry;
+const layers = [
+  { id: "short", label: "In short" },
+  { id: "how", label: "How it works" },
+  { id: "example", label: "Worked example" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Reference and decisions" },
+];
+---
+
+<Doc
+  title={data.title}
+  description={data.description}
+  section="Concepts"
+  audience={data.audience}
+  band={data.band}
+>
+  <nav slot="nav" class="section-nav" aria-label="Bench guides and concepts">
+    {BENCH_NAV.map((group) => (
+      <>
+        <h2>{group.heading}</h2>
+        <ul>
+          {group.items.map((item) => (
+            <li>
+              <ItemLink item={item} />
+            </li>
+          ))}
+        </ul>
+      </>
+    ))}
+  </nav>
+  <p class="eyebrow">
+    <a href="/concepts/">Concepts</a> / {data.topic}
+  </p>
+  <h1 class="doc-title">{data.title}</h1>
+  <Content />
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={layers} />
+    <div class="side-box audience">
+      <h2>Do it</h2>
+      <p>{data.doIt.text}</p>
+      <ItemLink item={itemOf(data.doIt)} />
+    </div>
+  </aside>
+</Doc>

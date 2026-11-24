@@ -31,7 +31,7 @@ hooks: ## Install the pre-commit hook for this clone and its worktrees
 
 .PHONY: check
 # check-web builds the web app, which the browser tests in check-python load.
-check: check-workflows check-chart check-infra check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
+check: check-workflows check-chart check-infra check-deps check-web check-docs check-python check-rust ## Run every CI check locally (except dev-ci)
 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
@@ -105,6 +105,7 @@ test-wasm: ## Build the shared WASM and the plugin modules declared in this chec
 .PHONY: check-python
 check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
 	uv run --locked python scripts/ci/check_test_prerequisites.py web
+	uv run --locked python scripts/ci/check_test_prerequisites.py docs
 	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
@@ -143,6 +144,22 @@ check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generat
 	$(PNPM) test
 	scripts/check-client.sh
 	$(PNPM) build
+
+.PHONY: docs
+docs: ## Build the docs site, ikisci.org, into docs/site/dist: the example plugins' results, then Astro, Pagefind and each page's policy
+	$(PNPM) --filter @ikisci/ui build
+	cd docs && uv run --locked python -m sitegen generate
+	$(PNPM) --filter @ikisci/docs site
+
+.PHONY: docs-dev
+docs-dev: ## Serve the docs site with instant reloads at http://localhost:4321 (search needs make docs)
+	$(PNPM) --filter @ikisci/ui build
+	cd docs && uv run --locked python -m sitegen generate
+	$(PNPM) --filter @ikisci/docs site:dev
+
+.PHONY: check-docs
+check-docs: docs ## Build the docs site, then check every page's links, origins and Content Security Policy
+	cd docs && uv run --locked python -m sitegen check
 
 .PHONY: web
 web: ## Build the server's web app and the standalone package stories

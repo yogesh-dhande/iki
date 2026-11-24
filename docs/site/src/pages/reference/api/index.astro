@@ -1,0 +1,107 @@
+---
+// The REST API's overview: how to call it, then every call by area.
+import ApiNav from "../../../components/api/ApiNav.astro";
+import MethodBadge from "../../../components/api/MethodBadge.astro";
+import Doc from "../../../layouts/Doc.astro";
+import { api, apiTags, endpointPath, OPENAPI, shortPath } from "../../../lib/api.ts";
+import { decisionMap } from "../../../lib/decisions.ts";
+import { render } from "../../../lib/markdown.ts";
+import { github } from "../../../lib/repo.ts";
+
+const { doc, all } = api();
+const decisions = await decisionMap();
+const groups = apiTags();
+---
+
+<Doc
+  title="REST API"
+  description={`Every call of Iki's REST API, version ${doc.info.version}: its parameters, body and response, generated from the server's OpenAPI document.`}
+  section="Reference"
+  audience="build"
+  band="For integrators, plugin authors and coding agents. Generated from the server's OpenAPI document."
+  measure={900}
+>
+  <ApiNav slot="nav" />
+  <p class="eyebrow">
+    <a href="/reference/">Reference</a> / REST API
+  </p>
+  <h1 class="doc-title">REST API</h1>
+  <div class="prose intro">
+    <Fragment set:html={render(doc.info.description ?? "", decisions)} />
+    <p>
+      Every path below starts with <code>/api/v{doc.info.version}</code>. Call it with a bearer
+      token in the
+      <code>Authorization</code> header; the web app's session works too. The Python SDK and the MCP
+      server make the same calls, and each call's page names theirs.
+    </p>
+    <p>
+      This reference is generated from <a href={github(OPENAPI)}>{OPENAPI}</a>, which the server
+      writes:
+      {all.length} calls in {groups.length} areas.
+    </p>
+  </div>
+  {groups.map((tag) => (
+    <section id={tag.slug} aria-labelledby={`${tag.slug}-h`} class="area">
+      <h2 id={`${tag.slug}-h`}>{tag.label}</h2>
+      <ul class="ops">
+        {tag.endpoints.map((e) => (
+          <li>
+            <a href={endpointPath(e.slug)}>
+              <MethodBadge method={e.method} />
+              <span class="mono path">{shortPath(e.path)}</span>
+              <span class="summary">{e.summary}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Doc>
+
+<style>
+  .intro {
+    margin-top: 16px;
+    max-width: 720px;
+  }
+  .area {
+    margin-top: 36px;
+  }
+  .area h2 {
+    margin: 0 0 10px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .ops {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .ops a {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    align-items: baseline;
+    padding: 9px 4px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+  }
+  .ops a:hover {
+    background: var(--surface-2);
+  }
+  .ops a:hover .path {
+    text-decoration: underline;
+  }
+  .path {
+    font-size: 13px;
+    color: var(--accent-ink);
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+  .summary {
+    margin-left: auto;
+    font-size: 14px;
+    color: var(--muted);
+  }
+</style>

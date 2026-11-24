@@ -1,0 +1,117 @@
+---
+// One named schema of the REST API: its fields, and the calls that take or return it.
+import ApiNav from "../../../../components/api/ApiNav.astro";
+import Fields from "../../../../components/api/Fields.astro";
+import MethodBadge from "../../../../components/api/MethodBadge.astro";
+import TypeText from "../../../../components/api/TypeText.astro";
+import Doc from "../../../../layouts/Doc.astro";
+import { api, endpointPath, shortPath } from "../../../../lib/api.ts";
+import { decisionMap } from "../../../../lib/decisions.ts";
+import { render } from "../../../../lib/markdown.ts";
+import { fieldsOf, typeOf } from "../../../../lib/openapi.ts";
+
+export function getStaticPaths() {
+  return Object.keys(api().doc.components.schemas).map((name) => ({ params: { name } }));
+}
+
+const { name } = Astro.params as { name: string };
+const { doc, uses } = api();
+const schema = doc.components.schemas[name] ?? {};
+const fields = fieldsOf(schema, doc, 1);
+const decisions = await decisionMap();
+const usedBy = uses.get(name) ?? [];
+const plain = fields.length === 0 ? typeOf(schema) : null;
+const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
+---
+
+<Doc
+  title={`${name} schema`}
+  description={`The ${name} schema of Iki's REST API: its fields, and the calls that take or return it.`}
+  section="Reference"
+  audience="build"
+  band="For integrators, plugin authors and coding agents. Generated from the server's OpenAPI document."
+  measure={900}
+>
+  <ApiNav slot="nav" />
+  <p class="eyebrow">
+    <a href="/reference/">Reference</a> / <a href="/reference/api/">REST API</a> / Schemas
+  </p>
+  <h1 class="title mono">{name}</h1>
+  {schema.description && (
+    <div class="prose desc" set:html={render(schema.description, decisions)} />
+  )}
+  {plain && (
+    <p class="kind">
+      <TypeText type={plain} />
+      {values.length > 0 && (
+        <>
+          {" "}
+          · one of{" "}
+          {values.map((v, i) => (
+            <>
+              {i > 0 && ", "}
+              <code>{v}</code>
+            </>
+          ))}
+        </>
+      )}
+    </p>
+  )}
+  {fields.length > 0 && (
+    <section aria-labelledby="fields-h" class="part">
+      <h2 id="fields-h">Fields</h2>
+      <Fields fields={fields} caption={`${name}'s fields`} decisions={decisions} />
+    </section>
+  )}
+  <section aria-labelledby="used-h" class="part">
+    <h2 id="used-h">Calls that take or return it</h2>
+    {usedBy.length ? (
+      <ul class="ops">
+        {usedBy.map((e) => (
+          <li>
+            <MethodBadge method={e.method} small />{" "}
+            <a class="mono" href={endpointPath(e.slug)}>
+              {shortPath(e.path)}
+            </a>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p class="muted">None directly: it's part of another schema.</p>
+    )}
+  </section>
+</Doc>
+
+<style>
+  .title {
+    margin: 0;
+    font-size: 30px;
+    overflow-wrap: anywhere;
+  }
+  .desc {
+    margin-top: 14px;
+  }
+  .kind {
+    margin: 14px 0 0;
+    font-size: 14px;
+  }
+  .part {
+    margin-top: 32px;
+  }
+  .part h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+  }
+  .ops {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .ops a {
+    overflow-wrap: anywhere;
+  }
+</style>

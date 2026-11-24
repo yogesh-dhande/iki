@@ -1,0 +1,61 @@
+---
+// Every guide, by who it's for: the home page's three doors, in full.
+import Listing from "../../components/listing/Listing.astro";
+import Doc from "../../layouts/Doc.astro";
+import { AUDIENCES, DOORS, type Audience } from "../../lib/site.ts";
+
+const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
+  ...AUDIENCES[id],
+  items: DOORS[id],
+}));
+---
+
+<Doc
+  title="Guides"
+  description="Iki's guides, by who they're for: at the bench, running Iki, and building on it."
+  section="Guides"
+>
+  <h1 class="doc-title">Guides</h1>
+  <p class="intro">
+    Task by task, for whoever does it. A guide not yet written here links to the document in the
+    repository that covers it for now, or is named as planned.
+  </p>
+  {doors.map((door) => (
+    <section id={door.id} data-audience={door.id} aria-labelledby={`${door.id}-h`} class="door">
+      <p class="who">{door.label}</p>
+      <h2 id={`${door.id}-h`}>{door.who}</h2>
+      <p class="does">{door.does}</p>
+      <Listing items={door.items} />
+    </section>
+  ))}
+</Doc>
+
+<style>
+  .intro {
+    margin: 14px 0 0;
+    max-width: 680px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .door {
+    margin-top: 40px;
+    padding-left: 18px;
+    border-left: 4px solid var(--aud);
+  }
+  .who {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--aud-ink);
+  }
+  h2 {
+    margin: 4px 0 6px;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+  }
+  .does {
+    margin: 0 0 14px;
+    color: var(--muted);
+  }
+</style>

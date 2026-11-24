@@ -1,0 +1,42 @@
+---
+import type { Method } from "../../lib/openapi.ts";
+
+interface Props {
+  method: Method;
+  small?: boolean;
+}
+const { method, small = false } = Astro.props;
+---
+
+<span class:list={["badge", method, { small }]}>{method.toUpperCase()}</span>
+
+<style>
+  .badge {
+    display: inline-block;
+    min-width: 52px;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.6;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--run-soft);
+    color: var(--run);
+  }
+  .small {
+    min-width: 44px;
+    font-size: 10px;
+    padding: 0 4px;
+  }
+  .post,
+  .put,
+  .patch {
+    background: var(--bench-soft);
+    color: var(--bench);
+  }
+  .delete {
+    background: var(--build-soft);
+    color: var(--build);
+  }
+</style>

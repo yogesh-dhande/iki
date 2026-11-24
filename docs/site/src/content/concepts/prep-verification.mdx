@@ -1,0 +1,230 @@
+---
+title: Prep verification
+description: How Iki checks that a plasmid prep holds the plasmid it should, from its long reads or a service's consensus, and how a reviewer records and signs the outcome.
+audience: bench
+band: "For scientists, QA and lab managers. Also useful to: plugin authors (see Reference below)."
+topic: Lots and preps
+doIt:
+  text: Check your own prep, step by step, from reads or a service's FASTA.
+  label: Check a plasmid prep
+  href: "repo:plugins/plasmid_sequencing/README.md"
+---
+
+import Cards from "../../components/concept/Cards.astro";
+import Differences from "../../components/concept/Differences.astro";
+import Flow from "../../components/concept/Flow.astro";
+import Layer from "../../components/concept/Layer.astro";
+import Rule from "../../components/concept/Rule.astro";
+import Rules from "../../components/concept/Rules.astro";
+import Stats from "../../components/concept/Stats.astro";
+import Viewer from "../../components/Viewer.astro";
+import { puc19 } from "../../lib/examples.ts";
+import { github } from "../../lib/repo.ts";
+
+export const v = puc19.values;
+export const uncalled = puc19.uncalled[0];
+export const mcs = v.differences.filter((d) => d.features.length === 0);
+export const runs = v.differences.filter((d) => d.homopolymer >= 6);
+export const percent = (d) => `${Math.round(d.fraction * 100)}%`;
+export const number = (n) => n.toLocaleString("en-US");
+
+<Layer n={1} id="short" title="In short">
+  <p class="lead">A plasmid prep is a tube of material made from a registered plasmid. Its <strong>verification</strong> says whether the tube holds that plasmid: Iki compares the prep's sequencing with the plasmid's own registered sequence, and a reviewer records the outcome and signs it.</p>
+  <ul>
+    <li>The comparison is evidence: computed once and never edited.</li>
+    <li>The outcome is a decision: a match, a discrepancy or inconclusive, with notes and signatures.</li>
+    <li>Releasing the lot is a separate decision again.</li>
+  </ul>
+</Layer>
+
+<Layer n={2} id="how" title="How it works">
+<div class="prose">
+
+Four records take part, each made by whoever owns that step. The prep and its reads come from the
+lab or a sequencing service. The alignment comes from a run on a worker. The verification is the
+reviewer's.
+
+</div>
+
+<figure class="figure">
+  <Flow
+    label="From prep to signed verification"
+    steps={[
+      { owner: "Lab", name: "Plasmid prep", id: "PREP-…" },
+      { owner: "Lab or service", name: "Long reads", note: "FASTQ, read where it lies" },
+      { owner: "Worker run", name: "Whole-plasmid alignment", id: "WPA-…", note: "computed, immutable", computed: true },
+      { owner: "Reviewer", name: "Plasmid verification", id: "VER-…", note: "outcome, notes, signatures" },
+    ]}
+  />
+  <div class="or">
+    <p><strong>Or</strong> a service's consensus FASTA, compared the same way.</p>
+    <p><strong>Or</strong> an external report, which the reviewer attests belongs to this prep.</p>
+  </div>
+  <div class="flows">
+    <div>
+      <h3>Research flow</h3>
+      <p><span class="state">Recorded</span> → the assigned reviewer signs → <span class="state">Signed off</span></p>
+    </div>
+    <div>
+      <h3>Regulated QC flow</h3>
+      <p>An analyst signs <span class="state">Submitted</span> → an independent reviewer signs <span class="state">Reviewed</span> → QA signs <span class="state">Released</span></p>
+    </div>
+  </div>
+  <figcaption>The deployment chooses the flow in the lots plugin's settings (<code>verification_flow</code>). Each verification keeps the flow it was created under.</figcaption>
+</figure>
+</Layer>
+
+<Layer n={3} id="example" title="Worked example: pUC19 from public reads">
+<div class="prose">
+
+This site's build runs the plugin's own check on {v.reads_total} public MinION reads of a pUC19
+prep (BioSample {puc19.data.biosample}, every 900th read of SRA run {puc19.data.run}) against
+pUC19's record, GenBank {puc19.data.accession} ({number(v.reference_length)} bp, {v.topology}).
+The demo deployment runs the same check on the same reads.
+
+</div>
+
+<Stats
+  label="The alignment's summary"
+  items={[
+    { label: "Reads aligned", value: `${v.reads_aligned} of ${v.reads_total}` },
+    { label: "Mean depth", value: String(v.mean_depth) },
+    { label: "Least depth", value: String(v.least_depth) },
+    { label: "Bases called", value: `${v.called_percent}%` },
+    { label: "Agreement", value: v.agreement },
+  ]}
+/>
+
+<div class="prose">
+
+{v.reads_total - v.reads_aligned} short reads align nowhere. One base, at {uncalled.position} in a
+run of {uncalled.run} {uncalled.base}s, has no majority and is left uncalled. The alignment names
+{v.differences.length} differences:
+
+</div>
+
+<Differences differences={v.differences} caption="The differences the alignment names" />
+
+<div class="prose after-table">
+
+The first {mcs.length} sit in the multiple cloning site, which the record's annotation doesn't mark
+as a feature: this run's plasmid differs there from {puc19.data.accession}. The deletion and the
+substitution have every read's support. The last {runs.length} are one-base deletions in runs of
+six or seven bases, nanopore's typical error, each supported by only part of the reads
+({runs.map(percent).join(", ")}).
+
+The map is the alignment's own **Map** tab: the depth of reads round the ring, the features the
+differences were placed in, and a mark at each difference. Choose a layer to show or hide it, or
+read the same in its tables.
+
+</div>
+
+<figure class="figure viewer-figure">
+  <Viewer src="/viewers/whole-plasmid/puc19-srr17915342/" title={`Whole-plasmid map of pUC19 checked against ${puc19.data.accession}`} />
+  <figcaption>Drawn by the plasmid sequencing plugin's Map tab, on <code>@ikisci/science</code>'s plasmid map, from the values above. The reads and the record are in the plugin's tests: <a href={github(puc19.data.reads)} class="out">the reads</a>, <a href={github(puc19.data.reference)} class="out">L09137.2</a>.</figcaption>
+</figure>
+
+<blockquote class="verdict">
+  <p class="who">The reviewer's verification, in the demo deployment</p>
+  <p>Outcome <strong>discrepancy</strong>. "Its multiple cloning site differs from L09137.2, every read agreeing."</p>
+</blockquote>
+</Layer>
+
+<Layer n={4} id="rules" title="The rules in full">
+<Rules>
+<Rule id="pins" summary="What a verification pins" open>
+
+One physical prep, its plasmid's registry entry, and the project plasmid record and revision
+examined. The revision comes from the prep's pinned reference in the run's input, so a later edit
+to the plasmid can't change what was checked. The project record tells apart two projects'
+records of one registry entry.
+
+The evidence is an alignment of the prep's reads, an externally reviewed report, or both. An
+alignment's reference must be the plasmid's own registered DNA sequence, and the verification
+keeps the alignment's revision; the alignment keeps the run and the read files it came from. For
+an external report, the reviewer attests that it belongs to this prep and this reference.
+
+</Rule>
+<Rule id="agreement" summary="Matches, differs, incomplete">
+
+The alignment's agreement is computed, one of three values:
+
+- **matches**: every base is called and agrees with the record.
+- **differs**: at least one difference.
+- **incomplete**: nothing differs, but some bases aren't called.
+
+A base the record's IUPAC code allows, and an N in the consensus, are not differences.
+
+The verification's outcome is the reviewer's: **match**, **discrepancy** or **inconclusive**. A
+clean result supports a match. Differences support a discrepancy, or a match with notes explaining
+why each doesn't count against the prep. Recording a match over an alignment that differs or is
+incomplete needs a written reason, which is part of what the signatures attest.
+
+</Rule>
+<Rule id="naming" summary="How differences are named (HGVS, o. and g.)">
+
+Each difference is named in HGVS (den Dunnen et al. 2016): `o.` on a circle, `g.` on a linear
+molecule. Positions are 1-based, with insertions and deletions moved to their 3'-most position. The
+kinds are substitution, deletion, duplication, insertion, inversion and deletion-insertion; for
+example `o.887del`, one base deleted at 887.
+
+Each difference also records the plasmid's features it falls in, from the sequence's own features
+and the plasmid's annotation, kept as they were when compared; the length of the run of one base it
+lies in; and, from reads, its depth, the reads that agree with it and how many on each strand.
+
+</Rule>
+<Rule id="circle" summary="Reads round a circle, and homopolymer errors">
+
+A plasmid is a circle, so a read can cross the origin, and so can a difference. Each read is
+aligned with minimap2 to the plasmid's sequence doubled, so a read across the origin aligns in one
+piece. Its insertions and deletions are moved 3' (Tan et al. 2015), so a deletion in a run of one
+base counts at one position.
+
+The consensus calls the majority base, or insertion, at each position with at least the minimum
+depth of reads ({v.min_depth} here, the default); a position with fewer is N. It is then polished:
+the reads are aligned to the consensus again until it stops changing, in at most four rounds of
+alignment ({v.polishing_rounds} here). The consensus is compared with the record tripled, so it is
+found whatever its rotation or strand.
+
+Nanopore reads' errors cluster in runs of one base. Iki ships no basecaller and no neural polisher,
+so a homopolymer error at modest depth can survive a majority call; the run length on each
+difference is how a reviewer judges it. A service's own polished consensus can be compared instead.
+
+</Rule>
+<Rule id="corrections" summary="Corrections go back for review">
+
+A correction to the outcome, the notes or the reviewer returns the verification to Recorded for a
+new review, and keeps the earlier signatures in its history. New evidence is another verification
+of the same prep, so a prep can hold several, each with its own reference revision and decision.
+
+In Regulated QC the reviewer can't be the verification's creator, the analyst who submitted it, or
+anyone who edited it, and QA must be independent of all of them and of the reviewer.
+
+</Rule>
+</Rules>
+</Layer>
+
+<Layer n={5} id="ref" title="Reference and decisions">
+<Cards>
+  <div>
+    <h3>Types</h3>
+    <p><a class="mono out" href={github("plugins/lots/types/plasmid_verification.yaml")}>iki/lots.PlasmidVerification</a></p>
+    <p><a class="mono out" href={github("plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml")}>iki/plasmid_sequencing.WholePlasmidAlignment</a></p>
+  </div>
+  <div>
+    <h3>Actions</h3>
+    <p><a class="mono out" href={github("plugins/plasmid_sequencing/actions/verify_plasmid_reads.yaml")}>verify_plasmid_reads</a></p>
+    <p><a class="mono out" href={github("plugins/plasmid_sequencing/actions/verify_plasmid_consensus.yaml")}>verify_plasmid_consensus</a></p>
+    <p><a class="mono out" href={github("plugins/lots/actions/record_plasmid_verification.yaml")}>record_plasmid_verification</a></p>
+  </div>
+  <div>
+    <h3>API</h3>
+    <p><a class="mono" href="/reference/api/get-entities-ref-signatures/">GET /entities/&#123;ref&#125;/signatures</a></p>
+  </div>
+  <div>
+    <h3>Decisions</h3>
+    <p><a href="/decisions/0184-a-plasmid-prep-links-to-reviewed-verification-evidence/">ADR 0184</a> A plasmid prep links to reviewed verification evidence</p>
+    <p><a href="/decisions/0208-whole-plasmid-sequencing-is-checked-against-the-plasmids-own-sequence/">ADR 0208</a> Whole-plasmid sequencing is checked against the plasmid's own sequence</p>
+  </div>
+</Cards>
+</Layer>

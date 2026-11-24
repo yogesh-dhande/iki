@@ -1,0 +1,53 @@
+---
+// Every page: its head, the site's header and footer, and the reader's colour theme.
+import "@ikisci/ui/fonts.css";
+import "@ikisci/ui/tokens.css";
+import "../styles/site.css";
+import "../styles/doc.css";
+
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+import type { Audience, Section } from "../lib/site.ts";
+
+interface Props {
+  title: string;
+  description: string;
+  section?: Section | undefined;
+  audience?: Audience | undefined;
+}
+const { title, description, section, audience } = Astro.props;
+const full = title === "Iki documentation" ? title : `${title} · Iki docs`;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{full}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <meta name="color-scheme" content="light dark" />
+    {/* Before anything is drawn: the reader's chosen theme, and that scripts run. */}
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        root.dataset.scripted = "";
+        try {
+          const theme = localStorage.getItem("iki-docs-theme");
+          if (theme === "light" || theme === "dark") root.dataset.theme = theme;
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body data-audience={audience}>
+    <a class="skip" href="#content">
+      Skip to content
+    </a>
+    <Header section={section} />
+    <slot />
+    <Footer />
+  </body>
+</html>
