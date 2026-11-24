@@ -4,6 +4,7 @@ repository made here, and against this one's record and its server's cloud modul
 import dataclasses
 import json
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -97,13 +98,19 @@ def test_a_change_to_what_the_backend_run_runs_makes_every_cloud_due(repo: Path)
         "worker/rust-toolchain.toml",
         "cli/src/iki_cli/deploy.py",
         "cli/src/iki_cli/workers.py",
+        "scripts/build-plasmid-tools-wasm.sh",
+        "scripts/build-oligo-checks-wasm.sh",
+        "plugins/plasmid/data/plasmid-tools.wasm.sha256",
+        "plugins/dna/data/oligo-checks.wasm.sha256",
+        "worker/.cargo/config.toml",
+        "worker/crates/iki-wasm/src/lib.rs",
+        ".dockerignore",
     ],
 )
 def test_a_change_to_what_the_images_are_built_from_makes_every_cloud_due(
     repo: Path, path: str
 ) -> None:
-    """A locked dependency, the worker's toolchain, or what writes the worker image's build
-    context: each changes what both clouds' runs deploy, with no code of Iki's changed."""
+    """Each build input makes both clouds due even when it is the only change."""
     tested = commit(repo, {path: "a", "README.md": "a"}, "1")
     record = repo / "runs.json"
     for cloud in live_runs.CLOUDS:
@@ -112,19 +119,67 @@ def test_a_change_to_what_the_images_are_built_from_makes_every_cloud_due(
     assert all(v.due and v.paths == [path] for v in live_runs.due("HEAD", repo, record))
 
 
-def test_what_the_worker_image_copies_in_is_relevant() -> None:
-    """worker/Dockerfile's build inputs, as it names them: a file it copies in that isn't
-    listed would change the image every cloud's run tests without making them due."""
-    sources = [
-        source
-        for line in (REPO / "worker" / "Dockerfile").read_text().splitlines()
-        if line.startswith("COPY ") and "--from=" not in line
-        for source in line.split()[1:-1]
-    ]
+def image_inputs(dockerfile: str, target: str) -> set[str]:
+    """Local COPY/ADD sources of a named stage and its local producers."""
+    sources: dict[str, set[str]] = {}
+    producers: dict[str, set[str]] = {}
+    stage = ""
+    text = (REPO / dockerfile).read_text()
+    for line in text.replace("\\\n", " ").splitlines():
+        fields = line.split(maxsplit=1)
+        if len(fields) != 2:
+            continue
+        keyword, body = fields
+        instruction = keyword.upper()
+        if instruction == "FROM":
+            base, alias, stage = (arg for arg in shlex.split(body) if not arg.startswith("--"))
+            assert alias.upper() == "AS", line
+            sources[stage] = set()
+            producers[stage] = {base}
+        elif instruction in {"COPY", "ADD"}:
+            operands = shlex.split(body)
+            while operands and operands[0].startswith("--"):
+                flag = operands.pop(0)
+                if flag.startswith("--from="):
+                    producer = flag.removeprefix("--from=")
+                    assert not producer.isdecimal(), f"Name the producer stage in {line}"
+                    producers[stage].add(producer)
+                    break
+            else:
+                assert len(operands) >= 2, line
+                sources[stage].update(operands[:-1])
+
+    assert target in sources, f"{dockerfile} has no {target} stage"
+    found: set[str] = set()
+    seen: set[str] = set()
+    pending = [target]
+    while pending:
+        stage = pending.pop()
+        if stage in seen:
+            continue
+        seen.add(stage)
+        for source in sources[stage]:
+            path = REPO / source
+            assert path.exists(), f"{dockerfile} has an unrecognized context input: {source}"
+            found.add(f"{source.rstrip('/')}/" if path.is_dir() else source)
+        pending.extend(producers[stage] & sources.keys())
+    return found
+
+
+@pytest.mark.parametrize(
+    ("dockerfile", "target"),
+    [
+        ("worker/Dockerfile", "runtime"),
+        ("server/Dockerfile", "verified-wasm"),
+    ],
+)
+def test_what_the_images_copy_in_is_relevant(dockerfile: str, target: str) -> None:
+    """Each input to these images must count toward both clouds' live receipts."""
+    sources = image_inputs(dockerfile, target)
     assert "worker/Cargo.lock" in sources
     for cloud in live_runs.CLOUDS:
-        files = [s for s in sources if s != "worker/crates"]
-        assert [s for s in files if not covered(s, cloud)] == [], cloud
+        missing = sorted(source for source in sources if not covered(source, cloud))
+        assert not missing, f"{dockerfile} {target}: list these in RELEVANT[{cloud!r}]: {missing}"
 
 
 def test_a_cloud_never_tested_is_due(repo: Path) -> None:
