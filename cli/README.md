@@ -116,7 +116,7 @@ CLI exits with 0 for a clear report, 1 when the deploy requires
 acknowledgement, and 2 for input, connection or access errors. The API
 accepts the same manifest as the JSON body of
 `POST /api/v1/plugins/{namespace}/{name}/preflight`.
-See the [promotion procedure](../deploy/config-template/README.md#how-a-change-reaches-a-deployment).
+See the [promotion procedure](https://ikisci.org/guides/keep-configuration-in-a-repository/#promote-a-change-to-production).
 
 ## `iki plugin build`
 

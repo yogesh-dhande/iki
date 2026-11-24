@@ -27,7 +27,7 @@ Select the deployment to check with the Iki SDK sign-in or `IKI_URL` and an all-
 sh "$SKILL_DIR/scripts/build-and-preflight.sh" "$PLUGIN_NAME" "$PLUGIN" "$DNA"
 ```
 
-Record the candidate and configuration revisions from the report. Exit 0 is clear, exit 1 calls for review of findings or incomplete sample coverage, and exit 2 is an input, connection or access error. Resolve incompatible existing records through a reviewed migration or remediation plan and rerun the check. For a promotion, run preflight using the manifest built with the deployment's actual settings and pinned dependencies. [Preflight and promotion](https://github.com/yogesh-dhande/iki/blob/main/deploy/config-template/README.md#how-a-change-reaches-a-deployment)
+Record the candidate and configuration revisions from the report. Exit 0 is clear, exit 1 calls for review of findings or incomplete sample coverage, and exit 2 is an input, connection or access error. Resolve incompatible existing records through a reviewed migration or remediation plan and rerun the check. For a promotion, run preflight using the manifest built with the deployment's actual settings and pinned dependencies. [Preflight and promotion](https://ikisci.org/guides/keep-configuration-in-a-repository/#promote-a-change-to-production)
 
 Commit the version, schema, new migration, tests and upgrade notes together. Keep previous releases and their commit pins available. Document any intentional one-way migration and the recovery path before release. Once the change is approved, release the tested commit and update the deployment's lockfile through its normal promotion process. For a first-party plugin, include the updated tree list from `make first-party`.
 
