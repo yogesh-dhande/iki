@@ -1,7 +1,7 @@
 ---
 // A record type's or an extension's fields: each one a place to link to
 // (`#Sample.status`), with what it holds, the records it refers to, and its states.
-import { render } from "../../lib/markdown.ts";
+import { renderText } from "../../lib/markdown.ts";
 import { fieldRows, typeHref, type Field, type Plugin } from "../../lib/plugins.ts";
 import { PAGES } from "../../lib/site.ts";
 
@@ -66,7 +66,7 @@ const typeLink = `${PAGES.spec}field/#by-type`;
             )}
           </td>
           <td class="description">
-            {field.description && <Fragment set:html={render(field.description)} />}
+            {field.description && <Fragment set:html={renderText(field.description)} />}
             {(field.flags.length > 0 || field.registry) && (
               <p class="notes">
                 {[...field.flags, ...(field.registry ? [`registry ${field.registry}`] : [])].join(

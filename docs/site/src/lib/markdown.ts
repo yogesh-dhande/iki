@@ -34,6 +34,15 @@ export function splitCode(markdown: string): { code: boolean; part: string }[] {
   return parts;
 }
 
+/** A plugin's own text as HTML: its descriptions mark code with backticks and nothing else,
+ * and write brackets as they are, as HELM's "[dR](A)" does, so none of them is a link. */
+export function renderText(text: string, options: { inline?: boolean } = {}): string {
+  const literal = splitCode(text)
+    .map(({ code, part }) => (code ? part : part.replace(/[[\]]/g, "\\$&")))
+    .join("");
+  return render(literal, options);
+}
+
 /** The Markdown as HTML; `inline` drops a single paragraph's <p>. */
 export function render(markdown: string, { inline = false } = {}): string {
   const result = markdownToHtml(withoutCitations(markdown), {

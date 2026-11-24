@@ -2,7 +2,7 @@
 // The Plugins reference's overview: every plugin in Iki's repository, the core plugin's
 // first, each with what it keeps and does.
 import Doc from "../../../layouts/Doc.astro";
-import { render } from "../../../lib/markdown.ts";
+import { renderText } from "../../../lib/markdown.ts";
 import { pluginHref, plugins } from "../../../lib/plugins.ts";
 import { PAGES } from "../../../lib/site.ts";
 
@@ -42,7 +42,7 @@ const firstLine = (text: string) => text.split(/(?<=\.)\s/)[0] ?? text;
         <li>
           <a href={pluginHref(core)}>{core.title}</a>
           <code>{core.name}</code>
-          <span set:html={render(firstLine(core.description), { inline: true })} />
+          <span set:html={renderText(firstLine(core.description), { inline: true })} />
         </li>
       </ul>
     </section>
@@ -54,7 +54,7 @@ const firstLine = (text: string) => text.split(/(?<=\.)\s/)[0] ?? text;
         <li>
           <a href={pluginHref(plugin)}>{plugin.title}</a>
           <code>{plugin.name}</code>
-          <span set:html={render(firstLine(plugin.description), { inline: true })} />
+          <span set:html={renderText(firstLine(plugin.description), { inline: true })} />
         </li>
       ))}
     </ul>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { render, splitCode, withoutCitations } from "./markdown.ts";
+import { render, renderText, splitCode, withoutCitations } from "./markdown.ts";
 
 describe("withoutCitations", () => {
   it("leaves out each design-record citation, outside code", () => {
@@ -39,5 +39,14 @@ describe("render", () => {
     );
     expect(render("One.\n\nTwo.", { inline: true })).toBe("<p>One.</p>\n<p>Two.</p>");
     expect(render("```\nwide\n```")).toContain('<pre tabindex="0">');
+  });
+});
+
+describe("renderText", () => {
+  it("keeps a plugin's brackets as written, not as links", () => {
+    const html = renderText("Such as RNA1{[MOE](G)[sP].[dR](A)}, or `[x](y)`.", { inline: true });
+    expect(html).not.toContain("<a");
+    expect(html).toContain("RNA1{[MOE](G)[sP].[dR](A)}");
+    expect(html).toContain("<code>[x](y)</code>");
   });
 });

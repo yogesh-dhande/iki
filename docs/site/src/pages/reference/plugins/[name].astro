@@ -4,7 +4,7 @@
 import Fields from "../../../components/plugins/Fields.astro";
 import Toc from "../../../components/Toc.astro";
 import Doc from "../../../layouts/Doc.astro";
-import { render } from "../../../lib/markdown.ts";
+import { renderText } from "../../../lib/markdown.ts";
 import {
   PLUGINS,
   extensionId,
@@ -53,7 +53,7 @@ const takes = (named: Named) =>
   </nav>
   <h1 class="title">{plugin.title}</h1>
   <div class="prose desc">
-    <Fragment set:html={render(plugin.description)} />
+    <Fragment set:html={renderText(plugin.description)} />
     <p class="muted source">
       <code>{plugin.name}</code>, version {plugin.version}. Its manifest is{" "}
       <a href={github(plugin.path)}>{plugin.path}</a>.
@@ -91,7 +91,7 @@ const takes = (named: Named) =>
             <dt>
               {role.label} <code>{role.name}</code>
             </dt>
-            <dd set:html={render(role.description, { inline: true })} />
+            <dd set:html={renderText(role.description, { inline: true })} />
           </div>
         ))}
       </dl>
@@ -103,7 +103,7 @@ const takes = (named: Named) =>
       <h2 id={`${type.name}-h`}>
         {type.label} <code class="qualified">{`${plugin.name}.${type.name}`}</code>
       </h2>
-      {type.description && <div class="prose" set:html={render(type.description)} />}
+      {type.description && <div class="prose" set:html={renderText(type.description)} />}
       <p class="facts muted">
         {type.abstract ? "Abstract: records are of its subtypes." : null}
         {type.hrid && (
@@ -204,7 +204,7 @@ const takes = (named: Named) =>
       <h2 id={`${action.name}-h`}>
         {action.label} <code class="qualified">{`${plugin.name}.${action.name}`}</code>
       </h2>
-      {action.description && <div class="prose" set:html={render(action.description)} />}
+      {action.description && <div class="prose" set:html={renderText(action.description)} />}
       <p class="facts muted">
         {action.creates.length > 0 && (
           <>
@@ -283,7 +283,7 @@ const takes = (named: Named) =>
                         {takes(entry) && <span class="detail">{takes(entry)}</span>}
                       </td>
                       <td class="description">
-                        {entry.description && <Fragment set:html={render(entry.description)} />}
+                        {entry.description && <Fragment set:html={renderText(entry.description)} />}
                         {entry.values && (
                           <p class="notes">
                             One of{" "}
