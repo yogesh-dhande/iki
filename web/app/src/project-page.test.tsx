@@ -152,37 +152,47 @@ describe("a project's page", () => {
     );
   });
 
-  it("draws its cards together, once each has what decides its lines", async () => {
+  it("draws its cards together, a slow one in its slot, once the others are in", async () => {
     signedIn();
     onProject();
     let release = (): void => undefined;
     const held = new Promise<void>((done) => {
       release = done;
     });
-    // What changed lately answers last: the cards drawn already would move as it came.
+    // What changed lately answers last, after the Overview's budget.
     answer(`GET ${BASE}/changes`, async () => {
       await held;
       return [change({})];
     });
     await renderApp("/projects/kinase-atlas/");
+    // Till the budget's spent, nothing on it is drawn, wherever its answer is in.
     expect(await screen.findByText("Opening its overview…")).toBeVisible();
-    await waitFor(() => {
-      expect(calls("GET", "/api/v1/entities/counts")).not.toHaveLength(0);
-    });
-    // None of its links can be pressed yet, wherever its answer is in.
     expect(
       screen.queryByRole("link", { name: "Open in Entities, filtered to this project" }),
     ).toBeNull();
-    expect(screen.queryByRole("link", { name: "Manage" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Automation" })).toBeNull();
-    release();
-    const changes = await screen.findByRole("list", { name: "Recent changes" });
-    expect(changes).toBeVisible();
+    // Then the rest, and the slow card's place, which says it's loading.
+    const card = await screen.findByRole("region", { name: "Recent changes" });
+    const slot = within(card).getByText("Finding what changed…").closest(".reserve");
+    expect(slot).toHaveClass("reserve-changes");
     expect(
       screen.getByRole("link", { name: "Open in Entities, filtered to this project" }),
     ).toBeVisible();
     expect(screen.getByRole("link", { name: "Manage" })).toBeVisible();
     expect(screen.queryByText("Opening its overview…")).toBeNull();
+    release();
+    // Its answer comes in that place.
+    const changes = await within(card).findByRole("list", { name: "Recent changes" });
+    expect(changes.closest(".reserve")).toBe(slot);
+  });
+
+  it("draws every card as it is when its reads are in by the budget", async () => {
+    signedIn();
+    onProject();
+    answer(`GET ${BASE}/changes`, [change({})]);
+    await renderApp("/projects/kinase-atlas/");
+    const card = await screen.findByRole("region", { name: "Recent changes" });
+    expect(within(card).getByRole("list", { name: "Recent changes" })).toBeVisible();
+    expect(document.querySelector(".reserve")).toBeNull();
   });
 
   it("counts its entities by type, each opening its table held to the project", async () => {

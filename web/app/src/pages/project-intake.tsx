@@ -240,22 +240,37 @@ function IntakeForm({
   );
 }
 
-/** On the project's page, for a project that takes requests, was sent some, or sent its own:
- * what it takes, its queue, and its latest requests with their status. */
-export function ProjectRequests({ project }: { project: Project }) {
+/** What the Requests card reads: the project's sides, the types, and its latest requests. */
+function useProjectRequests(project: Project) {
   const sides = useRequestSides(project);
   const read = useQuery(typesQuery);
-  const types = read.data;
   const any = sides.received || sides.sent;
   const latest = useQuery({
     ...latestRequestsQuery(project.id, { received: sides.received, sent: sides.sent }),
     enabled: sides.ready && any,
   });
-  // What decides its first lines (whether it's there, what it takes in its types' words, and
-  // its shortcuts) is in before the Overview's drawn. Its latest requests aren't waited
-  // for: they come after its shortcuts, at the foot of the last card, and move nothing.
   // Without the types, it can't tell, and isn't drawn.
-  useSettled(sides.ready || read.isError);
+  const known = sides.ready || read.isError;
+  return {
+    sides,
+    types: read.data,
+    any,
+    latest,
+    known,
+    listed: known && (!any || !latest.isLoading),
+  };
+}
+
+/** On the project's page, for a project that takes requests, was sent some, or sent its own:
+ * what it takes, its queue, and its latest requests with their status. */
+export function ProjectRequests({ project }: { project: Project }) {
+  const { sides, types, any, latest, known, listed } = useProjectRequests(project);
+  // What decides whether it's there, what it takes in its types' words, and its shortcuts.
+  // It's the summary's last card: drawn late, it comes below all the rest.
+  useSettled(known);
+  // Its latest requests come after its shortcuts, at its foot: if they're late, they grow
+  // the page below everything that can be pressed (the foot of the page waits for them).
+  useSettled(listed);
   if (!sides.ready || !any) return null;
   return (
     <Box
@@ -291,6 +306,7 @@ export function ProjectRequests({ project }: { project: Project }) {
         </p>
       ) : null}
       {latest.isError ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
+      {latest.isLoading ? <Loading label="Finding its latest requests…" /> : null}
       {latest.data?.length ? (
         <ul className="changes" aria-label="Latest requests">
           {latest.data.map((request) => (
@@ -313,6 +329,13 @@ export function ProjectRequests({ project }: { project: Project }) {
       ) : null}
     </Box>
   );
+}
+
+/** At the foot of the Overview: holds it till the Requests card above it is drawn as it'll
+ * stay, with its latest requests, on a phone, where the card comes before it. */
+export function RequestsSettled({ project }: { project: Project }) {
+  useSettled(useProjectRequests(project).listed);
+  return null;
 }
 
 /** A request's status: its type's first state field, or that it isn't sent yet. */

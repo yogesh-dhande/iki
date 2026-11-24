@@ -3718,16 +3718,25 @@ input[type="file"]::file-selector-button {
 }
 
 /* The Overview: what's in it and what changed, beside what it is. */
+/* Its main column, and the summary beside it; what may or may not be there (plugins'
+   sections, costs) is under the main column, after everything else on a phone. Its rows:
+   the main column's own height, then the rest, which the summary may run into. */
+.settling:has(> .project-overview) {
+  container-type: inline-size;
+}
+
 .project-overview {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  grid-template-rows: auto 1fr;
+  align-items: start;
   gap: 16px;
 }
 
 .project-main {
   display: flex;
-  flex: 999 1 520px;
+  grid-row: 1;
+  grid-column: 1;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
@@ -3735,16 +3744,49 @@ input[type="file"]::file-selector-button {
 
 .project-aside {
   display: flex;
-  flex: 1 1 260px;
+  grid-row: 1 / span 2;
+  grid-column: 2;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
   max-width: 100%;
 }
 
+.project-overview > .settling {
+  grid-row: 2;
+  grid-column: 1;
+  min-width: 0;
+}
+
+.project-tail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.project-tail:empty {
+  display: none;
+}
+
+@container (max-width: 795px) {
+  .project-overview {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .project-main,
+  .project-aside,
+  .project-overview > .settling {
+    grid-row: auto;
+    grid-column: 1;
+  }
+}
+
 .project-main > *,
 .project-aside > *,
-.project-main > .card + .card {
+.project-tail > *,
+.project-main > .card + .card,
+.project-tail > .card + .card {
   margin-top: 0;
   margin-bottom: 0;
 }
@@ -3766,6 +3808,49 @@ input[type="file"]::file-selector-button {
 
 .settling-wait > p {
   margin: 0;
+}
+
+/* Where a late card's answer goes (settling.tsx): as tall as it usually is, and scrolling
+   if it's taller, so nothing around it moves when it comes. */
+.reserve {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.reserve > [role="status"] {
+  margin: 0;
+  padding: 10px 14px;
+}
+
+/* Eight changes: as many as it lists. */
+.reserve-changes {
+  height: 312px;
+}
+
+/* Two rows of types. */
+.reserve-counts {
+  height: 130px;
+}
+
+/* Two rows of members. */
+.reserve-members {
+  height: 78px;
+}
+
+/* A line of counts, wrapped once. */
+.box-body .reserve-line {
+  height: calc(2 * 1.45em + 6px);
+  margin-bottom: 6px;
+}
+
+.box-body .reserve-line > [role="status"],
+.reserve-role > [role="status"] {
+  padding: 0;
+}
+
+/* A role and what it may do: three lines. */
+.reserve-role {
+  height: calc(3 * 1.45em);
 }
 
 .box {
