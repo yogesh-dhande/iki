@@ -9,6 +9,7 @@ from threading import Thread
 from typing import Literal
 
 import pytest
+from check_test_prerequisites import populated, story_assets
 from playwright.sync_api import Browser, expect
 from test_browser import AXE, RUN_AXE, WCAG_22_AA, browser, playwright  # noqa: F401
 
@@ -24,6 +25,8 @@ STORIES = sorted(
 
 @pytest.fixture(scope="module")
 def gallery_url() -> Iterator[str]:
+    story_assets(PACKAGES)
+    populated(AXE, "pnpm install --frozen-lockfile")
     handler = partial(SimpleHTTPRequestHandler, directory=str(PACKAGES))
     with ThreadingHTTPServer(("127.0.0.1", 0), handler) as server:
         thread = Thread(target=server.serve_forever, daemon=True)

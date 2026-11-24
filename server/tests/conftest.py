@@ -1,13 +1,17 @@
 import os
 import socket
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import AbstractContextManager, ExitStack, contextmanager, suppress
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 import pytest
 import pytest_django
+from browser_evidence import _browser_evidence as _browser_evidence
+from browser_evidence import report_browser_evidence
+from check_test_prerequisites import app_assets, populated
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
@@ -61,6 +65,13 @@ FAKE_VIEWER_FILES = {
     "viewers/manifest.json": b'{"src/structure-frame/main.ts": {"file": "assets/main-test.js"}}',
     "viewers/assets/main-test.js": b"// Mol*, standing in.\n",
 }
+
+
+@pytest.fixture(scope="session")
+def browser_app_assets() -> None:
+    root = Path(__file__).resolve().parents[2]
+    app_assets(root / "server/src/iki_server/web/static")
+    populated(root / "node_modules/axe-core/axe.min.js", "pnpm install --frozen-lockfile")
 
 
 @pytest.fixture(autouse=True)
@@ -123,12 +134,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-@pytest.hookimpl(wrapper=True)
+@pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
     """Keeps each phase's report on the test (``rep_setup``, ``rep_call``), so a fixture's
-    teardown can say more when the test failed (the browser tests' pages do)."""
+    teardown can say more when the test failed. The outer wrapper sees the gate's final
+    outcome, including an unexpected skip that now counts as a failure."""
     report = yield
     setattr(item, f"rep_{report.when}", report)
+    report_browser_evidence(item, report)
     return report
 
 
@@ -223,7 +236,30 @@ POSTGRES_SETTINGS = (
 
 
 @contextmanager
-def _postgres_server() -> Iterator[str]:
+def _test_service(
+    url_variable: str, image: str, container: AbstractContextManager[str]
+) -> Iterator[str]:
+    if url := os.environ.get(url_variable):
+        yield url
+        return
+    with ExitStack() as stack:
+        try:
+            url = stack.enter_context(container)
+        except Exception as exc:
+            exc.add_note(
+                f"Start Docker and check the pinned image with `docker pull {image}`, "
+                f"or set {url_variable} to a running test service."
+            )
+            raise
+        yield url
+
+
+def _postgres_server() -> AbstractContextManager[str]:
+    return _test_service("IKI_TEST_DATABASE_URL", POSTGRES_IMAGE, _postgres_container())
+
+
+@contextmanager
+def _postgres_container() -> Iterator[str]:
     """A throwaway Postgres container, removed afterwards."""
     from testcontainers.community.postgres import PostgresContainer
 
@@ -244,10 +280,6 @@ def _postgres_url() -> Iterator[str]:
     parallel run (``-n``) for its workers. Otherwise a throwaway container is started
     with Docker and removed at the end of the session.
     """
-    url = os.environ.get("IKI_TEST_DATABASE_URL")
-    if url:
-        yield url
-        return
     with _postgres_server() as url:
         yield url
 
@@ -474,10 +506,6 @@ def _s3_endpoint() -> Iterator[str]:
     ``IKI_TEST_S3_URL`` names one instead, which must accept the test keys above. The
     controller of a parallel run (``-n``) starts one for its workers.
     """
-    url = os.environ.get("IKI_TEST_S3_URL")
-    if url:
-        yield url
-        return
     with _seaweedfs_server() as url:
         yield url
 
@@ -499,8 +527,12 @@ def _s3_bucket(_s3_endpoint: str) -> str:
     return S3_BUCKET
 
 
+def _seaweedfs_server() -> AbstractContextManager[str]:
+    return _test_service("IKI_TEST_S3_URL", SEAWEEDFS_IMAGE, _seaweedfs_container())
+
+
 @contextmanager
-def _seaweedfs_server() -> Iterator[str]:
+def _seaweedfs_container() -> Iterator[str]:
     """A throwaway SeaweedFS container, removed afterwards."""
     import time
     import urllib.request

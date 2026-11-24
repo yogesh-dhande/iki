@@ -2,8 +2,7 @@
 over HTTP, runs the action's command, streams its log and progress, stops it when asked,
 and reports how it ended.
 
-The binary is built with cargo, unless ``IKI_WORKER_BIN`` names one. Without cargo these
-tests skip, except in CI, where they fail.
+The binary is built with cargo, unless ``IKI_WORKER_BIN`` names one.
 """
 
 import os
@@ -46,22 +45,18 @@ PLUGINS = ROOT / "spec" / "tests" / "plugins"
 PREFIX = f"worker-e2e-{uuid.uuid4().hex}"
 
 
-def _require(what: bool, message: str) -> None:
-    if what:
-        return
-    if os.environ.get("CI"):
-        pytest.fail(message)
-    pytest.skip(message)
-
-
 @pytest.fixture(scope="module")
 def worker_bin() -> Path:
     named = os.environ.get("IKI_WORKER_BIN")
     if named:
-        return Path(named)
+        found = shutil.which(named)
+        assert found is not None and Path(found).is_file(), (
+            f"IKI_WORKER_BIN={named} must name an executable file. Set it to the built worker "
+            "or unset it so pytest can run cargo build --locked -p iki-worker in worker/."
+        )
+        return Path(found).absolute()
     cargo = shutil.which("cargo")
-    _require(cargo is not None, "Install Rust (https://rustup.rs) to build iki-worker")
-    assert cargo is not None
+    assert cargo is not None, "Install Rust (https://rustup.rs) to build iki-worker"
     built = subprocess.run(  # noqa: S603 - fixed argv
         [cargo, "build", "--locked", "--quiet", "-p", "iki-worker"],
         cwd=ROOT / "worker",
@@ -774,8 +769,7 @@ def test_a_worker_with_no_plugins_dir_fetches_and_builds_what_the_server_install
     from iki_server.entities import registry
 
     uv = shutil.which("uv")
-    _require(uv is not None, "Install uv to build environments")
-    assert uv is not None
+    assert uv is not None, "Install uv to build environments"
     record = _bundled_record(tmp_path / "bundles")
     monkeypatch.setattr(registry, "installed", lambda: record)
     run = queued(world)

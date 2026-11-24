@@ -59,8 +59,8 @@ def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
     assert "'/opt/my envs/it'\"'\"'s/acme__protein/protein-tools'" in script
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
 def test_the_script_builds_the_environment(tmp_path: Path) -> None:
+    assert shutil.which("uv"), "Install uv to build the worker environment"
     item = _protein(tmp_path, "# nothing\n")
     envs = tmp_path / "envs"
     manifest = workers.write([item], tmp_path / "bundle", str(envs))
@@ -172,8 +172,7 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
     """
     root = Path(__file__).parents[2]
     carried = modules.module(name)
-    if carried is None:
-        pytest.skip(f"iki-spec hasn't got {name}: build it, see scripts/")
+    assert carried is not None, f"Missing packaged {name}. Run make test-wasm."
     exported = tmp_path / "exported"
     exported.mkdir()
     archive = subprocess.run(  # noqa: S603 - git, on this checkout

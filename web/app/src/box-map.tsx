@@ -116,7 +116,14 @@ export function BoxMap({
 }
 
 /** The map's key: what its shading means. */
-export function MapLegend({ findings = false }: { findings?: boolean }) {
+export function MapLegend({
+  findings = false,
+  planned = false,
+}: {
+  findings?: boolean;
+  /** Also the positions planned for what's being put away: the map's filled “+”. */
+  planned?: boolean;
+}) {
   return (
     <ul className="box-map-legend" aria-label="Key">
       {findings ? (
@@ -148,6 +155,11 @@ export function MapLegend({ findings = false }: { findings?: boolean }) {
           <li>
             <span className="box-map-swatch box-map-hidden" aria-hidden="true" /> Another project’s
           </li>
+          {planned ? (
+            <li>
+              <span className="box-map-swatch box-map-suggested" aria-hidden="true" /> Going here
+            </li>
+          ) : null}
         </>
       )}
     </ul>

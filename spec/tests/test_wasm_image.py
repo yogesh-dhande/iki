@@ -166,11 +166,11 @@ def test_native_code_outside_image_is_never_loaded(
     bounded_source_compile()
 
 
-@pytest.mark.skipif(not BUNDLED_WASM.is_file(), reason="uses Iki's built CEL evaluator")
 def test_image_serves_real_guards_without_runtime_compilation(
     root_owned_image: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    assert BUNDLED_WASM.is_file(), f"Missing {BUNDLED_WASM}. Run scripts/build-wasm.sh."
     monkeypatch.setattr(wasm, "WASM", BUNDLED_WASM)
     packaged_pair(root_owned_image)
     guard = 'purpose == "routine"'

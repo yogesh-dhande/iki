@@ -557,14 +557,26 @@ describe("reassigning from the grid", () => {
       skipped: [],
       group: "g1",
     });
-    await user.click(within(refused).getByRole("button", { name: "Refresh the selection" }));
-    const refreshed = await within(dialog).findByRole("status");
-    expect(refreshed).toHaveTextContent(
-      "The selection is up to date. Check the record that changed before you reassign: SMP-000002.",
-    );
-    await waitFor(() => {
-      expect(refreshed).toHaveFocus();
+    // The next frame can come before React renders what the refresh read (a busy browser):
+    // the note still takes focus once it's shown.
+    const frame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      queueMicrotask(() => {
+        callback(performance.now());
+      });
+      return 0;
     });
+    try {
+      await user.click(within(refused).getByRole("button", { name: "Refresh the selection" }));
+      const refreshed = await within(dialog).findByRole("status");
+      expect(refreshed).toHaveTextContent(
+        "The selection is up to date. Check the record that changed before you reassign: SMP-000002.",
+      );
+      await waitFor(() => {
+        expect(refreshed).toHaveFocus();
+      });
+    } finally {
+      frame.mockRestore();
+    }
     // Nothing is sent again until the person reassigns.
     expect(calls("POST", "/api/v1/entities/assign")).toHaveLength(1);
     expect(within(dialog).getByRole("textbox", { name: /Reason/ })).toHaveValue("Ana left");

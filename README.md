@@ -56,6 +56,12 @@ make help    # list all tasks
 To run the whole stack on a local Kubernetes cluster (Postgres, S3, Keycloak,
 Grafana), see [deploy/dev/README.md](deploy/dev/README.md): `make dev-up`.
 
+To work on an Iki plugin with a coding agent, use the skills to
+[write](plugin-template/.agents/skills/iki-write-plugin/SKILL.md),
+[test](plugin-template/.agents/skills/iki-test-plugin/SKILL.md), or
+[upgrade](plugin-template/.agents/skills/iki-upgrade-plugin/SKILL.md) it.
+They ship with the [plugin template](plugin-template/README.md) as well.
+
 ## Contributing
 
 We aren't accepting pull requests from outside contributors yet, but issues

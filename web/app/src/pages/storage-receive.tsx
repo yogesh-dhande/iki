@@ -1,15 +1,17 @@
 /**
  * Receiving a request's material (ADR 0180): what it expects as a checklist, each scanned
  * or marked matched, missing, damaged or rejected, and anything unexpected as extra; who
- * handed it over; where each goes, in the free positions of a box; then one change that
- * takes custody, puts it away, and tells the requester what didn't arrive as expected.
+ * handed it over; where each received tube goes, a free position in a box or the receiver's
+ * custody, chosen for each; then one change that takes custody, puts each away as shown,
+ * and tells the requester what didn't arrive as expected. Complete waits until every
+ * received tube has its decision, made with the box's free positions as they're shown.
  *
  * A first observation is one step: a scan, or an outcome chosen. Changing what someone
  * recorded (another outcome, Clear, a saved note, removing or restoring an extra, the
  * handover, cancelling) asks why, names the version seen, and keeps both in the history.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -46,6 +48,7 @@ import {
   scanRefusal,
   STORAGE,
   stepName,
+  type Container,
   type Outcome,
   type ScanCandidate,
   type ScanMode,
@@ -344,6 +347,127 @@ function lineNow(line: ReceiptLine): ReactNode {
   );
 }
 
+// --- Where each received tube goes --------------------------------------------------------------
+
+/** A received tube's decision, as the screen shows it. */
+type Disposition =
+  | { kind: "put"; position: string }
+  | { kind: "custody" }
+  /** Not decided yet: completing waits for it. */
+  | { kind: "open" };
+
+/** A line's choice to keep it in custody, beside the positions it can go in. */
+const KEEP = "keep";
+
+/**
+ * Each received line's decision. Kept in custody, when the receiver chose that for it.
+ * Otherwise, only in a box whose free positions are shown (`free`): the position chosen for
+ * it, or else the next free one no other line has. Without a box shown, or when what was
+ * chosen isn't free, it's open.
+ */
+function dispositions(
+  lines: readonly ReceiptLine[],
+  free: readonly string[] | null,
+  where: Readonly<Record<string, string>>,
+  kept: ReadonlySet<string>,
+): Map<string, Disposition> {
+  const chosen = new Set(
+    lines
+      .filter((l) => !kept.has(l.id))
+      .map((l) => where[l.id])
+      .filter((w): w is string => !!w && !!free?.includes(w)),
+  );
+  const left = (free ?? []).filter((w) => !chosen.has(w));
+  const out = new Map<string, Disposition>();
+  for (const l of lines) {
+    const choice = where[l.id];
+    if (kept.has(l.id)) out.set(l.id, { kind: "custody" });
+    else if (!free) out.set(l.id, { kind: "open" });
+    else if (choice !== undefined)
+      out.set(
+        l.id,
+        choice && free.includes(choice) ? { kind: "put", position: choice } : { kind: "open" },
+      );
+    else {
+      const next = left.shift();
+      out.set(l.id, next ? { kind: "put", position: next } : { kind: "open" });
+    }
+  }
+  return out;
+}
+
+/** What Complete sends: the revision reviewed, and one decision for each received tube. */
+interface CompletePlan {
+  plan_revision: number;
+  missing_rest: boolean;
+  put_away: { line: string; to: string; position: string }[];
+  keep_in_custody: string[];
+}
+
+/** A refused completion's error, with the line it's about, and the put-away row it's on. */
+interface Refusal {
+  key: string;
+  about: string;
+  detail: string;
+  /** The put-away row to show it on: a placement or a custody choice that was sent. */
+  row: string | null;
+}
+
+/** Field names that aren't a line, as people know them. */
+const FIELDS: Record<string, string> = { handed_over_by: "Handed over by", note: "Note" };
+
+/**
+ * Each error in a refused completion: `lines/<id>` names its line; `put_away/<i>` and
+ * `keep_in_custody/<i>` name the entry sent, and so its line, by where it was in the list.
+ */
+function refusalsOf(
+  problem: Problem | undefined,
+  sent: CompletePlan | undefined,
+  names: ReadonlyMap<string, string>,
+): Refusal[] {
+  return (problem?.errors ?? []).map((error, i) => {
+    const field = error.pointer?.replace(/^#\//, "") ?? error.parameter ?? "";
+    const [list, index] = field.split("/");
+    const at = Number(index);
+    const row =
+      list === "put_away"
+        ? (sent?.put_away[at]?.line ?? null)
+        : list === "keep_in_custody"
+          ? (sent?.keep_in_custody[at] ?? null)
+          : null;
+    const line = list === "lines" ? (index ?? null) : row;
+    return {
+      key: `${field}-${String(i)}`,
+      about: line ? (names.get(line) ?? "A line") : (FIELDS[field] ?? ""),
+      detail: error.detail,
+      row,
+    };
+  });
+}
+
+/** The box shown, for its plan's caption: “BOX-000009 Incoming, in Freezer 3 · 4 free”. */
+function boxCaption(box: Container, free: number): string {
+  const name = box.title && box.title !== box.hrid ? `${box.hrid} ${box.title}` : box.hrid;
+  const path = box.location.path.map(stepName).join(" › ");
+  return `${name}${path ? `, in ${path}` : ""} · ${String(free)} free`;
+}
+
+/** Names in a sentence: “A”, “A and B”, “A, B and C”. */
+function listed(names: readonly string[]): string {
+  if (names.length < 2) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
+}
+
+/** What a plan does, in a phrase: “2 put away in BOX-000135 and 1 kept in your custody”. */
+function planSummary(put: number, kept: number, box: string | undefined): string {
+  return [
+    put ? `${String(put)} put away in ${box ?? "the box"}` : "",
+    kept ? `${String(kept)} kept in your custody` : "",
+  ]
+    .filter(Boolean)
+    .join(" and ");
+}
+
 function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request: string }) {
   const client = useQueryClient();
   const [receipt, setReceipt] = useState(initial);
@@ -365,10 +489,17 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [note, setNote] = useState(initial.note);
   const [box, setBox] = useState("");
   const [boxShown, setBoxShown] = useState("");
+  // What was typed or scanned for the box shown: Complete waits while the field says otherwise.
+  const [lookedUp, setLookedUp] = useState("");
+  // A position chosen for a line, or "" to leave it undecided; left out, its next free one.
   const [where, setWhere] = useState<Record<string, string>>({});
+  // The lines the receiver chose, one by one, to keep in their custody without a location.
+  const [kept, setKept] = useState<ReadonlySet<string>>(() => new Set());
   const [missingRest, setMissingRest] = useState(false);
   const [asking, setAsking] = useState<Asking | null>(null);
   const [handoffStale, setHandoffStale] = useState<StaleItem[] | null>(null);
+  // Said beside the handover's Save, not above the page: nothing below it moves.
+  const [handoffSaid, setHandoffSaid] = useState("");
   const [completeStale, setCompleteStale] = useState<StaleItem[] | null>(null);
   const [lineStale, setLineStale] = useState<{ line: string; changes: StaleItem[] } | null>(null);
   const { say } = useMessages();
@@ -480,7 +611,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           update(next);
           setHandoffStale(null);
           setLineStale(null);
-          if (fix.do === "handoff") say("Saved.");
+          if (fix.do === "handoff") setHandoffSaid("Saved.");
         },
         onError: (error) => {
           if (!isStale(error)) return;
@@ -510,7 +641,12 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           if (fix.do === "cancel") {
             say(`Cancelled receiving ${request}.`);
             void client.invalidateQueries({ queryKey: STORAGE });
-          } else say("Saved, with your reason.");
+          } else if (fix.do === "handoff") setHandoffSaid("Saved, with your reason.");
+          // Where scans are heard, in space kept for it: the checklist doesn't move.
+          else {
+            const line = lineOf(next, fix);
+            setHeard(`${line ? shortName(line) : "It"}: saved, with your reason.`);
+          }
         },
         onError: (error) => {
           if (!isStale(error)) return;
@@ -529,61 +665,90 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     | { kind: "none"; code: string }
     | null
   >(null);
-  const findBox = useApiMutation(async (code: string) => {
+  // Only the latest lookup is shown: an earlier one answering late changes nothing.
+  const lookup = useRef(0);
+  const findBox = useApiMutation(async ({ code, chosen }: { code: string; chosen?: string }) => {
+    const asked = ++lookup.current;
     setBoxFound(null);
-    try {
-      const found = await resolveScan({ scope: "destination", code });
-      const only = found.status === "one" ? found.candidates[0] : undefined;
-      if (only) setBoxShown(only.id);
-      else if (found.status === "ambiguous")
-        setBoxFound({ kind: "ambiguous", code, candidates: found.candidates });
-      else setBoxFound({ kind: "none", code });
-    } catch (error) {
-      if (scanRefusal(problemOf(error))) setBoxFound({ kind: "refused" });
-      throw error;
+    setBoxShown("");
+    setWhere({});
+    let id = chosen;
+    if (!id) {
+      try {
+        const found = await resolveScan({ scope: "destination", code });
+        if (asked !== lookup.current) return;
+        id = found.status === "one" ? found.candidates[0]?.id : undefined;
+        if (found.status === "ambiguous")
+          setBoxFound({ kind: "ambiguous", code, candidates: found.candidates });
+        else if (!id) setBoxFound({ kind: "none", code });
+      } catch (error) {
+        if (asked === lookup.current && scanRefusal(problemOf(error)))
+          setBoxFound({ kind: "refused" });
+        throw error;
+      }
     }
+    if (!id) return;
+    // Its free positions as they are now, not as they were when it was last looked at.
+    await client.query({ ...containerQuery(id), staleTime: 0 });
+    if (asked !== lookup.current) return;
+    setLookedUp(code);
+    setBoxShown(id);
+  }, []);
+  // The box's slots read again, after the server refused a position in it.
+  const reread = useApiMutation(async (ref: string) => {
+    await client.query({ ...containerQuery(ref), staleTime: 0 });
   }, []);
   const container = useQuery({ ...containerQuery(boxShown || "-"), enabled: !!boxShown });
   const putting = receipt.lines.filter(
     (l) => l.outcome && RECEIVED.includes(l.outcome) && l.entity,
   );
-  const shape = container.data?.shape ?? null;
+  const shape = boxShown ? (container.data?.shape ?? null) : null;
   const free = useMemo(
     () => (shape && container.data ? freeSlots(shape, container.data.contents) : []),
     [shape, container.data],
   );
-  // Each received line's position: the one chosen, or the next free one not chosen.
-  const plan = useMemo(() => {
-    const taken = new Set(Object.values(where).filter(Boolean));
-    const left = free.map((s) => s.label).filter((l) => !taken.has(l));
-    const out: Record<string, string> = {};
-    for (const l of putting) {
-      const chosen = where[l.id];
-      out[l.id] = chosen ?? left.shift() ?? "";
-    }
-    return out;
-  }, [free, putting, where]);
+  // Where the received tubes can go: a box whose free positions are shown, or not yet known.
+  const shownBox = boxShown && shape ? container.data : undefined;
+  const waitingFor = findBox.isPending
+    ? "Finding the box and its free positions…"
+    : boxFound?.kind === "ambiguous"
+      ? `Choose which box “${boxFound.code.trim()}” is, above.`
+      : (boxShown && container.isPending) || reread.isPending
+        ? "Loading the box’s free positions…"
+        : null;
+  const decided = dispositions(
+    putting,
+    shownBox && !waitingFor ? free.map((s) => s.label) : null,
+    where,
+    kept,
+  );
+  const undecided = putting.filter((l) => decided.get(l.id)?.kind === "open");
+  const planned = shownBox
+    ? putting.flatMap((l) => {
+        const d = decided.get(l.id);
+        return d?.kind === "put" ? [{ line: l, position: d.position }] : [];
+      })
+    : [];
+  const keeping = putting.filter((l) => decided.get(l.id)?.kind === "custody");
   const complete = useApiMutation(
-    async (reviewed: Receipt) =>
+    async (plan: CompletePlan) =>
       completeReceipt(id, {
-        plan_revision: reviewed.plan_revision,
-        missing_rest: missingRest,
-        put_away:
-          boxShown && container.data
-            ? putting
-                .filter((l) => plan[l.id])
-                .map((l) => ({
-                  line: l.id,
-                  // The box shown, by its unique Iki code: what's put away is what was seen.
-                  to: ikiCode(container.data.id),
-                  position: plan[l.id] ?? null,
-                }))
-            : [],
+        plan_revision: plan.plan_revision,
+        missing_rest: plan.missing_rest,
+        put_away: plan.put_away,
+        keep_in_custody: plan.keep_in_custody,
       }),
     [STORAGE],
   );
-  const problem = complete.error ? problemOf(complete.error) : undefined;
+  // A refusal of what was sent: each error on the line it's about, and listed by Complete.
+  const problem =
+    complete.error && !isStale(complete.error) && !scanRefusal(problemOf(complete.error))
+      ? problemOf(complete.error)
+      : undefined;
   const errors = fieldErrors(problem);
+  const refusals = refusalsOf(problem, complete.variables, names);
+  const rowErrors = new Map<string, string>();
+  for (const r of refusals) if (r.row && !rowErrors.has(r.row)) rowErrors.set(r.row, r.detail);
   const lineProblem =
     check.error ?? (fixing.error && !asking && !isStale(fixing.error) ? fixing.error : null);
   const unchecked = receipt.lines.filter((l) => !l.outcome).length;
@@ -591,13 +756,100 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     (l) => l.outcome && ["missing", "extra", "damaged", "rejected"].includes(l.outcome),
   ).length;
   const marks = new Map<string, string>();
-  if (container.data && shape) {
-    for (const l of putting) {
-      const pos = plan[l.id];
-      const slot = free.find((s) => s.label === pos);
-      if (slot) marks.set(slotKey(slot.row, slot.column), "suggested");
-    }
+  for (const { position } of planned) {
+    const slot = free.find((s) => s.label === position);
+    if (slot) marks.set(slotKey(slot.row, slot.column), "suggested");
   }
+  // The Box field names another box than the one shown: what would be put away isn't known.
+  const typed = box.trim();
+  const boxChanged = !!shownBox && !!planned.length && typed !== lookedUp.trim();
+  // Completing waits for a decision on every received tube, made with the box as shown.
+  const ready = !undecided.length && !boxChanged;
+  const status = !putting.length
+    ? ""
+    : waitingFor && !ready
+      ? waitingFor
+      : boxChanged
+        ? `Show the free positions in ${typed || "a box"} first, or put the text back to ${lookedUp.trim()}.`
+        : !ready
+          ? `Decide for ${listed(undecided.map(shortName))}: put ${undecided.length === 1 ? "it" : "each"} away in a free position, or keep ${undecided.length === 1 ? "it" : "them"} in your custody.`
+          : `Ready: ${planSummary(planned.length, keeping.length, shownBox?.hrid)}.`;
+  const statusId = useId();
+  // After a refusal, the keyboard and screen reader go to what it says.
+  const feedback = useRef<HTMLDivElement>(null);
+  const [refusedAt, setRefusedAt] = useState(0);
+  useEffect(() => {
+    if (refusedAt) feedback.current?.focus();
+  }, [refusedAt]);
+  const completeNow = () => {
+    if (!ready || complete.isPending) return;
+    // What's shown is what's sent: this receipt's revision, and each tube's decision.
+    const plan: CompletePlan = {
+      plan_revision: receipt.plan_revision,
+      missing_rest: missingRest,
+      put_away: shownBox
+        ? planned.map(({ line, position }) => ({
+            line: line.id,
+            // The box shown, by its unique Iki code: what's put away is what was seen.
+            to: ikiCode(shownBox.id),
+            position,
+          }))
+        : [],
+      keep_in_custody: keeping.map((l) => l.id),
+    };
+    const into = shownBox?.hrid;
+    complete.mutate(plan, {
+      onSuccess: () => {
+        setCompleteStale(null);
+        say(
+          `Received ${receipt.request.hrid}${putting.length ? `: ${planSummary(plan.put_away.length, plan.keep_in_custody.length, into)}` : ""}.`,
+        );
+        void client.invalidateQueries({ queryKey: STORAGE });
+      },
+      onError: (error) => {
+        const refusal = scanRefusal(problemOf(error));
+        if (refusal) {
+          // The box the resolver can't settle: chosen again, then reviewed again.
+          setBoxShown("");
+          setWhere({});
+          setBoxFound(
+            refusal.kind === "ambiguous"
+              ? { kind: "ambiguous", code: box, candidates: refusal.candidates }
+              : { kind: "refused" },
+          );
+          return;
+        }
+        if (!isStale(error)) {
+          // A position refused, such as one taken meanwhile: each tube keeps the position it
+          // was shown, those refused are left to decide again, and the slots are read again.
+          const refused = new Set(
+            refusalsOf(problemOf(error), plan, names).flatMap((r) =>
+              r.row && plan.put_away.some((p) => p.line === r.row) ? [r.row] : [],
+            ),
+          );
+          if (refused.size && boxShown) {
+            setWhere((now) => ({
+              ...now,
+              ...Object.fromEntries(
+                plan.put_away.map((p) => [p.line, refused.has(p.line) ? "" : p.position]),
+              ),
+            }));
+            reread.mutate(boxShown);
+          }
+          setRefusedAt((n) => n + 1);
+          return;
+        }
+        // What's to be missing may have changed: it's ticked again once reviewed.
+        setMissingRest(false);
+        if (boxShown)
+          void client.invalidateQueries({ queryKey: containerQuery(boxShown).queryKey });
+        void refetch(error).then(({ changes }) => {
+          setCompleteStale(changes);
+          setRefusedAt((n) => n + 1);
+        });
+      },
+    });
+  };
   const restoring = restorable ? receipt.removed_lines.find((l) => l.id === restorable) : undefined;
   const handoffChanged = by.trim() !== receipt.handed_over_by || note.trim() !== receipt.note;
   return (
@@ -771,11 +1023,15 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             busyText="Saving…"
             disabled={!handoffChanged}
             onClick={() => {
+              setHandoffSaid("");
               change({ do: "handoff", by: by.trim(), note: note.trim() });
             }}
           >
             Save
           </Button>
+          <span className="muted" role="status">
+            {handoffChanged ? "" : handoffSaid}
+          </span>
         </div>
       </section>
       <section className="card" aria-labelledby="putaway-title">
@@ -785,7 +1041,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </h2>
           <p className="muted">
             {putting.length
-              ? `${String(putting.length)} received to put away. Rejected ones stay in your custody, not stored.`
+              ? `${String(putting.length)} received: put each away in a box, or keep it in your custody. Rejected ones stay in your custody, not stored.`
               : "Nothing received yet to put away."}
           </p>
         </div>
@@ -793,8 +1049,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           className="putaway-box"
           onSubmit={(e) => {
             e.preventDefault();
-            setWhere({});
-            findBox.mutate(box);
+            if (box.trim()) findBox.mutate({ code: box });
           }}
         >
           <TextField
@@ -828,8 +1083,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             candidates={boxFound.candidates}
             noun="box"
             onChoose={(c) => {
-              setBoxFound(null);
-              setBoxShown(c.id);
+              findBox.mutate({ code: boxFound.code, chosen: c.id });
             }}
             onCancel={() => {
               setBoxFound(null);
@@ -840,56 +1094,81 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           <ProblemAlert problem={problemOf(findBox.error)} />
         ) : null}
         {container.error ? <ProblemAlert problem={problemOf(container.error)} /> : null}
-        {container.data && !shape ? (
+        {boxShown && container.data && !shape ? (
           <div className="alert alert-warning" role="note">
             <p>{container.data.hrid} has no positions: choose a box.</p>
           </div>
         ) : null}
-        {container.data && shape ? (
-          <div className="putaway">
-            <div className="putaway-map">
-              <BoxMap
-                label={`${stepName(container.data)}’s positions, with where each goes`}
-                shape={shape}
-                contents={container.data.contents}
-                findings={marks}
-                showFree
-                compact
-              />
-              <MapLegend />
-            </div>
+        {putting.length ? (
+          <div className={shownBox ? "putaway" : undefined}>
+            {shownBox && shape ? (
+              <div className="putaway-map">
+                <BoxMap
+                  label={`${stepName(shownBox)}’s positions, with where each goes`}
+                  shape={shape}
+                  contents={shownBox.contents}
+                  findings={marks}
+                  showFree
+                  compact
+                />
+                <MapLegend planned />
+              </div>
+            ) : null}
             <div className="table-scroll">
-              <table className="table">
+              <table className="table putaway-plan">
                 <caption>
-                  Where each goes in {stepName(container.data)}: {free.length} free
+                  {shownBox ? boxCaption(shownBox, free.length) : "Where each goes"}
                 </caption>
                 <thead>
                   <tr>
                     <th scope="col">Record</th>
-                    <th scope="col">Position</th>
+                    <th scope="col">Where it goes</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {putting.map((l, i) => (
-                    <tr key={l.id}>
-                      <th scope="row">{lineName(l)}</th>
-                      <td>
-                        <SelectField
-                          label={`Position for ${l.ref?.hrid ?? l.code}`}
-                          compact
-                          value={plan[l.id] ?? ""}
-                          options={[
-                            { value: "", label: "Don’t put it away" },
-                            ...free.map((s) => ({ value: s.label, label: s.label })),
-                          ]}
-                          onChange={(v) => {
-                            setWhere({ ...where, [l.id]: v });
-                          }}
-                          error={errors[`put_away/${String(i)}`]}
-                        />
-                      </td>
-                    </tr>
-                  ))}
+                  {putting.map((l) => {
+                    const d = decided.get(l.id) ?? { kind: "open" };
+                    // A position no other line has chosen; never one taken twice.
+                    const others = new Set(
+                      putting
+                        .filter((o) => o.id !== l.id && !kept.has(o.id))
+                        .map((o) => where[o.id]),
+                    );
+                    const wells = shownBox ? free.filter((s) => !others.has(s.label)) : [];
+                    return (
+                      <tr key={l.id}>
+                        <th scope="row">{lineName(l)}</th>
+                        <td>
+                          <SelectField
+                            label={`Where ${shortName(l)} goes`}
+                            compact
+                            value={d.kind === "put" ? d.position : d.kind === "custody" ? KEEP : ""}
+                            options={[
+                              ...(d.kind === "open" || !shownBox
+                                ? [{ value: "", label: "Not decided" }]
+                                : []),
+                              ...wells.map((s) => ({
+                                value: s.label,
+                                label: `Put away in ${shownBox?.hrid ?? ""}, ${s.label}`,
+                              })),
+                              { value: KEEP, label: "Keep in my custody" },
+                            ]}
+                            onChange={(v) => {
+                              const next = new Set(kept);
+                              if (v === KEEP) next.add(l.id);
+                              else next.delete(l.id);
+                              setKept(next);
+                              const rest = Object.fromEntries(
+                                Object.entries(where).filter(([line]) => line !== l.id),
+                              );
+                              setWhere(v === KEEP ? rest : { ...rest, [l.id]: v });
+                            }}
+                            error={rowErrors.get(l.id)}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -900,19 +1179,31 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         <h2 className="section-title" id="complete-title">
           Complete
         </h2>
-        {completeStale ? <StaleNote changes={completeStale} what="The checklist" /> : null}
-        <ProblemAlert
-          problem={
-            problem && problem.status !== 409 && !Object.keys(errors).length ? problem : undefined
-          }
-        />
-        {problem && Object.keys(errors).length ? (
-          <div className="alert alert-error" role="alert">
-            <p>Check the highlighted lines and fields.</p>
-          </div>
-        ) : null}
+        <div className="complete-feedback" ref={feedback} tabIndex={-1}>
+          {completeStale ? <StaleNote changes={completeStale} what="The checklist" /> : null}
+          {problem ? (
+            <div className="alert alert-error" role="alert">
+              {refusals.length ? (
+                <>
+                  <p>Nothing was completed. Check each of these, then complete it again:</p>
+                  <ul className="complete-refusals">
+                    {refusals.map((r) => (
+                      <li key={r.key}>
+                        {r.about ? <strong className="storage-code">{r.about}: </strong> : null}
+                        {r.detail}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p>{problem.detail}</p>
+              )}
+            </div>
+          ) : null}
+        </div>
         <p>
-          Completing takes custody of what’s received and puts it away, as one change.
+          Completing takes custody of what’s received and puts each away where you chose, as one
+          change.
           {discrepancies
             ? ` The requester is told of ${String(discrepancies)} that didn’t arrive as expected.`
             : ""}
@@ -929,24 +1220,9 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             variant="primary"
             busy={complete.isPending}
             busyText="Completing…"
-            onClick={() => {
-              const reviewed = latest.current;
-              complete.mutate(reviewed, {
-                onSuccess: () => {
-                  setCompleteStale(null);
-                  say(`Received ${receipt.request.hrid}.`);
-                  void client.invalidateQueries({ queryKey: STORAGE });
-                },
-                onError: (error) => {
-                  if (!isStale(error)) return;
-                  // What's to be missing may have changed: it's ticked again once reviewed.
-                  setMissingRest(false);
-                  void refetch(error).then(({ changes }) => {
-                    setCompleteStale(changes);
-                  });
-                },
-              });
-            }}
+            disabled={!ready}
+            describedBy={status ? statusId : undefined}
+            onClick={completeNow}
           >
             Complete receiving
           </Button>
@@ -959,6 +1235,12 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             Cancel this receipt
           </Button>
         </div>
+        {/* Below the buttons: what it's waiting for changes, and never moves them. */}
+        {status ? (
+          <p className="muted complete-status" id={statusId}>
+            {status}
+          </p>
+        ) : null}
       </section>
       {asking ? (
         <FixDialog
@@ -1364,6 +1646,8 @@ function PastReceipts({ receipts }: { receipts: Receipt[] }) {
                             {stepName(l.put_away)}
                             {l.put_away.position ? `, ${l.put_away.position}` : ""}
                           </Link>
+                        ) : l.received_unplaced ? (
+                          "Not put away: kept in custody"
                         ) : (
                           "—"
                         )}

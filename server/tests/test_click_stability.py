@@ -11,8 +11,6 @@ from playwright.sync_api import Browser, Page
 from test_browser import NEXT_FRAMES, playwright  # noqa: F401 - pytest fixture
 from test_browser import browser as detector_browser  # noqa: F401 - pytest fixture
 
-pytestmark = pytest.mark.browser
-
 BUTTONS = """
 <style>
 button { position: absolute; top: 16px; left: 16px; width: 100px; height: 40px; }

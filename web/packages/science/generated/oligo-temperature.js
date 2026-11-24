@@ -25,7 +25,20 @@ function initActiveSegments(imports) {
   base64DecodeToExistingUint8Array(bufferView, 1048576, "wAAvcnVzdGMvMjU0YjU5NjA3ZDQ0MTdlOWRmZmJjMzA3MTM4YWU1Yzg2MjgwZmU0Yy9saWJyYXJ5L3N0ZC9zcmMvdGhyZWFkL2xvY2FsLnJzAGxpYnJhcnkvYWxsb2Mvc3JjL3Jhd192ZWMvbW9kLnJzAC9ydXN0L2RlcHMvZGxtYWxsb2MtMC4yLjExL3NyYy9kbG1hbGxvYy5ycwAAAAIAEABPAAAA1AIAACIAAAACABAATwAAAPUCAAAmAAAAY2FwYWNpdHkgb3ZlcmZsb3cAAABSABAAIAAAABwAAAAFAAAAUmVmQ2VsbCBhbHJlYWR5IG11dGFibHkgYm9ycm93ZWRSZWZDZWxsIGFscmVhZHkgYm9ycm93ZWRhc3NlcnRpb24gZmFpbGVkOiBwc2l6ZSA+PSBzaXplICsgbWluX292ZXJoZWFkAABzABAAKgAAALEEAAAJAAAAYXNzZXJ0aW9uIGZhaWxlZDogcHNpemUgPD0gc2l6ZSArIG1heF9vdmVyaGVhZAAAcwAQACoAAAC3BAAADQ==");
   base64DecodeToExistingUint8Array(bufferView, 1048988, "AQ==");
 }
-function wasm2js_trap() { throw new Error('abort'); }
+
+  var scratchBuffer = new ArrayBuffer(16);
+  var i32ScratchView = new Int32Array(scratchBuffer);
+  var f32ScratchView = new Float32Array(scratchBuffer);
+  var f64ScratchView = new Float64Array(scratchBuffer);
+
+  function wasm2js_scratch_load_i32(index) {
+    return i32ScratchView[index];
+  }
+
+  function wasm2js_scratch_store_f64(value) {
+    f64ScratchView[0] = value;
+  }
+      function wasm2js_trap() { throw new Error('abort'); }
 
   function wasm2js_memory_copy(dest, source, size) {
     // TODO: traps on invalid things
@@ -1350,7 +1363,14 @@ function asmFunc(imports) {
        $5 = $5 + -1.4;
        $1_1 = -33.40393950622679;
       }
-      $2 = ($11_1 * 1.0e3 / ($5 + +($8 - 1 >>> 0) * -.368 * 2.995732273553991 + $1_1) + -273.15) * 10.0;
+      $1_1 = $11_1 * 1.0e3 / ($5 + +($8 - 1 >>> 0) * -.368 * 2.995732273553991 + $1_1) + -273.15;
+      wasm2js_scratch_store_f64(+$1_1);
+      $3_1 = wasm2js_scratch_load_i32(1) | 0;
+      wasm2js_scratch_load_i32(0) | 0;
+      if (($3_1 & 2147483647) >>> 0 > 2146435071) {
+       break block1
+      }
+      $2 = $1_1 * 10.0;
       $1_1 = Math_floor($2);
       $5 = $2 - $1_1;
       if (!($5 < .5)) {
