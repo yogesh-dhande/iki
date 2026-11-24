@@ -1,0 +1,147 @@
+---
+title: Chain actions in a workflow
+description: Run several of your plugin's actions as one, each step taking what earlier steps made or were given, once for each record, when conditions hold and after a person approves.
+audience: build
+order: 140
+reference:
+  - { label: Workflow manifest, href: /reference/plugin-spec/workflow/ }
+  - { label: Action manifest, href: /reference/plugin-spec/action/ }
+---
+
+## What a workflow is
+
+A workflow runs several of your plugin's actions as one. Each step runs an action, by its name in
+your plugin, and each step's run is an ordinary run, with its own inputs, results and record of
+what it read. The plugin template's `store_sample` gives a sample the default storage if it has
+none, then writes its storage location in full:
+
+```yaml
+# workflows/store_sample.yaml
+apiVersion: iki/v1
+kind: Workflow
+name: store_sample
+label: Store a sample
+description: Gives a sample the default storage if it has none, then writes its storage in full.
+inputs:
+  sample: { type: Sample, schema: ">=1" }
+steps:
+  assign:
+    action: assign_storage
+    inputs: { sample: $inputs.sample }
+  decode:
+    action: decode_storage
+    inputs: { sample: $steps.assign.inputs.sample }
+```
+
+A workflow's [`inputs`](/reference/plugin-spec/workflow/#inputs) and
+[`params`](/reference/plugin-spec/workflow/#params) are declared as an action's are. Its
+[`name`](/reference/plugin-spec/workflow/#name) is in snake case, and in full it's your plugin's:
+`acme/example.store_sample`.
+
+## Where a step's inputs come from
+
+Each of a step's [`inputs`](/reference/plugin-spec/workflow/#steps.inputs) names where its records
+come from:
+
+- the workflow's input: `$inputs.<name>`
+- the records a step created of a type: `$steps.<id>.created.<Type>`
+- what a step was given: `$steps.<id>.inputs.<name>`, as `decode` takes the sample `assign` was
+  given
+
+A step's [`params`](/reference/plugin-spec/workflow/#steps.params) take a value, or the workflow's
+param, `$params.<name>`. A value that starts with `$` is written `$$`. Params left out take their
+defaults.
+
+## When a step starts
+
+A step starts once the steps it takes from, and those it
+[`needs`](/reference/plugin-spec/workflow/#steps.needs), have succeeded. `decode` takes from
+`assign`, so it runs after `assign` has written the sample's storage. Steps that don't wait for
+each other run side by side. No step may come before itself.
+
+## A step for each record
+
+A step with [`each: <input>`](/reference/plugin-spec/workflow/#steps.each) runs once for each
+record its source gives that input, as a batch of up to 1,000 runs, and succeeds once every run
+has. What it then created, and what it was given for that input, are many: a later step takes
+them all where its input takes many, or runs once for each of them in turn. A plugin with an
+import that creates many samples could store each one:
+
+```yaml
+steps:
+  import:
+    action: import_samples # creates many samples
+    params: { file: $params.file }
+  assign:
+    action: assign_storage # takes one sample
+    each: sample
+    inputs: { sample: $steps.import.created.Sample }
+```
+
+## Steps that run only when conditions hold
+
+A step with [`when`](/reference/plugin-spec/workflow/#steps.when) runs only if all its conditions
+hold, checked once the steps it starts after have succeeded. Each compares a
+[`value`](/reference/plugin-spec/workflow/#steps.when.value) with one of `is`, `is_not`, `in` (a
+list), `at_least`, `at_most`, `above` or `below`:
+
+- The value is the workflow's param, `$params.<name>`, or a number a step's run reported,
+  `$steps.<id>.metrics.<name>`, from a step that runs once. The metric is one its action declares
+  under [`metrics`](/reference/plugin-spec/action/#metrics).
+- What it's compared with is a value, or the workflow's param.
+
+A plugin that imports the LIMS's samples, then writes Iki's IDs back to the LIMS only when the
+import found any, reads the import's `records` metric:
+
+```yaml
+steps:
+  import:
+    action: import_from_lims # creates many samples, and reports `records`
+  send:
+    action: send_to_lims # takes many samples
+    inputs: { samples: $steps.import.created.Sample }
+    when:
+      - { value: $steps.import.metrics.records, above: 0 }
+```
+
+A step whose conditions don't hold is skipped, and so is every step that starts after it; the
+workflow still succeeds. A param left unset holds no condition. A metric its run didn't report
+fails the step, since whether it should have run isn't known.
+
+## Steps a person approves
+
+A step with [`approval`](/reference/plugin-spec/workflow/#steps.approval) waits, once its turn
+comes and its conditions hold, for a person to approve it in the web app: someone with its
+[`role`](/reference/plugin-spec/workflow/#steps.approval.role) in the project, other than whoever
+started the workflow.
+
+```yaml
+steps:
+  decode:
+    action: decode_storage
+    inputs: { sample: $steps.assign.inputs.sample }
+    approval:
+      role: admin
+      instructions: Check the sample's storage before its location is written in full.
+```
+
+- The role is a project role (`viewer`, `editor` by default, `runner` or `admin`), meaning that
+  role or above, or a lab role (`qa`, or another plugin's in full), meaning someone who holds it.
+  Being a project's Admin doesn't give a lab role.
+- The approver is told, and sees the
+  [`instructions`](/reference/plugin-spec/workflow/#steps.approval.instructions) where they
+  decide.
+- Approving starts the step as whoever started the workflow. Declining it, with a reason, fails
+  the workflow, as does nobody deciding within 30 days.
+
+## What the build checks
+
+The build checks each step against its action:
+
+- every input the action needs comes from somewhere, of a type it takes, and an input that takes
+  one record isn't given something that can be many
+- every required param is given and each value fits, and a workflow param given to a step's param
+  takes no value the step's doesn't
+- a condition reads a metric its step's action declares, and compares it, or a param, with a
+  value of its type or a param of the same type; the ordering comparisons take numbers
+- no step comes before itself
