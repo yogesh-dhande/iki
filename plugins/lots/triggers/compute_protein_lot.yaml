@@ -22,4 +22,16 @@ on: entity.updated
 type: ProteinLot
 fields:
   [a280, path_length, dilution_factor, extinction_coefficient, cysteines, concentration_method]
+watch_included:
+  protein:
+    [
+      molecular_weight,
+      extinction_coefficient_reduced,
+      extinction_coefficient_oxidized,
+      bonds,
+      bond_map,
+      part_disulfides,
+      part_bonds_complete,
+      molecular_formula,
+    ]
 run: compute_protein_lot

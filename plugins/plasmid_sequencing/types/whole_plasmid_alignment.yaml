@@ -9,7 +9,7 @@ kind: EntityType
 name: WholePlasmidAlignment
 label: Whole-plasmid alignment
 label_plural: Whole-plasmid alignments
-schema_version: 4
+schema_version: 5
 extends: iki/core.Alignment
 hrid: { prefix: WPA }
 description: >-
@@ -123,6 +123,7 @@ fields:
       additionalProperties: false
       required: [bin_size, mean, min]
       properties:
+        low_count: { type: integer, minimum: 0 }
         bin_size: { type: integer, minimum: 1 }
         mean: { type: array, maxItems: 400, items: { type: number, minimum: 0 } }
         min: { type: array, maxItems: 400, items: { type: integer, minimum: 0 } }

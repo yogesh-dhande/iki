@@ -258,6 +258,48 @@ def historical_reference(pk: uuid.UUID, revision: int | None) -> dict[str, Any] 
     return _neighbor(saved.entity, values_at(saved.entity, revision))
 
 
+def evaluate_pinned(
+    variables: dict[str, Any],
+    expressions: Sequence[tuple[str, str]],
+    contexts: Sequence[dict[str, Any]],
+    pins: tuple[tuple[str, str], ...],
+) -> list[list[spec_rules.Outcome]]:
+    """Keep a pinned subtype's fields available to explicit CEL dyn() reads.
+
+    The manifest checks ordinary field access against the declared reference type. The
+    interpreter also uses that schema to project its inputs. Give each distinct pinned
+    shape its own projection so a sibling's field stays absent, even in a bulk import.
+    """
+    if not pins:
+        return spec_rules.evaluate(variables, expressions, contexts)
+    record = variables["record"]
+    fields = record["fields"]
+    groups: dict[tuple[tuple[str, tuple[str, ...]], ...], list[int]] = {}
+    for index, context in enumerate(contexts):
+        extras = []
+        for name, _ in pins:
+            evidence = context["record"].get(name)
+            declared = fields.get(name, {}).get("fields")
+            if declared is not None and isinstance(evidence, dict):
+                additional = evidence.keys() - declared.keys()
+                if additional:
+                    extras.append((name, tuple(sorted(additional))))
+        groups.setdefault(tuple(extras), []).append(index)
+
+    outcomes: list[list[spec_rules.Outcome]] = [[] for _ in contexts]
+    for extra_fields, indices in groups.items():
+        projected = dict(fields)
+        for name, additional in extra_fields:
+            reference = fields[name]
+            extra = {key: {"type": "dyn"} for key in additional}
+            projected[name] = reference | {"fields": reference["fields"] | extra}
+        schema = variables | {"record": record | {"fields": projected}}
+        batch = spec_rules.evaluate(schema, expressions, [contexts[index] for index in indices])
+        for index, found in zip(indices, batch, strict=True):
+            outcomes[index] = found
+    return outcomes
+
+
 def record_json(
     form: Shape,
     values: Callable[[str], Any],
@@ -413,7 +455,7 @@ def _evaluate_checks(
             invalid_pins.append(invalid)
             contexts.append({"record": record, **times})
             missing.append(unread(form, s.values, reads, referenced))
-    results = spec_rules.evaluate(record_variables(type_name), expressions, contexts)
+    results = evaluate_pinned(record_variables(type_name), expressions, contexts, pins)
     out: list[list[Broken]] = []
     for outcomes, rules_here, gone, invalid in zip(
         results, applying, missing, invalid_pins, strict=True

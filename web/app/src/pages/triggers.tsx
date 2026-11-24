@@ -26,6 +26,7 @@ import {
   ProblemAlert,
   RelativeTime,
   SelectField,
+  TextField,
   useMessages,
 } from "../ui";
 import { listed } from "../views";
@@ -156,6 +157,8 @@ export function ProjectTriggers() {
 }
 
 function stateLine(trigger: ProjectTrigger) {
+  if (trigger.enabled && trigger.recheck)
+    return <>On, running for each editor with their existing permissions</>;
   if (trigger.enabled && trigger.enabled_by) {
     return (
       <>
@@ -181,7 +184,8 @@ function stateLine(trigger: ProjectTrigger) {
   if (trigger.disabled_at && trigger.disabled_reason) {
     return (
       <>
-        Iki turned it off <RelativeTime value={trigger.disabled_at} />: {trigger.disabled_reason}
+        {trigger.disabled_by?.name ?? "Iki"} turned it off{" "}
+        <RelativeTime value={trigger.disabled_at} />: {trigger.disabled_reason}
       </>
     );
   }
@@ -206,6 +210,7 @@ function TriggerRow({
 }) {
   const [asking, setAsking] = useState<"enable" | "disable" | null>(null);
   const scheduled = trigger.on === "schedule";
+  const [reason, setReason] = useState("");
   const [runAs, setRunAs] = useState(trigger.run_as?.id ?? trigger.run_as_choices[0]?.id ?? "");
   const { say } = useMessages();
   const change = useApiMutation(
@@ -217,13 +222,17 @@ function TriggerRow({
               params,
               body: scheduled ? { run_as: runAs } : {},
             })
-          : await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/disable", { params }),
+          : await iki.POST("/api/v1/projects/{project_id}/triggers/{name}/disable", {
+              params,
+              body: { reason },
+            }),
       );
     },
     [RUNS],
   );
   const close = () => {
     setAsking(null);
+    setReason("");
     change.reset();
   };
   const onAsSomeoneElse = trigger.enabled && trigger.can.enable;
@@ -303,13 +312,17 @@ function TriggerRow({
               say(
                 scheduled
                   ? `“${trigger.label}” is on, and runs as ${account?.name ?? "the service account"}.`
-                  : `“${trigger.label}” is on, and runs as you.`,
+                  : trigger.recheck
+                    ? `“${trigger.label}” is on for each editor.`
+                    : `“${trigger.label}” is on, and runs as you.`,
               );
             },
           });
         }}
       >
-        {scheduled ? (
+        {trigger.recheck ? (
+          <p>Each edit queues a recheck with the editor’s existing permissions.</p>
+        ) : scheduled ? (
           <>
             <p>
               Each time <code>{trigger.schedule}</code> ({trigger.timezone}) comes round, a run of{" "}
@@ -347,16 +360,19 @@ function TriggerRow({
             still applies.
           </p>
         )}
-        <p>
-          If {scheduled ? "you or the service account lose" : "you lose"} the role to run it here,
-          Iki turns it off and tells the project’s Admins.
-        </p>
+        {!trigger.recheck && (
+          <p>
+            If {scheduled ? "you or the service account lose" : "you lose"} the role to run it here,
+            Iki turns it off and tells the project’s Admins.
+          </p>
+        )}
       </ConfirmDialog>
       <ConfirmDialog
         isOpen={asking === "disable"}
         title={`Turn off “${trigger.label}”?`}
         confirmLabel="Turn off"
         cancelLabel="Keep it on"
+        confirmDisabled={trigger.recheck && !reason.trim()}
         busy={change.isPending}
         problem={change.error ? problemOf(change.error) : undefined}
         onCancel={close}
@@ -369,6 +385,19 @@ function TriggerRow({
           });
         }}
       >
+        {trigger.recheck && (
+          <>
+            <p>
+              Edits still invalidate the verification immediately. The audit records your reason.
+            </p>
+            <TextField
+              label="Reason for turning off automatic re-verification"
+              value={reason}
+              onChange={setReason}
+              maxLength={2000}
+            />
+          </>
+        )}
         <p>
           {scheduled ? "Its schedule stops" : "Changes from now on start nothing"}. Runs it already
           started carry on, and an Admin can turn it on again.

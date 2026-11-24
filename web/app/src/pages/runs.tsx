@@ -967,7 +967,7 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
           ) : (
             "; its first"
           )}
-          . It runs as {run.requested_by.name} on {trigger.enabled_by.name}’s authority, who turned
+          . It runs as {run.requested_by.name} on {trigger.enabled_by?.name}’s authority, who turned
           the trigger on.
         </dd>
       </>
@@ -984,7 +984,8 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
         </Link>{" "}
         {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
         <span className="muted">(revision {trigger.revision})</span>. It runs as{" "}
-        {run.requested_by.name}, who turned the trigger on.
+        {run.requested_by.name}
+        {trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}
       </dd>
     </>
   );

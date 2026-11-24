@@ -31,8 +31,9 @@ from iki_server.audit import log as audit
 from iki_server.audit.models import Via
 from iki_server.entities import registry, search
 from iki_server.entities.models import Entity, Revision, RevisionKind
-from iki_server.entities.values import Invalid
+from iki_server.entities.values import Invalid, subtypes
 from iki_server.graph import queries
+from iki_server.graph.models import Edge, EdgeKind
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org import permissions
@@ -44,6 +45,7 @@ from iki_server.runs.models import (
     ActionRun,
     FiringState,
     ProjectTrigger,
+    Recalculation,
     RunStatus,
     TriggerFiring,
 )
@@ -60,8 +62,11 @@ __all__ = [
     "label",
     "next_run",
     "noticed",
+    "recheck_edit",
+    "rechecks",
     "recover",
     "run_as_choices",
+    "source_changed",
     "tick",
     "trigger",
     "triggers",
@@ -145,6 +150,7 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
         for row in on
         for name, changed in events
         if (spec := installed.get(row.trigger)) is not None
+        and not spec.recheck
         and _fires(spec, name, entity.type, changed)
     ]
     if not made:
@@ -155,6 +161,97 @@ def noticed(entity: Entity, revision: Revision, *, registered: Revision | None =
     for firing in made:
         fire_trigger.enqueue(str(firing.pk))
     return len(made)
+
+
+def rechecks(entity_type: str, changed: set[str]) -> list[tuple[Trigger, tuple[str, ...]]]:
+    """The proofs invalidated by an actual edit, independently of project settings."""
+    found = []
+    for spec in triggers().values():
+        if spec.recheck and _fires(spec, "entity.updated", entity_type, list(changed)):
+            action = catalog.action(f"{spec.plugin}.{spec.run}")
+            if action is not None:
+                found.append((spec, tuple(n for u in action.updates for n in u.fields)))
+    return found
+
+
+def recheck_edit(user: User, entity: Entity, revision: Revision, spec: Trigger) -> str:
+    """Pin inputs and queue under the editing credential while its limits are in scope."""
+    run = _writing.get()
+    if entity.owner_project_id is None or (run is not None and run.via == Via.TRIGGER):
+        return ""
+    row, _ = ProjectTrigger.objects.select_for_update().get_or_create(
+        project_id=entity.owner_project_id,
+        trigger=spec.qualified_name,
+        defaults={"enabled_at": timezone.now()},
+    )
+    if not row.enabled:
+        return ""
+    firing = TriggerFiring.objects.create(
+        trigger=row, entity=entity, revision=revision.number, event=spec.on, editor=user
+    )
+    _fire(firing, editor=user)
+    return firing.error["message"] if firing.error else ""
+
+
+def source_changed(parent: Entity, revision: Revision) -> None:
+    """Queue dependent calculations for the projects that enabled them.
+
+    Registry facts are shared. A project-record change, such as a complex's bond
+    assignment, affects only records in that project. A triggered calculation can
+    propagate newly filled registry values, which are write-once.
+    """
+    if revision.kind not in (RevisionKind.EDITED, RevisionKind.CURATED):
+        return
+    run = _writing.get()
+    may_fire = run is None or run.via != Via.TRIGGER or parent.registry_id is not None
+    changed = set(revision.changed_fields)
+    for spec in triggers().values():
+        refs = [ref for ref, fields in spec.watch_included.items() if changed.intersection(fields)]
+        if not refs:
+            continue
+        targets = Edge.objects.filter(
+            kind=EdgeKind.REFERENCE, on_id__in=[parent.pk, parent.entry_id], field__in=refs
+        ).values("node_id")
+        records = Entity.objects.filter(
+            Q(pk__in=targets) | Q(entry_id__in=targets),
+            type__in=subtypes(spec.type),
+            owner_project_id__isnull=False,
+            archived_at__isnull=True,
+            purged_at__isnull=True,
+        )
+        if parent.registry_id is None:
+            records = records.filter(owner_project_id=parent.owner_project_id)
+        records_list = list(records.order_by("pk"))
+        if not records_list:
+            continue
+        action = f"{spec.plugin}.{spec.run}"
+        Recalculation.objects.bulk_create(
+            [Recalculation(entity=r, action=action) for r in records_list],
+            ignore_conflicts=True,
+        )
+        if not may_fire:
+            continue
+        rows = {
+            r.project_id: r
+            for r in ProjectTrigger.objects.filter(
+                trigger=spec.qualified_name,
+                enabled=True,
+                project_id__in={r.owner_project_id for r in records_list},
+            )
+        }
+        from iki_server.runs.tasks import fire_trigger
+
+        for record in records_list:
+            assert record.owner_project_id is not None  # noqa: S101 - selected project records
+            row = rows.get(record.owner_project_id)
+            if row is not None and not record.locked_by:
+                firing = TriggerFiring.objects.create(
+                    trigger=row,
+                    entity=record,
+                    revision=record.revision,
+                    event="entity.updated",
+                )
+                fire_trigger.enqueue(str(firing.pk))
 
 
 def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> bool:
@@ -186,7 +283,7 @@ def fire(firing_id: str) -> str:
         return firing.state
 
 
-def _fire(firing: TriggerFiring) -> None:
+def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
     row = firing.trigger
     spec = trigger(row.trigger)
     if not row.enabled:
@@ -211,6 +308,10 @@ def _fire(firing: TriggerFiring) -> None:
     if action is None:
         _end(firing, FiringState.FAILED, "not_installed", f"`{spec.run}` is no longer installed.")
         return
+    authority = editor or row.enabled_by
+    if authority is None or (spec.recheck and editor is None):
+        _end(firing, FiringState.FAILED, "not_allowed", "The editing credential is unavailable.")
+        return
     project = row.project
     params = {name: literal(value) for name, value in spec.params.items()}
     inputs: dict[str, list[UUID]] = {}
@@ -219,7 +320,7 @@ def _fire(firing: TriggerFiring) -> None:
             inputs[spec.input] = [firing.entity.pk]
             if spec.related:
                 # What they read is theirs to give it: first, that they still may.
-                services.may_launch(row.enabled_by, action, project)
+                services.may_launch(authority, action, project)
                 found = _related(firing, spec, action)
                 if found is None:
                     return
@@ -233,7 +334,7 @@ def _fire(firing: TriggerFiring) -> None:
                 assert row.run_as is not None and firing.scheduled_for is not None  # noqa: S101
                 user = row.run_as
                 # Its authority is the Admin's: they must still be able to run it too.
-                services.may_launch(row.enabled_by, action, project)
+                services.may_launch(authority, action, project)
                 when = firing.scheduled_for.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
                 run = services.launch(
                     user,
@@ -246,7 +347,7 @@ def _fire(firing: TriggerFiring) -> None:
                     reuse_results=False,
                 )
             else:
-                user = row.enabled_by
+                user = authority
                 did = {
                     "entity.created": "was created",
                     "entity.registered": "was registered",
@@ -262,9 +363,18 @@ def _fire(firing: TriggerFiring) -> None:
                     project,
                     inputs,
                     params,
+                    reuse_results=not bool(editor),
                     reason=f"Trigger “{spec.label}”: {firing.entity.hrid} {did}.{given}",
                 )
     except PermissionDenied:
+        if editor is not None:
+            _end(
+                firing,
+                FiringState.FAILED,
+                "not_allowed",
+                f"{editor.name} cannot run {action.label} in {project.name}.",
+            )
+            return
         message = _not_allowed(row, action, project)
         _end(firing, FiringState.FAILED, "not_allowed", message)
         _turn_off(row, spec, message)
@@ -290,6 +400,7 @@ def _related(firing: TriggerFiring, spec: Trigger, action: Action) -> dict[str, 
     has ended, with why."""
     assert firing.entity is not None  # noqa: S101 - only an entity's firing has related
     row = firing.trigger
+    assert row.enabled_by is not None  # noqa: S101 - related triggers require an Admin
     out: dict[str, list[UUID]] = {}
     for name, how in sorted(spec.related.items()):
         put = action.inputs[name]  # the spec's checks make sure
@@ -369,7 +480,7 @@ def _turn_off(row: ProjectTrigger, spec: Trigger, why: str) -> None:
     )
     admins = permissions.members_with(row.project, ProjectRole.ADMIN)
     notify(
-        [*admins.exclude(pk=row.enabled_by_id), row.enabled_by],
+        [*admins.exclude(pk=row.enabled_by_id), *([row.enabled_by] if row.enabled_by else [])],
         kinds.TRIGGER_TURNED_OFF,
         title=f"“{spec.label}” was turned off in {row.project.name}",
         body=f"{why} An Admin who can run it can turn it on again; its runs are then theirs.",
@@ -460,6 +571,8 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
     """Why `user` can't turn the trigger on in the project, or None if they can."""
     if not permissions.can(user, permissions.Action.PROJECT_TRIGGERS_MANAGE, project):
         return "Only the project's Admins can turn its triggers on."
+    if spec.recheck:
+        return None
     action = catalog.action(f"{spec.plugin}.{spec.run}")
     if action is None:
         return f"`{spec.run}` is no longer installed."
@@ -559,20 +672,29 @@ def enable(
     return row
 
 
-def disable(user: User, project: Project, name: str) -> ProjectTrigger | None:
+def disable(user: User, project: Project, name: str, *, reason: str = "") -> ProjectTrigger | None:
     """Turns the trigger off in the project. Raises :class:`PermissionDenied` for anyone but
     the project's Admins. Returns None if it was never turned on."""
     permissions.require(user, permissions.Action.PROJECT_TRIGGERS_MANAGE, project)
+    spec = trigger(name)
+    reason = reason.strip()
+    if spec and spec.recheck and not reason:
+        raise Refused("Give a reason for turning off automatic re-verification.")
     with transaction.atomic():
-        row = (
-            ProjectTrigger.objects.select_for_update().filter(project=project, trigger=name).first()
-        )
+        rows = ProjectTrigger.objects.select_for_update()
+        row: ProjectTrigger | None
+        if spec and spec.recheck:
+            row, _ = rows.get_or_create(
+                project=project, trigger=name, defaults={"enabled_at": timezone.now()}
+            )
+        else:
+            row = rows.filter(project=project, trigger=name).first()
         if row is None or not row.enabled:
             return row
         row.enabled = False
         row.disabled_by = user
         row.disabled_at = timezone.now()
-        row.disabled_reason = ""
+        row.disabled_reason = reason
         row.next_run_at = None
         row.save(
             update_fields=[
@@ -584,7 +706,11 @@ def disable(user: User, project: Project, name: str) -> ProjectTrigger | None:
             ]
         )
         audit.record(
-            "trigger.disabled", actor=user, target=row, project=project, data={"trigger": name}
+            "trigger.disabled",
+            actor=user,
+            target=row,
+            project=project,
+            data={"trigger": name, **({"reason": reason} if reason else {})},
         )
     return row
 
@@ -603,7 +729,7 @@ def firings(project: Project) -> QuerySet[TriggerFiring]:
     """The project's firings, newest first."""
     return (
         TriggerFiring.objects.filter(trigger__project=project)
-        .select_related("trigger", "entity", "run")
+        .select_related("trigger", "entity", "run", "editor")
         .order_by("-id")
     )
 

@@ -557,7 +557,8 @@ class TriggerFiredOut(TriggerRefOut):
         description="On a schedule: the time the last run that succeeded was for, which its "
         "command carries on from. Null for the first."
     )
-    enabled_by: PersonRef = Field(
+    editor: PersonRef | None = None
+    enabled_by: PersonRef | None = Field(
         description="The Admin who turned the trigger on: on whose authority it ran. On a "
         "schedule, requested_by is the service account it runs as."
     )
@@ -1029,10 +1030,11 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "scheduled_for": f.scheduled_for,
             "since": f.since,
             "enabled_by": f.trigger.enabled_by,
+            "editor": f.editor,
         }
         for f in TriggerFiring.objects.filter(
             run__in=[r for r in runs if r.via == Via.TRIGGER]
-        ).select_related("trigger__enabled_by")
+        ).select_related("trigger__enabled_by", "editor")
     }
     projects.update({r.project_id: r.project for r in refs.values()})
     consents = {

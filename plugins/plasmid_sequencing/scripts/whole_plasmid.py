@@ -1110,7 +1110,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     ][:200]
     uncalled = [k for k in range(size) if comparison.aligned[k] in ("N", ".")]
     low = [k for k in range(size) if depths[k] < min_depth] if source == "reads" else uncalled
-    low_regions = [{"start": a + 1, "end": b + 1} for a, b in regions(low, size, circular)][:200]
+    low_ranges = regions(low, size, circular)
+    low_regions = [{"start": a + 1, "end": b + 1} for a, b in low_ranges[:200]]
 
     gapped_ref, gapped_con = [], []
     for k in range(size):
@@ -1193,6 +1194,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             if source == "reads"
             else (f"The consensus doesn't reach {spans(low_regions[:40])}.")
         )
+        if len(low_ranges) > 40:
+            text = f"Showing 40 of {len(low_ranges)} stretches. Full coverage: coverage.tsv. {text}"
         messages.append({"level": "warning", "text": text[:MAX_TEXT]})
 
     entity: dict[str, Any] = {
@@ -1213,7 +1216,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "topology": "circular" if circular else "linear",
         "called_percent": called_percent,
         "min_depth": min_depth,
-        "coverage": bins(depths),
+        "coverage": {**bins(depths), "low_count": len(low_ranges)},
         "low_coverage": low_regions,
         "differences": listed,
         "consensus_length": len(comparison.oriented),

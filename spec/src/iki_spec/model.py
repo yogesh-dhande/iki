@@ -1461,6 +1461,8 @@ class Trigger:
     file: str | None = None
     #: Inputs given the entities related to the one that fired it, by input (ADR 0123).
     related: dict[str, Related] = field(default_factory=dict)
+    recheck: str = ""
+    watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1824,6 +1826,10 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "fields": tuple(v["fields"]),
                         "state_field": v.get("state_field", ""),
                         "states": tuple(v.get("states", ())),
+                        "watch_included": {
+                            n: tuple(fields)
+                            for n, fields in (v.get("watch_included") or {}).items()
+                        },
                         # ...or related entities.
                         "related": {
                             n: Related(**{**r, "edges": tuple(r["edges"])})

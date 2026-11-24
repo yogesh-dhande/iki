@@ -50,6 +50,8 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         input=body.get("input") or "",
         params=dict(body.get("params") or {}),
         file=document.file,
+        recheck=body.get("recheck", ""),
+        watch_included={k: tuple(v) for k, v in (body.get("watch_included") or {}).items()},
         related={
             name: Related(
                 direction=r["direction"],
@@ -160,6 +162,51 @@ class _Rules:
         else:
             given = self.given(trigger, action, source)
         self.related(trigger, action, given, source)
+        if trigger.watch_included and (
+            not given or set(trigger.watch_included) - set(action.inputs[given].include)
+        ):
+            self.add(
+                "trigger-reference",
+                "Watch only references included by the action's input.",
+                source,
+                ("watch_included",),
+            )
+        if trigger.recheck:
+            outputs = {n for update in action.updates for n in update.fields}
+            target = self.s.types.get(trigger.type)
+            fields = self.s.all_fields(target) if target else {}
+            if (
+                trigger.on != "entity.updated"
+                or not trigger.fields
+                or not given
+                or action.tier != "backend"
+                or not action.deterministic
+                or action.creates
+                or action.apis
+                or action.network
+                or action.secrets
+                or trigger.related
+                or any(update.input != given for update in action.updates)
+                or trigger.recheck not in outputs
+                or any(
+                    n not in fields
+                    or not fields[n][0].computed
+                    or fields[n][0].required
+                    or fields[n][0].immutable
+                    or fields[n][0].registry
+                    for n in outputs
+                )
+                or trigger.recheck not in fields
+                or fields[trigger.recheck][0].type != "text"
+            ):
+                self.add(
+                    "trigger-recheck",
+                    "A recheck watches an edit and runs a deterministic "
+                    "backend calculation updating only optional, computed fields of the edited "
+                    "record, including its text status.",
+                    source,
+                    ("recheck",),
+                )
         if given:
             for name, put in action.inputs.items():
                 if name != given and name not in trigger.related and not put.optional:

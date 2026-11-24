@@ -210,12 +210,42 @@ describe("plasmid map with sequencing evidence", () => {
     );
   });
 
+  it("reports measured gaps when their coordinates are missing", () => {
+    for (const low of [undefined, []]) {
+      const map = document.createElement("iki-plasmid-map");
+      map.data = { ...evidence, coverage: { ...evidence.coverage, low } };
+      document.body.append(map);
+      expect(map.shadowRoot?.querySelector("p")?.textContent).not.toContain("every base at");
+      expect(
+        map.shadowRoot?.querySelector('[aria-label="Read depth"] table')?.textContent,
+      ).toContain("interval details unavailable");
+    }
+  });
+
+  it("identifies partial interval coordinates in its description and table", () => {
+    const map = document.createElement("iki-plasmid-map");
+    map.data = { ...evidence, coverage: { ...evidence.coverage, low_count: 202 } };
+    document.body.append(map);
+    for (const selector of ["p", '[aria-label="Read depth"] table']) {
+      expect(map.shadowRoot?.querySelector(selector)?.textContent).toContain(
+        "showing 1 of 202 intervals; see coverage.tsv for all",
+      );
+    }
+  });
+
   it("says when every base is deep enough and nothing differs", () => {
     const map = document.createElement("iki-plasmid-map");
     map.data = {
       ...evidence,
       parts: { items: [], own: true },
-      coverage: { ...evidence.coverage, low: [] },
+      coverage: {
+        ...evidence.coverage,
+        mean: [30, 15],
+        min: [25, 10],
+        meanDepth: 22.5,
+        leastDepth: 10,
+        low: [],
+      },
       differences: { items: [] },
     };
     document.body.append(map);

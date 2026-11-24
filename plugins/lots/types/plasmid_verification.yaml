@@ -4,7 +4,7 @@ kind: EntityType
 name: PlasmidVerification
 label: Plasmid verification
 label_plural: Plasmid verifications
-schema_version: 3
+schema_version: 4
 hrid: { prefix: VER }
 description: >-
   An assessment of evidence from one physical plasmid prep against its registered plasmid.
@@ -209,9 +209,13 @@ rules:
   explain_alignment_override:
     label: A match that overrides the alignment needs a reason
     reference_revisions: { alignment: alignment_revision }
+    recheck_before_signing: true
+    # Before core Alignment had a verdict, whole-plasmid results kept it in agreement.
     when: >-
       record.alignment != null && record.outcome == "match" &&
-      record.alignment.verdict != null && record.alignment.verdict in ["differs", "incomplete"]
+      (record.alignment.verdict in ["differs", "incomplete"] ||
+       (record.alignment.verdict == null && "agreement" in dyn(record.alignment) &&
+        dyn(record.alignment).agreement in ["differs", "incomplete"]))
     check: record.override_reason != null
     message: Give a reason to record a match over differing or incomplete evidence.
     fields: [outcome, override_reason]

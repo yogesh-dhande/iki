@@ -549,6 +549,9 @@ function middle(parts, name, length, count, own = false) {
 		parts.append(line);
 	}
 }
+function tableHead(...labels) {
+	return element("thead", {}, element("tr", {}, ...labels.map((label) => element("th", { scope: "col" }, label))));
+}
 function table(features, length, own = false) {
 	const rows = features.map((feature) => {
 		const where = feature.end >= feature.start ? `${feature.start.toLocaleString("en")}–${feature.end.toLocaleString("en")}` : `${feature.start.toLocaleString("en")}–${length.toLocaleString("en")}, 1–${feature.end.toLocaleString("en")}`;
@@ -556,7 +559,7 @@ function table(features, length, own = false) {
 		swatch.style.background = colourOf(feature.qualifiers?.role);
 		return element("tr", {}, element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name), element("td", { className: "where" }, where), element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`), element("td", {}, strandWord(feature.strand)), element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type), ...own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]);
 	});
-	return element("table", {}, element("caption", {}, own ? "Its features" : "Parts found along it"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, own ? "Feature" : "Part"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Length"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "What it is"), ...own ? [] : [element("th", { scope: "col" }, "Matched")])), element("tbody", {}, ...rows));
+	return element("table", {}, element("caption", {}, own ? "Its features" : "Parts found along it"), tableHead(own ? "Feature" : "Part", "Bases", "Length", "Strand", "What it is", ...own ? [] : ["Matched"]), element("tbody", {}, ...rows));
 }
 /** Where something lies, as the table writes it: two stretches where it crosses the
 * origin of a circle, which is where the line's drawing cuts it. */
@@ -580,7 +583,7 @@ function orfTable(orfs, length) {
 			className: "where"
 		}, swatch, whereOf(orf, length)), element("td", {}, frameOf(orf)), element("td", {}, orf.strand === "reverse" ? "reverse" : "forward"), element("td", { className: "where" }, `${orf.length.toLocaleString("en")} bp`), element("td", { className: "where" }, `${orf.amino_acids.toLocaleString("en")} aa`), element("td", {}, orf.start_codon ?? ""), element("td", { className: "protein" }, orf.translation ?? ""));
 	});
-	return element("table", {}, element("caption", {}, "Open reading frames"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Frame"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "Length"), element("th", { scope: "col" }, "Protein"), element("th", { scope: "col" }, "Start"), element("th", { scope: "col" }, "Translation"))), element("tbody", {}, ...rows));
+	return element("table", {}, element("caption", {}, "Open reading frames"), tableHead("Bases", "Frame", "Strand", "Length", "Protein", "Start", "Translation"), element("tbody", {}, ...rows));
 }
 /** How a site's mismatches read: each with how far it is from the primer's 3' end, since
 * that is what decides whether a polymerase extends there. */
@@ -609,7 +612,7 @@ function siteTable(sites, length, primers, open) {
 		} else named = element("span", {}, `${site.name} (${site.primer})`);
 		return element("tr", {}, element("th", { scope: "row" }, swatch, named), element("td", { className: "where" }, whereOf(site, length)), element("td", {}, site.strand === "reverse" ? "reverse" : "forward"), element("td", { className: "where" }, site.three_prime.toLocaleString("en")), element("td", { className: "where" }, `${String(site.annealed)} bp`), element("td", { className: "where" }, `${String(site.tail)} bp`), element("td", {}, mismatchesOf(site)), element("td", { className: "where" }, typeof site.melting_temperature === "number" ? `${site.melting_temperature.toFixed(1)} \u00b0C` : "—"));
 	});
-	return element("table", {}, element("caption", {}, "Primer binding sites"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "Primer"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "3′ end"), element("th", { scope: "col" }, "Annealed"), element("th", { scope: "col" }, "5′ tail"), element("th", { scope: "col" }, "Pairing"), element("th", { scope: "col" }, "Tm (50 mM Na⁺)"))), element("tbody", {}, ...rows));
+	return element("table", {}, element("caption", {}, "Primer binding sites"), tableHead("Primer", "Bases", "Strand", "3′ end", "Annealed", "5′ tail", "Pairing", "Tm (50 mM Na⁺)"), element("tbody", {}, ...rows));
 }
 function percentOf(part, whole) {
 	return whole ? `${String(Math.round(100 * part / whole))}%` : "—";
@@ -639,17 +642,31 @@ function differenceTable(differences, length) {
 			className: "hgvs"
 		}, swatch, difference.hgvs), element("td", { className: "where" }, difference.start === difference.end ? difference.start.toLocaleString("en") : whereOf(difference, length)), element("td", {}, changeOf(difference)), element("td", {}, difference.features?.length ? difference.features.join(", ") : "—"), element("td", {}, readsOf(difference)), element("td", { className: "where" }, run > 1 ? `${String(run)} bases` : "—"));
 	});
-	return element("table", {}, element("caption", {}, "Differences from the record"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "HGVS"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Change"), element("th", { scope: "col" }, "In"), element("th", { scope: "col" }, "Reads agreeing"), element("th", { scope: "col" }, "Repeated base"))), element("tbody", {}, ...rows));
+	return element("table", {}, element("caption", {}, "Differences from the record"), tableHead("HGVS", "Bases", "Change", "In", "Reads agreeing", "Repeated base"), element("tbody", {}, ...rows));
+}
+/** Summarize the recorded interval list alongside the minima and the full count. */
+function lowCoverage(coverage, low, length) {
+	const minimum = coverage.minDepth ?? 1;
+	const total = coverage.low_count;
+	if (!low?.length) {
+		if (!low || total || (coverage.leastDepth ?? minimum) < minimum || coverage.min.some((value) => value < minimum)) return "interval details unavailable; see coverage.tsv";
+		return `every base at the minimum depth of ${String(minimum)} or more`;
+	}
+	const places = low.map((span) => whereOf(span, length)).join(", ");
+	let limit = "";
+	if (total !== void 0 && total > low.length) limit = `showing ${String(low.length)} of ${String(total)} intervals`;
+	else if (total === void 0 && low.length === 200) limit = "first 200 intervals";
+	const detail = limit ? ` (${limit}; see coverage.tsv for all)` : "";
+	return `under the minimum depth of ${String(minimum)} at ${places}${detail}`;
 }
 /** The depth of reads in figures, with each stretch under the minimum depth. */
-function coverageTable(coverage, length) {
-	const low = coverage.low ?? [];
+function coverageTable(coverage, under) {
 	const row = (what, value) => element("tr", {}, element("th", { scope: "row" }, what), element("td", {}, value));
 	const rows = [];
 	if (coverage.meanDepth !== void 0) rows.push(row("Mean depth", `${String(coverage.meanDepth)} reads`));
 	if (coverage.leastDepth !== void 0) rows.push(row("Least depth", `${String(coverage.leastDepth)} reads`));
 	if (coverage.minDepth !== void 0) rows.push(row("Called at", `${String(coverage.minDepth)} reads or more`));
-	rows.push(row("Under it", low.length ? low.map((span) => whereOf(span, length)).join("; ") : "none"));
+	rows.push(row("Under it", under));
 	return element("table", {}, element("caption", {}, "Read depth"), element("tbody", {}, ...rows));
 }
 /** The buttons that turn each layer on and off: one for each layer a run has found, each
@@ -699,11 +716,8 @@ function describeOrfs(items) {
 	if (!items.length) return "with no open reading frame found in any of its six frames";
 	return `with ${`${String(items.length)} open reading ${items.length === 1 ? "frame" : "frames"}`}: ${eachOf(items, (i) => `${String(i.amino_acids)} amino acids in frame ${frameOf(i)}`)}`;
 }
-function describeCoverage(coverage, length) {
+function describeCoverage(coverage, under) {
 	const depth = [coverage.meanDepth !== void 0 ? `${String(coverage.meanDepth)} reads deep on average` : "", coverage.leastDepth !== void 0 ? `${String(coverage.leastDepth)} at the least` : ""].filter(Boolean).join(", ");
-	const low = coverage.low ?? [];
-	const minimum = coverage.minDepth ?? 1;
-	const under = low.length ? `under the minimum depth of ${String(minimum)} at ${low.map((span) => whereOf(span, length)).join(", ")}` : `every base at the minimum depth of ${String(minimum)} or more`;
 	return `with the depth of reads drawn along it${depth ? `, ${depth}` : ""}, and ${under}`;
 }
 function describeDifferences(items) {
@@ -807,24 +821,19 @@ var PlasmidMap = class extends HTMLElement {
 		}));
 		const coverage = data.coverage;
 		if (coverage && coverage.bin_size > 0 && coverage.mean.length) {
-			const low = (coverage.low ?? []).filter((item) => onMap(item, length));
+			const low = coverage.low?.filter((item) => onMap(item, length));
+			const under = lowCoverage(coverage, low, length);
 			const shown = !this.#hidden.has("coverage");
 			made.push({
 				key: "coverage",
 				colour: "depth",
 				label: LABELS.coverage,
-				count: low.length,
+				count: coverage.low_count ?? low?.length ?? 0,
 				button: LABELS.coverage,
 				shown,
-				items: shown ? [...low] : [],
-				describe: () => describeCoverage({
-					...coverage,
-					low
-				}, length),
-				table: () => coverageTable({
-					...coverage,
-					low
-				}, length)
+				items: shown ? low ?? [] : [],
+				describe: () => describeCoverage(coverage, under),
+				table: () => coverageTable(coverage, under)
 			});
 		}
 		add("differences", "difference", data.differences, describeDifferences, (items) => differenceTable(items, length));

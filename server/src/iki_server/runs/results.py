@@ -44,6 +44,7 @@ from iki_server.runs.models import (
     EffectKind,
     ExternalOrigin,
     Lineage,
+    Recalculation,
     RunEffect,
     RunInput,
     RunUpload,
@@ -185,10 +186,15 @@ def write(done: Checked) -> dict[str, UUID]:
         triggers.writing(check.run),
         assignments.batch(check.run.requested_by),
     ):
+        verified = _current_calculation_inputs(check)
         _write_updates(check, done.updates)
         made = _write_creates(check, done.creates)
         if check.errors:
             raise InvalidOutput(check.errors)  # rolls back what was written
+        if verified:
+            Recalculation.objects.filter(
+                entity_id__in=verified, action=check.action.qualified_name
+            ).delete()
     return made
 
 
@@ -564,6 +570,37 @@ def add_entry_revision(run: ActionRun, record: Any, made: Revision | None) -> No
         entry_id=made.entity_id,
         entry_revisions=Func(F("entry_revisions"), Value(made.number), function="array_append"),
     )
+
+
+def _current_calculation_inputs(check: Check) -> set[UUID]:
+    """Lock calculation inputs and their evidence through commit. This also protects
+    results from older worker versions that did not request a revision check."""
+    from iki_server.runs import triggers
+
+    names = {
+        t.input
+        for t in triggers.triggers().values()
+        if (t.recheck or t.watch_included)
+        and t.plugin == check.action.plugin
+        and t.run == check.action.name
+    }
+    if not names:
+        return set()
+    pins = {}
+    direct = set()
+    for source in check.run.inputs.filter(name__in=names).select_related("entity"):
+        direct.add(source.entity_id)
+        pins[source.entity_id] = source.revision
+        if source.entity.entry_id and source.entry_revision is not None:
+            pins[source.entity.entry_id] = source.entry_revision
+    for evidence in check.run.inclusions.filter(input__in=names).select_related("entity"):
+        pins[evidence.entity_id] = evidence.revision
+        if evidence.entity.entry_id and evidence.entry_revision is not None:
+            pins[evidence.entity.entry_id] = evidence.entry_revision
+    for entity in Entity.objects.select_for_update(no_key=True).filter(pk__in=pins).order_by("pk"):
+        if entity.revision != pins[entity.pk]:
+            raise Rejected("conflict", f"{entity.hrid} changed after this calculation read it.")
+    return direct
 
 
 def _write_updates(check: Check, updates: list[_Update]) -> None:

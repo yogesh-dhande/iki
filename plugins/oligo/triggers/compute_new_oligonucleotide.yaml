@@ -10,4 +10,6 @@ description: >-
   Runs that compute them only fill in fields, so they never fire it again.
 on: entity.registered
 type: Oligonucleotide
+watch_included:
+  monomers: [smiles, natural_analogue, extinction_260]
 run: compute_oligonucleotide

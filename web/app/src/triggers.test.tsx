@@ -16,6 +16,7 @@ const OFF: Schemas["ProjectTriggerOut"] = {
   label: "Compute each new protein's properties",
   description: null,
   on: "entity.created",
+  recheck: false,
   type: "iki/protein.Protein",
   schedule: "",
   timezone: "",

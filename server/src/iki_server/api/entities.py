@@ -84,7 +84,7 @@ from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.notifications import declared
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, RunEffect
+from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, Recalculation, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
 from iki_server.signatures import models as signing_models
@@ -955,6 +955,10 @@ class AmountOut(Schema):
 
 
 class EntityOut(Schema):
+    needs_recalculation: list[str] = Field(
+        default_factory=list,
+        description="Actions whose referenced inputs changed since this record was calculated.",
+    )
     id: UUID
     hrid: str
     title: str = Field(description="What it's called: its type's display title, or its HRID.")
@@ -1776,6 +1780,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
     held, breaches = _holds_of(user, entities, entries)
+    recalculations: dict[UUID, list[str]] = defaultdict(list)
+    for entity_id, action in (
+        Recalculation.objects.filter(entity__in=entities)
+        .order_by("action")
+        .values_list("entity_id", "action")
+    ):
+        recalculations[entity_id].append(action)
     values = services.current_values_of(entities)
     projects = {
         p.pk: p
@@ -1851,6 +1862,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 if entity.owner_project_id in readers
                 else [],
                 "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "needs_recalculation": recalculations.get(entity.pk, []),
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
                 "request": asked.get(entity.pk),

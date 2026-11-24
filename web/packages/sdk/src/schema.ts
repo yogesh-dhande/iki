@@ -7645,6 +7645,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -7877,6 +7882,14 @@ export interface components {
              * @description Its value in the reproduction's.
              */
             reproduced: unknown;
+        };
+        /** DisableIn */
+        DisableIn: {
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
         };
         /** DraftEntityOut */
         DraftEntityOut: {
@@ -8234,6 +8247,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -9353,6 +9371,7 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            editor?: components["schemas"]["PersonRef"] | null;
             /** @description Whose change fired it; null on a schedule. */
             entity: components["schemas"]["FiredEntityOut"] | null;
             error: components["schemas"]["FiringErrorOut"] | null;
@@ -11369,6 +11388,11 @@ export interface components {
              * @description Who its assignment fields counting in its state name that can't be named there any more (ADR 0122): for those who can read its project, who reassign it.
              */
             needs_reassigning?: components["schemas"]["ReassignOut"][];
+            /**
+             * Needs Recalculation
+             * @description Actions whose referenced inputs changed since this record was calculated.
+             */
+            needs_recalculation?: string[];
             /** @description The project that owns it, and decides its changes. Null if you can't see it. */
             owner_project: components["schemas"]["ProjectRef"] | null;
             /**
@@ -13388,6 +13412,12 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Recheck
+             * @description Recheck an edited record on the editor’s authority.
+             * @default false
+             */
+            recheck: boolean;
             /**
              * Related
              * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
@@ -18224,8 +18254,9 @@ export interface components {
         };
         /** TriggerFiredOut */
         TriggerFiredOut: {
+            editor?: components["schemas"]["PersonRef"] | null;
             /** @description The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as. */
-            enabled_by: components["schemas"]["PersonRef"];
+            enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Entity
              * @description The entity whose change fired it; null on a schedule.
@@ -18307,6 +18338,12 @@ export interface components {
             };
             /** Plugin */
             plugin: string;
+            /**
+             * Recheck
+             * @description Recheck an edited record on the editor’s authority.
+             * @default false
+             */
+            recheck: boolean;
             /**
              * Related
              * @description Other inputs it gives the entities related to the one that fired it (ADR 0123), by input: each, every one of the input's type in the project that way of it. All of them or none: past the most an input takes, it fails.
@@ -24263,7 +24300,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DisableIn"] | null;
+            };
+        };
         responses: {
             /** @description OK */
             200: {
