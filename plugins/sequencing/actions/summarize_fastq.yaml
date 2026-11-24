@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: Action
+name: summarize_fastq
+label: Summarize FASTQ quality
+description: Check FASTQ structure and mate order, then record read lengths and Phred+33 quality metrics for each source file.
+inputs:
+  reads: { type: ReadSet, include: [library] }
+effects:
+  creates: [{ type: FASTQSummary, derived_from: [reads] }]
+runs_on: { tier: backend, environment: read-tools }
+command: [python, ./scripts/fastq.py]
+deterministic: true
+timeout: 2h

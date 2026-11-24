@@ -1,0 +1,91 @@
+apiVersion: iki/v1
+kind: EntityType
+name: FASTQSummary
+label: FASTQ quality summary
+label_plural: FASTQ quality summaries
+schema_version: 1
+hrid: { prefix: FQC }
+description: Aggregate Phred+33 statistics for the exact source files inspected by the sequencing action.
+fields:
+  read_set: { type: ref, to: ReadSet, required: true, immutable: true }
+  sample: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  read_set_revision: { type: int, min: 1, computed: true, immutable: true }
+  library_revision: { type: int, min: 1, computed: true, immutable: true }
+  files:
+    type: list
+    label: Source files
+    items: { type: file }
+    max_items: 2
+    computed: true
+    immutable: true
+  statistics:
+    type: json
+    computed: true
+    immutable: true
+    description: Counts, lengths and base qualities for each source file, with its SHA-256.
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+      signed_off:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          research:
+            check: record.review_flow == "research" && state.from == "recorded"
+            message: Sign off a recorded research summary.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          qc:
+            check: record.review_flow == "regulated_qc" && state.from == "recorded"
+            message: Submit a recorded summary in the regulated QC flow.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: record.review_flow == "regulated_qc" && state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release a summary after its independent review.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release requires a signer independent of the creator, analyst, reviewer and editors.
+rules:
+  action_evidence:
+    check: record.statistics != null && record.read_set_revision != null && record.library_revision != null && record.review_flow != null
+    message: Use Summarize FASTQ quality on the read set to record its evidence.
+    fields: [statistics, read_set_revision, library_revision, review_flow]
+display: { title: "{{ hrid }}" }

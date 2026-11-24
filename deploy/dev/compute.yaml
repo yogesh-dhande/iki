@@ -71,6 +71,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/sequencing.read-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/proteomics.report-tools
 templates: [{ template: backend-small }]
 ---

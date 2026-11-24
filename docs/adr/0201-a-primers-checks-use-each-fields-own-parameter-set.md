@@ -5,6 +5,8 @@
 - Amended: 2026-11-23 — the buffer temperature is its own field (see
   [Two temperatures, each named](#two-temperatures-each-named)), and the checks
   reach the browser as their own entry, not as exports of the shared module
+- Amended: 2026-11-23 — the 50 mM Na⁺ temperature has one implementation, and a
+  palindromic primer alone is self-complementary while its binding site is not
 
 ## Context
 
@@ -89,18 +91,29 @@ would have seen two different Tms under one label. A temperature is only
 meaningful with its conditions, so each field's label and description state
 them, and wherever Iki shows a Tm it shows which one it is.
 
-That leaves two Rust implementations of SantaLucia's model at 50 mM Na⁺: the
-oligo measurement of ADR 0191 and `thermodynamics` under `Conditions::PRIMER`.
-They agree today — the same tenth of a degree on 21,360 oligos, 1,360 of them
-palindromes — and ADR 0191 asks for one; consolidating them is tracked
-separately rather than folded into this decision.
+SantaLucia's model at 50 mM Na⁺ has one implementation, as ADR 0191 asks: the
+oligo measurement's Rust (`oligo.rs`) holds the Watson-Crick stacks, initiation,
+the symmetry term, equation 3's concentration, equation 7's sodium term and the
+rounding, and `thermodynamics` takes all of them from it, adding the mismatch
+tables and Owczarzy's corrections. The two had been separate, and agreed on
+21,360 oligos, 1,360 of them palindromes; those oligos and every module's
+temperatures for them are recorded in `server/tests/data/melting_temperatures.json`,
+which the server's tests and the browser's hold each module to.
 
 An oligo that is its own complement — `GCGCGC`, and every palindrome — is
 handled as SantaLucia's self-complementary case: there is no second species in
 the tube, so all the strands are that one and the duplex carries his symmetry
 term. This is what the DNA plugin's pure-Python action did and what Biopython's
-`Tm_NN` does with `selfcomp=True`; ADR 0200's port, following `priming.py`,
-never applied it, and this restores the agreement.
+`Tm_NN` does with `selfcomp=True` and `dnac1` the total; ADR 0200's port,
+following `priming.py`, never applied it, and this restores the agreement.
+
+That case is a strand against its own exact complement: the primer's record, the
+bases selected in the viewer, and a primer asked about with no template. A
+primer annealed to a template is not it, however its bases read. Its partner is
+the template strand, a different molecule, so there are two species and no
+symmetry, and the plasmid plugin's binding sites and PCR temperatures keep the
+two-strand reading. For the BamHI site `GGATCC` that is −13.7 °C on a template
+and −11.4 °C alone.
 
 ### Secondary structure: the NNDB DNA set, used whole
 

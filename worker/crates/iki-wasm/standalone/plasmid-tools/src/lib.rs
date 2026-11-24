@@ -7,6 +7,8 @@
 
 #[path = "../../../src/digest.rs"]
 pub mod digest;
+#[path = "../../../src/oligo.rs"]
+pub mod oligo;
 #[path = "../../../src/priming.rs"]
 pub mod priming;
 #[path = "../../../src/structures.rs"]

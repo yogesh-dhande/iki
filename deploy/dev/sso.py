@@ -1730,7 +1730,79 @@ def lims() -> None:
     reagent_stock(alice, project)
     dose_response_starters(alice, project)
     qc_release(alice, project)
+    sequencing(alice, project)
     proteomics(alice, project)
+
+
+def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Trace paired reads from a public yeast library to a signed quality summary."""
+    prefix = "iki/sequencing."
+    give_lab_roles(alice, project, prefix + "reviewer")
+    accession = "SRR8690267"
+    runs = matching_records(alice, project, prefix + "SequencingRun", "run_accession", accession)
+    run = (
+        runs[0]
+        if runs
+        else created(
+            alice,
+            project,
+            prefix + "SequencingRun",
+            {
+                "name": "Yeast RNA-seq excerpt",
+                "instrument_model": "Illumina HiSeq 2500",
+                "run_accession": accession,
+            },
+        )
+    )
+    read_sets = matching_records(alice, project, prefix + "ReadSet", "run", run["id"])
+    if read_sets:
+        reads = read_sets[0]
+    else:
+        sample = created(
+            alice,
+            project,
+            "acme/example.Sample",
+            {"name": "Saccharomyces cerevisiae SAMN11070697", "kind": "other"},
+        )
+        library = created(
+            alice,
+            project,
+            prefix + "SequencingLibrary",
+            {
+                "name": "SAMN11070697 RNA-Seq",
+                "sample": sample["id"],
+                "sample_accession": "SAMN11070697",
+                "strategy": "RNA-Seq",
+            },
+        )
+        directory = Path(__file__).resolve().parents[2] / "plugins/sequencing/tests/data"
+        files = {}
+        for mate in (1, 2):
+            fixture = directory / f"{accession}_{mate}.fastq"
+            files[f"read_{mate}"] = upload(
+                alice, project, fixture.name, fixture.read_bytes(), "text/plain"
+            )
+        reads = created(
+            alice,
+            project,
+            prefix + "ReadSet",
+            {"run": run["id"], "library": library["id"], **files},
+        )
+    summaries = matching_records(alice, project, prefix + "FASTQSummary", "read_set", reads["id"])
+    if summaries:
+        summary = record(alice, summaries[0]["id"])
+    else:
+        analysis = launch(alice, project, prefix + "summarize_fastq", {"reads": reads["id"]})
+        effect = next(e for e in analysis["effects"] if e["type"] == prefix + "FASTQSummary")
+        summary = record(alice, effect["entity"])
+    counts = [(row["reads"], row["q30_percent"]) for row in summary["values"]["statistics"]]
+    if counts != [(4, 90.0), (4, 14.0)]:
+        fail(f"{summary['hrid']} recorded unexpected FASTQ excerpt statistics {counts}")
+    if summary["values"]["review"] == "recorded":
+        signature = signing(alice, summary, "signed_off", "alice", field="review")
+        if signature["status"] != "signed" or not signature["set"]:
+            fail(f"signing {summary['hrid']} gave {signature}")
+    ok(f"{reads['hrid']}: signed quality summary for four public yeast read pairs")
 
 
 def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
