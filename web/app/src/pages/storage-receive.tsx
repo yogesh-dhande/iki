@@ -48,6 +48,7 @@ import {
   scanRefusal,
   STORAGE,
   stepName,
+  type Container,
   type Outcome,
   type ScanCandidate,
   type ScanMode,
@@ -444,6 +445,13 @@ function refusalsOf(
   });
 }
 
+/** The box shown, for its plan's caption: “BOX-000009 Incoming, in Freezer 3 · 4 free”. */
+function boxCaption(box: Container, free: number): string {
+  const name = box.title && box.title !== box.hrid ? `${box.hrid} ${box.title}` : box.hrid;
+  const path = box.location.path.map(stepName).join(" › ");
+  return `${name}${path ? `, in ${path}` : ""} · ${String(free)} free`;
+}
+
 /** Names in a sentence: “A”, “A and B”, “A, B and C”. */
 function listed(names: readonly string[]): string {
   if (names.length < 2) return names.join("");
@@ -481,6 +489,8 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [note, setNote] = useState(initial.note);
   const [box, setBox] = useState("");
   const [boxShown, setBoxShown] = useState("");
+  // What was typed or scanned for the box shown: Complete waits while the field says otherwise.
+  const [lookedUp, setLookedUp] = useState("");
   // A position chosen for a line, or "" to leave it undecided; left out, its next free one.
   const [where, setWhere] = useState<Record<string, string>>({});
   // The lines the receiver chose, one by one, to keep in their custody without a location.
@@ -488,6 +498,8 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [missingRest, setMissingRest] = useState(false);
   const [asking, setAsking] = useState<Asking | null>(null);
   const [handoffStale, setHandoffStale] = useState<StaleItem[] | null>(null);
+  // Said beside the handover's Save, not above the page: nothing below it moves.
+  const [handoffSaid, setHandoffSaid] = useState("");
   const [completeStale, setCompleteStale] = useState<StaleItem[] | null>(null);
   const [lineStale, setLineStale] = useState<{ line: string; changes: StaleItem[] } | null>(null);
   const { say } = useMessages();
@@ -599,7 +611,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           update(next);
           setHandoffStale(null);
           setLineStale(null);
-          if (fix.do === "handoff") say("Saved.");
+          if (fix.do === "handoff") setHandoffSaid("Saved.");
         },
         onError: (error) => {
           if (!isStale(error)) return;
@@ -629,7 +641,12 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           if (fix.do === "cancel") {
             say(`Cancelled receiving ${request}.`);
             void client.invalidateQueries({ queryKey: STORAGE });
-          } else say("Saved, with your reason.");
+          } else if (fix.do === "handoff") setHandoffSaid("Saved, with your reason.");
+          // Where scans are heard, in space kept for it: the checklist doesn't move.
+          else {
+            const line = lineOf(next, fix);
+            setHeard(`${line ? shortName(line) : "It"}: saved, with your reason.`);
+          }
         },
         onError: (error) => {
           if (!isStale(error)) return;
@@ -673,7 +690,13 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     if (!id) return;
     // Its free positions as they are now, not as they were when it was last looked at.
     await client.query({ ...containerQuery(id), staleTime: 0 });
-    if (asked === lookup.current) setBoxShown(id);
+    if (asked !== lookup.current) return;
+    setLookedUp(code);
+    setBoxShown(id);
+  }, []);
+  // The box's slots read again, after the server refused a position in it.
+  const reread = useApiMutation(async (ref: string) => {
+    await client.query({ ...containerQuery(ref), staleTime: 0 });
   }, []);
   const container = useQuery({ ...containerQuery(boxShown || "-"), enabled: !!boxShown });
   const putting = receipt.lines.filter(
@@ -690,7 +713,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     ? "Finding the box and its free positions…"
     : boxFound?.kind === "ambiguous"
       ? `Choose which box “${boxFound.code.trim()}” is, above.`
-      : boxShown && container.isPending
+      : (boxShown && container.isPending) || reread.isPending
         ? "Loading the box’s free positions…"
         : null;
   const decided = dispositions(
@@ -737,14 +760,20 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     const slot = free.find((s) => s.label === position);
     if (slot) marks.set(slotKey(slot.row, slot.column), "suggested");
   }
+  // The Box field names another box than the one shown: what would be put away isn't known.
+  const typed = box.trim();
+  const boxChanged = !!shownBox && !!planned.length && typed !== lookedUp.trim();
   // Completing waits for a decision on every received tube, made with the box as shown.
-  const ready = !undecided.length;
+  const ready = !undecided.length && !boxChanged;
   const status = !putting.length
     ? ""
-    : !ready
-      ? (waitingFor ??
-        `Decide for ${listed(undecided.map(shortName))}: put ${undecided.length === 1 ? "it" : "each"} away in a free position, or keep ${undecided.length === 1 ? "it" : "them"} in your custody.`)
-      : `Ready: ${planSummary(planned.length, keeping.length, shownBox?.hrid)}.`;
+    : waitingFor && !ready
+      ? waitingFor
+      : boxChanged
+        ? `Show the free positions in ${typed || "a box"} first, or put the text back to ${lookedUp.trim()}.`
+        : !ready
+          ? `Decide for ${listed(undecided.map(shortName))}: put ${undecided.length === 1 ? "it" : "each"} away in a free position, or keep ${undecided.length === 1 ? "it" : "them"} in your custody.`
+          : `Ready: ${planSummary(planned.length, keeping.length, shownBox?.hrid)}.`;
   const statusId = useId();
   // After a refusal, the keyboard and screen reader go to what it says.
   const feedback = useRef<HTMLDivElement>(null);
@@ -791,6 +820,22 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           return;
         }
         if (!isStale(error)) {
+          // A position refused, such as one taken meanwhile: each tube keeps the position it
+          // was shown, those refused are left to decide again, and the slots are read again.
+          const refused = new Set(
+            refusalsOf(problemOf(error), plan, names).flatMap((r) =>
+              r.row && plan.put_away.some((p) => p.line === r.row) ? [r.row] : [],
+            ),
+          );
+          if (refused.size && boxShown) {
+            setWhere((now) => ({
+              ...now,
+              ...Object.fromEntries(
+                plan.put_away.map((p) => [p.line, refused.has(p.line) ? "" : p.position]),
+              ),
+            }));
+            reread.mutate(boxShown);
+          }
           setRefusedAt((n) => n + 1);
           return;
         }
@@ -978,11 +1023,15 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
             busyText="Saving…"
             disabled={!handoffChanged}
             onClick={() => {
+              setHandoffSaid("");
               change({ do: "handoff", by: by.trim(), note: note.trim() });
             }}
           >
             Save
           </Button>
+          <span className="muted" role="status">
+            {handoffChanged ? "" : handoffSaid}
+          </span>
         </div>
       </section>
       <section className="card" aria-labelledby="putaway-title">
@@ -1062,15 +1111,13 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
                   showFree
                   compact
                 />
-                <MapLegend />
+                <MapLegend planned />
               </div>
             ) : null}
             <div className="table-scroll">
               <table className="table putaway-plan">
                 <caption>
-                  {shownBox
-                    ? `Where each goes in ${stepName(shownBox)}: ${String(free.length)} free`
-                    : "Where each goes"}
+                  {shownBox ? boxCaption(shownBox, free.length) : "Where each goes"}
                 </caption>
                 <thead>
                   <tr>

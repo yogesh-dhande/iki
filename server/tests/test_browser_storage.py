@@ -440,7 +440,7 @@ def test_receiving_a_requests_tubes_with_one_of_each_outcome(
     page.get_by_role("button", name="Save", exact=True).click()
     page.get_by_role("textbox", name=re.compile(r"^Box")).fill(incoming["hrid"])
     page.get_by_role("button", name="Show its free positions").click()
-    putaway = page.get_by_role("table", name=re.compile(r"^Where each goes in Incoming"))
+    putaway = page.get_by_role("table", name=re.compile(rf"^{incoming['hrid']} Incoming · "))
     expect(putaway.get_by_role("row")).to_have_count(3)
     expect(putaway.get_by_role("combobox").first).to_have_value("A1")
     checked(page)
@@ -1542,7 +1542,7 @@ def test_completing_waits_for_the_box_and_puts_each_tube_where_it_was_shown(
     tubes, incoming = sent["tubes"], sent["incoming"]
     page, path = received_and_handed_over(open_as, sent, color_scheme)
     complete = page.get_by_role("button", name="Complete receiving")
-    plan = page.get_by_role("table", name=re.compile("^Where each goes"))
+    plan = page.get_by_role("table", name=re.compile(r"^Where each goes$| · \d+ free$"))
     choices = [plan.get_by_role("combobox", name=f"Where {t['hrid']} goes") for t in tubes]
     # Nothing is decided for them: not put away, and not kept in custody.
     for choice in choices:
@@ -1580,14 +1580,27 @@ def test_completing_waits_for_the_box_and_puts_each_tube_where_it_was_shown(
     # Released: the allocation shown is what's reviewed, one well changed by hand.
     held[0].continue_()
     page.unroute("**/api/v1/storage/scan/resolve")
-    expect(plan).to_have_accessible_name("Where each goes in Incoming: 4 free")
+    expect(plan).to_have_accessible_name(f"{incoming['hrid']} Incoming · 4 free")
     expect(choices[0]).to_have_value("A1")
     expect(choices[1]).to_have_value("A2")
     shown = choices[0].get_by_role("option", name=f"Put away in {incoming['hrid']}, A1")
     expect(shown).to_have_count(1)
     choices[1].select_option("B2")
-    status = page.get_by_text(f"Ready: 2 put away in {incoming['hrid']}.")
-    expect(status).to_be_visible()
+    expect(complete).to_have_accessible_description(f"Ready: 2 put away in {incoming['hrid']}.")
+    expect(complete).to_be_enabled()
+
+    # Another box typed but not shown: what's planned is no longer what the field says.
+    field = page.get_by_role("textbox", name=re.compile("^Box"))
+    field.fill("BOX-999999")
+    expect(complete).to_be_disabled()
+    expect(complete).to_have_accessible_description(
+        f"Show the free positions in BOX-999999 first, or put the text back to {incoming['hrid']}."
+    )
+    expect(choices[1]).to_have_value("B2")
+    press_and_release(page, complete)
+    page.wait_for_timeout(300)
+    assert sent_complete == []
+    field.fill(incoming["hrid"])
     expect(complete).to_be_enabled()
     checked(page)
     fits(page)

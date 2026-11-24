@@ -5975,6 +5975,12 @@ button.scan-choice:disabled {
   align-items: start;
 }
 
+.putaway-plan caption {
+  margin-bottom: 0.25rem;
+  font-weight: 600;
+  text-align: left;
+}
+
 /* Each received tube's decision, said in full: "Put away in BOX-000135, A4". */
 .putaway-plan select {
   width: 100%;
