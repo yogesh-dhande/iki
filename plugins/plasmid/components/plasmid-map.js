@@ -21,6 +21,10 @@ const STYLE = `
     font: 14px/1.45 system-ui, sans-serif; }
   h2 { font-size: 1rem; margin: 0 0 0.5rem; }
   p { margin: 0 0 0.75rem; max-width: 70ch; }
+  /* A name with no break in it, such as a long insertion's HGVS name, wraps where it must
+     rather than pushing the page wider than a phone, whatever the font. Tables scroll in
+     their own container instead. */
+  p, dd, caption { overflow-wrap: anywhere; }
   .map { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
   svg { flex: none; max-width: 100%; height: auto; }
   .ring { fill: none; stroke: color-mix(in srgb, CanvasText 18%, Canvas); }
@@ -37,7 +41,7 @@ const STYLE = `
   td.where { font-variant-numeric: tabular-nums; white-space: nowrap; }
   .swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px;
     margin-right: 0.4rem; vertical-align: -1px; }
-  .views { display: flex; gap: 0.5rem; margin: 0 0 0.75rem; }
+  .views { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 0.75rem; }
   .views button { font: inherit; color: CanvasText; background: Canvas; cursor: pointer;
     padding: 0.25rem 0.75rem; border: 1px solid color-mix(in srgb, CanvasText 40%, Canvas);
     border-radius: 999px; }
@@ -47,7 +51,8 @@ const STYLE = `
   .line { stroke: color-mix(in srgb, CanvasText 18%, Canvas); }
   .cap { stroke: color-mix(in srgb, CanvasText 55%, Canvas); }
   .end-label { fill: color-mix(in srgb, CanvasText 70%, Canvas); font-size: 10px; }
-  dl { display: grid; grid-template-columns: max-content auto; gap: 0.25rem 1rem; margin: 0.75rem 0 0; }
+  dl { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 0.25rem 1rem;
+    margin: 0.75rem 0 0; }
   dt { font-weight: 600; }
   dd { margin: 0; }
   .note { color: color-mix(in srgb, CanvasText 70%, Canvas); }
