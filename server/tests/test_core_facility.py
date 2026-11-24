@@ -91,9 +91,19 @@ def _send(world: World, request: Entity, *, receive_code: str | None = None) -> 
     request.refresh_from_db()
     if receive_code is not None:
         receipt = receipts.start(coordinator, request)
-        assert receipts.scan(coordinator, receipt, receive_code).found == "matched"
-        receipts.describe(coordinator, receipt, handed_over_by="Training courier")
-        assert receipts.complete(coordinator, receipt).status == ReceiptStatus.COMPLETED
+        scanned = receipts.scan(coordinator, receipt, receive_code)
+        assert scanned.found == "matched"
+        receipt = scanned.receipt
+        receipt = receipts.describe(
+            coordinator,
+            receipt,
+            handed_over_by="Training courier",
+            plan_revision=receipt.plan_revision,
+        )
+        assert (
+            receipts.complete(coordinator, receipt, plan_revision=receipt.plan_revision).status
+            == ReceiptStatus.COMPLETED
+        )
     _status(world, request, "editor", "in_progress")
 
 
