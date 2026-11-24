@@ -24,12 +24,11 @@ const { data } = entry;
   description={data.description}
   section="Use cases"
   audience={data.audience}
-  band={data.band}
   measure={900}
 >
-  <p class="eyebrow">
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/use-cases/">Use cases</a> / {data.topic}
-  </p>
+  </nav>
   <h1 class="doc-title">{data.title}</h1>
   <p class="lede">{data.description}</p>
   <dl class="facts">
@@ -40,20 +39,6 @@ const { data } = entry;
       </div>
     ))}
   </dl>
-  <nav aria-label="Steps" class="chips">
-    <ol>
-      {data.steps.map((step, index) => (
-        <li>
-          <a href={`#${step.id}`}>
-            <span class="chip-role">{step.role}</span>
-            <span>
-              {index + 1}. {step.label}
-            </span>
-          </a>
-        </li>
-      ))}
-    </ol>
-  </nav>
   <Content />
   <aside slot="aside" class="side" aria-label="Related">
     {data.concepts.length > 0 && (
@@ -117,34 +102,6 @@ const { data } = entry;
   }
   .facts dd.mono {
     font-size: 13px;
-  }
-  .chips ol {
-    list-style: none;
-    margin: 20px 0 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .chips a {
-    display: inline-flex;
-    gap: 8px;
-    align-items: center;
-    min-height: 36px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--text);
-    text-decoration: none;
-    font-size: 13px;
-  }
-  .chips a:hover {
-    border-color: var(--border-strong);
-    background: var(--surface-2);
-  }
-  .chip-role {
-    font-weight: 600;
-    color: var(--aud-ink);
   }
   .mono-list :global(a) {
     font-size: 13px;

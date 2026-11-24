@@ -22,9 +22,8 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
   </p>
   {doors.map((door) => (
     <section id={door.id} data-audience={door.id} aria-labelledby={`${door.id}-h`} class="door">
-      <p class="who">{door.label}</p>
-      <h2 id={`${door.id}-h`}>{door.who}</h2>
-      <p class="does">{door.does}</p>
+      <h2 id={`${door.id}-h`}>{door.label}</h2>
+      <p class="who">{door.who}</p>
       <Listing items={door.items} />
     </section>
   ))}
@@ -40,22 +39,14 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
   }
   .door {
     margin-top: 40px;
-    padding-left: 18px;
-    border-left: 4px solid var(--aud);
-  }
-  .who {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--aud-ink);
   }
   h2 {
-    margin: 4px 0 6px;
-    font-size: 24px;
-    letter-spacing: -0.02em;
+    margin: 0 0 4px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
   }
-  .does {
-    margin: 0 0 14px;
+  .who {
+    margin: 0 0 12px;
     color: var(--muted);
   }
 </style>

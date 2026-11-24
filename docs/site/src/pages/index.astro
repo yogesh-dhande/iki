@@ -1,5 +1,6 @@
 ---
-// A1, the home page: who are you? Three doors, then the worked examples and the ideas.
+// The home page: what Iki is, then its pages by audience, the lab workflows, the concepts
+// and the reference, as plain lists of links.
 import ItemLink from "../components/ItemLink.astro";
 import Base from "../layouts/Base.astro";
 import { doseResponse, puc19 } from "../lib/examples.ts";
@@ -9,46 +10,30 @@ import { AUDIENCES, CONCEPTS, DOORS, PAGES, REFERENCES, type Audience } from "..
 const reads = puc19.values;
 const excluded = doseResponse.exclusion.well;
 
-interface Workflow {
-  title: string;
-  text: string;
-  href: string;
-  out: boolean;
-  audiences: Audience[];
-  source: string;
-}
-const workflows: Workflow[] = [
+const workflows = [
   {
     title: "Dose-response assays",
-    text: `A plate reader's export mapped to its wells, an IC50 with its 95% interval and ${excluded} excluded with its reason, signed and returned to the project that asked.`,
+    text: `A plate reader's export mapped to its wells, and an IC50 with its 95% interval, with ${excluded} excluded for a recorded reason, signed and returned to the project that asked for it.`,
     href: PAGES.doseResponse,
     out: false,
-    audiences: ["bench"],
-    source: "iki/plate_assays · simulated 8-point series",
   },
   {
     title: "Plasmid prep verification",
-    text: `pUC19 from ${reads.reads_total} public MinION reads against ${puc19.data.accession}: ${reads.differences.length} differences named in HGVS and placed in the plasmid's features, then a reviewer's signed outcome.`,
+    text: `A pUC19 prep's ${reads.reads_total} public MinION reads compared with ${puc19.data.accession}, and its ${reads.differences.length} differences named in HGVS for a reviewer to sign.`,
     href: `${PAGES.prepVerification}#example`,
     out: false,
-    audiences: ["bench"],
-    source: `iki/plasmid_sequencing · ${puc19.data.run}`,
   },
   {
     title: "Antibody engineering",
-    text: "Trastuzumab's heavy and light chains numbered by ANARCI and assembled into an Fv, with its sequence liabilities found and its structure predicted.",
+    text: "Trastuzumab's heavy and light chains numbered by ANARCI and assembled into an Fv, with its sequence liabilities and a predicted structure.",
     href: github("plugins/antibody/README.md"),
     out: true,
-    audiences: ["bench", "build"],
-    source: "iki/antibody · PDB 1N8Z chains",
   },
   {
     title: "Compound registration",
-    text: "Aspirin drawn another way registers as the same compound, and caffeine comes in from PubChem with its identifiers.",
+    text: "Aspirin drawn another way registered as the same compound, and caffeine imported from PubChem.",
     href: github("plugins/small_molecule/README.md"),
     out: true,
-    audiences: ["bench"],
-    source: "iki/small_molecule · CID 2244, 2519",
   },
 ];
 const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
@@ -59,331 +44,152 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
 
 <Base
   title="Iki documentation"
-  description="Iki is an open-source platform for scientific data: typed records, actions that run on them, and the lineage of every result. Guides for scientists, admins and plugin authors."
+  description="Iki is open-source software for a lab's scientific records. Guides for scientists, admins and plugin authors."
 >
-  <main id="content" data-pagefind-body>
-    <section class="wrap hero">
-      <h1>Iki documentation</h1>
-      <p class="lede">
-        Iki is open-source software for a lab's scientific records: sequences, samples, plates and
-        results, each with its revisions and electronic signatures. Plugins add each kind of
-        science, analyses run on the lab's own compute, and every result is reviewed and released
-        with the lineage of each value.
-      </p>
-      <p class="status">Status: early development. Nothing here is ready for production use yet.</p>
-    </section>
+  <main id="content" class="wrap home" data-pagefind-body>
+    <h1>Iki documentation</h1>
+    <p class="lede">
+      Iki is open-source software for a lab's scientific records. It keeps each record's revisions
+      and electronic signatures, and the run and inputs behind every computed value.
+    </p>
+    <p class="status">Iki is in early development and isn't ready for production use.</p>
 
-    <section id="doors" class="wrap doors-section" aria-labelledby="doors-h">
-      <h2 id="doors-h" class="sr-only">
-        Guides by audience
-      </h2>
-      <div class="doors">
-        {doors.map((door) => (
-          <article class="door" data-audience={door.id} aria-labelledby={`door-${door.id}`}>
-            <p class="door-label">{door.label}</p>
-            <h3 id={`door-${door.id}`}>{door.who}</h3>
-            <p class="door-does">{door.does}</p>
-            <ul class="door-list">
-              {door.items.map((item) => (
-                <li>
-                  <ItemLink item={item} class="door-item" />
-                </li>
-              ))}
-            </ul>
-            <a class="door-all" href={door.all}>
-              All guides{" "}
-              {door.id === "bench"
-                ? "for the bench"
-                : door.id === "run"
-                  ? "for admins"
-                  : "for builders"}
-            </a>
-          </article>
-        ))}
-      </div>
-    </section>
-
-    <section class="wrap block" aria-labelledby="real-h">
-      <div class="block-head">
-        <h2 id="real-h">Lab workflows, from sample to signed result</h2>
-      </div>
-      <div class="specimens">
-        {workflows.map((s) => (
-          <a class:list={["specimen", { out: s.out }]} href={s.href}>
-            <span class="tags">
-              {s.audiences.map((a) => (
-                <span class="tag" data-audience={a}>
-                  {AUDIENCES[a].label}
-                </span>
-              ))}
-            </span>
-            <span class="specimen-title">
-              {s.title}
-              {s.out && <span class="sr-only"> (on GitHub)</span>}
-            </span>
-            <span class="specimen-text">{s.text}</span>
-            <span class="specimen-source mono">{s.source}</span>
-          </a>
-        ))}
-      </div>
-    </section>
-
-    <section class="wrap block" aria-labelledby="ideas-h">
-      <div class="ideas-row">
-        <div class="ideas">
-          <h2 id="ideas-h">Concepts</h2>
-          <p class="block-sub">
-            How Iki's records, reviews, plugins and compute work, with a worked example on real
-            data.
-          </p>
-          <ul class="ideas-list">
-            {CONCEPTS.map((item) => (
-              <li>
-                <ItemLink item={item} />
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div class="reference-box" id="reference">
-          <h2>Reference</h2>
-          <p>
-            Every REST call, the plugin spec, the CLI and the SDK, as the current release has them.
-          </p>
+    <div class="doors">
+      {doors.map((door) => (
+        <section data-audience={door.id} aria-labelledby={`door-${door.id}`}>
+          <h2 id={`door-${door.id}`}>{door.label}</h2>
+          <p class="who">{door.who}</p>
           <ul>
-            {REFERENCES.map((item) => (
+            {door.items.map((item) => (
               <li>
                 <ItemLink item={item} />
-                {item.note && <span class="note"> {item.note}</span>}
               </li>
             ))}
           </ul>
-        </div>
-      </div>
+          <p class="all">
+            <a href={door.all}>All guides</a>
+          </p>
+        </section>
+      ))}
+    </div>
+
+    <section aria-labelledby="workflows-h">
+      <h2 id="workflows-h">Lab workflows</h2>
+      <ul class="workflows">
+        {workflows.map((w) => (
+          <li>
+            <a href={w.href} class:list={{ out: w.out }}>
+              {w.title}
+              {w.out && <span class="sr-only"> (on GitHub)</span>}
+            </a>
+            <p>{w.text}</p>
+          </li>
+        ))}
+      </ul>
     </section>
+
+    <div class="pair">
+      <section aria-labelledby="concepts-h">
+        <h2 id="concepts-h">Concepts</h2>
+        <ul>
+          {CONCEPTS.map((item) => (
+            <li>
+              <ItemLink item={item} />
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section aria-labelledby="reference-h">
+        <h2 id="reference-h">Reference</h2>
+        <ul>
+          {REFERENCES.map((item) => (
+            <li>
+              <ItemLink item={item} />
+              {item.note && <span class="note"> {item.note}</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
   </main>
 </Base>
 
 <style>
-  .hero {
-    padding-top: 72px;
-    padding-bottom: 40px;
+  .home {
+    padding-top: 56px;
+    padding-bottom: 80px;
   }
   h1 {
     margin: 0;
-    max-width: 880px;
-    font-size: 56px;
-    line-height: 1.05;
-    letter-spacing: -0.035em;
-    font-weight: 700;
+    font-size: 40px;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
   }
   .lede {
-    margin: 20px 0 0;
-    max-width: 720px;
+    margin: 16px 0 0;
+    max-width: 680px;
     font-size: 18px;
     line-height: 1.55;
-    color: var(--muted);
   }
   .status {
-    margin: 20px 0 0;
-    display: inline-flex;
-    font-size: 13px;
+    margin: 12px 0 0;
+    font-size: 15px;
     color: var(--muted);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 6px 12px;
   }
-  .doors-section {
-    padding-bottom: 64px;
+  h2 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  section {
+    margin-top: 48px;
+  }
+  ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  li {
+    padding: 6px 0;
   }
   .doors {
     display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+    gap: 0 40px;
+  }
+  .who {
+    margin: 0 0 8px;
+    color: var(--muted);
+  }
+  .all {
+    margin: 8px 0 0;
+    font-size: 15px;
+  }
+  .workflows {
+    max-width: 780px;
+  }
+  .workflows li {
+    padding: 10px 0;
+  }
+  .workflows p {
+    margin: 4px 0 0;
+    color: var(--muted);
+  }
+  .pair {
+    display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
-    gap: 20px;
-  }
-  .door {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border);
-    border-top: 4px solid var(--aud);
-    border-radius: 12px;
-    background: var(--surface);
-    padding: 28px;
-  }
-  .door-label {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--aud-ink);
-  }
-  .door h3 {
-    margin: 6px 0 0;
-    font-size: 24px;
-    line-height: 1.25;
-    letter-spacing: -0.02em;
-  }
-  .door-does {
-    margin: 10px 0 20px;
-    font-size: 15px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-  .door-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    font-size: 15px;
-  }
-  .door-list li + li {
-    border-top: 1px solid var(--border);
-  }
-  .door-list :global(.door-item) {
-    display: block;
-    padding: 9px 0;
-  }
-  .door-all {
-    margin-top: auto;
-    padding-top: 20px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--aud-ink);
-  }
-  .block {
-    padding-bottom: 64px;
-  }
-  .block-head {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 8px 24px;
-    margin-bottom: 20px;
-  }
-  h2 {
-    margin: 0;
-    font-size: 28px;
-    letter-spacing: -0.02em;
-  }
-  .block-head p,
-  .block-sub {
-    margin: 0;
-    font-size: 15px;
-    color: var(--muted);
-  }
-  .block-sub {
-    margin: 8px 0 20px;
-    max-width: 640px;
-  }
-  .specimens {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(270px, 100%), 1fr));
-    gap: 16px;
-  }
-  .specimen {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 20px;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface-2);
-    color: var(--text);
-    text-decoration: none;
-  }
-  .specimen.out::after {
-    display: none;
-  }
-  .specimen:hover {
-    border-color: var(--border-strong);
-  }
-  .specimen:hover .specimen-title {
-    text-decoration: underline;
-  }
-  .tags {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .specimen-title {
-    font-size: 17px;
-    font-weight: 600;
-    line-height: 1.3;
-  }
-  .specimen-text {
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-  .specimen-source {
-    margin-top: auto;
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .ideas-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 32px;
-  }
-  .ideas {
-    flex: 1 1 520px;
-    min-width: 0;
-  }
-  .ideas-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
-    gap: 0 24px;
-    font-size: 15px;
-  }
-  .ideas-list li {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 4px 12px;
-    border-top: 1px solid var(--border);
-    padding: 12px 0;
+    gap: 0 40px;
   }
   .note {
     color: var(--muted);
-    font-size: 13px;
-  }
-  .reference-box {
-    flex: 1 1 340px;
-    min-width: 0;
-    background: var(--surface-2);
-    border-radius: 12px;
-    padding: 24px;
-  }
-  .reference-box h2 {
-    margin: 0 0 8px;
-    font-size: 20px;
-    letter-spacing: 0;
-  }
-  .reference-box p {
-    margin: 0 0 16px;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--muted);
-  }
-  .reference-box ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
     font-size: 15px;
   }
   @media (max-width: 720px) {
-    .hero {
-      padding-top: 48px;
+    .home {
+      padding-top: 36px;
     }
     h1 {
-      font-size: 38px;
+      font-size: 32px;
     }
   }
 </style>

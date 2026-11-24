@@ -16,7 +16,7 @@
   margin: 20px 0 0;
   padding: 24px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 6px;
   background: var(--surface);
   min-width: 0;
 }
@@ -69,9 +69,7 @@
   margin-top: 20px;
 }
 .flows > div {
-  padding: 14px;
-  border-radius: 10px;
-  background: var(--surface-2);
+  min-width: 0;
 }
 .flows h3 {
   margin: 0 0 8px;
@@ -95,19 +93,11 @@
 
 .verdict {
   margin: 20px 0 0;
-  padding: 16px 20px;
-  border-radius: 12px;
-  background: var(--surface-2);
-  font-size: 15px;
-  line-height: 1.6;
+  padding: 2px 0 2px 16px;
+  border-left: 3px solid var(--border-strong);
 }
 .verdict p {
   margin: 0;
-}
-.verdict .who {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--muted);
 }
 
 /* A side column's boxes. */
@@ -118,25 +108,13 @@
   font-size: 14px;
 }
 .side-box {
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-.side-box.quiet {
-  border: 0;
-  background: var(--surface-2);
-}
-.side-box.audience {
-  border: 0;
-  background: var(--aud-soft);
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
 }
 .side-box h2 {
   margin: 0 0 10px;
   font-size: 14px;
   font-weight: 600;
-}
-.side-box.audience h2 {
-  color: var(--aud-ink);
 }
 .side-box p {
   margin: 0 0 10px;
@@ -162,12 +140,9 @@
   font-size: 14px;
 }
 .section-nav h2 {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 6px;
+  font-size: 14px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
 }
 .section-nav ul {
   list-style: none;

@@ -9,8 +9,8 @@ export interface AudienceInfo {
   id: Audience;
   /** The door's name, which every page for this audience wears. */
   label: string;
+  /** Who it's for, as a sentence. */
   who: string;
-  does: string;
   /** Where "All guides" goes. */
   all: string;
 }
@@ -19,22 +19,19 @@ export const AUDIENCES: Record<Audience, AudienceInfo> = {
   bench: {
     id: "bench",
     label: "At the bench",
-    who: "Scientists, QA and lab managers",
-    does: "Register what you make, run analyses on it, review and sign results.",
+    who: "For scientists, QA and lab managers.",
     all: "/guides/#bench",
   },
   run: {
     id: "run",
     label: "Running Iki",
-    who: "Admins who deploy and operate it",
-    does: "Install on Kubernetes, sign people in, add plugins and compute.",
+    who: "For the admins who deploy and operate it.",
     all: "/guides/#run",
   },
   build: {
     id: "build",
     label: "Building on Iki",
-    who: "Plugin authors and coding agents",
-    does: "Add types, actions and views as a plugin: YAML manifests in a git repo.",
+    who: "For plugin authors, integrators and coding agents.",
     all: "/guides/#build",
   },
 };

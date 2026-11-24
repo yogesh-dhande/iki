@@ -2,7 +2,6 @@
 title: Prep verification
 description: How Iki checks that a plasmid prep holds the plasmid it should, from its long reads or a service's consensus, and how a reviewer records and signs the outcome.
 audience: bench
-band: "For scientists, QA and lab managers, and plugin authors who need its types and actions."
 topic: Lots and preps
 guide:
   text: Check a prep from its long reads or a sequencing service's consensus FASTA.
@@ -126,8 +125,7 @@ mark at each difference. Choose a layer to show or hide it, or read the same in 
 </figure>
 
 <blockquote class="verdict">
-  <p class="who">The reviewer's verification</p>
-  <p>Outcome <strong>discrepancy</strong>. "Its multiple cloning site differs from L09137.2, every read agreeing."</p>
+  <p>The reviewer recorded the outcome <strong>discrepancy</strong>: "Its multiple cloning site differs from L09137.2, every read agreeing."</p>
 </blockquote>
 </Layer>
 
@@ -204,7 +202,7 @@ verification, and QA must be someone else again.
     <div>
       <h3>Record types</h3>
       <p>Plasmid verification: <a class="mono out" href={github("plugins/lots/types/plasmid_verification.yaml")}>iki/lots.PlasmidVerification</a></p>
-      <p>Whole-plasmid alignment: <a class="mono out" href={github("plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml")} >iki/plasmid_sequencing.WholePlasmidAlignment</a></p>
+      <p>Whole-plasmid alignment: <a class="mono out" href={github("plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml")}>iki/plasmid_sequencing.WholePlasmidAlignment</a></p>
       <p>Every field type: <a class="out" href={github("spec/README.md")}>the plugin spec</a></p>
     </div>
     <div>

@@ -18,8 +18,6 @@ export const collections = {
       title: z.string(),
       description: z.string(),
       audience,
-      /** Who else it serves, in the audience band. */
-      band: z.string(),
       /** Where it sits: "Lots and preps". */
       topic: z.string(),
       /** The guide that does what the concept explains. */
@@ -32,12 +30,10 @@ export const collections = {
       title: z.string(),
       description: z.string(),
       audience,
-      band: z.string(),
       topic: z.string(),
       facts: z.array(
         z.object({ label: z.string(), value: z.string(), code: z.boolean().default(false) }),
       ),
-      steps: z.array(z.object({ id: z.string(), role: z.string(), label: z.string() })),
       /** The concept pages that explain it. */
       concepts: z.array(link).default([]),
       reference: z.array(link),

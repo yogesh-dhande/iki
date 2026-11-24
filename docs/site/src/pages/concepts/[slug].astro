@@ -25,13 +25,7 @@ const layers = [
 ];
 ---
 
-<Doc
-  title={data.title}
-  description={data.description}
-  section="Concepts"
-  audience={data.audience}
-  band={data.band}
->
+<Doc title={data.title} description={data.description} section="Concepts" audience={data.audience}>
   <nav slot="nav" class="section-nav" aria-label="Pages for this audience">
     {SIDE_NAV[data.audience].map((group) => (
       <>
@@ -46,9 +40,9 @@ const layers = [
       </>
     ))}
   </nav>
-  <p class="eyebrow">
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/concepts/">Concepts</a> / {data.topic}
-  </p>
+  </nav>
   <h1 class="doc-title">{data.title}</h1>
   <Content />
   <aside slot="aside" class="side" aria-label="On this page">

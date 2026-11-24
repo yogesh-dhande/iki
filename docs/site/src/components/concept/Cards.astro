@@ -6,26 +6,17 @@
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-    gap: 12px;
-    font-size: 14px;
+    gap: 8px 32px;
   }
   .cards > :global(div) {
-    padding: 16px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
     min-width: 0;
   }
   .cards :global(h3) {
-    margin: 0 0 8px;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
+    margin: 0 0 6px;
+    font-size: 16px;
   }
   .cards :global(p) {
-    margin: 0 0 4px;
+    margin: 0 0 6px;
     overflow-wrap: anywhere;
-  }
-  .cards :global(p:last-child) {
-    margin: 0;
   }
 </style>

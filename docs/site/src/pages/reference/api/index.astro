@@ -16,13 +16,12 @@ const groups = apiTags();
   description={`Every call of Iki's REST API, version ${doc.info.version}: its parameters, body, response and an example.`}
   section="Reference"
   audience="build"
-  band="For integrators, plugin authors and coding agents."
   measure={900}
 >
   <ApiNav slot="nav" />
-  <p class="eyebrow">
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / REST API
-  </p>
+  </nav>
   <h1 class="doc-title">REST API</h1>
   <div class="prose intro">
     <Fragment set:html={render(doc.info.description ?? "")} />

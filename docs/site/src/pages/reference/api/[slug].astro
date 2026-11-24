@@ -64,28 +64,25 @@ const query = e.parameters.filter((p) => p.in !== "path");
   description={`${e.summary}: the ${e.method.toUpperCase()} ${e.path} call of Iki's REST API.`}
   section="Reference"
   audience="build"
-  band="For integrators, plugin authors and coding agents."
   measure={900}
 >
   <ApiNav slot="nav" current={e.tag} />
-  <p class="eyebrow">
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / <a href="/reference/api/">REST API</a> /{" "}
     <a href={`/reference/api/#${tagSlug(e.tag)}`}>
       {e.tag.charAt(0).toUpperCase() + e.tag.slice(1)}
     </a>
-  </p>
+  </nav>
   <h1 class="title">{e.summary}</h1>
   <p class="call">
     <MethodBadge method={e.method} />
     <code class="path">{e.path}</code>
   </p>
   {e.description && <div class="prose" set:html={render(e.description)} />}
-  <ul class="chips" aria-label="About this call">
-    {e.security.length > 0 && <li>Signed in by {e.security.join(" or ")}</li>}
-    <li>
-      <code>{e.operationId}</code>
-    </li>
-  </ul>
+  <p class="about">
+    {e.security.length > 0 && <>Authentication: {e.security.join(" or ")}. </>}
+    Operation ID: <code>{e.operationId}</code>.
+  </p>
 
   {path.length + query.length > 0 && (
     <section aria-labelledby="parameters-h" class="part">
@@ -206,32 +203,13 @@ const query = e.parameters.filter((p) => p.in !== "path");
     margin: 18px 0;
     padding: 12px 14px;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 6px;
     background: var(--code-bg);
   }
   .path {
     font-size: 15px;
     overflow-wrap: anywhere;
     min-width: 0;
-  }
-  .chips {
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 12px 0 0;
-    padding: 0;
-    font-size: 13px;
-  }
-  .chips li {
-    padding: 3px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--muted);
-    overflow-wrap: anywhere;
-  }
-  .chips code {
-    font-size: 12px;
   }
   .part {
     margin-top: 36px;
@@ -260,5 +238,10 @@ const query = e.parameters.filter((p) => p.in !== "path");
   }
   pre {
     max-height: 520px;
+  }
+  .about {
+    margin: 12px 0 0;
+    font-size: 15px;
+    color: var(--muted);
   }
 </style>

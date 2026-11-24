@@ -1,19 +1,13 @@
 ---
 title: Run a dose-response plate assay
-description: Receive a sample, map a plate reader file to its wells, review an IC50, and return the signed result to the project that asked for it.
+description: Take a requested sample from its receipt to a signed IC50 that the requesting project can see.
 audience: bench
-band: For assay analysts, reviewers and QA. The setup step is for a project admin.
 topic: Assays
 facts:
   - { label: Plugins, value: "iki/plate_assays, iki/example_lims", code: true }
   - { label: Data, value: "The starter's BMG MARS export: 8 points, 1–128 nM, 484 nm" }
   - { label: Review flow, value: Research or Regulated QC }
   - { label: Roles, value: "Coordinator, analyst, reviewer, QA" }
-steps:
-  - { id: setup, role: Admin, label: Set up }
-  - { id: receive, role: Coordinator, label: Receive }
-  - { id: read, role: Analyst, label: Read and fit }
-  - { id: sign, role: "Reviewer, QA", label: Sign and return }
 reference:
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
   - { label: iki starter, href: "repo:cli/README.md#iki-starter" }
