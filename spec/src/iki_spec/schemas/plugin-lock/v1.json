@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "plugins"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `PluginLock`.",
       "const": "PluginLock"
     },
     "plugins": {

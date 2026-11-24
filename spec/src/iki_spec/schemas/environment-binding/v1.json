@@ -7,8 +7,11 @@
   "required": ["apiVersion", "kind", "environment"],
   "anyOf": [{ "required": ["templates"] }, { "required": ["labels"] }],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "EnvironmentBinding" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": {
+      "description": "What this manifest is: `EnvironmentBinding`.",
+      "const": "EnvironmentBinding"
+    },
     "environment": {
       "description": "The plugin and its environment, such as `iki/protein.structure-tools`.",
       "type": "string",
@@ -16,6 +19,7 @@
       "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9]*(-[a-z0-9]+)*$"
     },
     "templates": {
+      "description": "The compute templates its jobs may run on, with the order they're tried in.",
       "type": "array",
       "minItems": 1,
       "maxItems": 50,
@@ -23,7 +27,10 @@
         "type": "object",
         "required": ["template"],
         "properties": {
-          "template": { "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name" },
+          "template": {
+            "description": "The compute template, by name.",
+            "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
+          },
           "priority": {
             "description": "Lower numbers are tried first, such as spot (0) before on-demand (1). Defaults to 0.",
             "type": "integer",

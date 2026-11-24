@@ -7,8 +7,8 @@
   "required": ["apiVersion", "kind", "action"],
   "additionalProperties": false,
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "ActionTest" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `ActionTest`.", "const": "ActionTest" },
     "name": {
       "description": "What the test is called in its report. Unique in the plugin. The file's name, and the document's number if it holds several, unless given.",
       "type": "string",
@@ -16,6 +16,7 @@
       "maxLength": 100
     },
     "description": {
+      "description": "What the test checks, for whoever reads its report.",
       "type": "string",
       "maxLength": 2000
     },
@@ -47,7 +48,7 @@
               "description": "Its type, if it's a subtype of the input's: `namespace/plugin.Type`.",
               "type": "string"
             },
-            "values": { "type": "object" },
+            "values": { "description": "Its fields' values, by name.", "type": "object" },
             "included": {
               "description": "For an input that includes references (ADR 0105): the entities each names, by reference. Each gets an ID, which the reference holds; one left out is an empty list.",
               "type": "object",
@@ -63,7 +64,7 @@
                       "description": "Its type, if it's a subtype of the one the reference names.",
                       "type": "string"
                     },
-                    "values": { "type": "object" }
+                    "values": { "description": "Its fields' values, by name.", "type": "object" }
                   }
                 }
               }

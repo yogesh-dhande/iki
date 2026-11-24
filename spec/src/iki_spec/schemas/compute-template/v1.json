@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "provisioner", "capacity"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `ComputeTemplate`.",
       "const": "ComputeTemplate"
     },
     "name": {
@@ -35,6 +37,7 @@
       "required": ["cpu", "memory"],
       "properties": {
         "cpu": {
+          "description": "CPU cores, such as `0.5` or `8`.",
           "type": "number",
           "exclusiveMinimum": 0,
           "maximum": 1024
@@ -43,10 +46,12 @@
           "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
         },
         "gpu": {
+          "description": "Its GPUs, if it has any.",
           "type": "object",
           "required": ["count", "memory"],
           "properties": {
             "count": {
+              "description": "How many GPUs.",
               "type": "integer",
               "minimum": 1,
               "maximum": 16
@@ -64,6 +69,7 @@
           "additionalProperties": false
         },
         "scratch_disk": {
+          "description": "Local disk for a run's working files.",
           "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/quantity"
         }
       },
@@ -74,11 +80,13 @@
       "type": "object",
       "properties": {
         "namespace": {
+          "description": "The namespace pods start in, if not the deployment's (IKI_RUNS_NAMESPACE).",
           "type": "string",
           "maxLength": 63,
           "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
         },
         "node_selector": {
+          "description": "Labels a node must have for pods to run on it, by key, as Kubernetes' `nodeSelector` takes them.",
           "type": "object",
           "maxProperties": 20,
           "propertyNames": {
@@ -91,6 +99,7 @@
           }
         },
         "tolerations": {
+          "description": "Taints pods tolerate, as Kubernetes' `tolerations`, so they can run on nodes kept for them, such as GPU nodes.",
           "type": "array",
           "maxItems": 20,
           "items": {
@@ -98,18 +107,22 @@
             "required": ["key"],
             "properties": {
               "key": {
+                "description": "The taint's key.",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 316
               },
               "operator": {
+                "description": "`Equal` (the default): the taint's value must be `value`. `Exists`: any value.",
                 "enum": ["Equal", "Exists"]
               },
               "value": {
+                "description": "With `Equal`: the taint's value.",
                 "type": "string",
                 "maxLength": 63
               },
               "effect": {
+                "description": "The taint effect it tolerates; every effect unless set.",
                 "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"]
               }
             },
@@ -138,6 +151,7 @@
       ],
       "properties": {
         "instance_type": {
+          "description": "The EC2 instance type, such as `p4d.24xlarge`.",
           "type": "string",
           "pattern": "^[a-z][a-z0-9-]*\\.[a-z0-9]+$"
         },
@@ -156,6 +170,7 @@
           "enum": ["on_demand", "none"]
         },
         "region": {
+          "description": "The AWS region instances start in, such as `us-east-1`.",
           "type": "string",
           "pattern": "^[a-z]{2}(-gov)?-[a-z]+-[0-9]$"
         },
@@ -434,6 +449,7 @@
       }
     },
     "limits": {
+      "description": "How many machines run at once, and how persistent ones wait for work.",
       "type": "object",
       "properties": {
         "max_concurrent": {

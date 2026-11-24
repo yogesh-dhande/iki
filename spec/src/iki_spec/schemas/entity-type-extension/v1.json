@@ -6,8 +6,11 @@
   "type": "object",
   "required": ["apiVersion", "kind", "extends_type", "fields"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "EntityTypeExtension" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": {
+      "description": "What this manifest is: `EntityTypeExtension`.",
+      "const": "EntityTypeExtension"
+    },
     "extends_type": {
       "description": "The type to add fields to, as `plugin.Type`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"

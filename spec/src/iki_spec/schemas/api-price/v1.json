@@ -7,8 +7,8 @@
   "required": ["apiVersion", "kind", "api", "currency"],
   "anyOf": [{ "required": ["per_call"] }, { "required": ["usage"] }],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "ApiPrice" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `ApiPrice`.", "const": "ApiPrice" },
     "api": {
       "description": "The plugin and its API, such as `iki/example_models.fold`.",
       "type": "string",

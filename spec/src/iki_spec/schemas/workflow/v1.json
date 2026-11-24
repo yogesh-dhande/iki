@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "steps"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `Workflow`.",
       "const": "Workflow"
     },
     "name": {
@@ -86,10 +88,10 @@
           "minItems": 1,
           "maxItems": 100
         },
-        "at_least": { "$ref": "#/$defs/bound" },
-        "at_most": { "$ref": "#/$defs/bound" },
-        "above": { "$ref": "#/$defs/bound" },
-        "below": { "$ref": "#/$defs/bound" }
+        "at_least": { "description": "At least this.", "$ref": "#/$defs/bound" },
+        "at_most": { "description": "At most this.", "$ref": "#/$defs/bound" },
+        "above": { "description": "More than this.", "$ref": "#/$defs/bound" },
+        "below": { "description": "Less than this.", "$ref": "#/$defs/bound" }
       }
     },
     "bound": {

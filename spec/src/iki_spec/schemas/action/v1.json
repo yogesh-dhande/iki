@@ -6,8 +6,8 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "runs_on", "command"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Action" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `Action`.", "const": "Action" },
     "name": {
       "description": "The action's name in snake_case. Elsewhere it is `namespace/plugin.name`, such as `iki/protein.translate`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
@@ -33,11 +33,13 @@
       "type": "object",
       "properties": {
         "creates": {
+          "description": "The entities a run may create, by type.",
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/creates" }
         },
         "updates": {
+          "description": "The fields of its inputs' entities a run may change.",
           "type": "array",
           "maxItems": 20,
           "items": { "$ref": "#/$defs/updates" }
@@ -51,7 +53,10 @@
       "required": ["tier", "environment"],
       "properties": {
         "tier": { "$ref": "#/$defs/tier" },
-        "environment": { "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name" },
+        "environment": {
+          "description": "The plugin's environment it runs in, by name.",
+          "$ref": "https://ikisci.org/schemas/environment/v1#/$defs/name"
+        },
         "lifecycle": {
           "description": "For the container and vm tiers: a machine for each run (`ephemeral`, the default), or a warm pool (`persistent`).",
           "enum": ["ephemeral", "persistent"]
@@ -96,7 +101,10 @@
           "maxItems": 50,
           "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "^[^/]" }
         },
-        "retention": { "$ref": "#/$defs/duration" }
+        "retention": {
+          "description": "How long they're kept: the deployment's default (90 days unless it says otherwise) if left out, and never less than its minimum.",
+          "$ref": "#/$defs/duration"
+        }
       },
       "additionalProperties": false
     },
@@ -154,7 +162,11 @@
         "additionalProperties": false,
         "properties": {
           "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
-          "description": { "type": "string", "maxLength": 2000 }
+          "description": {
+            "description": "Help text shown beside it.",
+            "type": "string",
+            "maxLength": 2000
+          }
         }
       }
     },
@@ -170,7 +182,10 @@
           "type": "object",
           "required": ["name"],
           "properties": {
-            "name": { "$ref": "#/$defs/secret_name" },
+            "name": {
+              "description": "The secret's name, in upper snake case: the environment variable a run gets it as.",
+              "$ref": "#/$defs/secret_name"
+            },
             "required": {
               "description": "Whether the action can run without it. Defaults to true.",
               "type": "boolean"
@@ -240,9 +255,15 @@
       "$ref": "#/$defs/duration"
     },
     "retries": {
+      "description": "Which runs that didn't finish are tried again, and how many times.",
       "type": "object",
       "properties": {
-        "max": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "max": {
+          "description": "How many more times a run is tried. Defaults to 2, or 0 for an action with `network` or `apis`, since trying again could repeat what a run did elsewhere, such as placing an order.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
         "on": {
           "description": "Which failures are retried. A run that ended in an error of its own isn't, unless `failed` is listed.",
           "type": "array",
@@ -299,7 +320,7 @@
           "minimum": 2,
           "maximum": 100000
         },
-        "optional": { "type": "boolean" },
+        "optional": { "description": "A run can be launched without it.", "type": "boolean" },
         "include": {
           "description": "Its type's references whose entities the run reads too, such as a structure's `chains`, or a list of rows' (ADR 0161), such as a complex's `components.part`: each one or list of them, at the revision it had when the run was launched, under each input entity's `included`. Whoever launches the run must be able to read them.",
           "type": "array",
@@ -351,7 +372,13 @@
         },
         "default": { "description": "The value when the person doesn't choose one." },
         "items": {
-          "properties": { "type": { "enum": ["string", "int", "float", "bool", "enum", "file"] } }
+          "description": "For a `list`: what each item is.",
+          "properties": {
+            "type": {
+              "description": "The kind of value each item is: `string`, `int`, `float`, `bool`, `enum` or `file`.",
+              "enum": ["string", "int", "float", "bool", "enum", "file"]
+            }
+          }
         }
       },
       "unevaluatedProperties": false
@@ -364,7 +391,10 @@
           "description": "The type of entity it creates.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
-        "cardinality": { "enum": ["one", "many"] },
+        "cardinality": {
+          "description": "How many each run creates: `one` (the default), or `many`.",
+          "enum": ["one", "many"]
+        },
         "receive_into": {
           "description": "Receive a fresh physical record with its starting amount into the container named by this single required input. Each inline create supplies its receipt.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"

@@ -7,9 +7,11 @@
   "required": ["apiVersion", "kind", "name", "on", "run"],
   "properties": {
     "apiVersion": {
+      "description": "The spec version this manifest follows.",
       "const": "iki/v1"
     },
     "kind": {
+      "description": "What this manifest is: `Trigger`.",
       "const": "Trigger"
     },
     "name": {

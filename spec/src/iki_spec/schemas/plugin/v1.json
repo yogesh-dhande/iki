@@ -6,8 +6,8 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "version"],
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "Plugin" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": { "description": "What this manifest is: `Plugin`.", "const": "Plugin" },
     "name": {
       "description": "The plugin's name, as `namespace/name`: your lab's or company's namespace, such as `acme/assays`. Its types are `acme/assays.Type`, and its tables start with `acme__assays_`. The `iki` namespace is Iki's own.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/pluginRef"
