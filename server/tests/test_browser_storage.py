@@ -10,7 +10,9 @@ same words whatever's behind it; a typed Iki ID, a draw and a move confirm a tub
 identity; the scanner's exact text is kept in the receipt's history; and a label's vendor
 barcode is an opt-in extra the server checks. A count's unregistered label seen in another
 slot asks whether it's another tube or that one moved, and a move names its line and asks
-why. Each passes axe in both themes and fits a phone and a tablet either way up."""
+why. Completing a receipt waits for the box its tubes go in, puts each where it was shown,
+and keeps one in custody only when that's chosen for it, which Storage then lists as
+awaiting put-away. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
 import re
 from itertools import pairwise
@@ -1492,3 +1494,168 @@ def test_an_unregistered_label_seen_in_another_slot_asks_which_tube_it_is(
     fits(page)
     page.context.close()
     editor.context.close()
+
+
+# --- Where each received tube goes -----------------------------------------------------------
+
+
+def received_and_handed_over(
+    open_as: Any, sent: dict[str, Any], color_scheme: str
+) -> tuple[Page, str]:
+    """Each of `sent`'s tubes scanned in and its handover saved: ready for its decisions."""
+    page = start_receiving(open_as, sent, color_scheme=color_scheme)
+    for i, tube in enumerate(sent["tubes"]):
+        scan_in(page, f"RC{i:03}")
+        expect(receipt_line(page, tube).get_by_role("button", name="Matched")).to_have_attribute(
+            "aria-pressed", "true"
+        )
+    page.get_by_role("textbox", name="Handed over by").fill("Courier, waybill 1Z999")
+    page.get_by_role("button", name="Save", exact=True).click()
+    expect(page.get_by_role("button", name="Save", exact=True)).to_be_disabled()
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    return page, f"/api/v1/receipts/{receipt.pk}"
+
+
+def press_and_release(page: Page, target: Any) -> None:
+    """A press and release on the control, as a hand would: whether or not it's available."""
+    box = target.bounding_box()
+    assert box is not None
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.down()
+    page.mouse.up()
+
+
+def held_by(page: Page, path: str) -> dict[str, Any]:
+    """Read back through the API: the receipt, and what's in the caller's custody."""
+    receipt = page.request.get(path)
+    out = page.request.get("/api/v1/storage/checked-out")
+    waiting = page.request.get("/api/v1/storage/awaiting-put-away")
+    assert receipt.ok and out.ok and waiting.ok
+    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()}
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_completing_waits_for_the_box_and_puts_each_tube_where_it_was_shown(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    sent = sent_to_a_core(world, 2)
+    tubes, incoming = sent["tubes"], sent["incoming"]
+    page, path = received_and_handed_over(open_as, sent, color_scheme)
+    complete = page.get_by_role("button", name="Complete receiving")
+    plan = page.get_by_role("table", name=re.compile("^Where each goes"))
+    choices = [plan.get_by_role("combobox", name=f"Where {t['hrid']} goes") for t in tubes]
+    # Nothing is decided for them: not put away, and not kept in custody.
+    for choice in choices:
+        expect(choice).to_have_value("")
+    expect(complete).to_be_disabled()
+
+    # The real box lookup, held back: its answer isn't known yet.
+    held: list[Route] = []
+    page.route("**/api/v1/storage/scan/resolve", lambda route: held.append(route))
+    page.get_by_role("textbox", name=re.compile("^Box")).fill(incoming["hrid"])
+    page.get_by_role("button", name="Show its free positions").click()
+    for _ in range(100):
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held, "The box lookup never left the page."
+    expect(complete).to_be_disabled()
+    expect(complete).to_have_accessible_description("Finding the box and its free positions…")
+    before = held_by(page, path)
+    sent_complete: list[Request] = []
+    page.on(
+        "request",
+        lambda r: sent_complete.append(r) if r.url.endswith(path + "/complete") else None,
+    )
+    press_and_release(page, complete)
+    complete.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(500)
+    assert sent_complete == []
+    assert held_by(page, path) == before
+    assert before["receipt"]["status"] == "open"
+    assert before["out"] == [] and before["waiting"] == []
+    checked(page)
+
+    # Released: the allocation shown is what's reviewed, one well changed by hand.
+    held[0].continue_()
+    page.unroute("**/api/v1/storage/scan/resolve")
+    expect(plan).to_have_accessible_name("Where each goes in Incoming: 4 free")
+    expect(choices[0]).to_have_value("A1")
+    expect(choices[1]).to_have_value("A2")
+    shown = choices[0].get_by_role("option", name=f"Put away in {incoming['hrid']}, A1")
+    expect(shown).to_have_count(1)
+    choices[1].select_option("B2")
+    status = page.get_by_text(f"Ready: 2 put away in {incoming['hrid']}.")
+    expect(status).to_be_visible()
+    expect(complete).to_be_enabled()
+    checked(page)
+    fits(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    with page.expect_response(f"**{path}/complete") as answered:
+        complete.click()
+    assert answered.value.status == 200
+    page.get_by_role("heading", level=2, name="Received").wait_for()
+    done = held_by(page, path)["receipt"]
+    assert done["status"] == "completed"
+    placed = {
+        line["code"]: (line["put_away"]["hrid"], line["put_away"]["position"])
+        for line in done["lines"]
+    }
+    assert placed == {"RC000": (incoming["hrid"], "A1"), "RC001": (incoming["hrid"], "B2")}
+    assert not any(line["received_unplaced"] for line in done["lines"])
+    assert where(tubes[0]) == (incoming["hrid"], 1, 1)
+    assert where(tubes[1]) == (incoming["hrid"], 2, 2)
+    page.get_by_role("region", name="Received", exact=True).locator("summary").first.click()
+    report = page.get_by_role("table", name="What this receipt checked")
+    expect(report.get_by_role("row", name=re.compile(f"^{tubes[1]['hrid']}"))).to_contain_text(
+        "Incoming, B2"
+    )
+    checked(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_tube_kept_in_custody_is_received_without_a_location_and_awaits_put_away(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    sent = sent_to_a_core(world, 1)
+    tube = sent["tubes"][0]
+    page, path = received_and_handed_over(open_as, sent, color_scheme)
+    complete = page.get_by_role("button", name="Complete receiving")
+    choice = page.get_by_role("combobox", name=f"Where {tube['hrid']} goes")
+    expect(complete).to_be_disabled()
+    expect(complete).to_have_accessible_description(
+        f"Decide for {tube['hrid']}: put it away in a free position, or keep it in your custody."
+    )
+    choice.select_option(label="Keep in my custody")
+    expect(complete).to_have_accessible_description("Ready: 1 kept in your custody.")
+    checked(page)
+    with page.expect_response(f"**{path}/complete") as answered:
+        complete.click()
+    assert answered.value.status == 200
+    body = answered.value.request.post_data_json
+    assert body is not None
+    assert body["put_away"] == [] and len(body["keep_in_custody"]) == 1
+    page.get_by_role("heading", level=2, name="Received").wait_for()
+    now = held_by(page, path)
+    (line,) = now["receipt"]["lines"]
+    assert (line["received_unplaced"], line["put_away"]) == (True, None)
+    assert [(x["id"], x["custodian"]["id"]) for x in now["waiting"]] == [
+        (str(tube["id"]), str(world.users["tech"].pk))
+    ]
+    page.get_by_role("region", name="Received", exact=True).locator("summary").first.click()
+    expect(
+        page.get_by_role("table", name="What this receipt checked").get_by_role(
+            "row", name=re.compile(f"^{tube['hrid']}")
+        )
+    ).to_contain_text("Not put away: kept in custody")
+
+    # Storage lists it until someone puts it away.
+    page.goto("/storage/")
+    waiting = page.get_by_role("region", name="Received, not yet put away")
+    row = waiting.get_by_role("row", name=re.compile(f"^{tube['hrid']}"))
+    expect(row).to_contain_text("You")
+    checked(page)
+    fits(page)
+    page.context.close()

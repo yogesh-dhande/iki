@@ -1,3 +1,4 @@
+import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { expect, it } from "vitest";
@@ -661,4 +662,376 @@ it("shows the scanner’s exact text in the history, and how it identified the t
   expect(recorded?.querySelector(".scan-raw")?.textContent).toBe(" RC000001 ");
   // Its evidence isn't said again as a field.
   expect(recorded).not.toHaveTextContent("scan {");
+});
+
+// --- Where each received tube goes ------------------------------------------------------------
+
+const BOX_ID = "00000000-0000-7000-8000-0000000b0135";
+const BOX_CODE = "IKI:000000000000700080000000000B0135";
+
+/** BOX-000135, "Incoming": four positions in a row, A1 already taken. */
+function incoming(): Schemas["ContainerOut"] {
+  return {
+    id: BOX_ID,
+    hrid: "BOX-000135",
+    title: "Incoming",
+    type: "acme/lims.Box",
+    archived: false,
+    purged: false,
+    project: "project",
+    shape: { rows: 1, columns: 4, size: 4, labels: "letter_number", order: "by_row" },
+    holds: ["acme/lims.Tube"],
+    code: "BOX-000135",
+    location: {
+      path: [],
+      hidden: false,
+      stored: true,
+      position: null,
+      custodian: null,
+      custody_since: null,
+    },
+    contents: [
+      {
+        id: "tube-older",
+        ref: {
+          hrid: "TUB-000099",
+          title: "TUB-000099",
+          type: "acme/lims.Tube",
+          archived: false,
+          purged: false,
+        },
+        row: 1,
+        column: 1,
+        position: "A1",
+        code: "RC000099",
+        custodian: null,
+        custody_since: null,
+        container: false,
+        count: 0,
+      },
+    ],
+    free: 3,
+    reconciliation: null,
+    can: { keep: true, label: true },
+  };
+}
+
+const ONE_BOX = {
+  status: "one",
+  candidates: [
+    {
+      id: BOX_ID,
+      hrid: "BOX-000135",
+      title: "Incoming",
+      type: "acme/lims.Box",
+      owner_project: CORE,
+      box: null,
+      position: null,
+    },
+  ],
+};
+
+/** Two received, one matched and one damaged, and one rejected, which isn't put away. */
+function received(revision = 5) {
+  return receipt(revision, [
+    tube(1, { outcome: "matched", checked_by: ME }),
+    tube(2, { outcome: "damaged", note: "Cap cracked", checked_by: ME }),
+    tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
+  ]);
+}
+
+function putaway() {
+  return within(screen.getByRole("table", { name: /^Where each goes/ }));
+}
+
+function where(hrid: string) {
+  return putaway().getByRole("combobox", { name: `Where ${hrid} goes` });
+}
+
+function completeButton() {
+  return screen.getByRole("button", { name: /^Complete receiving|^Completing/ });
+}
+
+async function showBox(user: UserEvent, code = "BOX-000135") {
+  await user.type(screen.getByRole("textbox", { name: /^Box/ }), code);
+  await user.click(screen.getByRole("button", { name: "Show its free positions" }));
+}
+
+it("sends each received tube’s decision as shown: the box’s Iki code and well, or custody when chosen", async () => {
+  const { user } = await openReceipt(received());
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  // Undecided until a box is shown, or custody is chosen: nothing is decided for them.
+  expect(where("TUB-000001")).toHaveValue("");
+  expect(completeButton()).toHaveAttribute("aria-disabled", "true");
+  await showBox(user);
+  await screen.findByRole("table", { name: "Where each goes in Incoming: 3 free" });
+  // A1 is taken: the next free ones, said in full.
+  expect(where("TUB-000001")).toHaveValue("A2");
+  expect(where("TUB-000002")).toHaveValue("A3");
+  expect(
+    within(where("TUB-000001"))
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual([
+    "Put away in BOX-000135, A2",
+    "Put away in BOX-000135, A3",
+    "Put away in BOX-000135, A4",
+    "Keep in my custody",
+  ]);
+  expect(putaway().queryByRole("combobox", { name: "Where TUB-000003 goes" })).toBeNull();
+  await user.selectOptions(where("TUB-000001"), "A4");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  expect(
+    screen.getByText("Ready: 1 put away in BOX-000135 and 1 kept in your custody."),
+  ).toBeVisible();
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toEqual({
+    plan_revision: 5,
+    missing_rest: false,
+    put_away: [{ line: "line-000001", to: BOX_CODE, position: "A4" }],
+    keep_in_custody: ["line-000002"],
+  });
+});
+
+it("never completes while the box is being found, and leaves the decision open when it can’t be read", async () => {
+  const { user } = await openReceipt(received());
+  let release = (): void => undefined;
+  const held = new Promise<void>((done) => {
+    release = done;
+  });
+  answer("POST /api/v1/storage/scan/resolve", async () => {
+    await held;
+    return ONE_BOX;
+  });
+  answer(
+    `GET /api/v1/storage/containers/${BOX_ID}`,
+    problem(403, "forbidden", "You can’t read this box’s positions."),
+  );
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  await showBox(user);
+  expect(await screen.findByText("Finding the box and its free positions…")).toBeVisible();
+  const button = completeButton();
+  expect(button).toHaveAttribute("aria-disabled", "true");
+  expect(button).toHaveAccessibleDescription("Finding the box and its free positions…");
+  await user.click(button);
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  await act(async () => {
+    release();
+    await held;
+  });
+  expect(await screen.findByText("You can’t read this box’s positions.")).toBeVisible();
+  // Nothing allocated: TUB-000001 is still open, and its custody choice is kept for TUB-000002.
+  expect(where("TUB-000001")).toHaveValue("");
+  expect(where("TUB-000002")).toHaveValue("keep");
+  expect(completeButton()).toHaveAttribute("aria-disabled", "true");
+  expect(
+    screen.getByText(
+      "Decide for TUB-000001: put it away in a free position, or keep it in your custody.",
+    ),
+  ).toBeVisible();
+  await user.click(completeButton());
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  // A deliberate choice for the last one, and it completes with no box at all.
+  await user.selectOptions(where("TUB-000001"), "Keep in my custody");
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toEqual({
+    plan_revision: 5,
+    missing_rest: false,
+    put_away: [],
+    keep_in_custody: ["line-000001", "line-000002"],
+  });
+});
+
+it("waits for a box a scan can’t settle to be chosen, and puts the tubes in the one chosen", async () => {
+  const { user } = await openReceipt(received());
+  const other = { ...ONE_BOX.candidates[0], id: "box-other", hrid: "BOX-000136" };
+  answer("POST /api/v1/storage/scan/resolve", {
+    status: "ambiguous",
+    candidates: [other, ...ONE_BOX.candidates],
+  });
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  await showBox(user, "INCOMING");
+  const chooser = await screen.findByRole("region", {
+    name: "“INCOMING” matches more than one box",
+  });
+  expect(completeButton()).toHaveAccessibleDescription("Choose which box “INCOMING” is, above.");
+  await user.click(within(chooser).getByRole("button", { name: /^BOX-000135/ }));
+  await screen.findByRole("table", { name: "Where each goes in Incoming: 3 free" });
+  expect(where("TUB-000001")).toHaveValue("A2");
+  expect(completeButton()).not.toHaveAttribute("aria-disabled");
+  // The box is looked up once; the one chosen is loaded as it is now.
+  expect(calls("POST", "/api/v1/storage/scan/resolve")).toHaveLength(1);
+  expect(calls("GET", `/api/v1/storage/containers/${BOX_ID}`)).toHaveLength(1);
+});
+
+it("shows each of the server’s refusals on its line, and keeps the plan editable", async () => {
+  const { user } = await openReceipt(received());
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  await showBox(user);
+  await screen.findByRole("table", { name: "Where each goes in Incoming: 3 free" });
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  answer(
+    `POST ${api}/complete`,
+    problem(422, "validation_failed", "Check the fields.", [
+      { pointer: "#/put_away/0/position", detail: "A2 is taken." },
+      {
+        pointer: "#/keep_in_custody/0",
+        detail: "must name a matched or damaged line of this receipt exactly once.",
+      },
+      { pointer: "#/lines/line-000001", detail: "needs a note: say why it's damaged." },
+    ]),
+  );
+  await user.click(completeButton());
+  const alert = await screen.findByText(
+    "Nothing was completed. Check each of these, then complete it again:",
+  );
+  // Read first: focus goes to what was refused.
+  expect(alert.closest(".complete-feedback")).toHaveFocus();
+  expect(alert.closest("[role=alert]")).toHaveTextContent(
+    "TUB-000001: A2 is taken.TUB-000002: must name a matched or damaged line of this receipt exactly once.TUB-000001: needs a note: say why it's damaged.",
+  );
+  // Each on its line: the placement and custody choice where they're made, the line’s own on it.
+  expect(where("TUB-000001")).toHaveAttribute("aria-invalid", "true");
+  expect(where("TUB-000001")).toHaveAccessibleDescription("A2 is taken.");
+  expect(where("TUB-000002")).toHaveAccessibleDescription(
+    "must name a matched or damaged line of this receipt exactly once.",
+  );
+  expect(line("TUB-000001").getByRole("alert")).toHaveTextContent(
+    "needs a note: say why it's damaged.",
+  );
+  // Still editable, and sent again only when asked.
+  await user.selectOptions(where("TUB-000001"), "A3");
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/complete`)[1]?.body).toMatchObject({
+    put_away: [{ line: "line-000001", to: BOX_CODE, position: "A3" }],
+    keep_in_custody: ["line-000002"],
+  });
+});
+
+it("reloads a receipt that changed since it was reviewed, and waits to be completed again", async () => {
+  const { user } = await openReceipt(received());
+  await user.selectOptions(where("TUB-000001"), "Keep in my custody");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  answer(
+    `POST ${api}/complete`,
+    problem(409, "conflict", "This receipt changed.", undefined, {
+      affected_lines: [{ line_id: "line-000002", line_revision: 2 }],
+    }),
+  );
+  const fresh = receipt(6, [
+    tube(1, { outcome: "matched", checked_by: ME }),
+    tube(2, {
+      outcome: "rejected",
+      note: "Cap cracked through",
+      checked_by: ADA,
+      checked_at: "2026-01-12T09:30:00Z",
+      line_revision: 2,
+    }),
+    tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
+  ]);
+  answer(`GET ${api}`, fresh);
+  await user.click(completeButton());
+  const stale = await screen.findByText(/^The checklist changed while you were looking at it/);
+  expect(stale.closest(".complete-feedback")).toHaveFocus();
+  expect(stale.closest("[role=alert]")).toHaveTextContent(
+    "TUB-000002: Now rejected · note “Cap cracked through”, checked by Ada Lovelace",
+  );
+  // The plan as it is now: TUB-000002 isn't received, so it has no decision to send.
+  expect(putaway().queryByRole("combobox", { name: "Where TUB-000002 goes" })).toBeNull();
+  expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  answer(`POST ${api}/complete`, { ...fresh, plan_revision: 7, status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/complete`)[1]?.body).toEqual({
+    plan_revision: 6,
+    missing_rest: false,
+    put_away: [],
+    keep_in_custody: ["line-000001"],
+  });
+});
+
+it("says which tubes were received without a location, and which are still waiting to be put away", async () => {
+  const done = receipt(
+    7,
+    [
+      tube(1, {
+        outcome: "matched",
+        put_away: {
+          id: BOX_ID,
+          hrid: "BOX-000135",
+          title: "Incoming",
+          type: "acme/lims.Box",
+          position: "A2",
+          archived: false,
+          purged: false,
+        },
+      }),
+      tube(2, { outcome: "matched", received_unplaced: true }),
+      // Put away in a box this reader can’t see: not said to be unplaced.
+      tube(3, { outcome: "damaged", note: "Cap cracked" }),
+    ],
+    {
+      status: "completed",
+      completed_at: "2026-01-12T10:00:00Z",
+      received_by: ME,
+      handed_over_by: "Courier 104",
+    },
+  );
+  withTypes();
+  answer(`GET /api/v1/entities/${ask}/receipts`, {
+    receipts: [done],
+    expected: 0,
+    can_receive: true,
+    why_not: null,
+  });
+  const { user } = await renderApp(`/storage/receive/${ask}/`);
+  await user.click(await screen.findByText(/by Rosalind Franklin, from Courier 104/));
+  const rows = within(screen.getByRole("table", { name: "What this receipt checked" }));
+  const placed = (hrid: string) =>
+    rows.getByRole("row", { name: new RegExp(`^${hrid}`) }).querySelectorAll("td")[2];
+  expect(placed("TUB-000001")).toHaveTextContent("Incoming, A2");
+  expect(placed("TUB-000002")).toHaveTextContent("Not put away: kept in custody");
+  expect(placed("TUB-000003")).toHaveTextContent("—");
+});
+
+it("lists what was received without a location on the Storage page", async () => {
+  withTypes();
+  answer("GET /api/v1/storage/places", []);
+  answer("GET /api/v1/storage/checked-out", []);
+  answer("GET /api/v1/storage/awaiting-put-away", [
+    {
+      id: "tube-000002",
+      hrid: "TUB-000002",
+      title: "Lysate 2",
+      type: "acme/lims.Tube",
+      archived: false,
+      purged: false,
+      custodian: ADA,
+      custody_since: "2026-01-12T10:00:00Z",
+    },
+  ]);
+  await renderApp("/storage/");
+  const section = within(await screen.findByRole("region", { name: "Received, not yet put away" }));
+  const row = await section.findByRole("row", { name: /^TUB-000002/ });
+  expect(row).toHaveTextContent("TUB-000002Lysate 2Ada Lovelace12 Jan 2026");
+  expect(within(row).getByRole("link", { name: "TUB-000002" })).toHaveAttribute(
+    "href",
+    "/entities/TUB-000002/",
+  );
 });

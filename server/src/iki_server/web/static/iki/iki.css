@@ -5975,6 +5975,34 @@ button.scan-choice:disabled {
   align-items: start;
 }
 
+/* Each received tube's decision, said in full: "Put away in BOX-000135, A4". */
+.putaway-plan select {
+  width: 100%;
+  min-width: 12rem;
+}
+
+.putaway-plan .field-error {
+  margin: 0.25rem 0 0;
+}
+
+/* Focused after a refusal so it's read first; the alert inside is what's seen. */
+.complete-feedback:focus {
+  outline: none;
+}
+
+.complete-refusals {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.complete-refusals li {
+  overflow-wrap: anywhere;
+}
+
+.complete-status {
+  margin: 0.5rem 0 0;
+}
+
 /* --- Reconciling ------------------------------------------------------------------------- */
 
 .finding-counts {
@@ -6162,6 +6190,11 @@ button.scan-choice:disabled {
 @media (max-width: 36rem) {
   .receive-line {
     grid-template-columns: 1fr;
+  }
+
+  /* On a phone the decision gets the room, so "Put away in BOX-000135, A4" reads in full. */
+  .putaway-plan th[scope="row"] {
+    width: 1%;
   }
 
   .receive-outcomes {
