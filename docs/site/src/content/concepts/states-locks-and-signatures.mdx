@@ -14,6 +14,10 @@ useCases:
 
 ## In short
 
+A record type has no states, locks or signatures unless its lab adds them, in the plugin that
+declares it. Many types need none: a stock item or a storage location only holds values. This page
+says what they do when a lab adds them.
+
 A record's place in a process, such as a sample's testing or a lot's QA disposition, is a **state
 field**. Each of its states says which lab roles may set it. A state can **lock** the record, so
 its values can't change by any path until someone with the right role sets the field to another

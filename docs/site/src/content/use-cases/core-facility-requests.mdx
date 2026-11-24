@@ -1,0 +1,78 @@
+---
+title: A core facility that takes requests from other teams
+description: One lab's setup, in which a sequencing core takes requests from three research projects, does the work and returns a result for each tube.
+audience: bench
+topic: Requests
+category: collaboration
+order: 10
+prerequisites:
+  plugins:
+    - { name: iki/example_lims }
+  roles:
+    - { role: Requesters, needs: "Project Editor in their own project" }
+    - { role: Coordinator, needs: "Lab role Coordinator in the core's project" }
+    - { role: Analyst, needs: "Lab role Analyst in the core's project" }
+    - { role: Reviewer, needs: "Lab role Reviewer in the core's project" }
+  compute: none
+reference:
+  - { label: iki/example_lims.CoreFacilityRequest, href: /reference/plugins/example-lims/#CoreFacilityRequest }
+  - { label: iki/example_lims.CoreDeliverable, href: /reference/plugins/example-lims/#CoreDeliverable }
+  - { label: "EntityType: request", href: /reference/plugin-spec/entity-type/#request }
+  - { label: "EntityType: result", href: /reference/plugin-spec/entity-type/#result }
+---
+
+import BeforeYouStart from "../../components/BeforeYouStart.astro";
+import RequestFlow from "../../components/usecase/RequestFlow.astro";
+
+## In short
+
+A sequencing core serves three research projects. Each project writes a request in its own
+project, names the tubes it's sending and the sequencing it wants, and sends it to the core. The
+core accepts or declines it, receives the tubes, sequences them, and returns a result for each
+tube with its report and files. The project that asked sees each result as it comes back.
+
+<BeforeYouStart prerequisites={frontmatter.prerequisites} />
+
+<RequestFlow />
+
+## Built from
+
+- **A request type**, like the example LIMS plugin's
+  [Core facility request](/reference/plugins/example-lims/#CoreFacilityRequest). It has the
+  service, the sequencing method and the tubes. Its [request](/reference/plugin-spec/entity-type/#request)
+  settings say which fields are the core's (status, priority, schedule, analyst and notes), what
+  goes to the core with it (its samples and tubes), and who receives the tubes.
+- **A deliverable type**, like the plugin's [Core deliverable](/reference/plugins/example-lims/#CoreDeliverable):
+  the outcome, a report, the tube, and the sequencing files or a public run accession. Its
+  [result](/reference/plugin-spec/entity-type/#result) settings return it to the requesting
+  project when it reaches the state this lab chose for it.
+- **The states this lab chose**: Submitted, Accepted, In progress, Delivered and Declined, each
+  [set by a lab role](/reference/plugin-spec/field/#states.set_by). The requesting project keeps
+  its own state, Open or Withdrawn.
+- **A rule**: a sequencing request names its method and the tubes the core will receive, or it
+  can't be saved.
+- **The roles**: Coordinator, Analyst and Reviewer, given to people in the core's project. A
+  Reviewer returns each result and sets Delivered; neither takes a signature in this lab.
+
+## The same everywhere
+
+- Every change to a request or a result is a revision, with who made it, through what and when,
+  and the earlier values stay in its history.
+- The core reads a request and the samples and tubes sent with it, and nothing else of the
+  requesting project's. Each requesting project sees only its own requests.
+- Each record's audit trail can be read, and exported as CSV.
+
+## Change it
+
+- To require a signed review before a result goes back, give the deliverable's returned state a
+  signature, as the example plugin's
+  [ResearchCoreDeliverable](/reference/plugins/example-lims/#ResearchCoreDeliverable) does. For
+  signatures in turn by the analyst, a reviewer and QA, follow its
+  [QCCoreDeliverable](/reference/plugins/example-lims/#QCCoreDeliverable).
+- To skip acceptance, leave Accepted out of the request's status states and out of the analyst's
+  [assignment](/reference/plugin-spec/field/#assignment), so an analyst picks up a submitted
+  request and sets In progress.
+- To take requests from a LIMS the lab already has, add an action that reads them through the
+  LIMS's API and a trigger that runs it on a schedule, as the example plugin's
+  [import_from_lims](/reference/plugins/example-lims/#import_from_lims) does for proteins.
+- To charge each request to a cost centre, add a required field for it to the request type.

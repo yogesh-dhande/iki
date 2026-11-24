@@ -1,0 +1,159 @@
+---
+// The core facility example's flow: the requesting project's lane and the core's, with the
+// states and roles this example lab chose. Drawn in the page's colours, in both themes.
+---
+
+<figure class="flow">
+  <svg viewBox="0 0 360 470" role="img" aria-labelledby="request-flow-title request-flow-desc">
+    <title id="request-flow-title">This lab's request flow</title>
+    <desc id="request-flow-desc">
+      The requesting project writes a request and sends its tubes. At the core the request is
+      Submitted, then Accepted or Declined by a coordinator, In progress with an analyst, a result
+      is returned for each tube by a reviewer, and the reviewer sets Delivered. The requesting
+      project can withdraw the request while it's open, and sees each result as it's returned.
+    </desc>
+    <text class="lane" x="66" y="20">
+      Requesting project
+    </text>
+    <text class="lane" x="256" y="20">
+      Sequencing core
+    </text>
+    <line class="divider" x1="140" y1="32" x2="140" y2="436"></line>
+
+    <rect class="box" x="6" y="44" width="124" height="48" rx="6"></rect>
+    <text class="label" x="68" y="64">
+      Writes a request
+    </text>
+    <text class="note" x="68" y="81">
+      and sends its tubes
+    </text>
+
+    <rect class="box" x="6" y="164" width="124" height="48" rx="6"></rect>
+    <text class="label" x="68" y="184">
+      Can withdraw it
+    </text>
+    <text class="note" x="68" y="201">
+      while it's open
+    </text>
+
+    <rect class="box" x="6" y="284" width="124" height="48" rx="6"></rect>
+    <text class="label" x="68" y="304">
+      Sees each result
+    </text>
+    <text class="note" x="68" y="321">
+      as it's returned
+    </text>
+
+    <rect class="state" x="158" y="44" width="196" height="48" rx="6"></rect>
+    <text class="label" x="256" y="64">
+      Submitted
+    </text>
+    <text class="note" x="256" y="81">
+      sent, waiting for the core
+    </text>
+
+    <rect class="state" x="158" y="124" width="196" height="48" rx="6"></rect>
+    <text class="label" x="256" y="144">
+      Accepted, or Declined
+    </text>
+    <text class="note" x="256" y="161">
+      set by a Coordinator
+    </text>
+
+    <rect class="state" x="158" y="204" width="196" height="48" rx="6"></rect>
+    <text class="label" x="256" y="224">
+      In progress
+    </text>
+    <text class="note" x="256" y="241">
+      set by the Analyst
+    </text>
+
+    <rect class="box" x="158" y="284" width="196" height="48" rx="6"></rect>
+    <text class="label" x="256" y="304">
+      A result for each tube
+    </text>
+    <text class="note" x="256" y="321">
+      returned by a Reviewer
+    </text>
+
+    <rect class="state" x="158" y="364" width="196" height="48" rx="6"></rect>
+    <text class="label" x="256" y="384">
+      Delivered
+    </text>
+    <text class="note" x="256" y="401">
+      set by a Reviewer
+    </text>
+
+    <path class="arrow" d="M130 68 H152"></path>
+    <path class="head" d="M158 68 l-7 -4 v8 z"></path>
+    <path class="arrow" d="M256 92 V118"></path>
+    <path class="head" d="M256 124 l-4 -7 h8 z"></path>
+    <path class="arrow" d="M256 172 V198"></path>
+    <path class="head" d="M256 204 l-4 -7 h8 z"></path>
+    <path class="arrow" d="M256 252 V278"></path>
+    <path class="head" d="M256 284 l-4 -7 h8 z"></path>
+    <path class="arrow" d="M256 332 V358"></path>
+    <path class="head" d="M256 364 l-4 -7 h8 z"></path>
+    <path class="arrow" d="M158 308 H136"></path>
+    <path class="head" d="M130 308 l7 -4 v8 z"></path>
+
+    <rect class="key-state" x="6" y="446" width="14" height="12" rx="3"></rect>
+    <text class="key" x="26" y="456">
+      A state this lab chose; roles are this lab's too
+    </text>
+  </svg>
+</figure>
+
+<style>
+  .flow {
+    margin: 24px 0;
+    max-width: 560px;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: inherit;
+  }
+  text {
+    text-anchor: middle;
+    fill: var(--text);
+  }
+  .lane {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .label {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .note,
+  .key {
+    font-size: 11.5px;
+    fill: var(--muted);
+  }
+  .key {
+    text-anchor: start;
+  }
+  .divider {
+    stroke: var(--border);
+    stroke-dasharray: 4 4;
+  }
+  .box {
+    fill: var(--surface);
+    stroke: var(--border-strong);
+  }
+  .state,
+  .key-state {
+    fill: var(--accent-soft);
+    stroke: var(--accent);
+  }
+  .arrow {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.5;
+  }
+  .head {
+    fill: var(--muted);
+  }
+</style>
