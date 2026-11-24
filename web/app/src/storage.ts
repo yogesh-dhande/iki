@@ -435,9 +435,41 @@ export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
   return null;
 }
 
-/** Whether a 409 is about the scan, not about a newer version of what's recorded. */
+/** What a count scan says about an unregistered label: another tube, or a named one moved. */
+export type UnregisteredIntent = NonNullable<Schemas["ScanIn"]["unregistered"]>;
+
+/** An earlier slot where a count saw the same unregistered label, at the version offered. */
+export type UnregisteredSource = NonNullable<Problem["observations"]>[number];
+
+/**
+ * A count scan of an unregistered label already seen in another slot: nothing was saved,
+ * and the person says whether it's another tube or one of those, moved. `index` is the
+ * scan's place in the request; `position`, where it was scanned.
+ */
+export interface UnregisteredChoice {
+  index: number;
+  position: string;
+  sources: UnregisteredSource[];
+}
+
+/** The choice a refused count scan asks for, if that's why it was refused. */
+export function unregisteredChoice(problem: Problem | undefined): UnregisteredChoice | null {
+  if (problem?.code !== "count_unregistered_choice") return null;
+  if (typeof problem.index !== "number" || !problem.position) return null;
+  return { index: problem.index, position: problem.position, sources: problem.observations ?? [] };
+}
+
+/**
+ * Whether a 409 is about the scan, not about a newer version of what's recorded: one that
+ * can't identify a tube, one several readable tubes share, or an unregistered label that
+ * needs the person to say which tube it is.
+ */
 export function isScanConflict(problem: Problem | undefined): boolean {
-  return problem?.code === "scan_unavailable" || problem?.code === "scan_ambiguous";
+  return (
+    problem?.code === "scan_unavailable" ||
+    problem?.code === "scan_ambiguous" ||
+    problem?.code === "count_unregistered_choice"
+  );
 }
 
 /** Where a candidate is: “BOX-000014 Kinase retains, A2”, or that it isn't in a box. */

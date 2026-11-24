@@ -695,3 +695,360 @@ it("says a typed Iki ID none has, or one you can’t read has, in the same words
   ).toBeVisible();
   expect(screen.queryByText(/This scan can’t identify/)).toBeNull();
 });
+
+// --- An unregistered label seen in more than one slot ------------------------------------------
+
+const LABEL = "BUFFER A";
+
+/** A tube no readable record has, scanned at `found` by Ada. */
+function unregisteredAt(found: string, number: number, revision = 1): ReconciliationLine {
+  const serial = String(number).padStart(6, "0");
+  return tube(number, {
+    id: `00000000-0000-4000-8000-${serial.padStart(12, "0")}`,
+    entity: null,
+    ref: null,
+    code: LABEL,
+    expected: null,
+    found,
+    finding: "unexpected",
+    line_revision: revision,
+    observation: {
+      id: `00000000-0000-7000-8000-0000000${serial.slice(1)}e`,
+      line_id: `00000000-0000-4000-8000-${serial.padStart(12, "0")}`,
+      position: found,
+      code: LABEL,
+      identity_basis: null,
+      scanned_by: ADA,
+      scanned_at: "2026-01-12T09:10:00Z",
+    },
+  });
+}
+
+function choiceAt(position: string, ...sources: ReconciliationLine[]) {
+  return problem(
+    409,
+    "count_unregistered_choice",
+    "Is this an additional unregistered tube, or did a previously observed tube move?",
+    undefined,
+    {
+      index: 0,
+      position,
+      observations: sources.map((line) => ({
+        line_id: line.id,
+        line_revision: line.line_revision,
+        position: line.found,
+      })),
+    },
+  );
+}
+
+async function scanAt(user: UserEvent, position: string, code: string) {
+  await user.click(screen.getByRole("gridcell", { name: new RegExp(`^${position},`) }));
+  await user.type(screen.getByRole("textbox", { name: `What’s in ${position}` }), `${code}{Enter}`);
+}
+
+function scans() {
+  return calls("POST", `${api}/scans`).map((call) => call.body);
+}
+
+it("asks whether an unregistered label seen in other slots is another tube, and records that", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const a2 = unregisteredAt("A2", 2);
+  const { user } = await openInventory(a1, a2);
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { unregistered?: unknown }[] };
+    return body.scans[0]?.unregistered
+      ? inventory(2, a1, a2, { ...unregisteredAt("A3", 3), line_revision: 1 })
+      : choiceAt("A3", a1, a2);
+  });
+  await scanAt(user, "A3", LABEL);
+  const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A3 is…" });
+  await waitFor(() => {
+    expect(within(chooser).getByRole("heading")).toHaveFocus();
+  });
+  // Not a stale count: nothing is read again, and no reason is asked for yet.
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(calls("GET", api)).toHaveLength(1);
+  const options = within(chooser).getAllByRole("button");
+  expect(options.map((o) => o.textContent)).toEqual([
+    "Another tubeA separate tube with the same label",
+    expect.stringMatching(/^The tube from A1, moved hereScanned at A1 by Ada Lovelace/),
+    expect.stringMatching(/^The tube from A2, moved hereScanned at A2 by Ada Lovelace/),
+    "Cancel",
+  ]);
+  // Two lines read “BUFFER A”: each is named with where it was scanned.
+  expect(screen.getByRole("combobox", { name: "What to do about BUFFER A at A1" })).toBeVisible();
+  expect(screen.getByRole("combobox", { name: "What to do about BUFFER A at A2" })).toBeVisible();
+
+  await user.click(within(chooser).getByRole("button", { name: /^Another tube/ }));
+  await waitFor(() => {
+    expect(screen.getByText("A3: BUFFER A, recorded as another tube.")).toBeVisible();
+  });
+  expect(screen.queryByRole("region", { name: /at A3 is…$/ })).not.toBeInTheDocument();
+  expect(scans()).toEqual([
+    { scans: [{ position: "A3", code: LABEL }] },
+    { scans: [{ position: "A3", code: LABEL, unregistered: { action: "additional" } }] },
+  ]);
+});
+
+it("leaves the count as it was when the choice is cancelled", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const { user } = await openInventory(a1);
+  answer(`POST ${api}/scans`, choiceAt("A2", a1));
+  await scanAt(user, "A2", LABEL);
+  const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A2 is…" });
+  await user.click(within(chooser).getByRole("button", { name: "Cancel" }));
+  expect(chooser).not.toBeInTheDocument();
+  expect(screen.getByText("Nothing was recorded at A2.")).toBeVisible();
+  // Still at A2: the person scans it again from where they were.
+  expect(screen.getByRole("textbox", { name: "What’s in A2" })).toBeVisible();
+  expect(scans()).toEqual([{ scans: [{ position: "A2", code: LABEL }] }]);
+});
+
+it("moves only the named tube, with its reviewed version and a reason", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const a2 = unregisteredAt("A2", 2);
+  const { user } = await openInventory(a1, a2);
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { unregistered?: unknown }[]; reason?: string };
+    if (!body.scans[0]?.unregistered) return choiceAt("A3", a1, a2);
+    if (!body.reason)
+      return problem(422, "invalid", "Check the fields.", [
+        { pointer: "#/reason", detail: "Say why the evidence changed." },
+      ]);
+    return inventory(2, a1, { ...a2, found: "A3", line_revision: 2 });
+  });
+  await scanAt(user, "A3", LABEL);
+  const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A3 is…" });
+  const fromA2 = within(chooser).getByRole("button", { name: /^The tube from A2, moved here/ });
+  await user.click(fromA2);
+  let dialog = within(await screen.findByRole("dialog", { name: "Move the tube from A2 to A3?" }));
+  expect(dialog.getByText("‘BUFFER A’ at A3: the tube from A2, moved here.")).toBeVisible();
+  expect(dialog.getByRole("listitem")).toHaveTextContent(
+    /^BUFFER A was scanned at A2, scanned by Ada Lovelace .*, now at A3$/,
+  );
+  expect(
+    dialog.getByText(/Any other tube with this label stays where it was scanned/),
+  ).toBeVisible();
+  const why = dialog.getByRole("textbox", { name: "Why are you changing this?" });
+  expect(why).toHaveFocus();
+  // Not changing it leaves the choice where it was, and the count as it is.
+  await user.click(dialog.getByRole("button", { name: "Don’t change it" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(fromA2).toHaveFocus();
+  expect(scans()).toHaveLength(1);
+
+  await user.click(fromA2);
+  dialog = within(await screen.findByRole("dialog", { name: "Move the tube from A2 to A3?" }));
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  expect(dialog.getByRole("alert")).toHaveTextContent("Say why you’re making this change.");
+  expect(scans()).toHaveLength(1);
+  // A reason the server still refuses is said on its field.
+  const reason = "Took the tube from A2 to A3 while counting";
+  await user.type(dialog.getByRole("textbox", { name: "Why are you changing this?" }), reason);
+  answer(
+    `POST ${api}/scans`,
+    problem(422, "invalid", "Check the fields.", [
+      { pointer: "#/reason", detail: "Say why the evidence changed." },
+    ]),
+  );
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  expect(await dialog.findByText("Say why the evidence changed.")).toBeVisible();
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  answer(`POST ${api}/scans`, inventory(2, a1, { ...a2, found: "A3", line_revision: 2 }));
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(screen.getByText("A3: BUFFER A, moved from A2.")).toBeVisible();
+  const move = {
+    scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a2.id } }],
+    reviewed_lines: [{ line_id: a2.id, line_revision: 1 }],
+    reason,
+  };
+  expect(scans()).toEqual([{ scans: [{ position: "A3", code: LABEL }] }, move, move]);
+});
+
+it("reviews what's recorded where the moved tube lands, and asks there which tube it is", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const empty = tube(9, {
+    expected: null,
+    found: "A3",
+    finding: "empty",
+    code: "",
+    entity: null,
+    ref: null,
+    line_revision: 4,
+  });
+  const { user } = await openInventory(a1, empty);
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { unregistered?: unknown }[] };
+    return body.scans[0]?.unregistered ? inventory(2, { ...a1, found: "A3" }) : choiceAt("A3", a1);
+  });
+  await scanAt(user, "A3", LABEL);
+  let dialog = within(
+    await screen.findByRole("dialog", { name: "Replace what’s recorded at A3?" }),
+  );
+  const reason = "The tube was in A3 all along";
+  await user.type(dialog.getByRole("textbox", { name: "Why are you changing this?" }), reason);
+  await user.click(dialog.getByRole("button", { name: "Record the new scan" }));
+  // Which tube it is, asked in the dialog, with the reason kept as typed.
+  const chooser = within(await dialog.findByRole("region", { name: "‘BUFFER A’ at A3 is…" }));
+  expect(dialog.getByRole("button", { name: "Record the new scan" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  expect(screen.queryByText(/changed while you were/)).not.toBeInTheDocument();
+  await user.click(chooser.getByRole("button", { name: /^The tube from A1, moved here/ }));
+  dialog = within(screen.getByRole("dialog", { name: "Move the tube from A1 to A3?" }));
+  expect(dialog.getByText("‘BUFFER A’ at A3: the tube from A1, moved here.")).toHaveFocus();
+  expect(dialog.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+    expect.stringMatching(/^BUFFER A was scanned at A1/),
+    expect.stringMatching(/^A3: Empty/),
+  ]);
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(reason);
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(scans()).toEqual([
+    {
+      scans: [{ position: "A3", code: LABEL }],
+      reviewed_lines: [{ line_id: empty.id, line_revision: 4 }],
+      reason,
+    },
+    {
+      scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a1.id } }],
+      reviewed_lines: [
+        { line_id: a1.id, line_revision: 1 },
+        { line_id: empty.id, line_revision: 4 },
+      ],
+      reason,
+    },
+  ]);
+});
+
+it("shows who changed the tube chosen as moved, and asks again", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const a2 = unregisteredAt("A2", 2);
+  const reread = { ...unregisteredAt("A2", 2, 2) };
+  const { user } = await openInventory(a1, a2);
+  answer(`POST ${api}/scans`, choiceAt("A3", a1, a2));
+  await scanAt(user, "A3", LABEL);
+  const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A3 is…" });
+  await user.click(within(chooser).getByRole("button", { name: /^The tube from A2/ }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Move the tube from A2 to A3?" }),
+  );
+  const reason = "Moved during the count";
+  await user.type(dialog.getByRole("textbox", { name: "Why are you changing this?" }), reason);
+  // Meanwhile, Ada reads A2 again.
+  answer(
+    `POST ${api}/scans`,
+    problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
+      affected_lines: [{ line_id: a2.id, line_revision: 2 }],
+    }),
+  );
+  answer(`GET ${api}`, inventory(2, a1, reread));
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        line_id: a2.id,
+        before: { position: "A2", code: LABEL },
+        after: { position: "A2", code: LABEL },
+      }),
+    ]),
+  );
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  const alert = await dialog.findByText(/^A2 changed while you were looking at it/);
+  expect(alert).toBeVisible();
+  expect(dialog.getByRole("alert")).toHaveTextContent(
+    "BUFFER A at A2: Scan changed by Ada Lovelace",
+  );
+  // The choice is asked again; the reason stays as typed.
+  const again = within(await dialog.findByRole("region", { name: "‘BUFFER A’ at A3 is…" }));
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(reason);
+  answer(`POST ${api}/scans`, inventory(3, a1, { ...reread, found: "A3", line_revision: 3 }));
+  await user.click(again.getByRole("button", { name: /^The tube from A2/ }));
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  const move = (revision: number) => ({
+    scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a2.id } }],
+    reviewed_lines: [{ line_id: a2.id, line_revision: revision }],
+    reason,
+  });
+  expect(scans().slice(1)).toEqual([move(1), move(2)]);
+});
+
+it("refreshes the count when the tube chosen can no longer have moved, and offers what's left", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const a2 = unregisteredAt("A2", 2);
+  const { user } = await openInventory(a1, a2);
+  answer(`POST ${api}/scans`, choiceAt("A3", a1, a2));
+  await scanAt(user, "A3", LABEL);
+  const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A3 is…" });
+  await user.click(within(chooser).getByRole("button", { name: /^The tube from A2/ }));
+  const dialog = within(
+    await screen.findByRole("dialog", { name: "Move the tube from A2 to A3?" }),
+  );
+  await user.type(dialog.getByRole("textbox", { name: "Why are you changing this?" }), "Moved");
+  // Meanwhile, Ada scanned A2's tube at A4.
+  const elsewhere = { ...a2, found: "A4", line_revision: 2 };
+  answer(`POST ${api}/scans`, choiceAt("A3", a1));
+  answer(`GET ${api}`, inventory(2, a1, elsewhere));
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        line_id: a2.id,
+        before: { position: "A2", code: LABEL },
+        after: { position: "A4", code: LABEL },
+        reason: "Found it at A4",
+      }),
+    ]),
+  );
+  await user.click(dialog.getByRole("button", { name: "Record the move" }));
+  expect(await dialog.findByText(/^A2 changed while you were looking at it/)).toBeVisible();
+  expect(dialog.getByRole("alert")).toHaveTextContent(
+    "BUFFER A at A4: Scan changed by Ada Lovelace, 12 Jan 2026, 09:30 UTC: BUFFER A at A4 (“Found it at A4”)",
+  );
+  const again = within(await dialog.findByRole("region", { name: "‘BUFFER A’ at A3 is…" }));
+  expect(again.getAllByRole("button").map((b) => b.textContent)).toEqual([
+    "Another tubeA separate tube with the same label",
+    expect.stringMatching(/^The tube from A1, moved here/),
+  ]);
+  expect(dialog.getByRole("button", { name: "Record the new scan" })).toHaveAttribute(
+    "aria-disabled",
+    "true",
+  );
+  expect(calls("GET", api)).toHaveLength(2);
+  expect(scans()).toHaveLength(2);
+});
+
+it("keeps the registered-tube chooser and the neutral refusal apart from this choice", async () => {
+  const a1 = unregisteredAt("A1", 1);
+  const { user } = await openInventory(a1);
+  answer(
+    `POST ${api}/scans`,
+    problem(
+      409,
+      "scan_unavailable",
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.",
+    ),
+  );
+  await scanAt(user, "A2", LABEL);
+  expect(await screen.findByText(/^This scan can’t identify a tube here/)).toBeVisible();
+  expect(screen.queryByRole("region", { name: /is…$/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  // A rescan where it was is the same evidence again: no choice, no reason.
+  answer(`POST ${api}/scans`, inventory(2, { ...a1, line_revision: 2 }));
+  await scanAt(user, "A1", LABEL);
+  await waitFor(() => {
+    expect(scans()).toHaveLength(2);
+  });
+  expect(scans()[1]).toEqual({
+    scans: [{ position: "A1", code: LABEL }],
+    reviewed_lines: [{ line_id: a1.id, line_revision: 1 }],
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
