@@ -187,9 +187,13 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
     assert not (exported / "data" / name).exists()
     want = (exported / "data" / f"{name}.sha256").read_text().split()[0]
 
-    workers.bundle(exported, tmp_path / "bundle.tar.gz")
+    # As `iki deploy build` does: the plugin's other first-party resources -- the plasmid
+    # plugin's annotation module, the DNA plugin's measurement -- are staged first, and
+    # then the bundle places this one.
+    staged = workers.prepared_source(f"iki/{plugin}", exported, tmp_path / "staged", pinned=True)
+    workers.bundle(staged, tmp_path / "bundle.tar.gz")
 
-    placed = exported / "data" / name
+    placed = staged / "data" / name
     assert placed.read_bytes() == carried.read_bytes()
     with tarfile.open(tmp_path / "bundle.tar.gz") as tar:
         assert f"data/{name}" in tar.getnames()
