@@ -44,6 +44,9 @@ jobs:
           enable-cache: true
       - name: Install (locked)
         run: uv sync --locked
+      - name: Install the pinned Rust toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Import 10M entities
         run: make check-scale-import
 
@@ -74,6 +77,9 @@ jobs:
           enable-cache: true
       - name: Install (locked)
         run: uv sync --locked
+      - name: Install the pinned Rust toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Open the grid's pages at 10M rows
         env:
           IKI_SCALE_GRID_ROWS: "10000000"
@@ -97,6 +103,9 @@ jobs:
           enable-cache: true
       - name: Install (locked)
         run: uv sync --locked
+      - name: Install the pinned Rust toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Lease and complete 5,000 jobs from 100k queued behind 1M finished
         run: make check-scale-queue
 
@@ -118,5 +127,8 @@ jobs:
           enable-cache: true
       - name: Install (locked)
         run: uv sync --locked
+      - name: Install the pinned Rust toolchain
+        working-directory: worker
+        run: rustup show active-toolchain || rustup toolchain install
       - name: Open a project's Files at 1M files
         run: make check-scale-files

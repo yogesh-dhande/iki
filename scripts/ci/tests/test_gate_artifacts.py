@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import os
 import platform
 import runpy
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -30,6 +32,43 @@ def run_check(root: Path, group: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # noqa: S603 - this repository's gate script
         [sys.executable, str(SCRIPT), group], cwd=root, capture_output=True, text=True, check=False
     )
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "check-scale",
+        "check-scale-import",
+        "check-scale-grid",
+        "check-scale-queue",
+        "check-scale-files",
+    ],
+)
+def test_scale_targets_fail_before_pytest_without_wasm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    shutil.copyfile(SCRIPT.parents[2] / "Makefile", tmp_path / "Makefile")
+    write(tmp_path, "scripts/ci/check_test_prerequisites.py", SCRIPT.read_bytes())
+    # Simulate a build that reported success without delivering its output.
+    write(tmp_path, "scripts/build-wasm.sh", b"#!/bin/sh\nexit 0\n").chmod(0o755)
+    write(
+        tmp_path,
+        "uv",
+        b'#!/bin/sh\nif [ "$2" = "--locked" ]; then\n'
+        b'  shift 3\n  exec "$TEST_PYTHON" "$@"\nfi\n'
+        b": >pytest-ran\n",
+    ).chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path), prepend=os.pathsep)
+    monkeypatch.setenv("TEST_PYTHON", sys.executable)
+
+    make = shutil.which("make")
+    assert make is not None
+    result = subprocess.run(  # noqa: S603 - the repository Makefile and a stub for uv
+        [make, target], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert result.returncode != 0, result.stdout
+    assert "spec/src/iki_spec/iki_wasm.wasm is missing or empty" in result.stderr
+    assert not (tmp_path / "pytest-ran").exists()
 
 
 def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
