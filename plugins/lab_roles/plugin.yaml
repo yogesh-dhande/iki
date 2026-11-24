@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/lab_roles
+version: 0.1.0
+title: Lab roles
+description: Shared project qualifications for receiving material, testing it, reviewing results and servicing equipment.
+license: Apache-2.0
+iki: ">=0.1"
+roles:
+  coordinator:
+    label: Coordinator
+    description: Receives material and coordinates requests between projects.
+  engineer:
+    label: Engineer
+    description: Services and calibrates instruments and records when they are retired.
+  analyst:
+    label: Analyst
+    description: Performs tests, records measurements and submits results for review.
+  reviewer:
+    label: Reviewer
+    description: Independently reviews submitted work and signs its review or returns it for correction.
+  qa:
+    label: Sample and result QA
+    description: Signs the release of independently reviewed QC deliverables.

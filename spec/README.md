@@ -62,13 +62,10 @@ installed together: `acme/assays` and `globex/assays` are different plugins
 parts are 2 to 30 lower-case letters, digits and single underscores, starting
 with a letter. The namespace is your lab's or company's.
 
-- The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
-  `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`,
-  `iki/plate_assays`, `iki/experiments`, `iki/reagents`, `iki/qc_release`,
-  `iki/stability`, `iki/equipment` and `iki/example_lims`. No other plugin may use
-  it, or a namespace starting with `iki_` (`reserved-namespace`), and a
-  lockfile takes an `iki/...` plugin only from Iki's repository.
+- The namespace `iki` is reserved for the core and the plugins in Iki's
+  [first-party name list](src/iki_spec/naming.py). Namespaces starting with
+  `iki_` are also reserved (`reserved-namespace`). A lockfile takes an
+  `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
   (`Protein`, or in full, `acme/proteins.Protein`). Anything of another
   plugin's is named in full: `iki/dna.DNASequence`, `iki/protein.translate`,

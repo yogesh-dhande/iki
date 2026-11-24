@@ -137,6 +137,15 @@
       "afc43779c14f909b0f01e3eb8561999b0dbd3db9",
       "01509ec29a0074c88468f31ce381f2bd9a78f8e8"
     ],
+    "iki/inventory": [
+      "b4cca08ffdc0fdcabf46c5543dd41a8a09094075"
+    ],
+    "iki/lab_roles": [
+      "c955bd40d3e006f643b385d5c7d53a00387f49f1"
+    ],
+    "iki/lims_connector_example": [
+      "423067770dfe04fd480350f09a7f991bf852ae32"
+    ],
     "iki/lots": [
       "a834be1e2af8eb1955104121169203bf085bcf71",
       "fc71f9dba4055920a2c101b331d6aeae53534c40",
@@ -262,6 +271,12 @@
     ],
     "iki/reagents": [
       "f292f6ca2072e01c3e5c31de06097104633b0b83"
+    ],
+    "iki/requests": [
+      "08687690fdb72012b82e1ed469fb323557895d1d"
+    ],
+    "iki/samples": [
+      "5890be3d58157dc7ac2949073b1fe613621560c0"
     ],
     "iki/sequencing": [
       "a5c9e5eb42fa4e5d19bcecbfceddcb8213cd8dd0"

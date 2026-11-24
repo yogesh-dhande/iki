@@ -1,6 +1,6 @@
 # Splitting the example LIMS before M1
 
-This is the phase 1 inventory for `a794df0f` and the implementation plan for [proposed ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). Start phase 2 after the WorkItem/plain Deliverable change merges and the coordinator gives the go-ahead. Rebase on its merged revision and repeat the inventory before moving any files.
+This is the phase 1 inventory for `a794df0f` and the implementation plan for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). Start phase 2 after the WorkItem/plain Deliverable change merges and the coordinator gives the go-ahead. Rebase on its merged revision and repeat the inventory before moving any files.
 
 ## What moves
 

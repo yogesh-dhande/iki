@@ -1,6 +1,6 @@
 # 0211. Lots, inventory, samples and requests have separate owners
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-24
 
 ## Context
@@ -26,7 +26,7 @@ The pending sample accepts one draw from its assigned source. Receipt and debit 
 
 ### Sending work to another team
 
-The proposed Request family declares its shared intake contract once. For example, `sends: [records, materials, tubes]` shares selected project records, physical material records and expected storage tubes. `materials: [materials, tubes]` identifies material available to the work. `receives.field: tubes` lets a coordinator reconcile a shipment. Empty lists allow a request for work with no shipment. Priority, assignee and queue status can remain visible on the request. Internal scheduling detail and working notes belong on one or more service-owned WorkItems. A released Deliverable carries the report, outcome and evidence the requester can read. [ADR 0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md) · [ADR 0149](0149-a-result-leaves-its-service-only-by-release.md)
+The Request family declares its shared intake contract once. For example, `sends: [records, materials, tubes]` shares selected project records, physical material records and expected storage tubes. `materials: [materials, tubes]` identifies material available to the work. `receives.field: tubes` lets a coordinator reconcile a shipment. Empty lists allow a request for work with no shipment. Priority, assignee and queue status can remain visible on the request. Internal scheduling detail and working notes belong on one or more service-owned WorkItems. A released Deliverable carries the report, outcome and evidence the requester can read. [ADR 0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md) · [ADR 0149](0149-a-result-leaves-its-service-only-by-release.md)
 
 Request and Deliverable are abstract parents. Plain, Research and QC are their concrete subtypes. Each concrete deliverable declares its own immutable request reference and release condition. Plain delivery is an explicit locked return. Research requires signed review. QC requires signed authorship, independent review and independent QA release. The paired reference prevents an unsigned plain deliverable from answering a QC request. Production, sequencing and analytical work can retain evidence checks for what was requested. An arbitrary collaboration can leave those service-specific fields empty. [ADR 0195](0195-core-facility-requests-return-signed-deliverables.md)
 
