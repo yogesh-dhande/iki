@@ -1,0 +1,112 @@
+apiVersion: iki/v1
+kind: EntityType
+name: SequencingAnalysisResult
+label: Sequencing analysis result
+schema_version: 1
+hrid: { prefix: SQA }
+description: A selected sample or repertoire in a versioned external pipeline report.
+fields:
+  library: { type: ref, to: iki/sequencing.SequencingLibrary, required: true, immutable: true }
+  sample: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  run: { type: ref, to: iki/sequencing.SequencingRun, immutable: true }
+  material:
+    type: ref
+    to:
+      [
+        iki/strains.BaseStrain,
+        iki/strains.TransformedStrain,
+        iki/cell_lines.ParentalLine,
+        iki/cell_lines.EngineeredLine,
+      ]
+    immutable: true
+    description: The strain or cell line underlying the sequenced VCF sample.
+  matches:
+    type: list
+    max_items: 100
+    computed: true
+    immutable: true
+    items:
+      type: row
+      fields:
+        sequence_id: { type: string, required: true, max_length: 250 }
+        antibody: { type: ref, to: iki/antibody.Antibody, required: true }
+      identity: [sequence_id]
+  report: { type: file, computed: true, immutable: true, max_size: 2GiB }
+  report_sha256: { type: string, max_length: 64, computed: true, immutable: true }
+  pipeline_context:
+    type: json
+    computed: true
+    immutable: true
+    description: Pipeline version, reference build, sample selector and pinned record revisions.
+  format: { type: enum, values: [vcf, counts, airr], computed: true, immutable: true }
+  summary: { type: json, computed: true, immutable: true }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+      signed_off:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          research:
+            check: record.review_flow == "research" && state.from == "recorded"
+            message: Sign off a recorded research result.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          qc:
+            check: record.review_flow == "regulated_qc" && state.from == "recorded"
+            message: Submit a recorded result in the regulated QC flow.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: record.review_flow == "regulated_qc" && state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release a result after its independent review.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release requires a signer independent of the creator, analyst, reviewer and editors.
+rules:
+  action_evidence:
+    check: record.report != null && record.summary != null && record.pipeline_context != null && record.review_flow != null
+    message: Use Import sequencing result to preserve the report and its source.
+    fields: [report, summary, pipeline_context, review_flow]
+  named_variant_material:
+    check: (record.format == "vcf") == (record.material != null)
+    message: A VCF result names the strain or cell line.
+    fields: [format, material]
+display: { title: "{{ hrid }}" }

@@ -239,6 +239,7 @@ testpaths = [
   "plugins/reagents/tests",
   "plugins/qc_release/tests",
   "plugins/sequencing/tests",
+  "plugins/sequencing_analysis/tests",
   "server/tests",
   "cli/tests",
   "spec/tests",
