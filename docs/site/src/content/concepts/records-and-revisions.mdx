@@ -1,0 +1,176 @@
+---
+title: Records and revisions
+description: What a record is, how each change to it becomes a numbered revision, and what Iki keeps of who made each change, through what and why.
+audience: bench
+topic: Records
+order: 10
+useCases:
+  - {
+      label: Release a lot with a certificate of analysis,
+      href: /use-cases/release-a-lot-with-a-certificate-of-analysis/,
+    }
+---
+
+## In short
+
+What Iki keeps of the lab's work is records: a stock item, a lot, a sample, a result. Each record
+is of a type that a plugin declares, has an ID such as `SCI-000012`, and belongs to one project.
+
+Every change to a record is a numbered **revision**. A revision says what kind of change it was,
+which fields it changed, who made it, through what, when, and why if they said. Revisions are only
+ever added, so any revision of a record can be read back with the values it had then.
+
+## How it works
+
+### A record and its type
+
+A record's type lists its fields, and each field says what it holds: text, a number, a date, a
+quantity in a unit, a file, a reference to another record, a person. A field can be **required**,
+so it always has a value; **immutable**, so it's set once and never changes; or **computed**, so
+only an action's runs set it and people can't edit it.
+
+Each record gets an ID from its type's prefix and a number, such as `SCI-000012` for a stock item
+or `RMG-000031` for a reagent lot. An ID is never given to another record.
+
+A record belongs to the project it was made in, its owner. It can be shared into other projects,
+whose members can read it and refer to it. Only Editors of its owner project change it.
+
+### Each change is a revision
+
+A revision is one of these kinds:
+
+| Kind              | What happened                                                       |
+| ----------------- | ------------------------------------------------------------------- |
+| **Created**       | The record was made, with the values it was given.                  |
+| **Edited**        | Some of its values changed.                                         |
+| **State changed** | One of its state fields was set: Released, Approved, In review.     |
+| **Archived**      | It was archived: it keeps its history, and can't change.            |
+| **Restored**      | It was restored from the archive, and can change again.             |
+| **Moved**         | It moved from a registry entry that was superseded to its successor. |
+
+Each revision keeps its number, counting from 1 for each record, and the fields it changed. It
+names the person who made the change and, if an app or agent made it for them, that agent. It says
+how the change came: the web app, the API, an agent through MCP, the CLI, an action's run, or Iki
+itself during a plugin's upgrade. And it keeps the time and the reason, when one was given.
+
+The values of every revision are kept in the type's history tables, so Iki can show a record as it
+was at any revision, and what each revision changed. A value's **provenance** is the revision that
+last set it: the record's page shows, for each value, who set it, how and when.
+
+Neither revisions nor history can be changed or deleted, by anyone, through Iki or directly in its
+database.
+
+### An edit names the revision it started from
+
+Whoever edits a record says which revision they read. If the record has changed since, the edit is
+refused and they read it again: nobody's change is overwritten without their seeing it. The REST
+API carries the revision as the record's `ETag`, sent back as `If-Match`; an edit without it is
+refused.
+
+### Archived, not deleted
+
+A record made in error, or no longer in use, is archived. It keeps its history, its ID and every
+reference to it, and can be restored. Archiving and restoring are revisions, with who and why.
+
+### What has a history of its own
+
+Some things about a record change without changing its values, and each keeps its own history
+rather than a revision of the record:
+
+- **How much there is.** A record with an amount, such as a lot, keeps a ledger of what was
+  recorded, drawn, transferred, split off and adjusted, each with who, when and why.
+- **Where it is.** Each time a record is put away, moved or taken out of storage, an event says
+  from where to where, who did it and why.
+- **Its signatures and holds.** Electronic signatures, and holds placed by rules, are kept beside
+  the revisions they're about.
+
+## Worked example
+
+A lab's stock manager, Marta Okafor, keeps the catalogue packs her project orders as stock items
+of the reagents plugin. The stock item for Tris base has these revisions:
+
+| Revision | Kind    | When             | Who, through what                           | Changed                                                        | Reason                                                      |
+| -------- | ------- | ---------------- | ------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1        | Created | 2 Nov 2026 09:14 | Marta Okafor, web app                       | Name, supplier, catalogue number, stock unit, pack size, low-stock threshold |                                                             |
+| 2        | Edited  | 16 Nov 2026 11:02 | Marta Okafor, web app                       | Low-stock threshold: 100,000 mg to 250,000 mg                  | Two buffer preps a week since the stability study started. |
+| 3        | Edited  | 20 Nov 2026 15:40 | Daniel Brandt, through his MCP agent        | Name: "Tris base, 500 g" to "Tris base, 500 g, molecular biology grade" |                                                             |
+
+`SCI-000012`'s supplier, catalogue number, stock unit and pack size are immutable: a pack that
+changes size is another catalogue item, so an edit of its pack size is refused with "can't change
+once it's set". Its low-stock threshold isn't, so Marta raised it, saying why. Revision 3 names
+both Daniel and the agent that made the change for him.
+
+On 4 November Daniel received two packs against the reorder line `ROL-000007`, with the reagents
+plugin's **Receive delivery** action. Its run made the lot `RMG-000031`, supplier lot `TB2611-04`,
+holding 1,000,000 mg, at position B4 of the stock location `SLC-000004`, Cold room shelf 2.
+`RMG-000031`'s revision 1 is **Created**, through that run, by Daniel, who launched it.
+
+Over the next weeks, `RMG-000031` changes without new revisions of its values:
+
+- On 9 November Daniel draws 12.1 g for a 1 M Tris buffer. The draw is a movement in the lot's
+  ledger, which leaves 987,900 mg.
+- On 18 November Marta moves it from B4 to C1, saying "Shelf 2 reordered by catalogue number". The
+  move is an event in its location history.
+
+On 20 November, Marta and Daniel both open `SCI-000012` at revision 2. Daniel's change saves as
+revision 3. Marta's edit, which still names revision 2, is refused: she reads revision 3, and makes
+her change on it if it's still needed.
+
+## The rules in full
+
+### Values
+
+- A required field can't be cleared, and a record can't be made without it.
+- An immutable field is set once, when its record is made or while it's still empty, and never
+  changes after that.
+- A computed field is set only by an action's runs.
+- A field can ask for a reason when it's cleared. Clearing the example LIMS plugin's **On hold**
+  flag on a result without a reason is refused.
+- Values are checked against their fields on every path that writes them: the web app, the API,
+  agents, runs, bulk imports and bundles. The database checks them again.
+- A reference names a record the person writing it can read. A record they can't read is refused
+  as if it didn't exist.
+
+### Revisions
+
+- Every change to a record's values, states or archive makes exactly one revision, numbered one
+  after its previous.
+- A revision names the person, and the agent if one acted for them. A run's revisions name whoever
+  launched it, through the run. A plugin's upgrade that moves records out of a state it removed
+  makes revisions by no one, through the system, saying why.
+- Revisions and history are append-only for every role, including Iki's own database role.
+- An edit that names a revision older than the record's is refused, with the record's current
+  revision.
+- A record's revisions, the values at each, each value's provenance and a CSV of its audit trail
+  are in the web app and the REST API, for anyone who can read the record.
+
+### Archiving
+
+- An archived record can't change until it's restored.
+- A record a state locks can't be archived or restored.
+- Archived records keep their IDs, history and references. People archive records rather than
+  delete them, and a plugin that's detached from a deployment keeps its records, read-only.
+
+### Changes Iki tells others of
+
+Webhooks and the organization's audit log hear of each revision: which record, which revision,
+which fields, who and why. They never carry its values, which a receiver reads through the API
+with its own access.
+
+## Reference
+
+- Field keys: [required](/reference/plugin-spec/field/#required),
+  [immutable](/reference/plugin-spec/field/#immutable),
+  [computed](/reference/plugin-spec/field/#computed),
+  [reason_on_clear](/reference/plugin-spec/field/#reason_on_clear) and
+  [removed](/reference/plugin-spec/field/#removed)
+- A type's ID prefix: [hrid](/reference/plugin-spec/entity-type/#hrid)
+- Change, archive or restore a record: [PATCH /entities/\{ref\}](/reference/api/patch-entities-ref/)
+- Its revisions: [GET /entities/\{ref\}/revisions](/reference/api/get-entities-ref-revisions/),
+  [as it was at one](/reference/api/get-entities-ref-revisions-number/), and
+  [its audit trail as CSV](/reference/api/get-entities-ref-revisions-csv/)
+- Where each value came from: [GET /entities/\{ref\}/provenance](/reference/api/get-entities-ref-provenance/)
+- Its amount's ledger: [GET /entities/\{ref\}/amount/movements](/reference/api/get-entities-ref-amount-movements/)
+- Its location history: [GET /entities/\{ref\}/location/events](/reference/api/get-entities-ref-location-events/)
+- Record types: [iki/reagents.StockItem](repo:plugins/reagents/types/stock_item.yaml) and
+  [iki/reagents.MassStockLot](repo:plugins/reagents/types/mass_stock_lot.yaml)
