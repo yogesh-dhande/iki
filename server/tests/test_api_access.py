@@ -198,6 +198,11 @@ def sample_amount(suffix: str, body: Any = None) -> Build:
             given["to"] = str(made().pk)
         if "values" in given:
             given["values"] = {"label": f"A-{uuid.uuid4().hex[:8]}"}
+        if suffix == "/amount/adjust":
+            from iki_server.amounts.models import Amount
+
+            revision = Amount.objects.get(pk=found.pk).updated_at.isoformat()
+            return f"/entities/{found.pk}{suffix}", given, {"If-Balance-Revision": revision}
         return f"/entities/{found.pk}{suffix}", given or None
 
     return build

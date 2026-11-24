@@ -177,6 +177,7 @@ class AmountOut(TypedDict):
     label: str
     #: The unit its type keeps it in.
     unit: str
+    #: The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.
     updated_at: str
     #: How much there is, exactly, in `unit`.
     value: str

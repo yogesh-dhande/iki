@@ -377,6 +377,10 @@ input:focus-visible {
   padding-left: 1.2rem;
 }
 
+.alert ul + p {
+  margin-top: 0.75rem;
+}
+
 .alert-title {
   font-size: 1rem;
   margin: 0 0 0.35rem;

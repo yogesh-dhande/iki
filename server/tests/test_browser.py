@@ -33,6 +33,7 @@ from playwright.sync_api import (
     Page,
     Playwright,
     Route,
+    expect,
     sync_playwright,
 )
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -3869,6 +3870,89 @@ def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
     record.get_by_role("heading", name=f"Registry entry {new}").wait_for()
     assert_clean(record)
     assert Entity.objects.get(pk=wrong.entity.pk).entry_id == right.entity.entry_id
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """A stock count is checked against the balance its counter saw (If-Balance-Revision).
+    When someone draws meanwhile, nothing is recorded: the dialog says who drew what, keeps
+    the count, and records it only once it's recounted against the new balance."""
+    from decimal import Decimal
+
+    from iki_server.amounts import services as amounts
+    from iki_server.amounts.models import Amount, Movement
+    from iki_server.entities import services as entities
+
+    made: Any = entities.create(
+        world.users["admin"],
+        "acme/protein.Sample",
+        world.project,
+        {"label": "S-1"},
+        amount={"value": 100, "unit": "uL"},
+    )
+    sample = made.entity
+    seen = Amount.objects.get(entity=sample).updated_at.isoformat()
+    page = open_as("admin", f"/entities/{sample.hrid}/", color_scheme)
+    volume = page.get_by_role("region", name="Volume")
+    volume.get_by_role("button", name="Adjust").click()
+    dialog = page.get_by_role("alertdialog", name=f"Adjust {sample.hrid}’s volume")
+    expect(dialog).to_contain_text("It had 100 uL when this count began.")
+    count = dialog.get_by_role("textbox", name="It has")
+    count.fill("95")
+    dialog.get_by_role("textbox", name="Reason").fill("Monthly count")
+    assert_clean(page)
+
+    amounts.draw(
+        world.users["editor"],
+        Entity.objects.get(pk=sample.pk),
+        amounts.Given(Decimal(20), "uL"),
+        reason="Western blot",
+    )
+    with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as refused:
+        dialog.get_by_role("button", name="Adjust").click()
+    assert refused.value.status == 409, refused.value.text()
+    assert refused.value.request.headers["if-balance-revision"] == seen
+    stale = dialog.get_by_role("alert")
+    expect(stale).to_contain_text(
+        "Your count wasn’t recorded: the volume changed after you started counting."
+    )
+    expect(stale).to_contain_text("It has 80 uL now, not the 100 uL you started from.")
+    since = stale.get_by_role("list", name="Changed since you started")
+    expect(since.get_by_role("listitem")).to_have_count(1)
+    expect(since.get_by_role("listitem")).to_contain_text(
+        re.compile(r"^Drawn: \u221220 uL, by Editor, .+ \(“Western blot”\)\.$")
+    )
+    expect(count).to_have_value("95")
+    expect(dialog.get_by_role("button", name="Adjust")).to_have_attribute("aria-disabled", "true")
+    # Chromium and WebKit log the refusal's 409 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    assert Amount.objects.get(entity=sample).value == Decimal(80)
+
+    stale.get_by_role("button", name="Recount").click()
+    expect(stale).to_be_hidden()
+    expect(dialog).to_contain_text("It had 80 uL when this count began.")
+    expect(count).to_be_focused()
+    expect(count).to_have_value("95")
+    count.fill("78")
+    with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as recorded:
+        dialog.get_by_role("button", name="Adjust").click()
+    assert recorded.value.status == 200, recorded.value.text()
+    assert recorded.value.request.headers["if-balance-revision"] != seen
+    page.get_by_text(f"{sample.hrid} has 78 uL now.").wait_for()
+    # Playwright's Firefox crashes in axe on the record's page once the count is recorded
+    # (see assert_clean); the dialog's states above are checked in all three.
+    assert_clean(page, axe_in_firefox=False)
+    assert Amount.objects.get(entity=sample).value == Decimal(78)
+    assert list(
+        Movement.objects.filter(entity=sample).order_by("created_at").values_list("kind", "reason")
+    ) == [("recorded", ""), ("drawn", "Western blot"), ("adjusted", "Monthly count")]
 
 
 def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(

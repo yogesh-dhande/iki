@@ -218,6 +218,7 @@ def test_its_ledger_is_exact_to_the_last_of_its_forty_digits(world: World) -> No
             "amount": {"value": "999999999999999999999999999.999999999999", "unit": "uL"},
             "reason": "recount",
         },
+        headers={"If-Balance-Revision": drawn.json()["amount"]["updated_at"]},
     )
     assert adjusted.status_code == 200, adjusted.content
     # A recount 2e-12 uL below it, by 2e-12 uL.
@@ -248,11 +249,13 @@ def test_its_amount_changes_only_through_its_operations(world: World) -> None:
     unsaid = api.post(
         f"/entities/{made['hrid']}/amount/adjust",
         {"amount": {"value": 8, "unit": "uL"}, "reason": ""},
+        headers={"If-Balance-Revision": made["amount"]["updated_at"]},
     )
     assert unsaid.status_code == 422
     adjusted = api.post(
         f"/entities/{made['hrid']}/amount/adjust",
         {"amount": {"value": 8, "unit": "uL"}, "reason": "Recounted"},
+        headers={"If-Balance-Revision": made["amount"]["updated_at"]},
     )
     assert adjusted.status_code == 200, adjusted.content
     assert adjusted.json()["movement"]["change"] == "-2"
@@ -262,8 +265,87 @@ def test_its_amount_changes_only_through_its_operations(world: World) -> None:
     first = api.post(
         f"/entities/{blank['hrid']}/amount/adjust",
         {"amount": {"value": 5, "unit": "uL"}, "reason": "Measured"},
+        headers={"If-Balance-Revision": "unrecorded"},
     )
     assert first.json()["movement"]["kind"] == "recorded"
+
+
+def test_a_count_cannot_overwrite_another_operators_issue(world: World) -> None:
+    counter = api_as(world)
+    issuer = api_as(world, "via_team")
+    made = sample(world, "S-1", {"value": 100, "unit": "uL"})
+    ref = f"/entities/{made['hrid']}/amount"
+    observed = counter.get(ref).json()
+    assert observed["value"] == issuer.get(ref).json()["value"] == "100"
+    counted = {
+        "amount": {"value": 95, "unit": "uL"},
+        "reason": "Counted before the issue",
+    }
+    missing_revision = counter.post(f"{ref}/adjust", counted)
+    assert missing_revision.status_code == 428, missing_revision.content
+    issued = issuer.post(f"{ref}/draw", {"amount": {"value": 20, "unit": "uL"}})
+    assert issued.status_code == 200, issued.content
+    remaining = issued.json()["amount"]
+    assert remaining["value"] == "80"
+
+    refused = counter.post(
+        f"{ref}/adjust", counted, headers={"If-Balance-Revision": observed["updated_at"]}
+    )
+    assert refused.status_code == 409, refused.content
+    assert refused.json()["code"] == "stale_balance"
+    assert "recount" in refused.json()["detail"]
+    assert counter.get(ref).json() == remaining
+    ledger = counter.get(f"{ref}/movements").json()["items"]
+    assert [(m["kind"], m["change"], m["balance"]) for m in ledger] == [
+        ("drawn", "-20", "80"),
+        ("recorded", "100", "100"),
+    ]
+    assert ledger[0]["user"]["id"] == str(world.users["via_team"].pk)
+    assert (
+        AuditEvent.objects.filter(action="entity.amount_moved", target_id=made["id"]).count() == 2
+    )
+
+    recounted = counter.post(
+        f"{ref}/adjust",
+        {"amount": {"value": 75, "unit": "uL"}, "reason": "Recounted after the issue"},
+        headers={"If-Balance-Revision": remaining["updated_at"]},
+    )
+    assert recounted.status_code == 200, recounted.content
+    assert recounted.json()["amount"]["value"] == "75"
+    assert recounted.json()["movement"]["change"] == "-5"
+
+    restored = issuer.post(
+        f"{ref}/adjust",
+        {"amount": {"value": 80, "unit": "uL"}, "reason": "Recounted again"},
+        headers={"If-Balance-Revision": recounted.json()["amount"]["updated_at"]},
+    )
+    assert restored.status_code == 200, restored.content
+    assert restored.json()["amount"]["value"] == remaining["value"]
+    assert restored.json()["amount"]["updated_at"] != remaining["updated_at"]
+    assert (
+        counter.post(
+            f"{ref}/adjust", counted, headers={"If-Balance-Revision": remaining["updated_at"]}
+        ).status_code
+        == 409
+    )
+
+
+def test_an_initial_count_cannot_replace_a_balance_already_recorded(world: World) -> None:
+    first, second = api_as(world), api_as(world, "via_team")
+    made = sample(world, "S-1")
+    ref = f"/entities/{made['hrid']}/amount"
+    assert first.get(ref).status_code == second.get(ref).status_code == 404
+    headers = {"If-Balance-Revision": "unrecorded"}
+    for api, value, status in ((first, 0, 200), (second, 10, 409)):
+        response = api.post(
+            f"{ref}/adjust",
+            {"amount": {"value": value, "unit": "uL"}, "reason": "First count"},
+            headers=headers,
+        )
+        assert response.status_code == status, response.content
+    assert second.get(ref).json()["value"] == "0"
+    (recorded,) = second.get(f"{ref}/movements").json()["items"]
+    assert recorded["kind"] == "recorded"
 
 
 def test_a_transfer_moves_some_from_one_to_the_other(world: World) -> None:
@@ -518,6 +600,7 @@ def test_pooling_sets_the_concentration_to_the_pools(world: World) -> None:
     emptied = api.post(
         f"/entities/{empty['hrid']}/amount/adjust",
         {"amount": {"value": 0, "unit": "uL"}, "reason": "Empty tube"},
+        headers={"If-Balance-Revision": "unrecorded"},
     )
     assert emptied.status_code == 200, emptied.content
     filled = api.post(
@@ -678,14 +761,15 @@ def test_whole_units_are_enforced_after_conversion_on_every_ledger_operation(
     assert lot.status_code == 201, lot.content
     path = f"/entities/{record['id']}"
     lot_path = f"/entities/{lot.json()['id']}"
-    for url, payload in [
-        (f"{path}/amount/draw", {"amount": half}),
-        (f"{path}/amount/adjust", {"amount": half, "reason": "Recount"}),
-        (f"{path}/amount/transfer", {"amount": half, "to": lot.json()["id"]}),
-        (f"{lot_path}/amount/transfer", {"amount": half, "to": record["id"]}),
-        (f"{path}/aliquots", {"count": 2, "each": half}),
+    counted = {"If-Balance-Revision": record["amount"]["updated_at"]}
+    for url, payload, headers in [
+        (f"{path}/amount/draw", {"amount": half}, {}),
+        (f"{path}/amount/adjust", {"amount": half, "reason": "Recount"}, counted),
+        (f"{path}/amount/transfer", {"amount": half, "to": lot.json()["id"]}, {}),
+        (f"{lot_path}/amount/transfer", {"amount": half, "to": record["id"]}, {}),
+        (f"{path}/aliquots", {"count": 2, "each": half}, {}),
     ]:
-        assert "whole units" in errors(api.post(url, payload))["#/amount"]
+        assert "whole units" in errors(api.post(url, payload, headers=headers))["#/amount"]
     assert api.get(f"{path}/amount").json()["value"] == "2"
     assert api.get(f"{lot_path}/amount").json()["value"] == "0.0005"
     assert Movement.objects.count() == 2

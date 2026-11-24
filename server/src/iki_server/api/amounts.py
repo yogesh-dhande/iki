@@ -19,7 +19,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
-from ninja import Field, Query, Router, Schema, Status
+from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.amounts import services
@@ -323,15 +323,33 @@ def transfer(request: HttpRequest, ref: str, payload: TransferIn) -> dict[str, A
 
 
 @router.post("/entities/{ref}/amount/adjust", response=AmountMovedOut, summary="Adjust its amount")
-def adjust(request: HttpRequest, ref: str, payload: AdjustIn) -> dict[str, Any]:
-    """Sets it to what it was found to be, saying why: a recount, a spill, a correction. A
-    record with no amount recorded gets one."""
+def adjust(
+    request: HttpRequest,
+    ref: str,
+    payload: AdjustIn,
+    revision: HeaderEx[str | None, P(alias="If-Balance-Revision")] = None,
+) -> dict[str, Any]:
+    """Records an absolute count, with a reason. Send the observed amount's exact
+    `updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.
+    A missing header answers 428. A changed balance answers 409 and must be recounted."""
     me = caller(request)
     entity = _record(me, ref)
+    if not revision:
+        raise Problem(428, "Send If-Balance-Revision with the balance revision you observed.")
     try:
         movement = services.adjust(
-            me, entity, _given(payload.amount, zero=True), reason=payload.reason
+            me,
+            entity,
+            _given(payload.amount, zero=True),
+            reason=payload.reason,
+            expected_revision=revision,
         )
+    except services.StaleBalanceError:
+        raise Problem(
+            409,
+            "The stock balance changed. Refresh it and recount before submitting.",
+            code="stale_balance",
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _moved(entity, movement)
