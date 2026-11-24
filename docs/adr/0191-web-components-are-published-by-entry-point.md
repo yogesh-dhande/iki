@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-22
 - Extends [0084](0084-plugin-components-run-in-sandboxed-frames.md).
+- Amended: 2026-11-23 — the primer checks and the plasmid plugin compute the same
+  temperature from the same source (see [One implementation of a measurement](#one-implementation-of-a-measurement))
 
 ## Context
 
@@ -36,6 +38,15 @@ Python check and a browser selection. The fixed-condition calculation and roundi
 live in the Rust source behind `iki-wasm`. The full module exposes it alongside the
 file readers. The DNA action ships a small module compiled from the same source so
 an isolated worker can measure a supplied sequence without a service call.
+
+That source, `worker/crates/iki-wasm/src/oligo.rs`, is also where the primer checks
+and the plasmid plugin get the temperature (ADR 0201). Their `thermodynamics` reads
+its stacks, initiation, symmetry term, salt term and rounding from it, so the
+measurement, a primer's checks under `Conditions::PRIMER` and a primer alone in the
+plasmid plugin are one calculation. It needs nothing beyond `core`, which keeps the
+small module small enough to translate. The tests hold every module, and the browser's
+translation, to the temperatures recorded for 21,360 oligos in
+`server/tests/data/melting_temperatures.json`.
 
 Git tracks the Rust source and the expected SHA-256 digest of the **Linux x86-64**
 build. Updating that digest builds the server image’s `wasm` stage for `linux/amd64`

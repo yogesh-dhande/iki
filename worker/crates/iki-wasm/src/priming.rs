@@ -38,7 +38,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::thermodynamics::{Conditions, melting_temperature};
+use crate::thermodynamics::{Conditions, matched_melting_temperature, melting_temperature};
 
 /// The 3'-most bases that place a primer.
 pub const ANCHOR: usize = 15;
@@ -694,14 +694,22 @@ pub struct TemperatureAnswer {
     pub celsius: Option<f64>,
 }
 
-/// One primer's melting temperature on one template, under [`Conditions::PRIMER`].
+/// One primer's melting temperature, under [`Conditions::PRIMER`]: on its template where
+/// there is one, or as an oligo against its exact complement where there isn't.
+///
+/// The two differ for a primer that is its own reverse complement, as a palindromic
+/// restriction site is. Alone, its complement is the same molecule, so it is SantaLucia's
+/// self-complementary case -- one species at the whole 50 nM, with the symmetry term --
+/// and it reads what the DNA plugin's primer field and the sequence viewer read for it
+/// (`matched_melting_temperature`, ADR 0191). On a template it pairs with a different
+/// molecule whatever the bases say, so there are two species and no symmetry term.
 #[must_use]
 pub fn temperature(request: &TemperatureRequest) -> Option<f64> {
     let primer = normalise(&request.primer);
-    let under = match request.template.as_deref() {
-        None => primer.clone(),
-        Some(template) => normalise(template),
+    let Some(template) = request.template.as_deref() else {
+        return matched_melting_temperature(&primer, &Conditions::PRIMER);
     };
+    let under = normalise(template);
     if under.len() != primer.len() {
         return None;
     }
