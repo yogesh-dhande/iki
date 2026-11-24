@@ -170,7 +170,10 @@ def test_the_page_draws_its_cards_once_where_they_stay(open_as: Any) -> None:
     def listing(url: str) -> bool:
         return url.endswith("/api/v1/compute/image-bindings")
 
-    page.route(listing, held.append)
+    def hold(route: Any) -> None:
+        held.append(route)
+
+    page.route(listing, hold)
     page.reload()
     page.get_by_text("Loading images…").wait_for()
     deadline = time.monotonic() + 10

@@ -62,7 +62,7 @@ async function card(name: RegExp) {
   return within(await screen.findByRole("region", { name }));
 }
 
-function line(region: ReturnType<typeof within>, term: string) {
+function line(region: Pick<typeof screen, "getByText">, term: string) {
   return region.getByText(term, { selector: "dt" }).nextElementSibling;
 }
 
@@ -173,7 +173,9 @@ describe("Compute → Images", () => {
     });
     const { user } = await renderApp("/admin/compute/images/");
     const unused = await card(/Unused bindings/);
-    const [old, gone] = unused.getAllByRole("listitem");
+    const rows = unused.getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    const [old, gone] = rows as [HTMLElement, HTMLElement];
     expect(old).toHaveTextContent(
       "acme/editing.crispresso2 UnusedFor versions >=1,<1.2. Version 1.4.2 is installed, " +
         "outside this range.",
@@ -184,7 +186,7 @@ describe("Compute → Images", () => {
         "plugin has this environment.",
     );
     await user.click(
-      within(old!).getByRole("button", {
+      within(old).getByRole("button", {
         name: "Copy the unused image reference for acme/editing.crispresso2 >=1,<1.2",
       }),
     );
