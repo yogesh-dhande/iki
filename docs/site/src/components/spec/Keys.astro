@@ -119,7 +119,8 @@ const { keys, caption } = Astro.props;
   .depth-2 .key::before,
   .depth-3 .key::before,
   .depth-4 .key::before {
-    content: "└ ";
+    /* Drawn, not read out: a screen reader says the key's name alone. */
+    content: "└ " / "";
     color: var(--muted);
   }
   tr:target {

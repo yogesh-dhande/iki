@@ -142,6 +142,15 @@ describe("the written pages' links", () => {
     expect(problemWith("repo:spec/README.md")).toBe("the old spec README");
   });
 
+  it("put each table they write by hand in a region a keyboard can scroll", () => {
+    const unreachable = files.flatMap((file) =>
+      [...readFileSync(file, "utf-8").matchAll(/<div class="table"[^>]*>/g)]
+        .filter(([tag]) => !/tabindex="0" role="region" aria-label="[^"]+"/.test(tag))
+        .map(([tag]) => `${relative(CONTENT, file)}: ${tag}`),
+    );
+    expect(unreachable).toEqual([]);
+  });
+
   it("each go to a page, a key, a call or a file that's there", () => {
     expect(files.length).toBeGreaterThan(10);
     const broken = files.flatMap((file) =>

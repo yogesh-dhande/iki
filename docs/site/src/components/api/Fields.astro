@@ -100,7 +100,8 @@ const { fields, caption, where = false } = Astro.props;
   .depth-1 .name code::before,
   .depth-2 .name code::before,
   .depth-3 .name code::before {
-    content: "└ ";
+    /* Drawn, not read out: a screen reader says the key's name alone. */
+    content: "└ " / "";
     color: var(--muted);
     font-weight: 400;
   }

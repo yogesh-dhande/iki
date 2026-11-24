@@ -257,9 +257,12 @@ def test_the_worked_plate_switches_between_its_two_recorded_fits(
 def test_a_spec_key_is_a_place_to_link_to(browser: Browser, site: str) -> None:
     opened = open_page(browser, site, f"{FIELD}#states.on_edit")
     page = opened.page
-    row = page.locator("tr", has=page.get_by_role("link", name="on_edit", exact=True))
+    row = page.locator('tr[id="states.on_edit"]')
     expect(row).to_be_in_viewport()
-    expect(row).to_have_attribute("id", "states.on_edit")
+    # A nested key's mark is drawn, and its link is read as the key's name alone.
+    expect(row.get_by_role("link", name="on_edit", exact=True)).to_have_attribute(
+        "href", "#states.on_edit"
+    )
     # A field type's keys link to each key's row.
     by_type = page.get_by_role("region", name="The keys each field type takes")
     by_type.get_by_role("link", name="link", exact=True).first.click()
