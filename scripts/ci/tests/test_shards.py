@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 import pytest_shards
 import shard_summary
-from pytest_shards import assign, kind_of
+from pytest_shards import assign, file_weights, kind_of
 
 CI = Path(__file__).parents[1]
 
@@ -74,13 +74,89 @@ def test_shards_take_whole_files_longest_first() -> None:
     assert by_file == {"a.py": 1, "b.py": 2, "c.py": 2, "d.py": 1}
 
 
-def test_a_file_without_a_recording_counts_its_tests_at_the_recorded_average() -> None:
+def test_a_single_recorded_file_can_supply_the_rate_for_an_unknown_file() -> None:
     kinds = {f"new.py::test_{i}": "plain" for i in range(10)}
     kinds |= {"old.py::test_0": "plain", "old.py::test_1": "plain"}
     # 2 tests in 50s: 25s each, so new.py's 10 count 250s and go first.
     shards = assign(kinds, "plain", 2, {"old.py": 50.0, "gone.py": 999.0})
     assert shards["new.py::test_0"] == 1
     assert shards["old.py::test_0"] == 2
+
+
+def test_a_new_file_uses_nearby_files_for_its_floor_and_test_rate() -> None:
+    measured = {
+        f"plugins/{plugin}/tests/{seconds}.py": float(seconds)
+        for plugin, times in [("first", (10, 20, 30)), ("second", (50, 60, 70))]
+        for seconds in times
+    }
+    measured["server/tests/expensive.py"] = 1_000.0
+    counts = dict.fromkeys(measured, 10)
+    small, large = "plugins/first/tests/small.py", "plugins/first/tests/large.py"
+    new_plugin = "plugins/new/tests/test_workflow.py"
+    counts.update({small: 1, large: 20, new_plugin: 2})
+
+    weights = file_weights(counts, {**measured, "plugins/new/tests/deleted.py": 99_999.0})
+
+    # First plugin: the upper-quartile file took 25s, the median rate is 2s/test.
+    assert weights[small] == 25
+    assert weights[large] == 40
+    # A new plugin borrows from the six files in plugins/, whose upper quartile is 57.5s.
+    assert weights[new_plugin] == 57.5
+    assert {f: weights[f] for f in measured} == measured
+    assert set(weights) == set(counts)
+    assert weights == file_weights(dict(reversed(counts.items())), dict(reversed(measured.items())))
+
+
+def test_unmeasured_files_have_positive_weights_when_the_kind_has_no_measurable_times() -> None:
+    counts = {"fast.py": 4, "new.py": 8}
+    assert file_weights(counts, {}) == {"fast.py": 4.0, "new.py": 8.0}
+    assert file_weights(counts, {"fast.py": 0.0}) == {"fast.py": 0.0, "new.py": 8.0}
+
+
+def test_a_sparse_directory_borrows_from_its_family_before_the_whole_suite() -> None:
+    measured = {
+        "plugins/a/tests/one.py": 4.0,
+        "plugins/a/tests/two.py": 6.0,
+        "plugins/b/tests/three.py": 10.0,
+        "server/tests/unrelated.py": 100.0,
+    }
+    new_file = "plugins/a/tests/new.py"
+    counts = dict.fromkeys(measured, 10) | {new_file: 1}
+    assert file_weights(counts, measured)[new_file] == 8.0
+
+
+def test_additional_cases_use_the_measured_count_and_rate_or_a_faster_files_peer_rate(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "times.json"
+    path.write_text(
+        json.dumps(
+            {
+                "3.12": {
+                    "plain": {
+                        "slow.py": {"tests": 2, "seconds": 20.0},
+                        "fast.py": {"tests": 4, "seconds": 0.0},
+                        "medium.py": {"tests": 10, "seconds": 20.0},
+                        "another.py": {"tests": 10, "seconds": 20.0},
+                        "legacy.py": 8.0,
+                    }
+                }
+            }
+        )
+    )
+    recordings = pytest_shards.recorded_durations(path, "3.12", "plain")
+    counts = {"slow.py": 5, "fast.py": 7, "medium.py": 8, "another.py": 10, "legacy.py": 4}
+
+    # Slow's own measured rate is 10s/test. Fast's original cases rounded to zero;
+    # its three additional cases use the median measured peer rate of 2s/test.
+    assert file_weights(counts, recordings) == {
+        "slow.py": 50.0,
+        "fast.py": 6.0,
+        "medium.py": 20.0,
+        "another.py": 20.0,
+        "legacy.py": 8.0,
+    }
+    assert file_weights({"fast.py": 5}, recordings) == {"fast.py": 1.0}
 
 
 def test_without_recordings_shards_balance_test_counts() -> None:
@@ -95,6 +171,24 @@ def test_the_split_does_not_depend_on_collection_order() -> None:
     kinds = {f"{f}.py::test_{i}": "plain" for f in "abcdefg" for i in range(len(f) + 2)}
     backwards = dict(reversed(list(kinds.items())))
     assert assign(kinds, "plain", 3, {}) == assign(backwards, "plain", 3, {})
+
+
+def test_worksteal_starts_a_measured_single_test_file_in_its_own_worker_slice() -> None:
+    # 7 items / 2 workers splits 3 + 4. The large module keeps its existing order;
+    # neither the unmeasured file nor tests in another slice change the membership.
+    ids = ["big::a", "big::b", "slow::only", "big::c", "new::a", "short::x", "long::y"]
+    seconds = {"big": 2000.0, "slow": 600.0, "short": 8.0, "long": 90.0}
+    assert pytest_shards.start_long_singletons_early(ids, 2, seconds) == [
+        "slow::only",
+        "big::a",
+        "big::b",
+        "long::y",
+        "big::c",
+        "new::a",
+        "short::x",
+    ]
+    assert pytest_shards.start_long_singletons_early(ids, 2, {}) == ids
+    assert pytest_shards.start_long_singletons_early(ids, len(ids) + 2, seconds) == ids
 
 
 def test_a_shard_is_kind_k_of_n() -> None:
@@ -129,6 +223,8 @@ def _run_shards(tmp_path: Path, shards: list[str]) -> Path:
                 "pytest_shards",
                 "-n",
                 "2",
+                "--dist",
+                "worksteal",
                 "--shard",
                 shard,
                 "--shard-report",
@@ -170,6 +266,9 @@ def test_every_test_runs_in_exactly_one_shard(tmp_path: Path) -> None:
     python = pytest_shards.python_version()
     assert set(recorded[python]) == {"plain", "worker", "browser"}
     assert set(recorded[python]["worker"]) == {"test_worker.py"}
+    assert recorded[python]["plain"]["test_mixed.py"]["tests"] == 5
+    assert recorded[python]["plain"]["test_mixed.py"]["seconds"] >= 0.0
+    assert pytest_shards.recorded_durations(out, python, "worker") == recorded[python]["worker"]
     assert f"Python {python} browser 1/1" in summary.read_text(encoding="utf-8")
 
 

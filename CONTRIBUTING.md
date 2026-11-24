@@ -81,11 +81,17 @@ the browser shard with the `built_web_app` or `browser` marker. Worker shards ru
 Every shard builds the shared WASM for rules and the standalone modules included in its checkout.
 3.12 runs the plain tests; 3.14 runs every kind. The **Python tests (summary)**
 job fails if any test ran in no shard or in two, and combines the shards'
-coverage. To run a shard locally:
-`uv run pytest -p pytest_shards --shard plain:2/4`. Shards are balanced by
-`scripts/ci/test-durations.json`; when they drift apart, replace it with the
-`test-durations` artifact of a recent run, and add shards to the matrix in
-`.github/workflows/ci.yml` when the suite outgrows them.
+coverage. To run Python 3.12's second plain shard locally, use
+`uv run pytest -p pytest_shards --shard plain:2/5`. Python 3.14 has four plain shards.
+
+The planner uses hosted measurements from `scripts/ci/test-durations.json` for
+each Python version and test kind. For a new file it estimates the cost from
+nearby test files, broadening the comparison to a parent directory when there
+are few examples. When a measured file grows, the planner budgets for its additional
+cases using the original measured count. In a parallel plain shard, each worker starts its slowest
+measured single-test file early. Other tests can run while that one finishes.
+The **Python tests (summary)** job produces a `test-durations` artifact. Use a
+completed main run to refresh the table as the suite changes.
 
 Before running Python browser tests, run `pnpm install --frozen-lockfile`
 and `make web test-wasm test-browsers`. Both `make check` and `make check-python`
