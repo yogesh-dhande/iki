@@ -4427,6 +4427,14 @@
             "title": "Needs Reassigning",
             "type": "array"
           },
+          "needs_recalculation": {
+            "description": "Actions whose referenced inputs changed since this record was calculated.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs Recalculation",
+            "type": "array"
+          },
           "owner_project": {
             "anyOf": [
               {
@@ -4932,6 +4940,18 @@
           "reproduced"
         ],
         "title": "DifferenceOut",
+        "type": "object"
+      },
+      "DisableIn": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "title": "DisableIn",
         "type": "object"
       },
       "DraftEntityOut": {
@@ -5673,6 +5693,14 @@
               "$ref": "#/components/schemas/ReassignOut"
             },
             "title": "Needs Reassigning",
+            "type": "array"
+          },
+          "needs_recalculation": {
+            "description": "Actions whose referenced inputs changed since this record was calculated.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs Recalculation",
             "type": "array"
           },
           "owner_project": {
@@ -8231,6 +8259,16 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "editor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "entity": {
             "anyOf": [
@@ -12319,6 +12357,14 @@
               "$ref": "#/components/schemas/ReassignOut"
             },
             "title": "Needs Reassigning",
+            "type": "array"
+          },
+          "needs_recalculation": {
+            "description": "Actions whose referenced inputs changed since this record was calculated.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Needs Recalculation",
             "type": "array"
           },
           "owner_project": {
@@ -17193,6 +17239,12 @@
           "plugin": {
             "title": "Plugin",
             "type": "string"
+          },
+          "recheck": {
+            "default": false,
+            "description": "Recheck an edited record on the editor’s authority.",
+            "title": "Recheck",
+            "type": "boolean"
           },
           "related": {
             "additionalProperties": {
@@ -27870,8 +27922,25 @@
       },
       "TriggerFiredOut": {
         "properties": {
+          "editor": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "enabled_by": {
-            "$ref": "#/components/schemas/PersonRef",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PersonRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "The Admin who turned the trigger on: on whose authority it ran. On a schedule, requested_by is the service account it runs as."
           },
           "entity": {
@@ -28027,6 +28096,12 @@
           "plugin": {
             "title": "Plugin",
             "type": "string"
+          },
+          "recheck": {
+            "default": false,
+            "description": "Recheck an edited record on the editor’s authority.",
+            "title": "Recheck",
+            "type": "boolean"
           },
           "related": {
             "additionalProperties": {
@@ -42326,6 +42401,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DisableIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {

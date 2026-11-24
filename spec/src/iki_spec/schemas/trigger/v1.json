@@ -122,6 +122,26 @@
         },
         "additionalProperties": false
       }
+    },
+    "recheck": {
+      "description": "Computed text field showing why the edited record needs re-verification. The edit clears this action’s computed outputs and automatically launches it with the editor’s permissions.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "watch_included": {
+      "description": "Pinned input references and the fields whose change schedules a fresh run on the dependent record.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
     }
   },
   "additionalProperties": false

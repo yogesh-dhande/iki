@@ -535,3 +535,22 @@ def test_a_homopolymer_is_the_run_a_change_touches(script: ModuleType) -> None:
     assert script.homopolymer("GCAAAAAAG", script.Change(7, 8, "", 0, 0), False) == 6
     # Round the origin: AA at the end and AAA at the start are one run of five.
     assert script.homopolymer("AAACGTAA", script.Change(0, 1, "", 0, 0), True) == 5
+
+
+def test_all_uncovered_intervals_are_counted_when_coordinates_are_capped(
+    script: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reference = "A" * 403
+    consensus = "NA" * 201 + "N"
+    path = tmp_path / "input.fasta"
+    path.write_text(f">example\n{consensus}\n")
+    comparison = script.Comparison(list(consensus), [""] * len(reference), [], consensus)
+    monkeypatch.setattr(script, "compare", lambda *_args: comparison)
+    output = replay.run(script, replay.consensus_run(path, reference, "linear"), tmp_path / "out")
+    result = output["creates"][0]["values"]
+    assert len(result["low_coverage"]) == 200
+    assert result["coverage"]["low_count"] == 202
+    assert any(
+        "40 of 202" in item["text"] and "coverage.tsv" in item["text"]
+        for item in output["messages"]
+    )

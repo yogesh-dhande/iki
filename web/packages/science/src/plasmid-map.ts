@@ -58,7 +58,8 @@ export interface MapCoverage {
   minDepth?: number;
   meanDepth?: number;
   leastDepth?: number;
-  low?: readonly MapSpan[];
+  low?: readonly MapSpan[] | undefined;
+  low_count?: number;
   source?: string;
 }
 
@@ -721,6 +722,11 @@ function middle(parts: SVGSVGElement, name: string, length: number, count: numbe
   }
 }
 
+function tableHead(...labels: string[]) {
+  const cells = labels.map((label) => element("th", { scope: "col" }, label));
+  return element("thead", {}, element("tr", {}, ...cells));
+}
+
 function table(features: MapFeature[], length: number, own = false) {
   const rows = features.map((feature) => {
     const where =
@@ -744,19 +750,13 @@ function table(features: MapFeature[], length: number, own = false) {
     "table",
     {},
     element("caption", {}, own ? "Its features" : "Parts found along it"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, own ? "Feature" : "Part"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Length"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "What it is"),
-        ...(own ? [] : [element("th", { scope: "col" }, "Matched")]),
-      ),
+    tableHead(
+      own ? "Feature" : "Part",
+      "Bases",
+      "Length",
+      "Strand",
+      "What it is",
+      ...(own ? [] : ["Matched"]),
     ),
     element("tbody", {}, ...rows),
   );
@@ -799,21 +799,7 @@ function orfTable(orfs: MapOrf[], length: number) {
     "table",
     {},
     element("caption", {}, "Open reading frames"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Frame"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "Length"),
-        element("th", { scope: "col" }, "Protein"),
-        element("th", { scope: "col" }, "Start"),
-        element("th", { scope: "col" }, "Translation"),
-      ),
-    ),
+    tableHead("Bases", "Frame", "Strand", "Length", "Protein", "Start", "Translation"),
     element("tbody", {}, ...rows),
   );
 }
@@ -875,21 +861,15 @@ function siteTable(
     "table",
     {},
     element("caption", {}, "Primer binding sites"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "Primer"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Strand"),
-        element("th", { scope: "col" }, "3\u2032 end"),
-        element("th", { scope: "col" }, "Annealed"),
-        element("th", { scope: "col" }, "5\u2032 tail"),
-        element("th", { scope: "col" }, "Pairing"),
-        element("th", { scope: "col" }, "Tm (50 mM Na⁺)"),
-      ),
+    tableHead(
+      "Primer",
+      "Bases",
+      "Strand",
+      "3\u2032 end",
+      "Annealed",
+      "5\u2032 tail",
+      "Pairing",
+      "Tm (50 mM Na⁺)",
     ),
     element("tbody", {}, ...rows),
   );
@@ -946,27 +926,39 @@ function differenceTable(differences: MapDifference[], length: number) {
     "table",
     {},
     element("caption", {}, "Differences from the record"),
-    element(
-      "thead",
-      {},
-      element(
-        "tr",
-        {},
-        element("th", { scope: "col" }, "HGVS"),
-        element("th", { scope: "col" }, "Bases"),
-        element("th", { scope: "col" }, "Change"),
-        element("th", { scope: "col" }, "In"),
-        element("th", { scope: "col" }, "Reads agreeing"),
-        element("th", { scope: "col" }, "Repeated base"),
-      ),
-    ),
+    tableHead("HGVS", "Bases", "Change", "In", "Reads agreeing", "Repeated base"),
     element("tbody", {}, ...rows),
   );
 }
 
+/** Summarize the recorded interval list alongside the minima and the full count. */
+function lowCoverage(coverage: MapCoverage, low: MapCoverage["low"], length: number) {
+  const minimum = coverage.minDepth ?? 1;
+  const total = coverage.low_count;
+  if (!low?.length) {
+    if (
+      !low ||
+      total ||
+      (coverage.leastDepth ?? minimum) < minimum ||
+      coverage.min.some((value) => value < minimum)
+    ) {
+      return "interval details unavailable; see coverage.tsv";
+    }
+    return `every base at the minimum depth of ${String(minimum)} or more`;
+  }
+  const places = low.map((span) => whereOf(span, length)).join(", ");
+  let limit = "";
+  if (total !== undefined && total > low.length) {
+    limit = `showing ${String(low.length)} of ${String(total)} intervals`;
+  } else if (total === undefined && low.length === 200) {
+    limit = "first 200 intervals";
+  }
+  const detail = limit ? ` (${limit}; see coverage.tsv for all)` : "";
+  return `under the minimum depth of ${String(minimum)} at ${places}${detail}`;
+}
+
 /** The depth of reads in figures, with each stretch under the minimum depth. */
-function coverageTable(coverage: MapCoverage, length: number) {
-  const low = coverage.low ?? [];
+function coverageTable(coverage: MapCoverage, under: string) {
   const row = (what: string, value: string) =>
     element("tr", {}, element("th", { scope: "row" }, what), element("td", {}, value));
   const rows = [];
@@ -976,9 +968,7 @@ function coverageTable(coverage: MapCoverage, length: number) {
     rows.push(row("Least depth", `${String(coverage.leastDepth)} reads`));
   if (coverage.minDepth !== undefined)
     rows.push(row("Called at", `${String(coverage.minDepth)} reads or more`));
-  rows.push(
-    row("Under it", low.length ? low.map((span) => whereOf(span, length)).join("; ") : "none"),
-  );
+  rows.push(row("Under it", under));
   return element("table", {}, element("caption", {}, "Read depth"), element("tbody", {}, ...rows));
 }
 
@@ -1047,17 +1037,12 @@ function describeOrfs(items: MapOrf[]) {
   return `with ${count}: ${eachOf(items, (i) => `${String(i.amino_acids)} amino acids in frame ${frameOf(i)}`)}`;
 }
 
-function describeCoverage(coverage: MapCoverage, length: number) {
+function describeCoverage(coverage: MapCoverage, under: string) {
   const mean =
     coverage.meanDepth !== undefined ? `${String(coverage.meanDepth)} reads deep on average` : "";
   const least =
     coverage.leastDepth !== undefined ? `${String(coverage.leastDepth)} at the least` : "";
   const depth = [mean, least].filter(Boolean).join(", ");
-  const low = coverage.low ?? [];
-  const minimum = coverage.minDepth ?? 1;
-  const under = low.length
-    ? `under the minimum depth of ${String(minimum)} at ${low.map((span) => whereOf(span, length)).join(", ")}`
-    : `every base at the minimum depth of ${String(minimum)} or more`;
   return `with the depth of reads drawn along it${depth ? `, ${depth}` : ""}, and ${under}`;
 }
 
@@ -1190,18 +1175,19 @@ export class PlasmidMap extends HTMLElement {
     );
     const coverage = data.coverage;
     if (coverage && coverage.bin_size > 0 && coverage.mean.length) {
-      const low = (coverage.low ?? []).filter((item) => onMap(item, length));
+      const low = coverage.low?.filter((item) => onMap(item, length));
+      const under = lowCoverage(coverage, low, length);
       const shown = !this.#hidden.has("coverage");
       made.push({
         key: "coverage",
         colour: "depth",
         label: LABELS.coverage,
-        count: low.length,
+        count: coverage.low_count ?? low?.length ?? 0,
         button: LABELS.coverage,
         shown,
-        items: shown ? [...low] : [],
-        describe: () => describeCoverage({ ...coverage, low }, length),
-        table: () => coverageTable({ ...coverage, low }, length),
+        items: shown ? (low ?? []) : [],
+        describe: () => describeCoverage(coverage, under),
+        table: () => coverageTable(coverage, under),
       });
     }
     add("differences", "difference", data.differences, describeDifferences, (items) =>

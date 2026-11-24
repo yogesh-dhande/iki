@@ -1365,6 +1365,12 @@ export function EntityOverview() {
               </p>
             </div>
           ) : null}
+          {entity.needs_recalculation?.length ? (
+            <p role="status">
+              Referenced inputs changed. Recalculate with {entity.needs_recalculation.join(", ")}{" "}
+              before using these results.
+            </p>
+          ) : null}
           {!entity.archived ? <EntityHolds entity={entity} /> : null}
           {type?.result ? <ResultNote entity={entity} type={type} /> : null}
           {type && sides ? <EntityRequest entity={entity} type={type} /> : null}

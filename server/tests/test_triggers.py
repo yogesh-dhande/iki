@@ -116,6 +116,7 @@ def test_lists_installed_triggers(world: World) -> None:
         "related": {},
         "params": {},
         "tier": "backend",
+        "recheck": False,
     }
 
 
@@ -216,6 +217,7 @@ def test_a_new_entity_fires_a_run_as_the_admin(world: World) -> None:
         "revision": 1,
         "scheduled_for": None,
         "since": None,
+        "editor": None,
         "enabled_by": {"id": str(world.users["admin"].pk), "name": world.users["admin"].name},
     }
     (listed_firing,) = firings(world)

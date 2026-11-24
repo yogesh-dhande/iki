@@ -140,7 +140,11 @@ def decider(approval: RunApproval) -> User:
     """Who decides: whom the runs are for, or, for a service account a scheduled trigger runs
     as, the Admin who turned the trigger on (ADR 0080)."""
     trigger = approval.trigger
-    if trigger is not None and trigger.run_as_id == approval.requested_by_id:
+    if (
+        trigger is not None
+        and trigger.enabled_by is not None
+        and trigger.run_as_id == approval.requested_by_id
+    ):
         return trigger.enabled_by
     return approval.requested_by
 

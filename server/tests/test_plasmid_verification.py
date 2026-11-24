@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from django.apps import apps
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connection
 from django.db.migrations.executor import MigrationExecutor
@@ -17,16 +18,43 @@ from test_plugin_migrations import database, iki, migrate, orm, sync
 from test_signatures import begin, past_the_triggers, ready, signed, standing
 from test_states import roles
 
-from iki_server.entities import checking, services, states
+from iki_server.audit.models import AuditEvent
+from iki_server.entities import access, checking, services, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
 from iki_server.files.models import Blob, File
 from iki_server.org.services import Refused
 from iki_server.plugins.sync import drop_views
+from iki_server.runs import catalog, triggers
+from iki_server.runs.models import ProjectTrigger, TriggerFiring
+from iki_spec import rules as cel
 
 __all__ = ["database"]
 
 TYPE = "iki/lots.PlasmidVerification"
+
+
+def test_pinned_subtype_fields_stay_with_their_own_evidence() -> None:
+    base = {"type": "object", "label": "Alignment", "fields": {"verdict": {"type": "string"}}}
+    variables = cel.rule_variables(
+        {"type": "object", "label": "Verification", "fields": {"alignment": base}}
+    )
+    when = '"agreement" in dyn(record.alignment) && dyn(record.alignment).agreement == "differs"'
+    contexts = [
+        {"record": {"alignment": {"verdict": None, **extra}}}
+        for extra in (
+            {"agreement": "differs"},
+            {},
+            {"agreement": "matches"},
+            {"agreement": "differs"},
+        )
+    ]
+    evaluated = checking.evaluate_pinned(
+        variables, [(when, cel.CONDITION)], contexts, (("alignment", "alignment_revision"),)
+    )
+    assert [row[0].value for row in evaluated] == [True, False, False, True]
+    ordinary = checking.evaluate_pinned(variables, [(when, cel.CONDITION)], contexts, ())
+    assert [row[0].value for row in ordinary] == [False] * len(contexts)
 
 
 def test_prep_evidence_is_pinned_and_signed_under_its_recorded_flow(
@@ -47,6 +75,32 @@ def test_prep_evidence_is_pinned_and_signed_under_its_recorded_flow(
         result = {}
         """,
     )
+
+
+def test_archiving_a_legacy_discrepant_alignment_requires_a_reason() -> None:
+    archive = runpy.run_path(str(LOTS / "scripts" / "verification.py"))["archive"]
+    plasmid = {"id": "record", "revision": 1, "values": {"sequence": "reference"}}
+    prep = {"id": "prep", "values": {"plasmid": "entry"}, "included": {"plasmid": [plasmid]}}
+    alignment = {
+        "id": "alignment",
+        "revision": 4,
+        "values": {
+            "agreement": "differs",
+            "reference": "reference",
+            "aligned": "file",
+        },
+    }
+    run: dict[str, Any] = {
+        "inputs": {"prep": [prep], "alignment": [alignment]},
+        "params": {"outcome": "match"},
+        "files": {"file": {"size": 100}},
+        "settings": {"verification_flow": "research"},
+    }
+    with pytest.raises(ValueError, match="Give a reason"):
+        archive(run)
+    run["params"]["override_reason"] = "Independent review resolved the discrepancy."
+    [verification] = archive(run)["creates"]
+    assert verification["values"]["alignment_revision"] == 4
 
 
 def snapshot(entity: Entity) -> dict[str, Any]:
@@ -119,6 +173,79 @@ def exercise_review(blob: Blob) -> None:
             edit(other_plasmid, {"source_assembly": str(wrong.pk)})
         assert "source_assembly" in mismatch.value.errors
 
+    checked = create(
+        "iki/plasmid.Assembly",
+        source
+        | {
+            "product": str(dna.pk),
+            "matches_product": True,
+            "simulated_length": 7,
+            "simulated_topology": "circular",
+        },
+        by_run=True,
+    )
+    with patch.object(catalog, "availability", return_value=catalog.Availability(True)):
+        edit(checked, {"product": str(other_dna.pk)})
+    latest = services.current_values_of([checked])[checked.pk]
+    assert latest["matches_product"] is None
+    assert latest["simulated_length"] is None and latest["simulated_topology"] is None
+
+    recheck = "iki/plasmid.check_stated_product"
+    firing = TriggerFiring.objects.get(trigger__trigger=recheck, entity=checked)
+    assert firing.editor == analyst
+    assert firing.run is not None, firing.error
+    assert firing.run.requested_by == analyst and firing.run.via == "trigger"
+    assert latest["verification_note"].startswith("Needs re-verification")
+
+    # Resolve the actual pinned references under the editor's permissions.
+    visible = access.visible
+
+    def hide_evidence(user: Any) -> Any:
+        assert user == analyst
+        return visible(user).exclude(pk=dna.pk)
+
+    with (
+        patch.object(catalog, "availability", return_value=catalog.Availability(True)),
+        patch.object(access, "visible", side_effect=hide_evidence),
+    ):
+        edit(checked, {"method": "gateway_bp"})
+    current = services.current_values_of([checked])[checked.pk]
+    assert current["matches_product"] is None
+    assert "Needs re-verification" in current["verification_note"]
+    assert "backbone" in current["verification_note"]
+
+    with pytest.raises(PermissionDenied):
+        triggers.disable(analyst, world.project, recheck, reason="Manual verification.")
+    with pytest.raises(Refused):
+        triggers.disable(reviewer, world.project, recheck, reason="  ")
+    reason = "Manual review during instrument maintenance."
+    triggers.disable(reviewer, world.project, recheck, reason=reason)
+    event = AuditEvent.objects.get(action="trigger.disabled", project=world.project)
+    assert event.actor == reviewer and event.data["reason"] == reason
+    checked.refresh_from_db()
+    services.update(
+        analyst, checked, {"matches_product": True}, by_run=True, expected_revision=checked.revision
+    )
+    count = TriggerFiring.objects.filter(entity=checked).count()
+    edit(checked, {"method": "gateway_lr"})
+    assert services.current_values_of([checked])[checked.pk]["matches_product"] is None
+    assert TriggerFiring.objects.filter(entity=checked).count() == count
+
+    # Replaying the upgrade preserves an explicit opt-out and restores the default
+    # for projects whose older trigger was switched off without a reason.
+    upgrade = runpy.run_path(
+        str(ROOT / "plugins/plasmid/migrations/0008_invalidate_edited_plans.py")
+    )["invalidate"]
+    setting = ProjectTrigger.objects.get(project=world.project, trigger=recheck)
+    with connection.schema_editor() as schema:
+        upgrade(apps, schema)
+        setting.refresh_from_db()
+        assert not setting.enabled and setting.disabled_reason == reason
+        ProjectTrigger.objects.filter(pk=setting.pk).update(disabled_reason="")
+        upgrade(apps, schema)
+    restored = ProjectTrigger.objects.get(pk=setting.pk)
+    assert restored.enabled and restored.disabled_by_id is None
+
     prep = create("iki/lots.PlasmidPrep", {"plasmid": str(plasmid.entry_id)})
     aligned = File.objects.create(
         blob=blob, name="alignment.fa", media_type="text/plain", project=world.project
@@ -152,6 +279,9 @@ def exercise_review(blob: Blob) -> None:
             params["report"] = str(report.pk)
         else:
             inputs["alignment"] = [snapshot(evidence)]
+            params["notes"] = (
+                "The reviewer inspected the aligned file against the pinned reference."
+            )
         output = archive(
             {
                 "inputs": inputs,
@@ -240,6 +370,16 @@ def exercise_review(blob: Blob) -> None:
     create(whole_type, reads | {"read_set_revision": read_set.revision}, by_run=True)
 
     whole_alignment = create(whole_type, comparison, by_run=True)
+    # The original comparison records have agreement on the subtype and no core verdict.
+    prior_comparison_rules = [
+        rule for rule in checking.checks_of(whole_type) if rule.name != "action_evidence"
+    ]
+    with patch.object(checking, "checks_of", return_value=prior_comparison_rules):
+        legacy_alignment = create(whole_type, comparison | {"verdict": None}, by_run=True)
+    legacy_values = values("research", legacy_alignment, override_reason)
+    with pytest.raises(services.Invalid, match="Give a reason"):
+        create(TYPE, legacy_values | {"override_reason": None}, by_run=True)
+    create(TYPE, legacy_values, by_run=True)
     with pytest.raises(ValueError, match="Give a reason"):
         values("regulated_qc", whole_alignment)
     bound = values("regulated_qc", whole_alignment, override_reason)
@@ -306,6 +446,33 @@ def exercise_review(blob: Blob) -> None:
     def refused(who: str, record: Entity, target: str) -> None:
         with pytest.raises((PermissionDenied, Refused)):
             begin(world, who, str(record.pk), target, field="review")
+
+    # Records saved before the override rule still attest the pinned evidence at signing.
+    previous = [
+        rule for rule in checking.checks_of(TYPE) if rule.name != "explain_alignment_override"
+    ]
+    for flow, evidence, target in (
+        ("research", alignment, "signed_off"),
+        ("regulated_qc", legacy_alignment, "submitted"),
+    ):
+        unsigned = values(flow, evidence, override_reason) | {
+            "override_reason": None,
+            "reviewer": str(analyst.pk),
+        }
+        with patch.object(checking, "checks_of", return_value=previous):
+            contested = create(TYPE, unsigned, by_run=True)
+        with pytest.raises(Refused, match="Give a reason"):
+            begin(world, "editor", str(contested.pk), target, field="review")
+        with pytest.raises(services.Invalid):
+            edit(contested, {"override_reason": "  \t  "})
+        edit(contested, {"override_reason": override_reason})
+        sign("editor", contested, target)
+
+    imported_review = create(
+        TYPE, values("research", create("iki/core.Alignment", imported)), by_run=True
+    )
+    edit(imported_review, {"reviewer": str(analyst.pk)})
+    sign("editor", imported_review, "signed_off")
 
     refused("editor", research, "submitted")
     refused("admin", research, "signed_off")

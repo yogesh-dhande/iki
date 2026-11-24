@@ -125,6 +125,19 @@ class ApprovalState(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class Recalculation(models.Model):
+    """A parent changed since this entity's calculation, including while automation was off."""
+
+    entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
+    action = models.CharField(max_length=200)
+
+    class Meta:
+        db_table = "iki_recalculation"
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.UniqueConstraint(fields=["entity", "action"], name="iki_recalculation_once")
+        ]
+
+
 class ProjectTrigger(models.Model):
     """A plugin's trigger in a project (ADR 0080): off until one of the project's Admins
     turns it on. An entity trigger then runs as whoever turned it on last; a scheduled one
@@ -135,9 +148,9 @@ class ProjectTrigger(models.Model):
     #: The trigger's qualified name, such as ``protein.compute_new_protein_properties``.
     trigger = models.CharField(max_length=200)
     enabled = models.BooleanField(default=True)
-    #: Who turned it on last: whom its runs are launched as, or on whose authority.
+    #: Last explicit enablement. A default-on recheck needs no enabling Admin.
     enabled_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     enabled_at = models.DateTimeField()
     #: For a scheduled trigger: the service account its runs are launched as.
@@ -708,6 +721,10 @@ class TriggerFiring(models.Model):
     )
     run = models.OneToOneField(
         ActionRun, null=True, blank=True, on_delete=models.PROTECT, related_name="firing"
+    )
+    #: A recheck runs with the credential of the person whose edit it verifies.
+    editor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     #: Why it failed or was skipped: ``code`` and ``message``.
     error = models.JSONField(null=True, blank=True)

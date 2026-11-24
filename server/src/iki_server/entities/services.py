@@ -1013,6 +1013,14 @@ def update(
             fields[name].reason_on_clear and rows.get(name) is True for name in new
         ):
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
+        from iki_server.runs import triggers
+
+        rechecks = triggers.rechecks(locked.type, set(new)) if new else []
+        for spec, outputs in rechecks:
+            for name in outputs:
+                value = "Needs re-verification" if name == spec.recheck else None
+                if rows.get(name) != value or name in new:
+                    new[name] = value
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -1093,6 +1101,20 @@ def update(
         if holding:
             _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
         declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
+        for spec, _ in rechecks:
+            problem = triggers.recheck_edit(user, locked, revision, spec)
+            if problem:
+                with log.using(log.Context(via="trigger")):
+                    saved = update(
+                        user,
+                        locked,
+                        {spec.recheck: f"Needs re-verification. {problem}"[:10000]},
+                        by_run=True,
+                        expected_revision=saved.revision.number
+                        if saved.revision
+                        else revision.number,
+                        reason=f"Automatic recheck {spec.qualified_name}.",
+                    )
     return saved
 
 
@@ -1707,6 +1729,7 @@ def _announce(
     from iki_server.runs import triggers
 
     triggers.noticed(entity, revision, registered=registered)
+    triggers.source_changed(entity, revision)
 
 
 def _state_data(entity: Entity, revision: Revision) -> dict[str, Any]:
@@ -1750,6 +1773,9 @@ def _announce_entry(entry_id: Any, revision: Revision, user: User | None) -> Non
     from iki_server.entities import entries
 
     entries.announce(entry_id, revision, user)
+    from iki_server.runs import triggers
+
+    triggers.source_changed(Entity.objects.get(pk=entry_id), revision)
 
 
 def _write_history(touched: list[Part], rows: Rows, number: int) -> None:

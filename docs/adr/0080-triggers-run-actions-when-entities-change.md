@@ -87,6 +87,31 @@ agents fire triggers as usual. A bulk import's entities (ADR 0056) fire
 nothing one by one: a trigger can't start a run for each of millions of
 rows.
 
+## Amendment of 2026-11-24 — rechecking an edited assembly
+
+Changing the stated product or any part of the plan invalidates its verification in
+the edit transaction. The record shows **Needs re-verification** immediately. A
+pending or older check cannot authorize a transition on the edited plan.
+
+The recheck is on by default. It runs with the editor’s existing permissions,
+including the limits of the credential used for the edit. The firing and its run
+identify the trigger acting for that editor and the revision that prompted it.
+If evidence is unreadable, the record stays **Needs re-verification** and names
+the evidence field that could not be checked. Someone with access can recheck it.
+
+Only a project Admin can turn off automatic rechecking for that project. The
+Admin supplies a reason. The audit trail records the Admin, trigger, project,
+time and reason. Edits still invalidate the verification immediately while
+automatic rechecking is off.
+
+A calculation can also declare the fields it reads through pinned references.
+When a named field changes, affected records show which calculation needs to
+run again. Projects that enabled that calculation queue a new run for editable
+records. Registry changes apply to every holder. Project observations apply
+within their project. Filling a previously empty registry value can wake its
+dependents because that value can be filled only once. A completed calculation
+clears its notice after checking its input and evidence revisions.
+
 ## Consequences
 
 - Automatic work stays accountable. Every triggered run names a person, the

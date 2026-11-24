@@ -5,7 +5,7 @@ name: OligoLot
 label: Oligonucleotide lot
 label_plural: Oligonucleotide lots
 extends: Lot
-schema_version: 1
+schema_version: 2
 description: >-
   A synthesis lot of an oligonucleotide: its scale and purification, its yield in OD
   and in nmol, its purity, and its mass by ESI-MS checked against the one its HELM
@@ -126,9 +126,7 @@ fields:
 # Its identity by ESI-MS is checked at every save from what's measured and what its
 # oligonucleotide's HELM gives, not from the mass difference a run writes later, so a
 # lot is held the moment its mass is out of its specification, or can't be checked,
-# with or without its triggers on (ADR 0127, ADR 0162). They're compared to a
-# micro-dalton (0.000001), far finer than any mass spectrometer resolves, so the binary
-# rounding of two decimals' difference doesn't move one out of its tolerance.
+# with or without its triggers on (ADR 0127, ADR 0162). Compare to the inclusive bounds of the stated tolerance.
 rules:
   mass_within_tolerance:
     label: Its mass is its oligonucleotide's
@@ -137,12 +135,12 @@ rules:
       oligonucleotide's monoisotopic or average mass. A lot outside it is kept as
       measured, and held until QA reviews it.
     check: >-
-      record.measured_mass - (record.mass_basis == "average" ?
+      record.measured_mass <= (record.mass_basis == "average" ?
       record.oligonucleotide.molecular_weight :
-      record.oligonucleotide.monoisotopic_mass) <= record.mass_tolerance + 0.000001 &&
-      (record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
-      record.oligonucleotide.monoisotopic_mass) - record.measured_mass <=
-      record.mass_tolerance + 0.000001
+      record.oligonucleotide.monoisotopic_mass) + record.mass_tolerance &&
+      record.measured_mass >= (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) - record.mass_tolerance
     message: >-
       Its measured mass, {{ record.measured_mass }} Da, is outside its tolerance of
       ±{{ record.mass_tolerance }} Da of its oligonucleotide's {{ record.mass_basis }}

@@ -30,4 +30,6 @@ fields:
     extinction_coefficient,
     concentration_method,
   ]
+watch_included:
+  conjugate: [carrier_light_copies, carrier_heavy_copies]
 run: compute_conjugate_lot

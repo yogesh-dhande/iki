@@ -294,6 +294,18 @@ def test_a_mass_is_compared_with_its_tolerance_as_its_specification_gives_it(
     assert "+0.0125 Da, within ±0.015 Da" in log
 
 
+@pytest.mark.parametrize("measured", [1000.1000005, 999.8999995])
+def test_mass_tolerance_has_no_unstated_margin(
+    measured: float, capsys: pytest.CaptureFixture[str]
+) -> None:
+    compute(
+        "oligo",
+        lot(1, measured_mass=measured, mass_basis="average", mass_tolerance=0.1)
+        | {"included": {"oligonucleotide": [{"values": {"molecular_weight": 1000.0}}]}},
+    )
+    assert "outside ±0.1 Da" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize(
     ("kind", "values", "said"),
     [
@@ -866,6 +878,30 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
                 amount={{"value": 50, "unit": "nmol"}}, hold_reason=hold_reason,
             ).entity
 
+        # A late parent measurement schedules the affected lot even without another lot edit.
+        from django.utils import timezone
+        from iki_server.runs.models import ProjectTrigger, Recalculation, TriggerFiring
+        admin = User.objects.create_user("lot-admin@example.com")
+        ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+        ProjectTrigger.objects.create(project=project,
+                                      trigger="iki/lots.compute_oligo_lot_when_measured",
+                                      enabled_by=admin, enabled_at=timezone.now())
+        late = services.create(alice, "iki/oligo.Oligonucleotide", project,
+                               {{"helm": "RNA1{{[dR](A)P.[dR](G)}}$$$$V2.0"}}).entity
+        waiting = oligo_lot(alice, of=late)
+        unrelated = oligo_lot(alice, of=m13)
+        late.refresh_from_db()
+        services.update(alice, late, {{"molecular_weight": 1234.5}}, by_run=True,
+                        expected_revision=late.revision)
+        refreshed = TriggerFiring.objects.filter(
+            trigger__trigger="iki/lots.compute_oligo_lot_when_measured",
+            entity__in=[waiting, unrelated],
+        )
+        assert list(refreshed.values_list("entity_id", flat=True)) == [waiting.pk]
+        pending = Recalculation.objects.filter(action="iki/lots.compute_oligo_lot")
+        assert pending.filter(entity=waiting).exists()
+        assert not Recalculation.objects.filter(entity=unrelated).exists()
+
         # Who may release it: QA who neither made it nor recorded it, knowing where it
         # came from. Made by left empty isn't someone else.
         unsaid = oligo_lot(alice)
@@ -908,6 +944,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             "unheld": sorted(unheld),
             "edited": edited,
             "held_release": held_release,
+            "held_hrid": lot.hrid,
             "edge": [h.rule for h in holds.open_holds(edge)],
             "past": sorted(past),
             "unchecked": [h.rule for h in holds.open_holds(unchecked)],
@@ -1079,8 +1116,8 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
     assert mass["unheld"] == ["measured_mass"]
     assert mass["edited"] == ["mass_within_tolerance"]
     assert mass["held_release"] == (
-        "OLOT-000005 is held for review (“Its mass is its oligonucleotide's”): it can't be "
-        "set to a state that locks it until its holds are reviewed."
+        f"{mass['held_hrid']} is held for review (“Its mass is its oligonucleotide's”): "
+        "it can't be set to a state that locks it until its holds are reviewed."
     )
     assert mass["edge"] == []
     assert mass["past"] == ["measured_mass"]

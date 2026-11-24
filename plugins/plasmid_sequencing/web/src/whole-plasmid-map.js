@@ -62,7 +62,7 @@ class WholePlasmidMap extends PlasmidMap {
               minDepth: Number(values.min_depth) || undefined,
               meanDepth: reads ? values.mean_depth : undefined,
               leastDepth: reads ? values.least_depth : undefined,
-              low: list(values.low_coverage),
+              low: Array.isArray(values.low_coverage) ? values.low_coverage : undefined,
               source: values.method,
             }
           : undefined,

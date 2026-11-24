@@ -175,7 +175,9 @@ def row_findings(
                     checking_rows.append(row)
                     contexts.append({"record": record, **times})
             try:
-                results = cel.evaluate(variables, expressions, contexts)
+                results = checking.evaluate_pinned(
+                    variables, expressions, contexts, rule.reference_revisions
+                )
             except wasm.UnavailableError:
                 unknown.extend(checking_rows)
                 continue
