@@ -18,7 +18,7 @@ from api_client import problem
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
-from test_container_tier import FakeCluster, register
+from test_container_tier import FakeCluster, register, rewrite_compute
 from test_run_results import done, output
 from test_runs import TEMPLATE, launch, protein
 from test_workers import WorkerClient, worker
@@ -150,6 +150,14 @@ def run_setup(world: World, cluster: FakeCluster, *, data_version: str = "2026-1
     build = ask(world)
     approve(world, build)
     provisioner.tick(cluster)
+    finish_setup_pod(cluster, data_version=data_version)
+    hrid: str = build["hrid"]
+    assert SetupBuild.objects.get(hrid=hrid).state == SetupState.SUCCEEDED
+    return hrid
+
+
+def finish_setup_pod(cluster: FakeCluster, *, data_version: str = "2026-10") -> None:
+    """Finish a running setup and make its snapshot ready."""
     name, _ = setup_pod(cluster)
     pod = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
     given = pod.lease().json()
@@ -166,9 +174,6 @@ def run_setup(world: World, cluster: FakeCluster, *, data_version: str = "2026-1
         if kind == "snapshot":
             item["status"] = {"readyToUse": True}
     provisioner.tick(cluster)
-    hrid: str = build["hrid"]
-    assert SetupBuild.objects.get(hrid=hrid).state == SetupState.SUCCEEDED
-    return hrid
 
 
 def register_run_pod(cluster: FakeCluster) -> tuple[Launch, WorkerClient]:
@@ -277,6 +282,53 @@ def test_jobs_waiting_for_the_same_build_check_once_per_round(world: World) -> N
     with patch.object(setups, "pin_for", wraps=setups.pin_for) as lookup:
         assert provisioner.demand(timezone.now()) == {}
         lookup.assert_called_once()
+
+
+def test_a_volume_setup_and_waiting_run_keep_the_customer_image(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environments = registry.plugins()["acme/prediction"].environments
+    name = "alphafold-gpu"
+    monkeypatch.setitem(
+        environments,
+        name,
+        dataclasses.replace(environments[name], image=None, customer_image_required=True),
+    )
+    image = "registry.example.com/lab/setup@sha256:" + "a" * 64
+
+    def bind(compute: dict[str, Any]) -> None:
+        compute["image_bindings"] = [
+            {
+                "environment": ALPHAFOLD,
+                "plugin_version": ">=0",
+                "image": image,
+                "pull_secret": "volume-builder",
+            }
+        ]
+
+    rewrite_compute(bind)
+    build = ask(world)
+    assert build["image"] == image
+    approve(world, build)
+    run = queue_run(world)
+    assert ActionRun.objects.get(pk=run["id"]).volumes is None
+    rewrite_compute(lambda compute: compute.pop("image_bindings"))
+
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    _, job = setup_pod(cluster)
+    pod = job["spec"]["template"]["spec"]
+    assert pod["containers"][0]["image"] == image
+    assert pod["imagePullSecrets"] == [{"name": "volume-builder"}]
+    finish_setup_pod(cluster)
+
+    provisioner.tick(cluster)
+    launch, runner = register_run_pod(cluster)
+    assert launch.image == image
+    lease = runner.lease()
+    assert lease.status_code == 200, lease.content
+    assert lease.json()["run"]["hrid"] == run["hrid"]
+    assert lease.json()["volumes"]["af-db"]["hrid"] == build["hrid"]
 
 
 def test_its_machine_fills_a_fresh_disk_and_its_worker_runs_only_the_setup(world: World) -> None:

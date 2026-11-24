@@ -42,7 +42,7 @@ import { entryRevisionQuery } from "../registries";
 import { DownloadIcon, ExportButton } from "./entity-export";
 import { trailCsvUrl } from "./entity-header";
 import { signaturesQuery } from "./entity-signatures";
-import { EntityTabs, shownIn, useEntity, Value } from "./entity";
+import { shownIn, useEntity, Value } from "./entity";
 import { KIND, revisionWhat, UtcTime, Via } from "./revision-text";
 import { Button, Loading, ProblemAlert, RelativeTime } from "../ui";
 
@@ -68,7 +68,6 @@ export function EntityAudit() {
   };
   return (
     <>
-      <EntityTabs entity={entity} type={type} />
       <TrailToolbar entity={entity} type={type} search={search} narrow={narrow} />
       {search.view === "fields" ? (
         <ByField entity={entity} type={type} filter={filter} />

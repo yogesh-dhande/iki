@@ -264,7 +264,13 @@ def build_id(volumes: dict[str, Any]) -> str | None:
     return str(next(iter(volumes.values()))["build"]) if volumes else None
 
 
-def pin_for(action: RunAction, required: str | None = None) -> dict[str, dict[str, Any]] | None:
+def pin_for(
+    action: RunAction,
+    required: str | None = None,
+    *,
+    pinned_image: bool = False,
+    image_pull_secret: str = "",
+) -> dict[str, dict[str, Any]] | None:
     """Pin a complete build in an eligible place. Call inside the run's transaction so
     retiring the build and collecting its snapshots cannot race with recording the pin.
     A reproduction asks for its original build, which must still be available."""
@@ -274,7 +280,9 @@ def pin_for(action: RunAction, required: str | None = None) -> dict[str, dict[st
         return {} if required is None else None
     qualified = f"{action.plugin}.{action.environment}"
     resources = environment.resources.at_least(action.resources)
-    for template in catalog.availability(action).templates:
+    for template in catalog.availability(action, pinned_image=pinned_image).templates:
+        if image_pull_secret and template.provisioner not in KUBERNETES:
+            continue
         if not template.fits(resources) or not template.serves(action.lifecycle):
             continue
         if not all(fillable(template, name) for name in names):
@@ -400,7 +408,14 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
         raise LookupError(f"There's no environment {qualified}.")
     if environment.setup_script is None or not filled(environment):
         raise Refused(f"{qualified} has no setup that fills volumes.")
-    if environment.image is None:
+    bound = catalog.customer_image(environment)
+    image = bound.image if bound else environment.image
+    if image is None:
+        if environment.customer_image_required:
+            raise Refused(
+                f"{qualified} needs a deployment-supplied image to run its setup. "
+                "A compute admin can add it in the deployment's compute.yaml."
+            )
         raise Refused(f"{qualified} has no image to run its setup in.")
     found = places(qualified)
     if not found:
@@ -435,7 +450,8 @@ def request(by: Any, qualified: str, reason: str = "") -> list[SetupBuild]:  # n
                 environment=qualified,
                 plugin_version=installed.version,
                 plugin_sha=plugin_sha(plugin),
-                image=environment.image,
+                image=image,
+                image_pull_secret=(bound.pull_secret or "") if bound else "",
                 place=place.name,
                 template=place.template.name,
                 version=(latest or 0) + 1,

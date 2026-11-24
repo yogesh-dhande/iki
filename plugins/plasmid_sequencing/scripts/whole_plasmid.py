@@ -1208,6 +1208,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "plasmid_revision": plasmid["revision"],
         "source": source,
         "agreement": agreement,
+        "verdict": agreement,
         "reference_length": size,
         "topology": "circular" if circular else "linear",
         "called_percent": called_percent,

@@ -64,8 +64,12 @@ def test_its_types_are_the_builtin_ones() -> None:
         "reference",
         "members",
         "aligned",
+        "verdict",
         "method",
     }
+    verdict = alignment.fields["verdict"]
+    assert verdict.values == ("matches", "differs", "incomplete")
+    assert verdict.immutable and not verdict.required
     assert not alignment.fields["members"].required
     assert alignment.fields["reference"].immutable
     assert alignment.hrid_prefix == "ALN"

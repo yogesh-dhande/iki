@@ -9732,6 +9732,64 @@
         "title": "IkiIdConfirmationIn",
         "type": "object"
       },
+      "ImageBindingOut": {
+        "properties": {
+          "active": {
+            "description": "Whether this binding applies to the installed environment.",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "environment": {
+            "description": "The qualified plugin environment.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "image": {
+            "description": "The deployment-supplied image pinned by digest.",
+            "title": "Image",
+            "type": "string"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The installed plugin version, if any.",
+            "title": "Installed Version"
+          },
+          "plugin_version": {
+            "description": "The plugin release range the image applies to.",
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "pull_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name of a Kubernetes pull Secret, if set.",
+            "title": "Pull Secret"
+          }
+        },
+        "required": [
+          "environment",
+          "plugin_version",
+          "image",
+          "pull_secret",
+          "installed_version",
+          "active"
+        ],
+        "title": "ImageBindingOut",
+        "type": "object"
+      },
       "ImportCounts": {
         "properties": {
           "conflict": {
@@ -32300,6 +32358,41 @@
         "summary": "Download what runs cost",
         "tags": [
           "costs"
+        ]
+      }
+    },
+    "/api/v1/compute/image-bindings": {
+      "get": {
+        "description": "List the image pins configured in compute.yaml for this deployment.",
+        "operationId": "iki_server_api_compute_list_image_bindings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ImageBindingOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Deployment-supplied environment images",
+        "tags": [
+          "compute"
         ]
       }
     },

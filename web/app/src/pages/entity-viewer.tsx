@@ -18,9 +18,9 @@ import { usePageTitle } from "../layout";
 import { actionsTakingQuery } from "../runs";
 import { buttonClass } from "../ui";
 import type { Camera, Capture, FeatureRef, TargetState } from "../views";
-import { EntityTabs, useEntity } from "./entity";
+import { useEntity } from "./entity";
 import { AlignmentViewer } from "./alignment-viewer";
-import { NotFound } from "./errors";
+import { NoSuchTab } from "./errors";
 import { SavedViews } from "./saved-views";
 import { StructureViewer } from "./structure-viewer";
 
@@ -75,10 +75,9 @@ export function EntityViewer() {
     capture.current = fn;
   }, []);
   usePageTitle(viewer ? `${viewer.label} of ${entity.title} (${entity.hrid})` : undefined);
-  if (!viewer || !type) return <NotFound />;
+  if (!viewer || !type) return <NoSuchTab />;
   return (
     <>
-      <EntityTabs entity={entity} type={type} />
       {viewer.viewer === "sequence" &&
       hasFeatureLibrary(type, viewer) &&
       entity.owner_project &&

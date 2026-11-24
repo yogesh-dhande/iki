@@ -68,6 +68,7 @@ def key(
     pins: Sequence[included.Pin] = (),
     *,
     volumes: dict[str, Any] | None,
+    image_digest: str = "",
 ) -> str:
     """The run's reuse key, or ``""`` when its results can't be reused: its action isn't
     deterministic, or its plugin is local code, which may have changed since. What its
@@ -124,6 +125,8 @@ def key(
     if pins:
         # Only when there are any, so keys made before inputs could include stay the same.
         document["included"] = included.keyed(pins)
+    if image_digest:
+        document["image_digest"] = image_digest
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str)
     return with_volumes(hashlib.sha256(encoded.encode()).hexdigest(), volumes)
 
@@ -206,6 +209,8 @@ def reuse(
         reason=reason,
         tier=original.tier,
         environment=original.environment,
+        environment_image=original.environment_image,
+        environment_image_pull_secret=original.environment_image_pull_secret,
         params=params,
         plugin_settings=settings,
         volumes=original.volumes,

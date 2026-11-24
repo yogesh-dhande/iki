@@ -1284,6 +1284,11 @@ micromamba takes a conda-lock file by its name, so it ends in `-lock.yml`
 include other files or editable packages. Volumes mount on the container and
 vm tiers only, at absolute paths that don't overlap.
 
+An environment with a container or VM tier can set `customer_image_required: true` in
+place of `image`. The deployment supplies the digest for those tiers in an
+[`EnvironmentImageBinding`](#a-deployments-compute). The backend and self-hosted
+tiers can still use their manifest's Python or conda environment.
+
 ## Workflows
 
 A workflow runs several of the plugin's actions as one (ADR 0079). Each step
@@ -1811,6 +1816,30 @@ labels: [lab-3]
 
 A self-hosted run needs its environment's labels, its binding's, and any
 its launcher adds, which only narrow which machines take it.
+
+For an environment with `customer_image_required: true`, add a separate
+`EnvironmentImageBinding` beside its compute template and label bindings.
+
+```yaml
+apiVersion: iki/v1
+kind: EnvironmentImageBinding
+environment: acme/tools.analysis-tools
+plugin_version: ">=1.2,<2"
+image: registry.example/team/tools@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+pull_secret: private-registry
+```
+
+`plugin_version` compares the installed plugin's release numbers using the same
+syntax as a plugin's `iki` field. Prerelease and build suffixes compare as the
+release they belong to. Keep at most one match for the installed release.
+Deployments can carry image bindings for other releases. With no match for
+the installed release, the deployment still builds and the environment's
+container and VM actions are unavailable.
+
+The image stays in the supplied registry. An optional `pull_secret` names an
+existing Kubernetes image pull secret in the namespace where the run starts.
+Set it only when the environment's image-running templates use Kubernetes.
+Other provisioners use their own registry access.
 
 A volume an environment's setup fills gets its data from a setup build
 (ADR 0075): a Compute admin asks for one, the setup script fills a fresh

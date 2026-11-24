@@ -270,6 +270,11 @@ another version built.
 | `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeatable.      |
 | `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
 
+`--images` includes the applicable deployment-supplied digest for each
+container template whose environment requests an image. The list is for
+admission approval. The deployment pulls each supplied image from its
+registry when it launches a run.
+
 With `--mirror`, Iki's own plugins (`iki/...`) come from the mirrors given,
 in order, and never from Iki's repository: the deployment's
 `plugins.mirrors`, for a site that can't reach github.com. Each must be at

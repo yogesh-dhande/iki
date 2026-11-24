@@ -16,6 +16,7 @@ import { useState, type SubmitEvent } from "react";
 import { iki, problemOf, useApiMutation, type Project } from "../api";
 import {
   inSentence,
+  recordQuery,
   typeLabel,
   typesQuery,
   type Entity,
@@ -381,6 +382,34 @@ function RunForm({
     ),
     ...Object.fromEntries(action.params.map((p) => [`params/${p.name}`, initialDraft(p, params)])),
   }));
+  const reviewsPrep = action.name === "iki/lots.record_plasmid_verification";
+  const alignment = drafts["inputs/alignment"];
+  const selectedAlignment =
+    reviewsPrep && alignment && typeof alignment === "object" && "id" in alignment
+      ? alignment.id
+      : "";
+  const alignmentRecord = useQuery({
+    ...recordQuery(selectedAlignment, project.id),
+    enabled: Boolean(selectedAlignment),
+  });
+  const evidence =
+    reviewsPrep && each?.name === "alignment" && entities.length === 1
+      ? entities[0]
+      : alignmentRecord.data;
+  const verdict = evidence?.values["verdict"];
+  const overridesVerdict =
+    drafts["params/outcome"] === "match" && (verdict === "differs" || verdict === "incomplete");
+  let verdictNote: string | undefined;
+  if (evidence) {
+    verdictNote =
+      typeof verdict === "string"
+        ? `The alignment reports “${verdict}”.`
+        : "The alignment has no reported verdict.";
+  } else if (selectedAlignment) {
+    verdictNote = alignmentRecord.isError
+      ? "The alignment’s verdict could not be loaded."
+      : "Loading the alignment’s verdict…";
+  }
   const [reason, setReason] = useState("");
   const [labels, setLabels] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -466,6 +495,15 @@ function RunForm({
       const encoded = encode(param, draft, params);
       if (encoded.ok) values[param.name] = encoded.value;
       else errors[key] = encoded.error;
+    }
+    const overrideReason = values["override_reason"];
+    if (
+      overridesVerdict &&
+      !errors["params/override_reason"] &&
+      (typeof overrideReason !== "string" || !overrideReason.trim())
+    ) {
+      errors["params/override_reason"] =
+        "Give a reason to record a match over differing or incomplete evidence.";
     }
     if (tooMany) errors[`inputs/${each.name}`] = `This input takes at most ${String(each.max)}.`;
     if (action.apis.length && !agreed) {
@@ -615,6 +653,7 @@ function RunForm({
             setDrafts((d) => ({ ...d, [`params/${param.name}`]: draft }));
           }}
           error={form.errors[`params/${param.name}`]}
+          note={param.name === "outcome" ? verdictNote : undefined}
           projectId={project.id}
         />
       ))}

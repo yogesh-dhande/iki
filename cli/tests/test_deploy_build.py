@@ -651,3 +651,59 @@ def test_the_build_writes_the_images_runs_use(
     assert main(args) == 0
     assert images.read_text() == ""
     assert "Wrote the 0 image(s) runs use" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(("version_range", "matches"), [(">=1.2,<2", True), (">=2,<3", False)])
+def test_the_build_approves_deployment_images_for_the_installed_release(
+    tmp_path: Path, version_range: str, matches: bool
+) -> None:
+    from iki_spec.compute import ImageBinding, compute_from_dict
+
+    plugin = tmp_path / "tools"
+    (plugin / "environments").mkdir(parents=True)
+    (plugin / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/tools\nversion: 1.2.0\n"
+    )
+    (plugin / "environments" / "tools.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Environment\nname: tools\ntiers: [container]\n"
+        "customer_image_required: true\n"
+    )
+    directory = tmp_path / "dev"
+    directory.mkdir()
+    (directory / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - { name: acme/tools, local: ../tools, state: active }\n"
+    )
+    image = "registry.example/team/tools@sha256:" + "a" * 64
+    (directory / "compute.yaml").write_text(
+        "apiVersion: iki/v1\nkind: ComputeTemplate\nname: customer-job\n"
+        "provisioner: k8s_job\ncapacity: { cpu: 1, memory: 1Gi }\n"
+        "price: { per_hour: 0.10, currency: USD }\n"
+        "---\napiVersion: iki/v1\nkind: EnvironmentBinding\n"
+        "environment: acme/tools.tools\ntemplates: [{ template: customer-job }]\n"
+        "---\napiVersion: iki/v1\nkind: EnvironmentImageBinding\n"
+        f"environment: acme/tools.tools\nplugin_version: '{version_range}'\n"
+        f"image: {image}\npull_secret: private-registry\n"
+    )
+    out = tmp_path / "out"
+    images = tmp_path / "images.txt"
+    assert (
+        main(
+            [
+                "deploy",
+                "build",
+                str(directory),
+                "-o",
+                str(out),
+                "--allow-local",
+                "--images",
+                str(images),
+            ]
+        )
+        == 0
+    )
+    compute = compute_from_dict(json.loads((out / "compute.json").read_text()))
+    binding = ImageBinding("acme/tools.tools", version_range, image, "private-registry")
+    assert compute.image_bindings == (binding,)
+    assert compute.image_binding("acme/tools.tools", "1.2.0") == (binding if matches else None)
+    assert images.read_text() == (image + "\n" if matches else "")

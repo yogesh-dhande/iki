@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 from django.core.exceptions import PermissionDenied
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 from first_party_dependencies import ROOT, build_order
 from org_world import build_world
 from test_lots import LOTS
@@ -28,7 +30,8 @@ def test_prep_evidence_is_pinned_and_signed_under_its_recorded_flow(
     tmp_path: Path, database: str
 ) -> None:
     build = tmp_path / "build"
-    compiled = iki("plugin", "build", *build_order(LOTS), "--output", build, cwd=ROOT)
+    sequencing = ROOT / "plugins" / "plasmid_sequencing"
+    compiled = iki("plugin", "build", *build_order(LOTS, sequencing), "--output", build, cwd=ROOT)
     assert compiled.returncode == 0, compiled.stdout + compiled.stderr
     migrate(build, database)
     sync(build, database)
@@ -127,6 +130,7 @@ def exercise_review(blob: Blob) -> None:
                 "name": "Synthetic alignment",
                 "reference": str(ref.entry_id),
                 "aligned": str(aligned.pk),
+                "verdict": "differs",
             },
         )
         for ref in (dna, other_dna)
@@ -137,8 +141,8 @@ def exercise_review(blob: Blob) -> None:
     }
     pinned_prep = snapshot(prep) | {"included": {"plasmid": [snapshot(plasmid)]}}
 
-    def values(flow: str, evidence: Entity | None) -> dict[str, Any]:
-        params = {"outcome": "match"}
+    def values(flow: str, evidence: Entity | None, reason: str = "") -> dict[str, Any]:
+        params = {"outcome": "match", "override_reason": reason}
         inputs = {"prep": [pinned_prep]}
         if evidence is None:
             params["report"] = str(report.pk)
@@ -158,7 +162,8 @@ def exercise_review(blob: Blob) -> None:
         return result
 
     research_values = values("research", None)
-    qc_values = values("regulated_qc", alignment)
+    override_reason = "Independent review of the second report resolved the discrepancy."
+    qc_values = values("regulated_qc", alignment, override_reason)
     assert research_values["report"] == str(report.pk)
     assert research_values["review_flow"] == "research"
     assert qc_values["review_flow"] == "regulated_qc"
@@ -170,6 +175,8 @@ def exercise_review(blob: Blob) -> None:
     for invalid in (
         qc_values | {"alignment": str(wrong_alignment.pk)},
         qc_values | {"plasmid": str(other_plasmid.entry_id)},
+        qc_values | {"override_reason": None},
+        qc_values | {"override_reason": " \t "},
     ):
         with pytest.raises(services.Invalid):
             create(TYPE, invalid, by_run=True)
@@ -184,6 +191,9 @@ def exercise_review(blob: Blob) -> None:
     qc = create(TYPE, qc_values, by_run=True)
     edit(research, {"reviewer": str(analyst.pk)})
     edit(qc, {"reviewer": str(reviewer.pk)})
+    with pytest.raises(services.Invalid) as missing_reason:
+        edit(qc, {"override_reason": None})
+    assert "override_reason" in missing_reason.value.errors
     with pytest.raises(services.Invalid):
         edit(qc, {"review_flow": "research", "plasmid_revision": 999})
 
@@ -222,7 +232,7 @@ def exercise_review(blob: Blob) -> None:
     assert sorted(item["meaning"] for item in signatures) == ["approval", "authorship", "review"]
     assert all(item["verification"]["valid"] for item in signatures)
 
-    edit(qc, {"outcome": "discrepancy"}, correction=True)
+    edit(qc, {"outcome": "discrepancy", "override_reason": None}, correction=True)
     assert states.values_of(qc)["review"] == "recorded"
     refused("admin", qc, "reviewed")
     refused("viewer", qc, "released")
@@ -240,4 +250,38 @@ def exercise_review(blob: Blob) -> None:
     }
     for signature in original:
         assert signature["verification"]["valid"]
-        assert services.values_at(qc, signature["revision"])["outcome"] == "match"
+        attested = services.values_at(qc, signature["revision"])
+        assert attested["outcome"] == "match"
+        assert attested["override_reason"] == override_reason
+
+    # The earlier result had an agreement only. Copy it into the new field of
+    # every parent revision, including one where only the alignment name changed.
+    app = "iki__plasmid_sequencing"
+    executor = MigrationExecutor(connection)
+    [head] = executor.loader.graph.leaf_nodes(app)
+    executor.migrate([(app, "0001_initial")])
+    legacy = create(
+        "iki/plasmid_sequencing.WholePlasmidAlignment",
+        {
+            "name": "Earlier alignment",
+            "plasmid": str(plasmid.entry_id),
+            "reference": str(dna.entry_id),
+            "source": "consensus",
+            "consensus_given": str(aligned.pk),
+            "aligned": str(aligned.pk),
+            "agreement": "incomplete",
+        },
+    )
+    edit(legacy, {"name": "Edited earlier alignment"})
+    legacy.refresh_from_db()
+    before = [services.values_at(legacy, number) for number in range(1, legacy.revision + 1)]
+    assert all(row["verdict"] is None for row in before)
+    MigrationExecutor(connection).migrate([head])
+    assert services.current_values_of([legacy])[legacy.pk]["verdict"] == "incomplete"
+    for number, row in enumerate(before, 1):
+        assert services.values_at(legacy, number) == row | {"verdict": "incomplete"}
+    with pytest.raises(ValueError, match="Give a reason"):
+        values("regulated_qc", legacy)
+    MigrationExecutor(connection).migrate([(app, "0001_initial")])
+    for number, row in enumerate(before, 1):
+        assert services.values_at(legacy, number) == row

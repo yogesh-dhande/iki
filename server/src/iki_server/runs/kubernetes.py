@@ -18,7 +18,7 @@ Kubernetes API token.
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -107,6 +107,12 @@ class RunPods:
     allow_http: bool = False
     image_pull_secrets: tuple[str, ...] = ()
     labels: dict[str, str] = field(default_factory=dict)
+
+    def with_image_pull_secret(self, name: str) -> RunPods:
+        """Reference the named Secret in the pod's namespace, beside the defaults."""
+        if not name or name in self.image_pull_secrets:
+            return self
+        return replace(self, image_pull_secrets=(*self.image_pull_secrets, name))
 
 
 def quantity(value: float | None, unit: str = "") -> str | None:

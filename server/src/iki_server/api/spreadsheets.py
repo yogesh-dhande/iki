@@ -479,8 +479,9 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         and not _has_default(imported.type, t["name"])
     ]
     saved = list(SavedMapping.objects.filter(project=imported.project_id, type=imported.type))
+    fields = {t.name: t.field for t in targets}
     scored = sorted(
-        ((mapping.matches(s.headers, headers), s) for s in saved),
+        ((mapping.from_saved(s.columns, headers, fields).score, s) for s in saved),
         key=lambda m: (-m[0], m[1].name),
     )
     suggested = [

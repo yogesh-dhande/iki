@@ -6,6 +6,7 @@ that keeps what it's asked for; the dev cluster's end-to-end checks use a real o
 import base64
 import json
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ from test_runs import TEMPLATE, protein
 from test_workers import WorkerClient
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import registry
 from iki_server.runs import catalog, provisioner
 from iki_server.runs.kubernetes import LABEL, KubernetesError
 from iki_server.runs.models import ActionRun, Job, JobState, Launch, LaunchState, RunStatus, Worker
@@ -32,6 +34,9 @@ IMAGE = (
 )
 WORKER_IMAGE = "ghcr.io/yogesh-dhande/iki-worker:0.1.0@sha256:" + "b" * 64
 GI = 1024**3
+CUSTOMER_IMAGE = "registry.example.com/lab/tools@sha256:" + "a" * 64
+NEW_CUSTOMER_IMAGE = "registry.example.com/lab/tools@sha256:" + "b" * 64
+CUSTOMER_ENVIRONMENT = "acme/prediction.colabfold"
 
 
 @pytest.fixture
@@ -224,7 +229,104 @@ def later(minutes: float) -> datetime:
     return timezone.now() + timedelta(minutes=minutes)
 
 
+@pytest.fixture
+def customer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugins = registry.plugins()
+    plugin = plugins["acme/prediction"]
+    environment = replace(
+        plugin.environments["colabfold"], image=None, customer_image_required=True
+    )
+    monkeypatch.setitem(
+        plugins,
+        plugin.name,
+        replace(plugin, environments={**plugin.environments, environment.name: environment}),
+    )
+
+
+def bind_customer_image(image: str, *, pull_secret: str | None = None) -> None:
+    version = registry.plugins()["acme/prediction"].version.split("-")[0].split("+")[0]
+
+    def change(compute: dict[str, Any]) -> None:
+        compute["image_bindings"] = [
+            {
+                "environment": CUSTOMER_ENVIRONMENT,
+                "plugin_version": f"=={version}",
+                "image": image,
+                "pull_secret": pull_secret,
+            }
+        ]
+
+    rewrite_compute(change)
+
+
 # --- Starting pods ---------------------------------------------------------------------------
+
+
+def test_customer_image_runs_at_its_pinned_digest_and_uses_pull_secret_reference(
+    world: World, customer_environment: None, settings: Any
+) -> None:
+    settings.IKI_RUNS_IMAGE_PULL_SECRETS = ["default-registry"]
+    bind_customer_image(CUSTOMER_IMAGE, pull_secret="licensed-registry")
+    run = queue_run(world)
+    # An updated binding applies to later runs. The queued run keeps its image and pull reference.
+    bind_customer_image(NEW_CUSTOMER_IMAGE, pull_secret="new-registry")
+    cluster = FakeCluster()
+    assert provisioner.tick(cluster) == (1, 0)
+    name, job = cluster.only()
+    pod = job["spec"]["template"]["spec"]
+    assert pod["containers"][0]["image"] == CUSTOMER_IMAGE
+    assert pod["imagePullSecrets"] == [{"name": "default-registry"}, {"name": "licensed-registry"}]
+    assert Launch.objects.get(name=name).image == CUSTOMER_IMAGE
+
+    assert start_pod(cluster, name).lease().status_code == 200
+    response = api_as(world, "runner").get(f"/runs/{run['id']}/attempts")
+    assert response.status_code == 200, response.content
+    (attempt,) = response.json()
+    assert attempt["environment_build"] == "sha256:" + "a" * 64
+    assert "licensed-registry" not in response.content.decode()
+
+
+def test_a_required_customer_image_without_a_matching_binding_refuses_to_queue(
+    world: World, customer_environment: None
+) -> None:
+    runner = api_as(world, "runner")
+    abl = protein(runner, world.project, name="ACDE")
+    response = runner.post(
+        f"/actions/{COLABFOLD}/runs",
+        {"project": str(world.project.pk), "inputs": {"protein": abl["id"]}},
+    )
+    assert response.status_code == 409, response.content
+    detail = response.json()["detail"]
+    assert CUSTOMER_ENVIRONMENT in detail
+    assert "deployment-supplied image" in detail and "compute.yaml" in detail
+    assert not ActionRun.objects.exists()
+
+
+def test_compute_admin_can_list_customer_image_bindings(
+    world: World, customer_environment: None
+) -> None:
+    bind_customer_image(CUSTOMER_IMAGE, pull_secret="licensed-registry")
+
+    def dormant(compute: dict[str, Any]) -> None:
+        compute["image_bindings"].append(
+            {**compute["image_bindings"][0], "plugin_version": ">=999", "pull_secret": None}
+        )
+
+    rewrite_compute(dormant)
+    version = registry.plugins()["acme/prediction"].version
+    response = api_as(world, "compute_admin").get("/compute/image-bindings")
+    assert response.status_code == 200, response.content
+    active, inactive = response.json()
+    assert active == {
+        "environment": CUSTOMER_ENVIRONMENT,
+        "plugin_version": f"=={version.split('-')[0].split('+')[0]}",
+        "image": CUSTOMER_IMAGE,
+        "pull_secret": "licensed-registry",
+        "installed_version": version,
+        "active": True,
+    }
+    assert inactive["active"] is False and inactive["plugin_version"] == ">=999"
+    problem(api_as(world, "runner").get("/compute/image-bindings"), 403, "forbidden")
 
 
 def test_a_queued_run_gets_a_pod_that_runs_its_image_with_iki_worker(world: World) -> None:
@@ -556,6 +658,27 @@ def test_a_persistent_template_keeps_a_pod_warm_that_runs_one_job_after_another(
     second = pod.lease()
     assert second.status_code == 200, second.content
     assert Launch.objects.get(pk=launch.pk).state == LaunchState.RUNNING
+
+
+def test_a_warm_pod_cannot_lease_a_new_customer_image(
+    warm: World, customer_environment: None
+) -> None:
+    bind_customer_image(CUSTOMER_IMAGE)
+    cluster = FakeCluster()
+    assert provisioner.tick(cluster) == (1, 0)
+    old_name, _ = cluster.only()
+    assert Launch.objects.get(name=old_name).image == CUSTOMER_IMAGE
+    old = start_pod(cluster, old_name)
+
+    bind_customer_image(NEW_CUSTOMER_IMAGE)
+    run = screen(warm)
+    assert old.lease().status_code == 204
+    started, _ = provisioner.tick(cluster)
+    assert started == 1
+    new_launch = Launch.objects.get(image=NEW_CUSTOMER_IMAGE)
+    assert start_pod(cluster, new_launch.name).lease().status_code == 200
+    job = Job.objects.get(run_id=run["id"])
+    assert job.environment_build == "sha256:" + "b" * 64
 
 
 def lease_after_demand(monkeypatch: pytest.MonkeyPatch, pod: WorkerClient) -> list[Any]:
