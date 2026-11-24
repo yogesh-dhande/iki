@@ -78,7 +78,18 @@ def test_browser_coverage_with_an_empty_installation(
         env["IKI_SKIP_BROWSER_TESTS"] = "1"
     if gate:
         env[gate] = "vm-test-job" if gate == "IKI_VM_RUN" else "1"
-    args = [sys.executable, "-m", "pytest", "-q", "-rN", "-c", str(ROOT / "pyproject.toml"), CASE]
+    # The assertions read the child summary as text, including when CI forces color.
+    args = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-rN",
+        "--color=no",
+        "-c",
+        str(ROOT / "pyproject.toml"),
+        CASE,
+    ]
     if opt_out:
         # This test launches a disposable browser in a subprocess without a browser fixture.
         args.extend(

@@ -165,12 +165,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { python: "3.12", kind: plain, shard: 1, shards: 3 }
-          - { python: "3.12", kind: plain, shard: 2, shards: 3 }
-          - { python: "3.12", kind: plain, shard: 3, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 1, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 2, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 3, shards: 3 }
+          - { python: "3.12", kind: plain, shard: 1, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 2, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 3, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 4, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 1, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 2, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 3, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 4, shards: 4 }
           - { python: "3.14", kind: worker, shard: 1, shards: 1 }
           - { python: "3.14", kind: browser, shard: 1, shards: 2 }
           - { python: "3.14", kind: browser, shard: 2, shards: 2 }
@@ -585,15 +587,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Check ImmuneBuilder weights pin
+        if: matrix.image == 'iki-antibody-structure-tools'
+        run: bash scripts/ci/check-immunebuilder-weights.sh
       - name: Build
         env:
           IMAGE: ${{ matrix.image }}
           PLUGIN: ${{ matrix.plugin }}
           DIR: ${{ matrix.dir }}
-        # A build downloads its files from their sources (ImmuneBuilder's weights from
-        # Zenodo, licences from GitHub), each checked against its SHA-256: a source's bad
-        # moment fails that check. A second try reuses every layer the first built, so it
-        # fetches only what failed; a real fault fails both.
+        # A second try can reuse the layers from a build that fails while fetching a
+        # pinned dependency.
         run: |
           if ! docker build -f "$DIR/Dockerfile" -t "$IMAGE:ci" "$PLUGIN"; then
             echo "::warning::Building $IMAGE failed; trying once more."

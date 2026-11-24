@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: preserves_pride_protein_quantities_and_spectrum_matches
+description: Import the first two protein rows and first two peptide-spectrum matches from public PRIDE export 16649.
+action: import_search
+inputs:
+  dataset:
+    - values:
+        name: PRIDE 16649
+        archive: https://github.com/HUPO-PSI/mzTab/blob/master/examples/1_0-Proteomics-Release/PRIDE_Exp_Complete_Ac_16649.xml-mztab.txt
+params:
+  format: mztab
+  version: PRIDE 1.0 rc5
+  reports: [{ $file: pride }]
+files: { pride: tests/data/PRIDE-16649.mztab }
+expect:
+  output:
+    creates:
+      - type: iki/proteomics.ProteomicsResult
+        values:
+          dataset_revision: 1
+          summary:
+            counts: { protein_group: 2, spectrum_match: 2 }
+            preview:
+              - level: protein_group
+                accessions: ["223462890"]
+                quantities:
+                  "protein_abundance_assay[1]": 1
+                  "protein_abundance_assay[2]": 0.853
+              - level: protein_group
+                quantities:
+                  "protein_abundance_assay[1]": null
+              - level: spectrum_match
+                sequence: QQVLDR
+              - level: spectrum_match
+                sequence: LVQYLR

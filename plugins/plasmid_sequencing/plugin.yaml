@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: iki/plasmid_sequencing
+version: 0.1.0
+title: Whole-plasmid sequencing
+description: >-
+  Check a plasmid prep's whole-plasmid sequencing against the plasmid's own registered
+  sequence: align its long reads (nanopore or PacBio HiFi) round the circle with minimap2,
+  or take a sequencing service's consensus, and record the coverage along the plasmid, the
+  consensus, and each difference from the record with its HGVS name, the features it falls
+  in and the reads that support it. The result is the alignment a prep's verification
+  links to as its evidence.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/plasmid_sequencing
+dependencies:
+  iki/dna:
+    types:
+      DNASequence: ">=4"
+  iki/plasmid:
+    types:
+      Plasmid: ">=4"
+  iki/sequencing:
+    types:
+      ReadSet: ">=1"
+      SequencingLibrary: ">=1"

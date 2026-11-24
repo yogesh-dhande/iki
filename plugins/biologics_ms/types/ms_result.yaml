@@ -1,0 +1,87 @@
+apiVersion: iki/v1
+kind: EntityType
+name: MSResult
+label: Biologics MS result
+schema_version: 1
+hrid: { prefix: BMS }
+description: A comparison of reported LC-MS observations with a pinned antibody or conjugate and its component sequences.
+fields:
+  antibody: { type: ref, to: iki/antibody.Antibody, required: true, immutable: true }
+  adc: { type: ref, to: iki/conjugate.Conjugate, immutable: true }
+  lot: { type: ref, to: iki/lots.BiologicLot, immutable: true }
+  report: { type: file, max_size: 50MiB, computed: true, immutable: true }
+  report_sha256: { type: string, max_length: 64, computed: true, immutable: true }
+  analysis: { type: enum, values: [mass, peptide_map], computed: true, immutable: true }
+  comparison: { type: json, computed: true, immutable: true }
+  input_revisions: { type: json, computed: true, immutable: true }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  raw_files:
+    type: list
+    max_items: 20
+    items: { type: file }
+    description: Raw instrument files registered in place. Attach them before review.
+  notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+      signed_off:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          research:
+            check: record.review_flow == "research" && state.from == "recorded"
+            message: Sign off a recorded research result.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          qc:
+            check: record.review_flow == "regulated_qc" && state.from == "recorded"
+            message: Submit a recorded result in the regulated QC flow.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: record.review_flow == "regulated_qc" && state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release a result after its independent review.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release requires a signer independent of the creator, analyst, reviewer and editors.
+rules:
+  action_evidence:
+    check: record.comparison != null && record.report != null && record.input_revisions != null && record.review_flow != null
+    message: Use Compare mass or peptide coverage to capture the input report and its comparison.
+    fields: [comparison, report, input_revisions, review_flow]
+display: { title: "{{ hrid }}" }

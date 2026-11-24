@@ -1,0 +1,224 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# A whole-plasmid sequencing result: an alignment (iki/core.Alignment) of the plasmid's
+# registered sequence and the consensus of a prep's long reads, or of a service's
+# consensus, with what the comparison found. A prep's PlasmidVerification (the lots plugin,
+# ADR 0184) links it as its read alignment and is where the result is reviewed and signed.
+apiVersion: iki/v1
+kind: EntityType
+name: WholePlasmidAlignment
+label: Whole-plasmid alignment
+label_plural: Whole-plasmid alignments
+schema_version: 1
+extends: iki/core.Alignment
+hrid: { prefix: WPA }
+description: >-
+  A prep's whole-plasmid sequencing against its plasmid's registered sequence: the depth of
+  reads round the circle, the consensus, and each difference from the record.
+fields:
+  plasmid:
+    type: ref
+    to: iki/plasmid.Plasmid
+    required: true
+    immutable: true
+    description: The plasmid the prep should be, whose sequence is the alignment's reference.
+  plasmid_record_id:
+    type: string
+    label: Plasmid project record UUID
+    computed: true
+    immutable: true
+    max_length: 36
+    pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    description: The project record of the plasmid the action read.
+  plasmid_revision:
+    type: int
+    label: Plasmid record revision
+    min: 1
+    computed: true
+    immutable: true
+    description: That record's revision when it was compared.
+  source:
+    type: enum
+    values: [reads, consensus]
+    label: Compared from
+    required: true
+    immutable: true
+    indexed: true
+    description: The prep's reads, or a sequencing service's consensus of them.
+  read_set:
+    type: ref
+    to: iki/sequencing.ReadSet
+    label: Read set
+    immutable: true
+    description: The reads aligned, where they were the prep's reads.
+  read_set_revision: { type: int, min: 1, computed: true, immutable: true }
+  sample:
+    type: ref
+    to: iki/core.Entity
+    label: Sample
+    immutable: true
+    description: What the reads' library was made from, such as the plasmid prep.
+  platform:
+    type: enum
+    values: [nanopore, pacbio_hifi]
+    label: Reads from
+    immutable: true
+  consensus_given:
+    type: file
+    label: Service's consensus
+    immutable: true
+    media_types: [chemical/seq-na-fasta, text/plain, application/gzip, application/x-gzip]
+    max_size: 50MiB
+    description: The consensus a sequencing service assembled, as it was sent.
+  provider:
+    type: string
+    max_length: 200
+    label: Assembled by
+    immutable: true
+    description: The service that assembled the consensus, and its order or sample ID.
+  agreement:
+    type: enum
+    values: [matches, differs, incomplete]
+    required: true
+    immutable: true
+    indexed: true
+    description: >-
+      Matches where the consensus calls every base of the plasmid and none differs; differs
+      where any does; incomplete where none differs but some bases weren't called.
+  reference_length: { type: int, min: 1, computed: true, immutable: true, label: Plasmid length }
+  topology:
+    type: enum
+    values: [circular, linear]
+    computed: true
+    immutable: true
+    description: The reference's, so a circle's differences were compared round its origin.
+  called_percent:
+    type: float
+    min: 0
+    max: 100
+    computed: true
+    immutable: true
+    label: Called (%)
+    description: The plasmid's bases the consensus calls, with a base or a deletion.
+  min_depth:
+    type: int
+    min: 1
+    computed: true
+    immutable: true
+    label: Minimum depth
+    description: The fewest reads a base needed to be called; 1 for a service's consensus.
+  mean_depth: { type: float, min: 0, computed: true, immutable: true, label: Mean depth }
+  least_depth: { type: int, min: 0, computed: true, immutable: true, label: Least depth }
+  reads_total: { type: int, min: 0, computed: true, immutable: true, label: Reads }
+  reads_aligned: { type: int, min: 0, computed: true, immutable: true, label: Reads aligned }
+  polishing_rounds:
+    type: int
+    min: 1
+    computed: true
+    immutable: true
+    description: The rounds of aligning the reads to their own consensus until it held.
+  coverage:
+    type: json
+    computed: true
+    immutable: true
+    description: The depth of reads along the plasmid, in bins from its first base.
+    schema:
+      type: object
+      additionalProperties: false
+      required: [bin_size, mean, min]
+      properties:
+        bin_size: { type: integer, minimum: 1 }
+        mean: { type: array, maxItems: 400, items: { type: number, minimum: 0 } }
+        min: { type: array, maxItems: 400, items: { type: integer, minimum: 0 } }
+  low_coverage:
+    type: json
+    computed: true
+    immutable: true
+    label: Under the minimum depth
+    description: The stretches of the plasmid with fewer reads than the minimum depth, or that a consensus doesn't reach.
+    schema:
+      type: array
+      maxItems: 200
+      items:
+        type: object
+        additionalProperties: false
+        required: [start, end]
+        properties:
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1, description: Before start, it wraps the origin. }
+  differences:
+    type: json
+    computed: true
+    immutable: true
+    description: >-
+      Each difference of the consensus from the plasmid's sequence, by its HGVS name, with
+      the bases it replaces and has, the features it lies in, the longest run of one base it
+      touches, and for reads, those that agree with it on each strand.
+    schema:
+      type: array
+      maxItems: 500
+      items:
+        type: object
+        additionalProperties: false
+        required:
+          [hgvs, kind, start, end, reference, observed, length_change, homopolymer, features]
+        properties:
+          hgvs: { type: string, minLength: 3, maxLength: 1000 }
+          kind: { enum: [substitution, deletion, insertion, deletion_insertion] }
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1 }
+          reference: { type: string, maxLength: 200 }
+          observed: { type: string, maxLength: 200 }
+          length_change: { type: integer }
+          homopolymer: { type: integer, minimum: 1 }
+          features: { type: array, maxItems: 20, items: { type: string, maxLength: 300 } }
+          depth: { type: integer, minimum: 0 }
+          support: { type: integer, minimum: 0 }
+          forward: { type: integer, minimum: 0 }
+          reverse: { type: integer, minimum: 0 }
+          fraction: { type: number, minimum: 0, maximum: 1 }
+  features:
+    type: json
+    computed: true
+    immutable: true
+    label: Features compared
+    description: >-
+      The plasmid's features as they were when it was compared, the sequence's own and its
+      annotation's, which each difference is placed in.
+    schema:
+      type: array
+      maxItems: 2000
+      items:
+        type: object
+        additionalProperties: false
+        required: [type, name, start, end, strand]
+        properties:
+          type: { type: string, minLength: 1, maxLength: 64 }
+          name: { type: string, minLength: 1, maxLength: 200 }
+          start: { type: integer, minimum: 1 }
+          end: { type: integer, minimum: 1, description: Before start, it wraps the origin. }
+          strand: { enum: [forward, reverse] }
+  consensus:
+    type: file
+    label: Consensus FASTA
+    computed: true
+    immutable: true
+    media_types: [chemical/seq-na-fasta]
+    max_size: 50MiB
+    description: The consensus in the plasmid's frame, from its first base.
+rules:
+  reads_or_consensus:
+    label: The result says what it compared
+    check: >-
+      (record.source == "reads" && record.read_set != null && record.consensus_given == null) ||
+      (record.source == "consensus" && record.consensus_given != null && record.read_set == null)
+    message: A result from reads names its read set; one from a consensus keeps the file.
+    fields: [source, read_set, consensus_given]
+  reference_is_the_plasmids:
+    label: The reference is the plasmid's sequence
+    check: record.reference != null && record.reference.id == record.plasmid.sequence
+    message: The alignment's reference must be the plasmid's registered sequence.
+    fields: [reference, plasmid]
+display:
+  title: "{{ name }}"
+  viewers: [{ viewer: alignment, alignment: aligned, rows: members, reference: reference }]

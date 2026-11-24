@@ -106,10 +106,9 @@ separator=$(printf '\037')
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$root=.${separator}--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
 target="$root/worker/target/oligo-checks"
 built="$target/wasm32-unknown-unknown/release/iki_oligo_checks_wasm.wasm"
-if [ "$mode" != --check ] || [ ! -f "$built" ]; then
-  cargo build --locked -p iki-oligo-checks-wasm \
-    --target wasm32-unknown-unknown --release --target-dir "$target"
-fi
+# Let Cargo check its inputs even when a previous checkout left a module here.
+cargo build --locked -p iki-oligo-checks-wasm \
+  --target wasm32-unknown-unknown --release --target-dir "$target"
 made=$(sha256 "$built")
 
 if [ "$mode" != --check ]; then
@@ -135,10 +134,7 @@ if [ "$canonical" != yes ]; then
 fi
 
 if [ "$made" != "$want" ]; then
-  echo "build-oligo-checks-wasm: the module built from this source doesn't match the" >&2
-  echo "tracked digest." >&2
-  echo "  built:   $made" >&2
-  echo "  tracked: $want" >&2
+  printf '%s SHA-256 mismatch. Expected %s, actual %s\n' "$(basename "$output")" "$want" "$made" >&2
   echo "If the Rust changed on purpose, run $0 --update and commit the digest." >&2
   exit 1
 fi

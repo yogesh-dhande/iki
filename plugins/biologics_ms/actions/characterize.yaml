@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: Action
+name: characterize
+label: Compare mass or peptide coverage
+description: Compare a deconvoluted peak list or peptide map with the registered antibody or ADC and preserve the report.
+inputs:
+  antibody: { type: iki/antibody.Antibody, include: [components.part] }
+  adc: { type: iki/conjugate.Conjugate, optional: true }
+  lot: { type: iki/lots.BiologicLot, optional: true }
+params:
+  analysis:
+    type: enum
+    required: true
+    values: [mass, peptide_map]
+  report:
+    type: file
+    required: true
+    max_size: 50MiB
+    media_types: [text/plain, text/tab-separated-values, application/octet-stream]
+  mass_basis:
+    type: enum
+    default: average
+    values: [average, monoisotopic]
+    description: The basis used for both the deconvoluted observations and their predictions.
+  tolerance_ppm:
+    type: float
+    min: 0
+    description: Enter the laboratory's absolute mass error tolerance for mass comparison.
+software:
+  - { name: Biopython, version: "1.88", url: https://biopython.org }
+effects:
+  creates: [{ type: MSResult, derived_from: [antibody, adc, lot] }]
+runs_on: { tier: backend, environment: characterization }
+command: [python, ./scripts/characterize.py]
+deterministic: true
+timeout: 5m

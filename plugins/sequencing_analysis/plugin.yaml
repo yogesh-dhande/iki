@@ -1,0 +1,27 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/sequencing_analysis
+version: 0.1.0
+title: Sequencing analysis
+description: Import VCF, RNA-seq counts and AIRR rearrangements with provenance and signed review.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/sequencing:
+    types: { SequencingLibrary: ">=1", SequencingRun: ">=1" }
+  iki/strains:
+    types: { BaseStrain: ">=1", TransformedStrain: ">=1" }
+  iki/cell_lines:
+    types: { ParentalLine: ">=1", EngineeredLine: ">=1" }
+  iki/antibody:
+    types: { Antibody: ">=2" }
+settings:
+  review_flow:
+    type: enum
+    label: Sequencing analysis review
+    values: [research, regulated_qc]
+    default: research
+roles:
+  analyst: { label: Sequencing analysis analyst }
+  reviewer: { label: Sequencing analysis reviewer }
+  qa: { label: Sequencing analysis QA }

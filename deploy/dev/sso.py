@@ -1732,6 +1732,9 @@ def lims() -> None:
     dose_response_starters(alice, project)
     qc_release(alice, project)
     sequencing(alice, project)
+    sequencing_analysis(alice, project)
+    proteomics(alice, project)
+    whole_plasmid(alice, project)
 
 
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1803,6 +1806,270 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
         if signature["status"] != "signed" or not signature["set"]:
             fail(f"signing {summary['hrid']} gave {signature}")
     ok(f"{reads['hrid']}: signed quality summary for four public yeast read pairs")
+
+
+def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import raw counts from one sample of a public yeast count matrix."""
+    prefix = "iki/sequencing_analysis."
+    library_type = "iki/sequencing.SequencingLibrary"
+    name = "GEO GSE176296 WTJ.1 excerpt"
+    libraries = matching_records(alice, project, library_type, "name", name)
+    if libraries:
+        library = libraries[0]
+    else:
+        sample = created(alice, project, "acme/example.Sample", {"name": name, "kind": "other"})
+        library = created(
+            alice,
+            project,
+            library_type,
+            {"name": name, "sample": sample["id"], "strategy": "RNA-Seq"},
+        )
+    seen = matching_records(
+        alice, project, prefix + "SequencingAnalysisResult", "library", library["id"]
+    )
+    if seen:
+        result = record(alice, seen[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/sequencing_analysis/tests/data/GSE176296-counts.tsv"
+        )
+        report = upload(
+            alice, project, fixture.name, fixture.read_bytes(), "text/tab-separated-values"
+        )
+        imported = launch(
+            alice,
+            project,
+            prefix + "import_result",
+            {"library": library["id"]},
+            {
+                "format": "counts",
+                "report": report,
+                "tool": "featureCounts",
+                "tool_version": "Reported in GEO GSE176296",
+                "reference": "sacCer3",
+                "column": "WTJ.1",
+            },
+        )
+        artifacts = api_call(alice, "GET", f"/runs/{imported['hrid']}/artifacts")
+        if [item["path"] for item in artifacts.json()] != ["selected.tsv"]:
+            fail(f"{imported['hrid']} did not retain the selected sample rows")
+        effect = next(
+            e for e in imported["effects"] if e["type"] == prefix + "SequencingAnalysisResult"
+        )
+        result = record(alice, effect["entity"])
+    summary = result["values"]["summary"]
+    if summary["selector"] != "WTJ.1" or summary["metrics"] != {
+        "Genes": 4,
+        "Total raw count": 1097,
+    }:
+        fail(f"{result['hrid']} did not retain the selected sample and four gene counts")
+    ok(f"{result['hrid']}: four public GEO gene counts linked to one library")
+
+
+#: What the long-read tools' minimap2 2.31 makes of 41 reads of SRA run SRR17915342 (a
+#: MinION run of pUC19) against L09137.2: its plasmid's multiple cloning site differs, and
+#: three single-base deletions sit in runs of six or seven bases.
+WHOLE_PLASMID_DIFFERENCES = [
+    "o.413_418del",
+    "o.419_420insACTGGCGGATTGTCAGGAACGCGACCCGGCGCTGTCCGAACTGTCCGAAATTCATGAGGCCGTTCTGACGCGCTGGCCATTGGT",
+    "o.423T>A",
+    "o.887del",
+    "o.1446del",
+    "o.2043del",
+]
+
+
+def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Public pUC19 nanopore reads checked against the plasmid's registered sequence in the
+    conda environment workers build for either platform (ADR 0208), the result linked as a
+    prep's verification evidence (ADR 0184), and the reads' consensus compared again as a
+    service's would be."""
+    prefix = "iki/plasmid_sequencing."
+    plasmid = next(
+        (
+            found
+            for found in matching_records(alice, project, "iki/plasmid.Plasmid", "name", "pUC19")
+            if found["values"].get("annotated_features")
+        ),
+        None,
+    )
+    if plasmid is None:
+        fail("no annotated pUC19 plasmid in the project to check whole-plasmid reads against")
+    accession = "SRR17915342"
+    runs = matching_records(
+        alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
+    )
+    run = (
+        runs[0]
+        if runs
+        else created(
+            alice,
+            project,
+            "iki/sequencing.SequencingRun",
+            {"name": "pUC19 MinION run", "instrument_model": "MinION", "run_accession": accession},
+        )
+    )
+    read_sets = matching_records(alice, project, "iki/sequencing.ReadSet", "run", run["id"])
+    if read_sets:
+        reads = read_sets[0]
+        library = record(alice, reads["values"]["library"])
+        prep = record(alice, library["values"]["sample"])
+    else:
+        prep = created(
+            alice,
+            project,
+            "iki/lots.PlasmidPrep",
+            {"plasmid": entry_of(plasmid), "notes": "pUC19 from BioSample SAMN25333912."},
+        )
+        library = created(
+            alice,
+            project,
+            "iki/sequencing.SequencingLibrary",
+            {
+                "name": "SAMN25333912 whole plasmid",
+                "sample": prep["id"],
+                "sample_accession": "SAMN25333912",
+                "strategy": "WGS",
+            },
+        )
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/plasmid_sequencing/tests/data/SRR17915342-every-900th.fastq.gz"
+        )
+        read_1 = upload(alice, project, fixture.name, fixture.read_bytes(), "application/gzip")
+        reads = created(
+            alice,
+            project,
+            "iki/sequencing.ReadSet",
+            {"run": run["id"], "library": library["id"], "read_1": read_1},
+        )
+    results = matching_records(
+        alice, project, prefix + "WholePlasmidAlignment", "read_set", reads["id"]
+    )
+    if results:
+        result = record(alice, results[0]["id"])
+    else:
+        checked = launch(
+            alice,
+            project,
+            prefix + "verify_plasmid_reads",
+            {"plasmid": plasmid["id"], "reads": reads["id"]},
+            within=600,
+        )
+        effect = next(
+            e for e in checked["effects"] if e["type"] == prefix + "WholePlasmidAlignment"
+        )
+        result = record(alice, effect["entity"])
+        kept = sorted(
+            a["path"] for a in api_call(alice, "GET", f"/runs/{checked['hrid']}/artifacts").json()
+        )
+        if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
+            fail(f"{checked['hrid']} kept {kept}")
+    values = result["values"]
+    named = [d["hgvs"] for d in values["differences"]]
+    if (
+        values["agreement"],
+        named,
+        values["reads_aligned"],
+        values["reference"],
+    ) != ("differs", WHOLE_PLASMID_DIFFERENCES, 37, plasmid["values"]["sequence"]):
+        fail(
+            f"{result['hrid']} recorded {values['agreement']} {named} "
+            f"from {values['reads_aligned']} reads"
+        )
+    ok(
+        f"{result['hrid']}: 37 of 41 public pUC19 reads, mean depth {values['mean_depth']}, "
+        f"{len(named)} differences from L09137.2 named and placed"
+    )
+    verifications = matching_records(
+        alice, project, "iki/lots.PlasmidVerification", "alignment", result["id"]
+    )
+    if not verifications:
+        launched = launch(
+            alice,
+            project,
+            "iki/lots.record_plasmid_verification",
+            {"prep": prep["id"], "alignment": result["id"]},
+            {
+                "outcome": "discrepancy",
+                "notes": "Its multiple cloning site differs from L09137.2, every read agreeing.",
+            },
+        )
+        effect = next(e for e in launched["effects"] if e["type"] == "iki/lots.PlasmidVerification")
+        verifications = [record(alice, effect["entity"])]
+    assessment = verifications[0]["values"]
+    if (assessment["alignment"], assessment["prep"]) != (result["id"], prep["id"]):
+        fail(f"{verifications[0]['hrid']} links {assessment}, not {result['hrid']}")
+    # The reads' consensus, sent back as a service's would be, says the same of the plasmid.
+    again = [
+        found
+        for found in matching_records(
+            alice, project, prefix + "WholePlasmidAlignment", "source", "consensus"
+        )
+        if found["values"].get("consensus_given") == values["consensus"]
+    ]
+    if again:
+        compared = record(alice, again[0]["id"])
+    else:
+        run_ = launch(
+            alice,
+            project,
+            prefix + "verify_plasmid_consensus",
+            {"plasmid": plasmid["id"]},
+            {"consensus": values["consensus"], "provider": "Iki, from SRR17915342"},
+        )
+        effect = next(e for e in run_["effects"] if e["type"] == prefix + "WholePlasmidAlignment")
+        compared = record(alice, effect["entity"])
+    if [d["hgvs"] for d in compared["values"]["differences"]] != WHOLE_PLASMID_DIFFERENCES:
+        fail(f"{compared['hrid']} found {compared['values']['differences']}")
+    ok(
+        f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
+        f"its consensus compared alone ({compared['hrid']}) names the same differences"
+    )
+
+
+def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import the HUPO-PSI mzTab excerpt for legacy PRIDE 16649."""
+    prefix = "iki/proteomics."
+    name = "PRIDE 16649 visual cortex mzTab excerpt"
+    seen = matching_records(alice, project, prefix + "ProteomicsDataset", "name", name)
+    dataset = (
+        seen[0]
+        if seen
+        else created(
+            alice,
+            project,
+            prefix + "ProteomicsDataset",
+            {"name": name, "archive": "https://doi.org/10.1074/mcp.M110.005413"},
+        )
+    )
+    results = matching_records(
+        alice, project, prefix + "ProteomicsResult", "dataset", dataset["id"]
+    )
+    if results:
+        result = record(alice, results[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2] / "plugins/proteomics/tests/data/PRIDE-16649.mztab"
+        )
+        report = upload(alice, project, fixture.name, fixture.read_bytes(), "text/plain")
+        run = launch(
+            alice,
+            project,
+            prefix + "import_search",
+            {"dataset": dataset["id"]},
+            {"format": "mztab", "version": "PRIDE 1.0 rc5", "reports": [report]},
+        )
+        artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
+        if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
+            fail(f"{run['hrid']} did not retain the imported identifications")
+        effect = next(e for e in run["effects"] if e["type"] == prefix + "ProteomicsResult")
+        result = record(alice, effect["entity"])
+    counts = result["values"]["summary"]["counts"]
+    if counts != {"protein_group": 2, "spectrum_match": 2}:
+        fail(f"{result['hrid']} recorded unexpected mzTab counts {counts}")
+    ok(f"{result['hrid']}: imported the PRIDE 16649 proteomics excerpt")
 
 
 def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -5527,6 +5794,39 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
     complexes(alice, project, effects[0])
+    biologics_ms(alice, project, effects[0]["entity"])
+
+
+def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: str) -> None:
+    """Map a published trastuzumab peptide onto the already registered Fv."""
+    prefix = "iki/biologics_ms."
+    antibody = record(alice, antibody_id)
+    seen = matching_records(alice, project, prefix + "MSResult", "antibody", entry_of(antibody))
+    if seen:
+        comparison = seen[0]
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/biologics_ms/tests/data/trastuzumab-peptides.tsv"
+        )
+        report = upload(
+            alice, project, fixture.name, fixture.read_bytes(), "text/tab-separated-values"
+        )
+        run = launch(
+            alice,
+            project,
+            prefix + "characterize",
+            {"antibody": antibody_id},
+            {"analysis": "peptide_map", "report": report},
+        )
+        effect = next(e for e in run["effects"] if e["type"] == prefix + "MSResult")
+        comparison = record(alice, effect["entity"])
+    heavy = next(
+        row for row in comparison["values"]["comparison"]["coverage"] if row["chain"] == "heavy"
+    )
+    if heavy["covered"] != 9:
+        fail(f"{comparison['hrid']} contains {heavy}, expected nine covered heavy chain residues")
+    ok(f"{comparison['hrid']}: mapped the published trastuzumab peptide onto {antibody['hrid']}")
 
 
 def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:

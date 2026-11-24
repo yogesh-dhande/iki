@@ -8,6 +8,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 from iki_spec import apis
 from iki_spec.compute import compute_from_dict, compute_to_dict, load_compute
@@ -426,6 +427,60 @@ def test_conda_lockfiles_are_explicit_and_hashed(tmp_path: Path) -> None:
     unhashed = "@EXPLICIT\nhttps://conda.anaconda.org/conda-forge/linux-64/numpy-2.1.0.conda\n"
     assert "Line 2" in only(
         make(tmp_path, ACTION, env, files={"conda.lock": unhashed}), "conda-unpinned"
+    )
+
+
+def test_conda_lock_lockfiles_lock_each_platform_by_hash(tmp_path: Path) -> None:
+    """conda-lock's own lockfile, for several platforms, which micromamba installs for the
+    one it runs on (ADR 0208)."""
+    env = BACKEND.replace(
+        'python: { version: "3.12", requirements: requirements.txt }',
+        "conda: { lockfile: tools-lock.yml }",
+    )
+
+    def package(platform: str, **changes: object) -> dict[str, object]:
+        found: dict[str, object] = {
+            "name": "minimap2",
+            "version": "2.31",
+            "manager": "conda",
+            "platform": platform,
+            "url": f"https://conda.anaconda.org/bioconda/{platform}/minimap2-2.31-0.conda",
+            "hash": {"md5": "a" * 32, "sha256": "b" * 64},
+        }
+        found.update(changes)
+        return found
+
+    def lock(
+        *packages: dict[str, object], platforms: tuple[str, ...] = ("linux-64", "linux-aarch64")
+    ) -> str:
+        return yaml.safe_dump(
+            {"version": 1, "metadata": {"platforms": list(platforms)}, "package": list(packages)}
+        )
+
+    both = lock(package("linux-64"), package("linux-aarch64"))
+    assert make(tmp_path, ACTION, env, files={"tools-lock.yml": both}).problems == []
+    misnamed = env.replace("tools-lock.yml", "tools.yml")
+    assert "by their name" in only(
+        make(tmp_path, ACTION, misnamed, files={"tools.yml": both}), "conda-lock-name"
+    )
+    unhashed = lock(package("linux-64"), package("linux-aarch64", hash={"md5": "a" * 32}))
+    assert "no URL and SHA-256" in only(
+        make(tmp_path, ACTION, env, files={"tools-lock.yml": unhashed}), "conda-unpinned"
+    )
+    pip = lock(
+        package("linux-64"),
+        package("linux-aarch64"),
+        package("linux-64", name="six", manager="pip"),
+    )
+    assert "not conda" in only(
+        make(tmp_path, ACTION, env, files={"tools-lock.yml": pip}), "conda-unpinned"
+    )
+    one = lock(package("linux-64"))
+    assert "linux-aarch64" in only(
+        make(tmp_path, ACTION, env, files={"tools-lock.yml": one}), "conda-unpinned"
+    )
+    assert only(
+        make(tmp_path, ACTION, env, files={"tools-lock.yml": "version: 2\n"}), "conda-not-explicit"
     )
 
 

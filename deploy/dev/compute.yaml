@@ -26,6 +26,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/biologics_ms.characterization
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/small_molecule.chemistry-tools
 templates: [{ template: backend-small }]
 ---
@@ -76,6 +81,16 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/sequencing_analysis.analysis-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/plasmid_sequencing.long-read-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/experiments.experiment-tools
 templates: [{ template: backend-small }]
 ---
@@ -87,6 +102,11 @@ templates: [{ template: backend-small }]
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: iki/example_lims.lims-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/proteomics.report-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1

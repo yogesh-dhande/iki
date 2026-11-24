@@ -11,6 +11,7 @@ const components = [
   "oligo/duplex",
   "complex/composition",
   "plasmid/plasmid-map",
+  "plasmid_sequencing/whole-plasmid-map",
 ];
 
 for (const component of components) {

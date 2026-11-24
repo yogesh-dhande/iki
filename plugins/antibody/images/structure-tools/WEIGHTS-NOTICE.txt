@@ -1,0 +1,8 @@
+ImmuneBuilder ABodyBuilder2 and NanoBodyBuilder2 model weights
+Brennan Abanades (University of Oxford), 2022, version 0.0.1.
+
+Source: https://doi.org/10.5281/zenodo.7258553
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://creativecommons.org/licenses/by/4.0/
+
+The eight weight files are repackaged for this image with their bytes unmodified.

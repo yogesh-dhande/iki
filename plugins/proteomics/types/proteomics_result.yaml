@@ -1,0 +1,99 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ProteomicsResult
+label: Proteomics search result
+schema_version: 1
+hrid: { prefix: PSR }
+description: Search results and quantities imported from versioned reports, with links to their raw data and matched proteins.
+fields:
+  dataset: { type: ref, to: ProteomicsDataset, required: true, immutable: true }
+  dataset_revision: { type: int, min: 1, computed: true, immutable: true }
+  raw_files:
+    type: list
+    items: { type: ref, to: MSFile }
+    max_items: 300
+    computed: true
+    immutable: true
+  archive: { type: string, max_length: 400, computed: true, immutable: true }
+  proteins:
+    type: list
+    items: { type: ref, to: iki/protein.Protein }
+    max_items: 200
+    computed: true
+    immutable: true
+  reports:
+    type: list
+    items: { type: file }
+    max_items: 8
+    computed: true
+    immutable: true
+  format:
+    { type: enum, values: [mztab, maxquant, diann, fragpipe], computed: true, immutable: true }
+  version: { type: string, max_length: 120, computed: true, immutable: true }
+  summary: { type: json, computed: true, immutable: true }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+      signed_off:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          research:
+            check: record.review_flow == "research" && state.from == "recorded"
+            message: Sign off a recorded research result.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          qc:
+            check: record.review_flow == "regulated_qc" && state.from == "recorded"
+            message: Submit a recorded result in the regulated QC flow.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: record.review_flow == "regulated_qc" && state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release a result after its independent review.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA release requires a signer independent of the creator, analyst, reviewer and editors.
+rules:
+  action_evidence:
+    check: record.summary != null && record.dataset_revision != null && record.review_flow != null
+    message: Use Import proteomics search reports to capture the report and dataset revisions.
+    fields: [summary, dataset_revision, review_flow]
+display: { title: "{{ hrid }}" }
