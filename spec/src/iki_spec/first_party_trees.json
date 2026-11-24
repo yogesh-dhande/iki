@@ -187,7 +187,11 @@
       "5981da957b8979505e6bab34d75814929fe6d82b",
       "1982b5b66202981016f849f42aca1737f82451b1",
       "118df138815593e9cc40611756dd0cedeae1e762",
-      "deb9f8d3ee1c69011c0294441554705768cd024b"
+      "deb9f8d3ee1c69011c0294441554705768cd024b",
+      "ed61276632f2a3fce47733a64ca9336cfbd1e91c"
+    ],
+    "iki/plasmid_sequencing": [
+      "a75cacbd131d8b9c241f7bce714b28581403b513"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",

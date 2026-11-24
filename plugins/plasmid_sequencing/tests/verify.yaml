@@ -1,0 +1,36 @@
+# Run with `iki plugin test plugins/plasmid_sequencing` (ADR 0093). These are the refusals
+# that come before minimap2 runs: the comparisons themselves, on public reads, are in
+# test_whole_plasmid.py, and the dev cluster's end-to-end check runs them on a worker.
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_file_of_two_consensuses
+description: A service sends one consensus for a prep; a file of two (synthetic) is refused.
+action: verify_plasmid_consensus
+inputs:
+  plasmid:
+    - values: { name: pUC19 }
+      included:
+        sequence:
+          - values: { bases: ACGTACGTACGTACGTACGT, topology: circular }
+params: { consensus: { $file: two } }
+files: { two: tests/data/two-consensuses.fasta }
+expect:
+  error: >-
+    two-consensuses.fasta holds 2 sequences: give the one consensus the service assembled
+    for this prep.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_protein_consensus
+description: A (synthetic) protein sequence isn't a plasmid's consensus.
+action: verify_plasmid_consensus
+inputs:
+  plasmid:
+    - values: { name: pUC19 }
+      included:
+        sequence:
+          - values: { bases: ACGTACGTACGTACGTACGT, topology: circular }
+params: { consensus: { $file: protein } }
+files: { protein: tests/data/protein.fasta }
+expect:
+  error: protein.fasta isn't a DNA sequence in IUPAC codes.

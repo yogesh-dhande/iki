@@ -240,6 +240,7 @@ testpaths = [
   "plugins/qc_release/tests",
   "plugins/sequencing/tests",
   "plugins/sequencing_analysis/tests",
+  "plugins/plasmid_sequencing/tests",
   "server/tests",
   "cli/tests",
   "spec/tests",

@@ -100,6 +100,7 @@ FIRST_PARTY = frozenset(
         "iki/mouse_strains",
         "iki/oligo",
         "iki/plasmid",
+        "iki/plasmid_sequencing",
         "iki/cell_lines",
         "iki/complex",
         "iki/conjugate",

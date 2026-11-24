@@ -1733,6 +1733,7 @@ def lims() -> None:
     qc_release(alice, project)
     sequencing(alice, project)
     sequencing_analysis(alice, project)
+    whole_plasmid(alice, project)
 
 
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1863,6 +1864,168 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
     }:
         fail(f"{result['hrid']} did not retain the selected sample and four gene counts")
     ok(f"{result['hrid']}: four public GEO gene counts linked to one library")
+
+
+#: What the long-read tools' minimap2 2.31 makes of 41 reads of SRA run SRR17915342 (a
+#: MinION run of pUC19) against L09137.2: its plasmid's multiple cloning site differs, and
+#: three single-base deletions sit in runs of six or seven bases.
+WHOLE_PLASMID_DIFFERENCES = [
+    "o.413_418del",
+    "o.419_420insACTGGCGGATTGTCAGGAACGCGACCCGGCGCTGTCCGAACTGTCCGAAATTCATGAGGCCGTTCTGACGCGCTGGCCATTGGT",
+    "o.423T>A",
+    "o.887del",
+    "o.1446del",
+    "o.2043del",
+]
+
+
+def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Public pUC19 nanopore reads checked against the plasmid's registered sequence in the
+    conda environment workers build for either platform (ADR 0208), the result linked as a
+    prep's verification evidence (ADR 0184), and the reads' consensus compared again as a
+    service's would be."""
+    prefix = "iki/plasmid_sequencing."
+    plasmid = next(
+        (
+            found
+            for found in matching_records(alice, project, "iki/plasmid.Plasmid", "name", "pUC19")
+            if found["values"].get("annotated_features")
+        ),
+        None,
+    )
+    if plasmid is None:
+        fail("no annotated pUC19 plasmid in the project to check whole-plasmid reads against")
+    accession = "SRR17915342"
+    runs = matching_records(
+        alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
+    )
+    run = (
+        runs[0]
+        if runs
+        else created(
+            alice,
+            project,
+            "iki/sequencing.SequencingRun",
+            {"name": "pUC19 MinION run", "instrument_model": "MinION", "run_accession": accession},
+        )
+    )
+    read_sets = matching_records(alice, project, "iki/sequencing.ReadSet", "run", run["id"])
+    if read_sets:
+        reads = read_sets[0]
+        library = record(alice, reads["values"]["library"])
+        prep = record(alice, library["values"]["sample"])
+    else:
+        prep = created(
+            alice,
+            project,
+            "iki/lots.PlasmidPrep",
+            {"plasmid": entry_of(plasmid), "notes": "pUC19 from BioSample SAMN25333912."},
+        )
+        library = created(
+            alice,
+            project,
+            "iki/sequencing.SequencingLibrary",
+            {
+                "name": "SAMN25333912 whole plasmid",
+                "sample": prep["id"],
+                "sample_accession": "SAMN25333912",
+                "strategy": "WGS",
+            },
+        )
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/plasmid_sequencing/tests/data/SRR17915342-every-900th.fastq.gz"
+        )
+        read_1 = upload(alice, project, fixture.name, fixture.read_bytes(), "application/gzip")
+        reads = created(
+            alice,
+            project,
+            "iki/sequencing.ReadSet",
+            {"run": run["id"], "library": library["id"], "read_1": read_1},
+        )
+    results = matching_records(
+        alice, project, prefix + "WholePlasmidAlignment", "read_set", reads["id"]
+    )
+    if results:
+        result = record(alice, results[0]["id"])
+    else:
+        checked = launch(
+            alice,
+            project,
+            prefix + "verify_plasmid_reads",
+            {"plasmid": plasmid["id"], "reads": reads["id"]},
+            within=600,
+        )
+        effect = next(
+            e for e in checked["effects"] if e["type"] == prefix + "WholePlasmidAlignment"
+        )
+        result = record(alice, effect["entity"])
+        kept = sorted(
+            a["path"] for a in api_call(alice, "GET", f"/runs/{checked['hrid']}/artifacts").json()
+        )
+        if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
+            fail(f"{checked['hrid']} kept {kept}")
+    values = result["values"]
+    named = [d["hgvs"] for d in values["differences"]]
+    if (
+        values["agreement"],
+        named,
+        values["reads_aligned"],
+        values["reference"],
+    ) != ("differs", WHOLE_PLASMID_DIFFERENCES, 37, plasmid["values"]["sequence"]):
+        fail(
+            f"{result['hrid']} recorded {values['agreement']} {named} "
+            f"from {values['reads_aligned']} reads"
+        )
+    ok(
+        f"{result['hrid']}: 37 of 41 public pUC19 reads, mean depth {values['mean_depth']}, "
+        f"{len(named)} differences from L09137.2 named and placed"
+    )
+    verifications = matching_records(
+        alice, project, "iki/lots.PlasmidVerification", "alignment", result["id"]
+    )
+    if not verifications:
+        launched = launch(
+            alice,
+            project,
+            "iki/lots.record_plasmid_verification",
+            {"prep": prep["id"], "alignment": result["id"]},
+            {
+                "outcome": "discrepancy",
+                "notes": "Its multiple cloning site differs from L09137.2, every read agreeing.",
+            },
+        )
+        effect = next(e for e in launched["effects"] if e["type"] == "iki/lots.PlasmidVerification")
+        verifications = [record(alice, effect["entity"])]
+    assessment = verifications[0]["values"]
+    if (assessment["alignment"], assessment["prep"]) != (result["id"], prep["id"]):
+        fail(f"{verifications[0]['hrid']} links {assessment}, not {result['hrid']}")
+    # The reads' consensus, sent back as a service's would be, says the same of the plasmid.
+    again = [
+        found
+        for found in matching_records(
+            alice, project, prefix + "WholePlasmidAlignment", "source", "consensus"
+        )
+        if found["values"].get("consensus_given") == values["consensus"]
+    ]
+    if again:
+        compared = record(alice, again[0]["id"])
+    else:
+        run_ = launch(
+            alice,
+            project,
+            prefix + "verify_plasmid_consensus",
+            {"plasmid": plasmid["id"]},
+            {"consensus": values["consensus"], "provider": "Iki, from SRR17915342"},
+        )
+        effect = next(e for e in run_["effects"] if e["type"] == prefix + "WholePlasmidAlignment")
+        compared = record(alice, effect["entity"])
+    if [d["hgvs"] for d in compared["values"]["differences"]] != WHOLE_PLASMID_DIFFERENCES:
+        fail(f"{compared['hrid']} found {compared['values']['differences']}")
+    ok(
+        f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
+        f"its consensus compared alone ({compared['hrid']}) names the same differences"
+    )
 
 
 def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
