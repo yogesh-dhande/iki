@@ -31,14 +31,6 @@ const { data } = entry;
   </nav>
   <h1 class="doc-title">{data.title}</h1>
   <p class="lede">{data.description}</p>
-  <dl class="facts">
-    {data.facts.map((fact) => (
-      <div>
-        <dt>{fact.label}</dt>
-        <dd class:list={{ mono: fact.code }}>{fact.value}</dd>
-      </div>
-    ))}
-  </dl>
   <Content />
   <aside slot="aside" class="side" aria-label="Related">
     {data.concepts.length > 0 && (
@@ -81,27 +73,6 @@ const { data } = entry;
     font-size: 18px;
     line-height: 1.55;
     color: var(--muted);
-  }
-  .facts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
-    gap: 16px 24px;
-    margin: 24px 0 0;
-    padding: 18px 0;
-    border-top: 1px solid var(--border);
-    border-bottom: 1px solid var(--border);
-    font-size: 14px;
-  }
-  .facts dt {
-    font-size: 12px;
-    color: var(--muted);
-  }
-  .facts dd {
-    margin: 4px 0 0;
-    font-weight: 500;
-  }
-  .facts dd.mono {
-    font-size: 13px;
   }
   .mono-list :global(a) {
     font-size: 13px;

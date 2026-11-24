@@ -3,6 +3,9 @@ import { defineCollection } from "astro:content";
 import { glob } from "astro/loaders";
 import { z } from "astro/zod";
 
+import { plugins } from "./lib/plugins.ts";
+import { prerequisites, problems } from "./lib/prerequisites.ts";
+
 const audience = z.enum(["bench", "run", "build"]);
 /** A link, or a planned page (no `href`). */
 const link = z.object({
@@ -36,9 +39,13 @@ export const collections = {
       /** Which of the use cases' four kinds it is: see USE_CASE_CATEGORIES. */
       category: z.enum(["registry-and-inventory", "data-tracking", "analysis", "collaboration"]),
       order: z.number().default(100),
-      facts: z.array(
-        z.object({ label: z.string(), value: z.string(), code: z.boolean().default(false) }),
-      ),
+      /** What the reader needs before its steps: "Before you start". Its plugins, their
+       * versions and its starter are checked against Iki's own plugins. */
+      prerequisites: prerequisites.superRefine((given, context) => {
+        for (const message of problems(given, plugins())) {
+          context.addIssue({ code: "custom", message, path: ["plugins"] });
+        }
+      }),
       /** The concept pages that explain it. */
       concepts: z.array(link).default([]),
       reference: z.array(link),

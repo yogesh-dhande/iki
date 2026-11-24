@@ -230,6 +230,7 @@ def plugin(root: Path) -> dict[str, Any]:
             if isinstance(spec, dict)
         ],
         "dependencies": sorted(head.get("dependencies") or {}),
+        "starters": sorted(head.get("starters") or {}),
         "types": [],
         "extensions": [],
         "actions": [],

@@ -87,6 +87,8 @@ export interface Plugin {
   path: string;
   roles: Role[];
   dependencies: string[];
+  /** The starters it ships, by name: `dose-response`. */
+  starters?: string[];
   types: RecordType[];
   extensions: Extension[];
   actions: Action[];

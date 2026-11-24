@@ -5,11 +5,21 @@ audience: bench
 topic: Assays
 category: analysis
 order: 10
-facts:
-  - { label: Plugins, value: "iki/plate_assays, iki/example_lims", code: true }
-  - { label: Data, value: "The starter's BMG MARS export: 8 points, 1–128 nM, 484 nm" }
-  - { label: Review flow, value: Research or Regulated QC }
-  - { label: Roles, value: "Coordinator, analyst, reviewer, QA" }
+prerequisites:
+  plugins:
+    - { name: iki/plate_assays, version: ">=0.2" }
+    - { name: iki/example_lims, version: ">=0.8" }
+  starter: iki/plate_assays.dose-response
+  roles:
+    - { role: Admin, needs: "Project Admin of the assay service, and Editor of the requesting project" }
+    - { role: Coordinator, needs: "Project Editor, lab role Coordinator" }
+    - { role: Analyst, needs: "Project Editor, lab role Assay analyst" }
+    - { role: Reviewer, needs: "Project Viewer or above, lab role Assay reviewer" }
+    - { role: QA, needs: "Project Viewer or above, lab role Assay QA (Regulated QC only)" }
+  compute: backend
+  data:
+    - { name: "A BMG MARS export of one plate, mars-96-series.csv (synthetic)", source: "Ships with the server; the starter attaches it", licence: "Apache-2.0, with Iki" }
+  services: []
 reference:
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
   - { label: iki starter, href: /reference/cli/#iki-starter }
@@ -21,6 +31,7 @@ aside:
 ---
 
 import PlateAssay from "../../components/assay/PlateAssay.astro";
+import BeforeYouStart from "../../components/BeforeYouStart.astro";
 import Step from "../../components/assay/Step.astro";
 import { doseResponse } from "../../lib/examples.ts";
 import { nM } from "../../lib/dose.ts";
@@ -29,6 +40,8 @@ export const all = doseResponse.fits.all;
 export const fit = doseResponse.fits.excluded;
 export const a4 = doseResponse.readings.find((r) => r.well === doseResponse.exclusion.well);
 
+## In short
+
 The dose-response starter sets up this plate: an eight-point, two-fold dilution
 series from 1 to 128 nM in A1–A8, a blank in A9 and an uninhibited reference in A10, read once at
 484 nm on a BMG reader and exported from MARS. Its readings are simulated from a known curve (an
@@ -36,6 +49,8 @@ IC50 of 12 nM), so the fit can be checked against the answer; the export ships w
 `mars-96-series.csv`, made by the plate assays plugin's reader example.
 The seeded development deployment's **Research plate assays** and **QC plate assays** projects each
 hold this assay, completed.
+
+<BeforeYouStart prerequisites={frontmatter.prerequisites} />
 
 <Step n={1} id="setup" title="Set up the two projects" role="Admin">
 
@@ -151,3 +166,10 @@ final signature, its **Results** section shows the released revision. Open the r
 **Check signatures** to verify who signed each revision.
 
 </Step>
+
+## What Iki does not decide
+
+Iki records the reader file, each exclusion with its reason and author, the fit and the IC50 with
+its interval. Whether a well should be excluded, whether the fit and its range are acceptable, and
+whether the assay is fit for its purpose are the analyst's and reviewer's calls, under the lab's
+procedures.
