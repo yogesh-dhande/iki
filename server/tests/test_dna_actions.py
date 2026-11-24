@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 from first_party_dependencies import FIRST_PARTY, PLUGINS
 
 from iki_cli import workers
@@ -29,7 +30,9 @@ def run(
     ]
     (tmp_path / "input.json").write_text(json.dumps({"inputs": {name: entities}}))
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(script), kind],
+        # Not isolated: the script imports `oligos`, its sibling, as a worker's own
+        # `python ./scripts/sequences.py` does, and isolation drops the script's directory.
+        [sys.executable, str(script), kind],
         env={"IKI_INPUT": str(tmp_path / "input.json"), "IKI_OUTPUT": str(tmp_path / "out.json")},
         capture_output=True,
         text=True,
@@ -51,43 +54,97 @@ def test_composition_counts_gc_among_bases_whose_pairing_is_known(tmp_path: Path
 
 
 @pytest.mark.parametrize(
-    ("bases", "tm"),
+    ("bases", "sodium", "buffer"),
     [
-        # As Biopython 1.88 gives them: Tm_NN with DNA_NN3 (SantaLucia 1998), Na=50,
-        # saltcorr=5, and 50 nM of strands in all, SantaLucia's CT: dnac1=25, dnac2=25 (nM
-        # of each), and for GCGCGC, which pairs with itself, selfcomp=True, dnac1=50.
-        # By hand, from SantaLucia's table 2 for M13 reverse: ΔH -184.4 kcal/mol, ΔS
-        # -500.7 cal/K/mol, -526.06 at 50 mM Na+ (+0.368 x 23 x ln 0.05), so Tm =
-        # -184400 / (-526.06 + 1.987 ln(50e-9 / 4)) - 273.15 = 54.84 °C. At 50 nM of
-        # each strand (CT 100 nM) it would be 55.64.
-        ("AGCGGATAACAATTTCACACAGGA", 54.8),  # M13 reverse
-        ("GTAAAACGACGGCCAGT", 49.2),  # M13 forward (-20)
-        ("TAATACGACTCACTATAGGG", 44.6),  # T7 promoter
-        ("GCGCGC", 17.3),  # pairs with itself
+        # The first number is SantaLucia's Tm in sodium alone, which Biopython 1.88 gives
+        # as Tm_NN with DNA_NN3 (SantaLucia 1998), Na=50, saltcorr=5 and 50 nM of strands
+        # in all, his CT: dnac1=25, dnac2=25 (nM of each). By hand, from his table 2 for
+        # M13 reverse: ΔH -184.4 kcal/mol, ΔS -500.7 cal/K/mol, -526.06 at 50 mM Na+
+        # (+0.368 x 23 x ln 0.05), so Tm = -184400 / (-526.06 + 1.987 ln(50e-9/4)) -
+        # 273.15 = 54.84 °C.
+        #
+        # The second is the primer's Tm in the buffer a PCR runs in -- 1.5 mM Mg2+ and
+        # 0.6 mM dNTPs besides the sodium -- corrected by Owczarzy et al. 2008, equation
+        # 16. The magnesium is worth several degrees, which is why a primer carries both,
+        # each under its own name: a primer annealed at its sodium Tm runs cold.
+        ("AGCGGATAACAATTTCACACAGGA", 54.8, 60.0),  # M13 reverse
+        ("GTAAAACGACGGCCAGT", 49.2, 53.8),  # M13 forward (-20)
+        ("TAATACGACTCACTATAGGG", 44.6, 49.5),  # T7 promoter
+        # Its own complement, so all 50 nM of strands are this one and the duplex carries
+        # SantaLucia's symmetry term, as the pure-Python action this replaced did and as
+        # Biopython's Tm_NN does with selfcomp=True and dnac1=50: 17.31 in sodium alone.
+        ("GCGCGC", 17.3, 19.1),
     ],
 )
-def test_primer_melting_temperatures_match_santalucia(
-    tmp_path: Path, bases: str, tm: float
+def test_a_primer_carries_its_tm_in_sodium_and_in_a_pcr_buffer(
+    tmp_path: Path, bases: str, sodium: float, buffer: float
 ) -> None:
     (found,) = run(tmp_path, "primers", "primer", [bases]).values()
-    assert found["melting_temperature"] == tm
+    # The sodium Tm is the one measurement every view of a primer quotes (ADR 0191).
+    assert found["melting_temperature"] == wasm.melting_temperature(bases)
+    assert found["melting_temperature"] == pytest.approx(sodium, abs=0.05)
+    assert found["buffer_melting_temperature"] == pytest.approx(buffer, abs=0.05)
     assert found["length"] == len(bases)
 
 
 def test_primers_with_ambiguous_bases_get_no_melting_temperature(tmp_path: Path) -> None:
     (found,) = run(tmp_path, "primers", "primer", ["ACGTNACGTACGTACGT"]).values()
     assert "melting_temperature" not in found
+    assert "buffer_melting_temperature" not in found
+    assert "hairpin_free_energy" not in found
     assert found["gc_content"] == 50.0
+    assert found["longest_run"] == 1
+
+
+def test_a_primer_that_folds_back_on_itself_reports_the_hairpin(tmp_path: Path) -> None:
+    """A stem of six G-C pairs round a four-base loop: the kind of thing a primer design
+    is rejected for, since the 3' end is held in the stem rather than priming. A primer
+    that folds into nothing gets a positive free energy rather than no value, so the
+    field can be filtered on: a hairpin below about -9 kcal/mol is worth redesigning."""
+    (folded,) = run(tmp_path, "primers", "primer", ["GGGCCCTTTTGGGCCC"]).values()
+    assert folded["hairpin_free_energy"] < -5
+    (flat,) = run(tmp_path, "primers", "primer", ["AGCGGATAACAATTTCACACAGGA"]).values()
+    assert flat["hairpin_free_energy"] > 0
+
+
+def test_a_self_complementary_primer_dimerises_with_itself(tmp_path: Path) -> None:
+    """Twelve alternating G and C pair with another copy over their whole length: eleven
+    G-C stacks at about -2 kcal/mol each, so about -22 and nothing worth ordering."""
+    (found,) = run(tmp_path, "primers", "primer", ["GCGCGCGCGCGC"]).values()
+    assert found["self_dimer_free_energy"] == pytest.approx(-22.77, abs=0.01)
+    assert found["longest_run"] == 1
+
+
+def test_a_run_of_one_base_is_counted(tmp_path: Path) -> None:
+    (found,) = run(tmp_path, "primers", "primer", ["ACGTGGGGGACGTACGT"]).values()
+    assert found["longest_run"] == 5
+    # The last five bases against their complement, which is what a polymerase extends
+    # from: ACGT is 4 of the 5, so the end is held by two A-T and one G-C stack.
+    assert -9 < found["end_stability"] < 0
+
+
+def test_every_field_the_action_declares_is_one_a_primer_can_get(tmp_path: Path) -> None:
+    """A field in `effects` the script never writes would promise an empty column."""
+    declared = yaml.safe_load((DNA / "actions" / "primer_properties.yaml").read_text())
+    (fields,) = [update["fields"] for update in declared["effects"]["updates"]]
+    found = run(tmp_path, "primers", "primer", ["GGGCCCTTTTGGGCCC"])
+    assert set(fields) == set(next(iter(found.values())))
 
 
 def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
-    """Run isolated Python on the same two files a worker gets from its pinned plugin."""
+    """Run the same files a worker gets from its pinned plugin: the script, the checks
+    module's wrapper it imports, and the two modules they load."""
     packed = tmp_path / "dna.tar.gz"
     code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
     workers.bundle(code, packed)
     unpacked = tmp_path / "action"
     with tarfile.open(packed, "r:gz") as archive:
-        for path in ("scripts/sequences.py", "data/oligo-measurement.wasm"):
+        for path in (
+            "scripts/sequences.py",
+            "scripts/oligos.py",
+            "data/oligo-measurement.wasm",
+            "data/oligo-checks.wasm",
+        ):
             archive.extract(path, unpacked, filter="data")
 
     # The B-DNA dodecamer (PDB 1BNA), an ambiguous oligo, and a one-base record.

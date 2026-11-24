@@ -13,13 +13,15 @@ import pytest
 pytestmark = pytest.mark.built_web_app
 
 
-def run_probe(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_probe(tmp_path: Path, *args: str, gate: bool = False) -> subprocess.CompletedProcess[str]:
     tests = Path(__file__).resolve().parent
     (tmp_path / "conftest.py").symlink_to(tests / "conftest.py")
     target = tmp_path / "artifacts"
     env = os.environ.copy()
     for key in ("IKI_GATE", "CI", "IKI_SKIP_BROWSER_TESTS"):
         env.pop(key, None)
+    if gate:
+        env["IKI_GATE"] = "1"
     env["IKI_BROWSER_ARTIFACTS"] = str(target)
     return subprocess.run(  # noqa: S603 - this repository's tests and interpreter
         [
@@ -143,6 +145,50 @@ def test_other_chromium(browser):
                 assert b"iki.test" in archive.read("trace.network")
                 assert not any(name.startswith("resources/src@") for name in archive.namelist())
     shutil.rmtree(target)
+
+
+@pytest.mark.parametrize("gate", [False, True])
+def test_aliased_disposable_browser_retains_the_final_outcome(tmp_path: Path, gate: bool) -> None:
+    (tmp_path / "test_detector.py").write_text(
+        """
+import pytest
+from test_browser import browser as detector_browser, playwright
+
+@pytest.fixture
+def page(detector_browser):
+    with detector_browser.new_context() as context:
+        page = context.new_page()
+        page.set_content('<button>Detector fixture</button>')
+        yield page
+
+def test_assertion(page):
+    assert page.title() == 'missing'
+
+def test_skip(page):
+    pytest.skip('unexpected browser skip')
+
+@pytest.mark.xfail(reason='expected detector failure')
+def test_xfail(page):
+    assert False
+"""
+    )
+    run = run_probe(tmp_path, gate=gate)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1, output
+    expected = {"test_assertion"}
+    if gate:
+        assert "2 failed" in output, output
+        assert "Unexpected skip in gate: unexpected browser skip" in output, output
+        expected.add("test_skip")
+    else:
+        assert "1 skipped" in output, output
+    assert "1 xfailed" in output, output
+    traces = list((tmp_path / "artifacts").rglob("*.zip"))
+    assert len(traces) == len(expected), traces
+    for case in expected:
+        [trace] = [path for path in traces if case in path.parent.name]
+        with ZipFile(trace) as archive:
+            assert "trace.trace" in archive.namelist()
 
 
 def test_the_original_failed_attempt_survives_a_successful_retry(tmp_path: Path) -> None:

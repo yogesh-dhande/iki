@@ -21,7 +21,6 @@ import {
 } from "./entities";
 import { formFields } from "./entity-values";
 import type { Filter } from "./filters";
-import { pageReadSignal } from "./page-reads";
 
 export type Intake = Schemas["IntakeOut"];
 export type Service = Schemas["ServiceOut"];
@@ -35,7 +34,7 @@ export function intakeQuery(projectId: string) {
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/intake", {
           params: { path: { project_id: projectId } },
-          signal: pageReadSignal(signal),
+          signal: signal,
         }),
       ),
   });
@@ -45,10 +44,11 @@ export function intakeQuery(projectId: string) {
 export function servicesQuery(projectId: string, type: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "services", type],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/services", {
           params: { path: { project_id: projectId }, query: { type } },
+          signal,
         }),
       ),
   });
@@ -58,8 +58,10 @@ export function servicesQuery(projectId: string, type: string) {
 export function twoSidesQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "request", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/request", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/request", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -100,7 +102,7 @@ export function sentToQuery(projectId: string) {
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/sent-to", {
           params: { path: { project_id: projectId } },
-          signal: pageReadSignal(signal),
+          signal: signal,
         }),
       ),
   });
@@ -110,10 +112,11 @@ export function sentToQuery(projectId: string) {
 export function sentFromQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "sent-from"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/sent-from", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ),
   });
@@ -124,7 +127,6 @@ export function ownsRequestsQuery(projectId: string, types: readonly string[]) {
   return queryOptions({
     queryKey: [...ENTITIES, "owns-requests", projectId, types],
     queryFn: async ({ signal }) => {
-      const read = pageReadSignal(signal);
       const found = await Promise.all(
         types.map(async (type) =>
           unwrap(
@@ -136,7 +138,7 @@ export function ownsRequestsQuery(projectId: string, types: readonly string[]) {
                 limit: 1,
                 where: { field: "owner_project", op: "eq", value: projectId },
               },
-              read,
+              signal,
             ),
           ),
         ),
@@ -188,7 +190,7 @@ export function queuedQuery(projectId: string) {
             limit: 1,
             where: sentTo(projectId) as Schemas["Condition"],
           },
-          pageReadSignal(signal),
+          signal,
         ),
       ).items.length > 0,
   });

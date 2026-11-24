@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from fake_gcs import FakeGcs
     from fake_idp import FakeIdP
     from fake_saml_idp import FakeSamlIdP
+    from playwright.sync_api import Browser, BrowserContext
 
 # Same major version as production; pinned by digest so tests are reproducible.
 POSTGRES_IMAGE = (
@@ -93,6 +94,31 @@ def _web_app_manifest(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     monkeypatch.setattr(viewers, "_file", viewer_file)
 
 
+@pytest.fixture(autouse=True)
+def _watch_browser_click_stability(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    if "browser" not in request.fixturenames or request.node.get_closest_marker("allows_drag"):
+        yield
+        return
+
+    from click_stability import finish, install
+
+    # Each test gets a collector, even when several tests share one browser process.
+    browser: Browser = request.getfixturevalue("browser")
+    new_context = browser.new_context
+    records: list[dict[str, Any]] = []
+
+    def watched_context(**options: Any) -> "BrowserContext":
+        context = new_context(**options)
+        install(context, records, monkeypatch)
+        return context
+
+    monkeypatch.setattr(browser, "new_context", watched_context)
+    yield
+    finish(request.config.rootpath, request.node.nodeid, browser.browser_type.name, records)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--scale",
@@ -108,10 +134,11 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
-@pytest.hookimpl(wrapper=True)
+@pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_runtest_makereport(item: pytest.Item, call: pytest.CallInfo[None]) -> Any:
     """Keeps each phase's report on the test (``rep_setup``, ``rep_call``), so a fixture's
-    teardown can say more when the test failed (the browser tests' pages do)."""
+    teardown can say more when the test failed. The outer wrapper sees the gate's final
+    outcome, including an unexpected skip that now counts as a failure."""
     report = yield
     setattr(item, f"rep_{report.when}", report)
     report_browser_evidence(item, report)

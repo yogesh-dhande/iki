@@ -212,6 +212,9 @@ check-rust: ## rustfmt, clippy (warnings denied) and cargo test
 	cd worker && cargo clippy --locked --all-targets -- -D warnings
 	cd worker && cargo test --locked --all-targets
 	scripts/build-dna-annotation-wasm.sh --check
+	# Built from the crates above, and the same bytes as the tracked digest names.
+	scripts/build-plasmid-tools-wasm.sh --check
+	scripts/build-oligo-checks-wasm.sh --check
 
 .PHONY: fmt
 fmt: ## Format all code

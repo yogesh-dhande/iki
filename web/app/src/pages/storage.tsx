@@ -19,17 +19,25 @@ import {
   freeSlots,
   pathText,
   placesQuery,
+  resolveScan,
   scanFor,
+  scanRefusal,
   STORAGE,
   stepName,
   type Container,
   type Occupant,
+  type ScanCandidate,
   type ScanMatch,
+  type ScanMode,
+  type ScanResolved,
 } from "../storage";
 import {
   CustodyDialog,
+  IkiIdEntry,
   MoveDialog,
   ScanBar,
+  ScanChooser,
+  ScanRefusedNote,
   StepLink,
   type Chosen,
   type Custody,
@@ -291,6 +299,12 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
   const [focusKey, setFocusKey] = useState<string | undefined>();
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [heard, setHeard] = useState("");
+  // A scan that needs more: a choice among readable tubes, or another way to identify one.
+  const [scanned, setScanned] = useState<
+    | { kind: "ambiguous"; code: string; candidates: ScanCandidate[] }
+    | { kind: "refused"; mode: ScanMode }
+    | null
+  >(null);
   const shape = c.shape;
   const byKey = useMemo(() => {
     const m = new Map<string, Occupant>();
@@ -323,23 +337,64 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
     else next.add(key);
     setSelected(next);
   };
-  const onScan = async (code: string) => {
-    const lower = code.toLowerCase();
-    const here = c.contents.find(
-      (o) => o.code?.toLowerCase() === lower || o.ref?.hrid.toLowerCase() === lower,
-    );
-    if (here?.row && here.column) {
-      const key = slotKey(here.row, here.column);
-      // Each scan moves focus there, even to the position it's on.
-      setFocusKey(`${key}#${String(Date.now())}`);
-      if (selecting) {
-        toggle(key);
-        setHeard(
-          `${here.ref?.hrid ?? code} at ${here.position ?? ""}: ${selected.has(key) ? "unselected" : "selected"}.`,
-        );
-      } else {
-        setHeard(`${here.ref?.hrid ?? code} is at ${here.position ?? ""}.`);
-      }
+  /** The tube a scan identified in this box: focused on its map, and selected if selecting. */
+  const show = (found: ScanCandidate, code: string) => {
+    const here = c.contents.find((o) => o.id === found.id);
+    if (!here?.row || !here.column) {
+      setHeard(`${found.hrid} isn’t in a position here.`);
+      return;
+    }
+    const key = slotKey(here.row, here.column);
+    // Each scan moves focus there, even to the position it's on.
+    setFocusKey(`${key}#${String(Date.now())}`);
+    if (selecting) {
+      toggle(key);
+      setHeard(
+        `${here.ref?.hrid ?? code} at ${here.position ?? ""}: ${selected.has(key) ? "unselected" : "selected"}.`,
+      );
+    } else {
+      setHeard(`${here.ref?.hrid ?? code} is at ${here.position ?? ""}.`);
+    }
+  };
+  /**
+   * A scan, or a typed Iki ID: identified among what's in this box first. A code several
+   * readable tubes here share asks which; one a tube you can't read is part of says only
+   * that it can't be used. A code no tube here has is looked for everywhere.
+   */
+  const onScan = async (code: string, mode: ScanMode = "label", choice?: ScanCandidate) => {
+    setScanned(null);
+    let found: ScanResolved;
+    try {
+      found = await resolveScan({
+        scope: "box",
+        container: c.id,
+        code,
+        mode,
+        ...(choice ? { choice: choice.id } : {}),
+      });
+    } catch (error) {
+      const refusal = scanRefusal(problemOf(error));
+      if (refusal?.kind === "ambiguous") {
+        setScanned({ kind: "ambiguous", code, candidates: refusal.candidates });
+        setHeard("");
+      } else if (refusal) {
+        setScanned({ kind: "refused", mode });
+        setHeard("");
+      } else setHeard(problemOf(error).detail);
+      return;
+    }
+    const identified = found.status === "one" ? found.candidates[0] : undefined;
+    if (identified) {
+      show(identified, code);
+      return;
+    }
+    if (found.status === "ambiguous") {
+      setScanned({ kind: "ambiguous", code, candidates: found.candidates });
+      setHeard("");
+      return;
+    }
+    if (mode === "iki_id") {
+      setHeard(`Nothing in ${c.hrid} has the Iki ID ${code.trim()}.`);
       return;
     }
     const matches = await scanFor(code).catch(() => []);
@@ -448,6 +503,20 @@ function ContainerView({ c, at }: { c: Container; at: string | undefined }) {
         }
         onScan={(code) => void onScan(code)}
       />
+      {scanned?.kind === "refused" ? <ScanRefusedNote mode={scanned.mode} /> : null}
+      {scanned?.kind === "ambiguous" ? (
+        <ScanChooser
+          code={scanned.code}
+          candidates={scanned.candidates}
+          onChoose={(choice) => {
+            void onScan(scanned.code, "label", choice);
+          }}
+          onCancel={() => {
+            setScanned(null);
+          }}
+        />
+      ) : null}
+      <IkiIdEntry open={scanned !== null} onEnter={(hrid) => void onScan(hrid, "iki_id")} />
       <p className="scan-heard" role="status" aria-live="polite">
         {heard}
       </p>

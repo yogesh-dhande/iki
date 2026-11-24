@@ -37,7 +37,13 @@ def test_browser_coverage_with_an_empty_installation(
     args = [sys.executable, "-m", "pytest", "-q", "-rN", "-c", str(ROOT / "pyproject.toml"), CASE]
     if opt_out:
         # This test launches a disposable browser in a subprocess without a browser fixture.
-        args.append("server/tests/test_browser_artifacts.py")
+        args.extend(
+            [
+                "server/tests/test_browser_artifacts.py::test_failure_evidence_survives_context_close_and_isolated_workers",
+                "server/tests/test_click_stability.py::test_stable_press[firefox]",
+                "server/tests/test_click_stability.py::test_finish_writes_reports_and_only_fails_for_mismatches",
+            ]
+        )
         other = tmp_path / "test_other.py"
         other.write_text(
             "import pytest\ndef test_plain(): pass\n"
@@ -53,7 +59,7 @@ def test_browser_coverage_with_an_empty_installation(
         assert "full gate" in output and "partial local" in output, output
         assert "playwright install" not in output
     elif opt_out:
-        assert result.returncode == 0 and "1 passed, 4 skipped" in output, output
+        assert result.returncode == 0 and "4 passed, 4 skipped" in output, output
         assert "3 selected tests skipped by opt-out" in output, output
         assert "IKI_SKIP_BROWSER_TESTS=1" in output and "browser coverage disabled" in output, (
             output

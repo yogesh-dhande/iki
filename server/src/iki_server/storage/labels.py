@@ -1,5 +1,5 @@
-"""Labels for what's kept (ADR 0180): a record's code as a DataMatrix or QR code and as Code
-128, its HRID, its title and its type's label line, at common label sizes.
+"""Labels for what's kept (ADR 0180): a unique record code as Data Matrix or QR, its human HRID,
+and optionally the vendor's separate Code 128.
 
 The browser lays them out at the size for a label printer's driver; for Zebra printers,
 Iki writes ZPL, which draws the barcodes with the printer's own commands (``^BX``,
@@ -13,11 +13,14 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from django.db import transaction
+
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_server.storage import services as storage
+from iki_server.storage.scan_identity import is_explicit, record_code
 from iki_spec import titles
 
 #: The most labels printed in one go: a full 1536-well plate's, or a freezer's boxes.
@@ -56,18 +59,29 @@ class Label:
     hrid: str
     title: str
     line: str
+    vendor_code: str | None
 
 
-def labels_of(entities: Sequence[Entity]) -> list[Label]:
+def labels_of(
+    entities: Sequence[Entity], *, size: Size, dpi: int, include_vendor_code: bool
+) -> list[Label]:
     """Each record's label: its code, its HRID, its title, and its type's label line."""
     from iki_server.api.entities import _title
     from iki_server.entities.services import current_values_of
     from iki_server.entities.values import shape, to_json
 
-    codes = storage.codes_of(entities)
+    if include_vendor_code and not size.code128:
+        raise storage.Wrong(
+            {
+                "include_vendor_code": [
+                    "For an additional vendor Code 128, choose Standard or Box. "
+                    "Turn off the vendor barcode to print the cryo label."
+                ]
+            }
+        )
     values = current_values_of(list(entities))
     out = []
-    for e in entities:
+    for index, e in enumerate(entities):
         fields = shape(e.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.get(e.pk, {}).items() if n in fields}
         found = storage.spec(e.type)
@@ -75,10 +89,19 @@ def labels_of(entities: Sequence[Entity]) -> list[Label]:
         if found is not None and found.label:
             line = titles.render(found.label, shown, e.hrid, dict(fields))
         title = _title(e, shown)
-        out.append(Label(e, codes[e.pk], e.hrid, "" if title == e.hrid else title, line))
+        vendor = None
+        if include_vendor_code:
+            vendor = shown.get(found.barcode) if found and found.barcode else None
+            issue = _vendor_issue(vendor, size, dpi)
+            if issue:
+                raise storage.Wrong({f"records/{index}": [f"{e.hrid}: {issue}"]})
+        out.append(
+            Label(e, record_code(e.pk), e.hrid, "" if title == e.hrid else title, line, vendor)
+        )
     return out
 
 
+@transaction.atomic
 def recorded(user: User, labels: Sequence[Label], *, size: Size, how: str, copies: int) -> None:
     """Keeps each label prepared, as an audit event on its record."""
     for label in labels:
@@ -87,7 +110,13 @@ def recorded(user: User, labels: Sequence[Label], *, size: Size, how: str, copie
             actor=user,
             target=label.entity,
             project=label.entity.owner_project,
-            data={"size": size.key, "format": how, "copies": copies, "code": label.code},
+            data={
+                "size": size.key,
+                "format": how,
+                "copies": copies,
+                "code": label.code,
+                "vendor_code": label.vendor_code,
+            },
         )
 
 
@@ -124,62 +153,99 @@ def zpl(
         return round(mm * per_mm)
 
     width, height = d(size.width_mm), d(size.height_mm)
-    margin = d(1.0 if size.height_mm < 20 else 2.0)
-    # The 2D code fills the label's height above its Code 128, or all of it.
-    bar_height = d(5.0) if size.code128 else 0
-    gap = d(1.0)
-    square = height - 2 * margin - (bar_height + gap if size.code128 else 0)
-    square = min(square, d(12.0))
-    # 16 x 16 modules hold an HRID or a 12-character barcode; a QR code is 21 x 21 or 25 x 25.
-    modules = 18 if symbology == "datamatrix" else 25
-    module = max(2, square // modules)
-    text_x = margin + module * modules + d(1.5)
-    text_width = width - text_x - margin
-    big = d(3.0 if size.height_mm < 20 else 3.6)
-    small = d(2.3 if size.height_mm < 20 else 2.8)
+    margin = d(0.5 if not size.code128 else 1.5)
+    gap = d(1)
+    narrow = d(0.25)
+    # All canonical 36-character IDs fit 24×24 ECC200 even uncompressed, or version 3 QR
+    # at level Q in alphanumeric mode. Reserve quiet zones independently of field content.
+    modules, quiet = (24, 1) if symbology == "datamatrix" else (29, 4)
+    font_scale = round(d(2.5) / 9)  # Font A is monospaced: 5 dots wide, 9 tall, 1 space.
     out: list[str] = []
     for label in labels:
-        lines = [
-            "^XA",
-            "^CI28",
-            f"^PW{width}",
-            f"^LL{height}",
-            "^LH0,0",
-        ]
-        code = _field(label.code)
+        bar_height = d(6) if label.vendor_code is not None else 0
+        bottom = height - margin - (bar_height + gap if bar_height else 0)
+        available = min(bottom - margin, d(14))
+        module = available // (modules + 2 * quiet)
+        origin = margin + quiet * module
+        text_x = margin + (modules + 2 * quiet) * module + gap
+        text_width = width - text_x - margin
+        lines = ["^XA", "^CI28", f"^PW{width}", f"^LL{height}", "^LH0,0"]
         if symbology == "qr":
-            lines.append(f"^FO{margin},{margin}^BQN,2,{module}^FH\\^FDQA,{code}^FS")
+            lines.append(f"^FO{origin},{origin}^BQN,2,{module}^FH\\^FDQM,A{label.code}^FS")
         else:
-            lines.append(f"^FO{margin},{margin}^BXN,{module},200^FH\\^FD{code}^FS")
+            lines.append(f"^FO{origin},{origin}^BXN,{module},200,24,24^FH\\^FD{label.code}^FS")
+        # HRIDs are up to 32 characters. Wrap them losslessly, taking space from the
+        # optional title and description first.
         y = margin
-        rows = [(label.hrid, big), (label.title, small), (label.line, small)]
-        for text, h in rows:
-            if not text:
+        chars = text_width // (6 * font_scale)
+        for offset in range(0, len(label.hrid), chars):
+            part = _field(label.hrid[offset : offset + chars])
+            lines.append(f"^FO{text_x},{y}^AAN,{9 * font_scale},{5 * font_scale}^FH\\^FD{part}^FS")
+            y += 10 * font_scale
+        small = d(2.3 if not size.code128 else 2.8)
+        for text in (label.title, label.line):
+            if not text or y + small > bottom:
                 continue
-            if y + h > (height - margin - (bar_height + gap if size.code128 else 0)):
-                break
-            fitted = _field(_fit(text, text_width, h))
-            lines.append(f"^FO{text_x},{y}^A0N,{h},{h}^FH\\^FD{fitted}^FS")
-            y += h + d(0.6)
-        narrow = max(1, d(0.25))
-        if size.code128 and code128_modules(label.code) * narrow <= width - 2 * margin:
+            fitted = _field(_fit(text, text_width, small))
+            lines.append(f"^FO{text_x},{y}^A0N,{small},{small}^FH\\^FD{fitted}^FS")
+            y += small + d(0.6)
+        if label.vendor_code is not None:
+            # The origin locates the bars. Leave ten narrow modules blank on each end.
+            bar_x = margin + 10 * narrow
+            data, _ = _code128(label.vendor_code)
             lines.append(
-                f"^FO{margin},{height - margin - bar_height}^BY{narrow},3,{bar_height}"
-                f"^BCN,{bar_height},N,N,N,A^FH\\^FD{code}^FS"
+                f"^FO{bar_x},{height - margin - bar_height}^BY{narrow},3,{bar_height}"
+                f"^BCN,{bar_height},N,N,N,N^FH\\^FD{_field(data)}^FS"
             )
-        lines.append(f"^PQ{copies},0,1,Y")
-        lines.append("^XZ")
+        lines.extend([f"^PQ{copies},0,1,Y", "^XZ"])
         out.append("\n".join(lines))
     return "\n".join(out) + "\n"
 
 
+def _code128(code: str) -> tuple[str, int]:
+    """Exact Code 128 data and module width, including both ten-module quiet zones.
+
+    Explicitly use subset C for digit pairs in runs of four or more. The printer uses B
+    for the other printable ASCII characters; >, ^ and ~ use Zebra's literal invocations.
+    """
+    data: list[str] = []
+    symbols = 0
+    for index, part in enumerate(re.split(r"((?:[0-9]{2}){2,})", code)):
+        if not part:
+            continue
+        if index % 2:
+            symbols += len(part) // 2 + int(bool(data))
+            data.append((">5" if data else ">;") + part)
+        else:
+            if data:
+                data.append(">6")
+                symbols += 1
+            data.append(part.replace(">", ">0").replace("^", "><").replace("~", ">="))
+            symbols += len(part)
+    # Start and checksum are 11 modules each, stop 13, plus two 10-module quiet zones.
+    return "".join(data), 11 * symbols + 55
+
+
 def code128_modules(code: str) -> int:
-    """How many modules wide ``code`` is in Code 128, with its quiet zones: subset C's pairs
-    of digits where there are at least four in a row, subset B's characters otherwise."""
-    digits = re.findall(r"\d{4,}", code)
-    paired = sum(len(run) // 2 * 2 for run in digits)
-    symbols = (len(code) - paired) + paired // 2 + 2 * len(digits)
-    return 11 * symbols + 35 + 20
+    return _code128(code)[1]
+
+
+def _vendor_issue(code: str | None, size: Size, dpi: int) -> str | None:
+    if not code:
+        return "There is no vendor barcode on this record. Turn it off to print the Iki ID."
+    if is_explicit(code):
+        return "This vendor value uses a reserved Iki identity. Turn off the vendor barcode."
+    if not code.isascii() or not code.isprintable():
+        return "The vendor Code 128 needs printable ASCII. Turn it off to print the Iki ID."
+    width = round(size.width_mm * dpi / 25.4)
+    margin = round(1.5 * dpi / 25.4)
+    narrow = round(0.25 * dpi / 25.4)
+    if code128_modules(code) * narrow > width - 2 * margin:
+        return (
+            "The full vendor Code 128 does not fit this stock. Choose a wider label "
+            "or turn off the vendor barcode."
+        )
+    return None
 
 
 def size_of(key: str) -> Size | None:

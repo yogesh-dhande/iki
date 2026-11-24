@@ -2,11 +2,41 @@
 
 import os
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
 WRAPPER = Path("scripts/ci/with-browser-traces.sh")
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_remote_pytest_refuses_the_partial_local_opt_out(tmp_path: Path) -> None:
+    case = tmp_path / "test_plain.py"
+    case.write_text("def test_plain(): pass\n")
+    env = {**os.environ, "IKI_SKIP_BROWSER_TESTS": "1", "IKI_GATE": "0"}
+    env.pop("CI", None)
+    run = subprocess.run(  # noqa: S603 - the checked-in wrapper and this interpreter
+        [
+            str(ROOT / WRAPPER),
+            "--remote",
+            "run-test",
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "-c",
+            str(ROOT / "pyproject.toml"),
+            str(case),
+        ],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert run.returncode == 4, run.stdout + run.stderr
+    assert "IKI_SKIP_BROWSER_TESTS=1 is refused by the full gate" in run.stderr
 
 
 def test_vm_fetch_keeps_each_failed_attempt_and_identifies_its_terminal_result(

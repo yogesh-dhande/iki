@@ -30,6 +30,7 @@ from django.utils import timezone
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
+from iki_server.entities.values import Invalid
 from iki_server.notifications import kinds
 from iki_server.notifications.services import notify
 from iki_server.org import permissions
@@ -234,9 +235,12 @@ def approve(user: User, approval: RunApproval) -> list[ActionRun]:
     return runs
 
 
-def decline(user: User, approval: RunApproval, *, note: str = "") -> list[ActionRun]:
-    """Ends the runs `approval` holds, unstarted."""
+def decline(user: User, approval: RunApproval, *, note: str) -> list[ActionRun]:
+    """Ends the runs `approval` holds, unstarted, recording why."""
     _may_decide(user, approval)
+    note = note.strip()
+    if not note:
+        raise Invalid({"note": ["Say why it's declined."]})
     _expire_if_due(approval)
     with transaction.atomic():
         approval = _pending(approval)

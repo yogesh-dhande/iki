@@ -147,6 +147,27 @@ def test_a_notebook_signs_in_and_works_with_entities(
         iki.entities.get("PRT-999999")
 
 
+def test_sdk_reports_reserved_vendor_codes_on_create_and_update(
+    world: World, server: Any, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    signed_in(world, server, sdk, monkeypatch)
+    project = world.project.slug
+    type_name = "acme/protein.Tube"
+    with pytest.raises(iki.ApiError, match="IKI:") as denied:
+        iki.entities.create(type_name, {"barcode": "iKi:invalid"}, project=project)
+    assert denied.value.status == 422
+    tube = iki.entities.create(type_name, {"barcode": "NORMAL-41"}, project=project)
+    with pytest.raises(iki.ApiError, match="IKI:") as denied:
+        iki.entities.update(
+            tube["id"],
+            {"barcode": "IKI:" + "0" * 32},
+            revision=tube["revision"],
+            reason="Supplier label change",
+        )
+    assert denied.value.status == 422
+    assert iki.entities.get(tube["id"])["values"]["barcode"] == "NORMAL-41"
+
+
 def test_a_notebook_editor_needs_the_sampling_role_to_draw_a_qa_sample(
     world: World, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,6 +1,10 @@
 <section class="card" aria-labelledby="preflight-title">
   <h2 class="section-title" id="preflight-title">Schema preflight</h2>
   <div data-plugin-preflight="{{ name }}">
+    <div class="alert alert-error" role="alert" hidden>
+      <p>The preflight form couldn’t load.</p>
+      <button class="button" type="button">Reload the page</button>
+    </div>
     <p>Check a proposed version against existing records with <code>iki plugin preflight</code>.</p>
   </div>
 </section>

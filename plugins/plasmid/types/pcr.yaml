@@ -16,7 +16,7 @@ kind: EntityType
 name: Pcr
 label: PCR
 label_plural: PCRs
-schema_version: 1
+schema_version: 2
 description: >-
   A PCR: the template, a forward and a reverse primer, and the linear molecule they
   amplify. Iki works out the product from the three -- both primers' 5' tails included,
@@ -57,7 +57,7 @@ fields:
     type: quantity
     unit: Cel
     computed: true
-    label: Forward primer Tm
+    label: Forward primer Tm (50 mM Na⁺)
     description: >-
       The forward primer's melting temperature where it binds: of the bases that annealed,
       against the template's own bases, so a mismatch lowers it. `tm_method` says how.
@@ -65,8 +65,20 @@ fields:
     type: quantity
     unit: Cel
     computed: true
-    label: Reverse primer Tm
+    label: Reverse primer Tm (50 mM Na⁺)
     description: The reverse primer's, the same way.
+  primer_dimer_free_energy:
+    type: quantity
+    unit: kcal/mol
+    computed: true
+    indexed: true
+    label: Primer dimer ΔG
+    description: >-
+      The free energy at 37 °C of the most stable duplex the two primers form with each
+      other, by the NNDB's DNA parameters (ADR 0201). A stable primer dimer is amplified
+      in place of the template, and one reaching a primer's 3′ end is extended into a
+      product of its own; below about −9 kcal/mol is worth redesigning. Positive where
+      the two pair with each other into nothing worth having.
   tm_method:
     type: string
     max_length: 300

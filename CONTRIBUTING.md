@@ -74,8 +74,9 @@ retry the commit.
 
 CI runs the Python tests in shards side by side, whole test files at a time
 (`scripts/ci/pytest_shards.py`). Each kind of test has shards of its own with
-only the setup it needs: `browser` (marked `built_web_app`) the built web app
-and browsers, `worker` (marked `worker_e2e`) iki-worker, and `plain` neither.
+the setup it needs. Tests marked `built_web_app` or `browser` run in browser
+shards with Playwright and the built web app. Worker shards run tests marked
+`worker_e2e` with iki-worker. Plain shards run the remaining tests.
 Every shard builds the shared WASM for rules and the standalone modules included in its checkout.
 3.12 runs the plain tests; 3.14 runs every kind. The **Python tests (summary)**
 job fails if any test ran in no shard or in two, and combines the shards'
@@ -88,9 +89,9 @@ coverage. To run a shard locally:
 Before running Python browser tests, run `pnpm install --frozen-lockfile`
 and `make web test-wasm test-browsers`. Both `make check` and `make check-python`
 install the project's locked Chromium, Firefox, and WebKit and run the browser
-tests. The gate checks both web builds, their manifest assets, the published
-science and UI story assets, and axe-core. `make web` builds the app and both
-story packages.
+tests. `make web` builds the app, viewers and story packages. The gate checks
+both Vite manifests and their assets, the declared package exports and story
+dependencies, and axe-core.
 On Linux, `uv run --locked playwright install-deps chromium firefox webkit`
 installs the browsers' system libraries.
 
@@ -100,8 +101,9 @@ Each standalone crate and builder needs a matching lock under `plugins/*/data/`.
 A pin may use `<name>.wasm.sha256` or the earlier `<name>.sha256` name.
 A bare digest pins the module delivered by the Python package, which also
 carries the Rust notice. A checksum record naming the module identifies
-the copies in the plugin and Python package. The gate checks both copies
-and the builder verifies the canonical-platform digest.
+the copies in the plugin and Python package. The gate verifies those copies
+match and checks their release digest on Linux x86-64. Developers on other
+hosts can use the matching copies produced by their local build.
 
 Start Docker for the test suite's pinned PostgreSQL and SeaweedFS containers.
 If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
@@ -110,7 +112,7 @@ If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
 
 For a partial local pytest run without browsers, use
 `IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. Its summary counts the selected
-browser fixture and `built_web_app` tests skipped by this opt-out. Use pytest
+tests that use Playwright or browser fixtures and tests marked `built_web_app`. Use pytest
 with `-rs` to list skip reasons. Direct pytest otherwise fails when
 a required browser is missing and reports the install command. CI,
 `make check`, and `make check-python` reject the opt-out even when all browsers
@@ -128,9 +130,11 @@ its path. Extract the archive and open a trace with
 disposable test contexts and can contain test cookies, visible data, and
 request and response bodies. Keep them with the test run.
 
-For the test VM, run this command from the worktree root. Invoke it again for
-each rerun. It allocates a fresh run ID before submission and asks the VM runner
-to fetch that exact archive.
+For the test VM, submit the full check from the worktree root with the command
+below. A bare `vm-run.sh` returns console output and leaves the full check’s
+trace archive on the VM. This host-side wrapper allocates a fresh run ID,
+requests the archive and attempt marker by exact path using `VM_RUN_FETCH`,
+and sets `IKI_GATE=1` on the VM, including for focused pytest commands. Use it again for each rerun.
 
 ```sh
 scripts/ci/with-browser-traces.sh --vm ~/.local/share/iki-test-vm/bin/vm-run.sh \

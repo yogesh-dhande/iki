@@ -30,8 +30,17 @@ createRoot(root).render(
 // Only the admin plugins pages need the schema preflight form.
 const preflight = document.querySelector<HTMLElement>("[data-plugin-preflight]");
 if (preflight) {
-  const { PluginPreflight } = await import("./plugin-preflight");
-  createRoot(preflight).render(
-    <PluginPreflight plugin={preflight.dataset["pluginPreflight"] ?? ""} />,
-  );
+  const form = await import("./plugin-preflight").catch((error: unknown) => {
+    console.warn("Could not load the preflight form.", error);
+    const alert = preflight.querySelector<HTMLElement>("[role=alert]");
+    alert?.querySelector("button")?.addEventListener("click", () => {
+      window.location.reload();
+    });
+    alert?.removeAttribute("hidden");
+  });
+  if (form) {
+    createRoot(preflight).render(
+      <form.PluginPreflight plugin={preflight.dataset["pluginPreflight"] ?? ""} />,
+    );
+  }
 }

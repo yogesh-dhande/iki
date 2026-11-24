@@ -54,6 +54,7 @@ if [[ ${1:-} == --remote && $# -ge 3 ]]; then
   run=$2
   [[ $run =~ ^run-[[:alnum:]-]+$ ]] || { echo "Invalid browser trace run ID" >&2; exit 2; }
   remote=true
+  export IKI_GATE=1
   shift 2
 elif [[ $# -gt 0 && $1 != --vm && $1 != --remote ]]; then
   run=$(new_run)

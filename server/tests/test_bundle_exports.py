@@ -171,7 +171,7 @@ def test_archives_expire_after_a_week_unless_the_project_is_held(world: World) -
     hold = holds.place(world.users["org_admin"], world.project, "Matter 12")
     call_command("maintain")
     assert storage.exists(key)  # held
-    holds.release(world.users["org_admin"], hold)
+    holds.release(world.users["org_admin"], hold, reason="Matter resolved")
     call_command("maintain")
     started.refresh_from_db()
     assert started.state == "expired"

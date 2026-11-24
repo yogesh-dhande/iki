@@ -7,7 +7,7 @@ import pytest
 
 _LOCAL_OPT_OUT = (
     "Partial local run: browser coverage disabled by IKI_SKIP_BROWSER_TESTS=1 "
-    "(browser fixtures and built_web_app tests)."
+    "(Playwright/browser fixtures and built_web_app tests)."
 )
 
 # These separately invoked suites attach an exact opt-in reason to marked tests.
@@ -20,8 +20,15 @@ _SUITE_BY_REASON = {
     "the live Google Cloud test never runs on CI: it bills a real account": "gcp_live",
 }
 
-# Each other reason applies to a particular test, including its parametrized cases.
+_RESIZE_TEST = (
+    "server/tests/test_click_stability.py::test_viewport_resize_suppresses_a_pre_press_shift"
+)
+_RESIZE_REASON = "Only Chromium records layout shifts around a test resize"
+
+# Reasons belong to a test or, when the capability varies, a specific case.
 _REASONS_BY_TEST = {
+    f"{_RESIZE_TEST}[firefox-viewport-confirmation]": {_RESIZE_REASON},
+    f"{_RESIZE_TEST}[webkit-viewport-confirmation]": {_RESIZE_REASON},
     "server/tests/test_api_idor.py::test_another_projects_objects_are_never_reached": {
         "names nothing of a project's"
     },
@@ -52,7 +59,7 @@ def _reject(report: pytest.TestReport | pytest.CollectReport, reason: str) -> No
 
 class _GateSkips:
     # Change the report at its source, before xdist and the CI shard reporter see it.
-    @pytest.hookimpl(wrapper=True, tryfirst=True)
+    @pytest.hookimpl(wrapper=True)
     def pytest_runtest_makereport(
         self, item: pytest.Item
     ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
@@ -61,9 +68,8 @@ class _GateSkips:
             reason = _reason(report)
             test = item.nodeid.partition("[")[0]
             marker = _SUITE_BY_REASON.get(reason)
-            if reason not in _REASONS_BY_TEST.get(test, set()) and not (
-                marker and item.get_closest_marker(marker)
-            ):
+            allowed = _REASONS_BY_TEST.get(item.nodeid, _REASONS_BY_TEST.get(test, set()))
+            if reason not in allowed and not (marker and item.get_closest_marker(marker)):
                 _reject(report, reason)
         return report
 
@@ -82,7 +88,8 @@ class _LocalBrowserOptOut:
         skip = pytest.mark.skip(reason=_LOCAL_OPT_OUT)
         for item in items:
             if item.get_closest_marker("built_web_app") or (
-                isinstance(item, pytest.Function) and "browser" in item.fixturenames
+                isinstance(item, pytest.Function)
+                and ("browser" in item.fixturenames or "playwright" in item.fixturenames)
             ):
                 item.add_marker(skip)
 

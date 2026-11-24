@@ -72,6 +72,40 @@ def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("plugin", "name"), [("dna", "oligo-checks"), ("plasmid", "plasmid-tools")]
+)
+def test_mirrored_modules_use_the_release_pin_on_its_build_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plugin: str, name: str
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for path in PARSER_COPIES:
+        write(tmp_path, path, WASM)
+    filename = f"{name}.wasm"
+    plugin_copy = write(tmp_path, f"plugins/{plugin}/data/{filename}", WASM)
+    package_copy = write(tmp_path, f"spec/src/iki_spec/modules/{filename}", WASM)
+    pin = plugin_copy.with_suffix(".wasm.sha256")
+    pin.write_text(f"{hashlib.sha256(WASM).hexdigest()}  {filename}\n")
+    builder = write(tmp_path, f"scripts/build-{name}-wasm.sh", b"#!/bin/sh\nexit 0\n")
+    builder.chmod(0o755)
+    check = runpy.run_path(str(SCRIPT))["wasm"]
+
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    check()
+    for installed in (plugin_copy, package_copy):
+        installed.write_bytes(WASM + b"other build")
+    with pytest.raises(SystemExit, match=pin.name):
+        check()
+
+    monkeypatch.setattr(platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    check()
+    package_copy.write_bytes(WASM)
+    with pytest.raises(SystemExit, match=filename):
+        check()
+
+
+@pytest.mark.parametrize(
     ("missing", "fix"),
     [
         ("app/manifest.json", "make web"),

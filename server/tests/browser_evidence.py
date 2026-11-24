@@ -62,7 +62,7 @@ class BrowserEvidence:
             self.staging.cleanup()
 
 
-DISPOSABLE_BROWSER = pytest.StashKey[Browser]()
+DISPOSABLE_BROWSER = pytest.StashKey[tuple[str | None, Browser]]()
 EVIDENCE = pytest.StashKey[BrowserEvidence]()
 ATTEMPTS = pytest.StashKey[dict[str, int]]()
 
@@ -73,11 +73,12 @@ def _browser_evidence(
 ) -> Iterator[None]:
     root = os.environ.get("IKI_BROWSER_ARTIFACTS")
     module: pytest.Module | None = request.node.getparent(pytest.Module)
-    browser = module.stash.get(DISPOSABLE_BROWSER, None) if module else None
-    if not root or browser is None or "browser" not in request.fixturenames:
+    registered = module.stash.get(DISPOSABLE_BROWSER, None) if module else None
+    if not root or registered is None or registered[0] not in request.fixturenames:
         yield
         return
 
+    _, browser = registered
     attempts = request.config.stash.setdefault(ATTEMPTS, {})
     nodeid = request.node.nodeid
     attempts[nodeid] = attempts.get(nodeid, 0) + 1

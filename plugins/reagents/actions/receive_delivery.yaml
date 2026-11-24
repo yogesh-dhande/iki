@@ -1,0 +1,37 @@
+apiVersion: iki/v1
+kind: Action
+name: receive_delivery
+label: Receive delivery
+description: Receive a supplier delivery line as a lot at the selected storage location and update the order's outstanding pack count.
+inputs:
+  order: { type: ReorderLine, schema: ">=1", include: [item] }
+  storage: { type: StockLocation, schema: ">=1" }
+params:
+  packs: { type: int, min: 1, max: 1000000000, required: true, label: Packs delivered }
+  delivery_note: { type: string, required: true, max_length: 160, label: Supplier delivery note }
+  delivery_line: { type: string, required: true, max_length: 100, label: Supplier delivery line }
+  lot_number: { type: string, required: true, max_length: 100, label: Supplier lot number }
+  received_on: { type: date, required: true }
+  expires_on: { type: date }
+  position:
+    {
+      type: string,
+      max_length: 16,
+      description: The location's slot label. Leave empty for the first free slot.,
+    }
+  certificate:
+    {
+      type: file,
+      media_types: [application/pdf, image/png, image/jpeg, text/csv],
+      max_size: 50MiB,
+      description: The supplier's certificate for the received lot.,
+    }
+effects:
+  creates:
+    - { type: MassStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
+    - { type: VolumeStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
+    - { type: CountStockLot, cardinality: many, receive_into: storage, derived_from: [order] }
+  updates: [{ input: order, fields: [received_packs] }]
+runs_on: { tier: backend, environment: reagent-tools }
+command: [python, ./scripts/replenishment.py, receive]
+timeout: 2m

@@ -75,6 +75,21 @@ def test_gate_rejects_an_unknown_skip_among_passing_tests(
         assert "1 passed, 3 skipped" in output, output
 
 
+def test_only_two_engine_cases_can_skip_viewport_confirmation(tmp_path: Path) -> None:
+    suite = tmp_path / "server/tests"
+    suite.mkdir(parents=True)
+    (suite / "test_click_stability.py").write_text(
+        "import pytest\n"
+        "@pytest.mark.parametrize('mode', ['viewport-confirmation', 'event'])\n"
+        "@pytest.mark.parametrize('engine', ['chromium', 'firefox', 'webkit'])\n"
+        "def test_viewport_resize_suppresses_a_pre_press_shift(mode, engine):\n"
+        "    pytest.skip('Only Chromium records layout shifts around a test resize')\n"
+    )
+    run = run_suite(tmp_path, gate="IKI_GATE")
+    output = run.stdout + run.stderr
+    assert run.returncode == 1 and "4 failed, 2 skipped" in output, output
+
+
 @pytest.mark.parametrize("workers", ["0", "2"])
 def test_skipping_a_module_at_collection_fails_the_gate(tmp_path: Path, workers: str) -> None:
     (tmp_path / "test_absent.py").write_text(

@@ -143,6 +143,47 @@
           "type": "object",
           "description": "Its fields' values. A ref field (or an item of a list of refs) may be `{\"$create\": \"<key>\"}`: the entity an earlier create with that key made or reused."
         },
+        "receipt": {
+          "description": "For a create that declares receive_into: the starting amount and location within the input container. Only fresh inline creates can receive material.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["amount", "reason"],
+          "properties": {
+            "amount": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "unit"],
+              "properties": {
+                "value": {
+                  "description": "A positive decimal amount. Use a string to preserve its exact precision.",
+                  "anyOf": [
+                    { "type": "number", "exclusiveMinimum": 0 },
+                    {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[0-9]+([.][0-9]+)?$"
+                    }
+                  ]
+                },
+                "unit": { "type": "string", "minLength": 1, "maxLength": 50 }
+              }
+            },
+            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "position": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100,
+              "description": "The grid position, such as A1. Omit to use the next free position or place into an ungridded container."
+            },
+            "confirmation": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "For a type requiring a move scan, the code scanned from the new record."
+            }
+          }
+        },
         "fills": {
           "type": "array",
           "uniqueItems": true,

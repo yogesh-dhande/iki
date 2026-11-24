@@ -25,6 +25,10 @@ def wasm_copies(source: Path, installed: Path, builder: Path) -> bytes:
     return binary
 
 
+def linux_x86_64() -> bool:
+    return platform.system() == "Linux" and platform.machine().lower() in ("x86_64", "amd64")
+
+
 def oligo_module(package: Path, builder: Path, pin: Path) -> None:
     """build-wasm.sh already installed both copies using this output-taking builder."""
     filename = "oligo-measurement.wasm"
@@ -37,7 +41,7 @@ def oligo_module(package: Path, builder: Path, pin: Path) -> None:
     module = package / filename
     binary = wasm_copies(module, pin.parent / filename, factory)
     populated(package / "rust-standard-library.html", str(factory))
-    if platform.system() == "Linux" and platform.machine().lower() in ("x86_64", "amd64"):
+    if linux_x86_64():
         if hashlib.sha256(binary).hexdigest() != digest:
             raise SystemExit(f"{module} does not match {pin}. Run {factory}.")
     else:
@@ -108,7 +112,10 @@ def wasm() -> None:
         except (OSError, subprocess.CalledProcessError) as exc:
             raise SystemExit(f"Failed to build {name}. Run {builder}: {exc}") from exc
         if len(pin) == 2:
-            wasm_copies(lock.parent / filename, package / "modules" / filename, builder)
+            module = lock.parent / filename
+            binary = wasm_copies(module, package / "modules" / filename, builder)
+            if linux_x86_64() and hashlib.sha256(binary).hexdigest() != pin[0]:
+                raise SystemExit(f"{module} does not match {lock}. Run {builder}.")
         else:
             # Package-only builders install their canonical bytes alongside iki_wasm.
             module = package / filename

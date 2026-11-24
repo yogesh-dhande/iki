@@ -7,8 +7,8 @@
 
 import { ApiError, unwrap } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import {
   Button as AriaButton,
   Menu,
@@ -32,6 +32,7 @@ import {
 import { entityAppsQuery } from "../apps";
 import { lineageGraphQuery, type LineageEntity, type LineageGraph } from "../lineage";
 import { PhoneActions, TopBar, usePhone } from "../page-top";
+import { TabStrip } from "../tab-strip";
 import { ExportDialog, exportFormats } from "./entity-export";
 import { signaturesQuery } from "./entity-signatures";
 import { StateBadges } from "./entity-state";
@@ -112,21 +113,23 @@ export function trailCsvUrl(entity: Entity): string {
 
 export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const tab = { "aria-current": "page" } as const;
-  const types = useQuery(typesQuery).data ?? [];
-  // Plugins' tabs (ADR 0084). If they can't be listed, the page still works without them.
-  const plugins = entityTabs(entity.type, types, useQuery(componentsQuery).data ?? []);
-  // Apps about it (ADR 0090), likewise.
-  const apps = useQuery(entityAppsQuery(apiRef(entity))).data;
-  // On a phone its tabs scroll across: the one you're on is kept in view.
-  const nav = useRef<HTMLElement>(null);
-  const pathname = useRouterState({ select: (state) => state.location.pathname });
-  useEffect(() => {
-    const current = nav.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (current && nav.current && nav.current.scrollWidth > nav.current.clientWidth) {
-      current.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
-  }, [pathname]);
-  const graph = useQuery(neighboursQuery(entity)).data;
+  // What decides which tabs there are and how wide each is. Until each has answered, or
+  // failed, the tabs aren't drawn: one pressed as they arrived would move under the finger.
+  const read = {
+    // The type's viewers, and which plugins' components are about it.
+    types: useQuery(typesQuery),
+    // Plugins' tabs (ADR 0084). If they can't be listed, the page still works without them.
+    components: useQuery(componentsQuery),
+    // Apps about it (ADR 0090), likewise.
+    apps: useQuery(entityAppsQuery(apiRef(entity))),
+    // What its Lineage tab counts.
+    graph: useQuery(neighboursQuery(entity)),
+  };
+  const settled = Object.values(read).every((q) => !q.isLoading);
+  const types = read.types.data ?? [];
+  const plugins = entityTabs(entity.type, types, read.components.data ?? []);
+  const apps = read.apps.data;
+  const graph = read.graph.data;
   const related = graph ? neighboursOf(graph, entity, types).length : undefined;
   // The project's record, on every tab: other projects' records have its HRID too.
   const search = recordSearch(entity);
@@ -175,7 +178,13 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
         </p>
       </div>
       {phone ? <PhoneActions>{actions}</PhoneActions> : null}
-      <nav className="tabs record-tabs" aria-label="Record" ref={nav}>
+      <TabStrip
+        label="Record"
+        className="record-tabs"
+        settled={settled}
+        sure={["Overview", "Lineage", "Audit trail"]}
+        widths={`${String(related)} ${String(trail)}`}
+      >
         <Link
           to="/entities/$ref/"
           params={{ ref: entity.hrid }}
@@ -251,7 +260,7 @@ export function EntityTabs({ entity, type }: { entity: Entity; type: EntityType 
               : app.name}
           </Link>
         ))}
-      </nav>
+      </TabStrip>
     </>
   );
 }

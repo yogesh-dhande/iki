@@ -1,6 +1,7 @@
 # The plasmid tools' packages: Biopython, to align the library's parts to a plasmid and
-# to cut with its REBASE-derived restriction enzymes, and Wasmtime, to run the DNA
-# library annotation module. Compile the pinned, hashed
+# for the REBASE-derived description of each restriction enzyme the cutting is given; and
+# Wasmtime, to run the packaged modules -- the one that places primers and does the cutting
+# itself (ADR 0200), and the DNA library annotation one. Compile the pinned, hashed
 # requirements.txt from it (from this directory) with:
 #
 #   uv pip compile requirements.in --python-version 3.12 --universal --generate-hashes \

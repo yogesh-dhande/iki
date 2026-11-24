@@ -1,7 +1,6 @@
 import { unwrap } from "@ikisci/sdk";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
 import { Button as AriaButton, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
 
 import {
@@ -19,6 +18,7 @@ import { entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { TopBar } from "../page-top";
 import { swatchColor } from "../project-color";
+import { TabStrip } from "../tab-strip";
 import { countsQuery } from "../lists";
 import { useRequestSides } from "../requests";
 import { Badge, Button, Loading, PageTitle, ProblemAlert, useMessages } from "../ui";
@@ -62,9 +62,20 @@ export function ProjectTabs() {
   const section = path.slice(`/projects/${project.slug}/`.length).split("/")[0] ?? "";
   const inAutomation = section === "automation";
   const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
-  const members = useQuery(membersQuery(project.id)).data;
-  const counts = useQuery({ ...countsQuery(project.id), enabled: project.can.read }).data;
-  const types = useQuery(typesQuery).data;
+  // What decides which tabs there are and how wide each is. Until each has answered, or
+  // failed, the tabs aren't drawn: one pressed as they arrived would move under the finger,
+  // and a press would end on its neighbour, or on nothing.
+  const read = {
+    members: useQuery(membersQuery(project.id)),
+    counts: useQuery({ ...countsQuery(project.id), enabled: project.can.read }),
+    // The types installed: a plugin's tab is there or not by them.
+    types: useQuery(typesQuery),
+  };
+  const members = read.members.data;
+  const counts = read.counts.data;
+  const types = read.types.data;
+  const settled =
+    Object.values(read).every((q) => !q.isLoading) && (sides.ready || read.types.isError);
   // Its request types' records: unknown if any of them is uncounted.
   const requestCounts =
     counts && types
@@ -76,17 +87,8 @@ export function ProjectTabs() {
     requestCounts && !requestCounts.includes(null)
       ? requestCounts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
       : undefined;
-  // On a phone its tabs scroll across, as a record's do: the one you're on is kept in view,
-  // again once the counts that widen them arrive.
-  const tabs = useRef<HTMLElement>(null);
+  // What a tab's width changes with: the tab you're on is brought into view again.
   const widths = `${String(counts?.total)} ${String(requests)} ${String(members?.length)}`;
-  useEffect(() => {
-    const nav = tabs.current;
-    const current = nav?.querySelector<HTMLElement>('[aria-current="page"]');
-    if (nav && current && nav.scrollWidth > nav.clientWidth) {
-      current.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
-  }, [path, widths]);
   const summary = [
     project.description.split("\n")[0]?.trim(),
     members ? `${String(members.length)} ${members.length === 1 ? "member" : "members"}` : "",
@@ -143,7 +145,18 @@ export function ProjectTabs() {
           <a href={`/teams/${project.team.slug}/`}>{project.team.name}</a>
         </p>
       </div>
-      <nav ref={tabs} className="tabs project-tabs" aria-label="Project">
+      <TabStrip
+        label="Project"
+        className="project-tabs"
+        settled={settled}
+        sure={[
+          "Overview",
+          ...(project.can.read ? ["Entities", "Runs", "Files"] : []),
+          ...(project.can.read || project.can.manage_webhooks ? ["Automation"] : []),
+          "Members",
+        ]}
+        widths={widths}
+      >
         <Link
           to="/projects/$slug/"
           params={{ slug: project.slug }}
@@ -156,6 +169,11 @@ export function ProjectTabs() {
           <Link to="/projects/$slug/entities/" params={{ slug: project.slug }} activeProps={tab}>
             Entities
             <TabCount count={counts?.total ?? undefined} />
+          </Link>
+        ) : null}
+        {project.can.read && types?.some((t) => t.name === "iki/reagents.StockItem") ? (
+          <Link to="/projects/$slug/stock/" params={{ slug: project.slug }} activeProps={tab}>
+            Stock
           </Link>
         ) : null}
         {/* For a service, or a project that asks one (ADR 0132). */}
@@ -191,7 +209,7 @@ export function ProjectTabs() {
             Settings
           </Link>
         ) : null}
-      </nav>
+      </TabStrip>
       {inAutomation ? (
         <nav className="subtabs" aria-label="Automation">
           {project.can.read ? (

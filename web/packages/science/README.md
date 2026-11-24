@@ -97,6 +97,16 @@ navigation events. The separate `@ikisci/science/alignment-compare` entry compar
 aligned rows as plain data. [Data and events](stories/alignment-viewer.md) ·
 [Alignment story](stories/alignment-viewer.html)
 
+## Virtual gel
+
+Import `@ikisci/science/virtual-gel` to register `<iki-virtual-gel>`. Supply labeled
+lanes with positive base-pair sizes for linear DNA fragments or select an NEB ladder
+by ID. A lane can also supply fragment masses or a total mass in ng. The component
+renders relative band migration for 0.5–3% agarose and provides a table of band
+sizes, counts and masses. Load `@ikisci/ui/tokens.css` and
+`@ikisci/science/virtual-gel.css`.
+[Data and references](stories/virtual-gel.md) · [Virtual gel story](stories/virtual-gel.html)
+
 ## Molecular viewers
 
 Import `@ikisci/science/chemical-depiction` to register `<iki-chemical-depiction>`.

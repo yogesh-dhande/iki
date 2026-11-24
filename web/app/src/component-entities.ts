@@ -13,7 +13,7 @@ import { useCallback, useMemo, useState } from "react";
 import { iki, problemOf } from "./api";
 import type { ComponentEntity, PlaceRequest, PluginComponent, Refinement } from "./components";
 import { ENTITIES } from "./entities";
-import { fetchPageRead, pageReadSignal } from "./page-reads";
+import { fetchPageRead } from "./page-reads";
 
 /** The most a request asks for, as the server allows. */
 export const PAGE_SIZE = 100;
@@ -68,7 +68,7 @@ export function usePlaceEntities(
             ...(pageParam ? { cursor: pageParam } : {}),
           },
           // A newer refinement or page drops this one: one request at a time.
-          signal: pageReadSignal(signal),
+          signal: signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
