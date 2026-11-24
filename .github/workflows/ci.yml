@@ -165,10 +165,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { python: "3.12", kind: plain, shard: 1, shards: 4 }
-          - { python: "3.12", kind: plain, shard: 2, shards: 4 }
-          - { python: "3.12", kind: plain, shard: 3, shards: 4 }
-          - { python: "3.12", kind: plain, shard: 4, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 1, shards: 5 }
+          - { python: "3.12", kind: plain, shard: 2, shards: 5 }
+          - { python: "3.12", kind: plain, shard: 3, shards: 5 }
+          - { python: "3.12", kind: plain, shard: 4, shards: 5 }
+          - { python: "3.12", kind: plain, shard: 5, shards: 5 }
           - { python: "3.14", kind: plain, shard: 1, shards: 4 }
           - { python: "3.14", kind: plain, shard: 2, shards: 4 }
           - { python: "3.14", kind: plain, shard: 3, shards: 4 }
@@ -270,6 +271,9 @@ jobs:
       - name: pytest (includes Helm chart policy tests)
         env:
           SHARD: ${{ matrix.kind }}:${{ matrix.shard }}/${{ matrix.shards }}
+          # A hard job deadline can prevent ran.json being written. Preserve test names
+          # in the plain shard's live log, including the last tests its workers started.
+          PYTEST_ADDOPTS: ${{ matrix.kind == 'plain' && '-v' || '' }}
           IKI_BROWSER_ARTIFACTS: ${{ runner.temp }}/browser-failures/${{ github.run_id }}/${{ github.run_attempt }}
         run: |
           uv run --no-sync pytest -p pytest_shards --shard "$SHARD" \
