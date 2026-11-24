@@ -1783,7 +1783,13 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             pk__in={e.owner_project_id for e in entities}
         )
     }
-    editable = {p.pk for p in projects.values() if permissions.can(user, Action.PROJECT_EDIT, p)}
+    edit_actions = {name: access.edit_action(name) for name in {e.type for e in entities}}
+    editable = {
+        (p.pk, action)
+        for action in set(edit_actions.values())
+        for p in projects.values()
+        if permissions.can(user, action, p)
+    }
     asked = requests.summaries(user, entities)
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
@@ -1808,7 +1814,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         editable_record = (
             bool(asked[entity.pk]["yours"])
             if entity.pk in asked
-            else entity.owner_project_id in editable
+            else (entity.owner_project_id, edit_actions[entity.type]) in editable
         ) and entity.type not in frozen
         edit_amount = (
             editable_record and entity.archived_at is None and amounts.spec(entity.type) is not None
@@ -2851,7 +2857,7 @@ def create_entity(request: HttpRequest, payload: EntityIn, response: HttpRespons
     record of it already, that's returned as it is (200, ``reused``). Values of the entry's
     that it has already are kept; a fact given with another value is refused."""
     me = caller(request)
-    target = project(me, payload.project, Action.PROJECT_EDIT)
+    target = project(me, payload.project, access.edit_action(payload.type))
     try:
         saved = services.create(
             me,
@@ -2907,10 +2913,10 @@ def patch_entity(
     me = caller(request)
     entity = _find(me, ref)
     owner = services.owner_of(entity)
-    if payload.archived is not None or not requests.can_change(me, entity):
+    if payload.archived is not None or not access.can_edit(me, entity):
         # A request's service changes only its own fields (ADR 0132): archiving is the
         # asking project's.
-        require(me, Action.PROJECT_EDIT, owner)
+        require(me, access.edit_action(entity.type), owner)
     expected = _expected(if_match)
     try:
         with transaction.atomic():
@@ -3740,7 +3746,7 @@ def link_entity(request: HttpRequest, ref: str, project_id: UUID) -> Any:  # noq
     You need to be able to read the entity, and to be an Editor in the project."""
     me = caller(request)
     entity = _find(me, ref)
-    target = project(me, project_id, Action.PROJECT_EDIT)
+    target = project(me, project_id, access.edit_action(entity.type))
     created = services.link(me, entity, target)
     link = ProjectLink.objects.select_related("project", "linked_by").get(
         entity=entity, project=target
@@ -3760,11 +3766,9 @@ def unlink_entity(request: HttpRequest, ref: str, project_id: UUID) -> Status[No
     entity = _find(me, ref)
     target = project(me, project_id)
     owner = services.owner_of(entity)
-    if not (
-        permissions.can(me, Action.PROJECT_EDIT, target)
-        or permissions.can(me, Action.PROJECT_EDIT, owner)
-    ):
-        require(me, Action.PROJECT_EDIT, target)
+    action = access.edit_action(entity.type)
+    if not (permissions.can(me, action, target) or permissions.can(me, action, owner)):
+        require(me, action, target)
     if not services.unlink(me, entity, target):
         raise Problem(404, f"{entity.hrid} isn’t in that project.")
     return Status(204, None)

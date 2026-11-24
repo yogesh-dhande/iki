@@ -384,6 +384,16 @@ def can_read(user: Any, entity: Entity) -> bool:  # noqa: ANN401
     return visible(user).filter(pk=entity.pk).exists()
 
 
+def edit_action(type_name: str, *, by_run: bool = False) -> Action:
+    """The permission for authoring this type, including a subtype of App or View."""
+    own = registry.types().get(type_name)
+    if own and any(
+        t.qualified_name in {"iki/core.App", VIEW} for t in (own, *registry.ancestors(own))
+    ):
+        return Action.RUN_EDIT_APP if by_run else Action.APP_EDIT
+    return Action.PROJECT_EDIT
+
+
 def can_edit(user: Any, entity: Entity, *, acting_in: Project | None = None) -> bool:  # noqa: ANN401
     """Whether the user may change a record: Editor in its project. Nobody edits a registry
     entry so: its facts are its registrars' (ADR 0115). A request sent to a service (ADR
@@ -396,4 +406,4 @@ def can_edit(user: Any, entity: Entity, *, acting_in: Project | None = None) -> 
     if requests.spec_of(entity.type) is not None:
         return bool(requests.sides(user, entity, requests.of(entity), acting_in=acting_in))
     owner = Project.objects.select_related("team").get(pk=entity.owner_project_id)
-    return permissions.can(user, Action.PROJECT_EDIT, owner)
+    return permissions.can(user, edit_action(entity.type, by_run=acting_in is not None), owner)

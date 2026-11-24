@@ -192,32 +192,24 @@ def sides(
     """The sides of a request ``user`` may change it as: the asking project's, as its
     Editor, and the service's, as an Editor there. ``acting_in``: only as that project
     (a run in it writes as it)."""
+    from iki_server.entities.access import edit_action
+
+    action = edit_action(entity.type, by_run=acting_in is not None)
     out = set()
     owner = entity.owner_project
     if (
         owner is not None
         and (acting_in is None or acting_in.pk == owner.pk)
-        and permissions.can(user, Action.PROJECT_EDIT, owner)
+        and permissions.can(user, action, owner)
     ):
         out.add(ASKER)
     if (
         request is not None
         and (acting_in is None or acting_in.pk == request.service_id)
-        and permissions.can(user, Action.PROJECT_EDIT, request.service)
+        and permissions.can(user, action, request.service)
     ):
         out.add(SERVICE)
     return frozenset(out)
-
-
-def can_change(user: Any, entity: Entity) -> bool:  # noqa: ANN401 - a User
-    """Whether ``user`` may change some of a record's values: as an Editor in its project,
-    or, for a request, as an Editor of the service it was sent to."""
-    if entity.owner_project_id is None:
-        return False
-    if permissions.can(user, Action.PROJECT_EDIT, Project.objects.get(pk=entity.owner_project_id)):
-        return True
-    request = of(entity)
-    return request is not None and permissions.can(user, Action.PROJECT_EDIT, request.service)
 
 
 def refused_fields(

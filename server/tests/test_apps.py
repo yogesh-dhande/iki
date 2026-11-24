@@ -10,6 +10,7 @@ from api_client import Api, problem
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as, create, patch
+from test_oauth import bearer, signed_in_token
 
 from iki_server.entities import app_specs
 from iki_server.entities.models import Entity
@@ -75,6 +76,157 @@ def test_an_app_lays_out_panels_that_read_the_ones_before(world: World) -> None:
     assert saved["hrid"].startswith("APP-") and saved["title"] == "Kinases"
     read = api_as(world, "viewer").get(f"/entities/{saved['hrid']}").json()
     assert [p["id"] for p in read["values"]["spec"]["panels"]] == ["proteins", "shown", "summary"]
+
+
+def test_app_and_view_writes_need_the_apps_scope_and_the_project_role(world: World) -> None:
+    from test_views import protein, view
+
+    editor = api_as(world)
+    project_id = str(world.project.pk)
+    target = protein(editor, world)
+    app_record = app(editor, world.project, GRID).json()
+    view_record = view(editor, world, target["id"]).json()
+    spec = {"version": 1, "panels": [GRID]}
+    draft = {"name": "Preview", "project": project_id, "spec": spec}
+    dashboard = f"/projects/{project_id}/dashboard"
+    writes: list[tuple[str, str, Any]] = [
+        ("POST", "/apps/drafts", draft),
+        ("PUT", dashboard, {"app": app_record["id"]}),
+        ("DELETE", dashboard, None),
+    ]
+    for record, values in [
+        (app_record, {"name": "New app", "spec": spec}),
+        (
+            view_record,
+            {
+                "name": "New view",
+                "targets": [target["id"]],
+                "target_revisions": [1],
+                "viewers": ["sequence"],
+                "state": {"version": 1},
+            },
+        ),
+    ]:
+        path = f"/entities/{record['id']}"
+        writes.extend(
+            [
+                (
+                    "POST",
+                    "/entities",
+                    {"type": record["type"], "project": project_id, "values": values},
+                ),
+                ("PATCH", path, {"values": {"name": "Changed"}}),
+                ("PATCH", path, {"archived": True}),
+                ("PATCH", path, {"archived": False}),
+                ("PUT", f"{path}/projects/{project_id}", None),
+                ("DELETE", f"{path}/projects/{project_id}", None),
+            ]
+        )
+    _, editor_token = signed_in_token(world, "admin", scope="read write")
+    _, viewer_token = signed_in_token(world, "viewer", scope="read apps")
+    for method, path, body in writes:
+        missing = bearer(editor_token["access_token"], method, path, body, {"If-Match": '"1"'})
+        assert problem(missing, 403, "insufficient_scope")
+        assert missing["WWW-Authenticate"] == 'Bearer error="insufficient_scope", scope="apps"'
+        role = bearer(viewer_token["access_token"], method, path, body, {"If-Match": '"1"'})
+        problem(role, 403, "forbidden")
+
+    _, reader = signed_in_token(world, "admin", scope="read")
+    for path in (
+        "/apps/guide",
+        dashboard,
+        dashboard + "/choices",
+        f"/entities/{view_record['id']}",
+    ):
+        assert bearer(reader["access_token"], "GET", path).status_code == 200
+    for record in (app_record, view_record):
+        path = f"/entities/{record['id']}"
+        assert not bearer(editor_token["access_token"], "GET", path).json()["can"]["edit"]
+
+    _, author = signed_in_token(world, "editor", scope="read apps")
+    for record in (app_record, view_record):
+        path = f"/entities/{record['id']}"
+        current = bearer(author["access_token"], "GET", path)
+        assert current.json()["can"]["edit"]
+        changed = bearer(
+            author["access_token"],
+            "PATCH",
+            path,
+            {"values": {"name": "Changed"}},
+            {"If-Match": current["ETag"]},
+        )
+        assert changed.status_code == 200, changed.content
+    role = bearer(author["access_token"], "PUT", dashboard, {"app": app_record["id"]})
+    problem(role, 403, "forbidden")
+
+
+def test_read_visibility_precedes_the_apps_scope_on_writes(world: World) -> None:
+    other = Project.objects.create(team=world.team, name="Restricted")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    editor = api_as(world)
+    _, credentials = signed_in_token(world, scope="read write", projects=[world.project])
+    token = credentials["access_token"]
+    for project, expected in [(world.project, 403), (other, 404)]:
+        record = app(editor, project, GRID).json()
+        path = f"/entities/{record['id']}"
+        writes = [
+            ("PATCH", path, {"values": {"name": "Changed"}}),
+            (
+                "POST",
+                "/apps/drafts",
+                {"project": str(project.pk), "name": "Preview", "spec": record["values"]["spec"]},
+            ),
+            ("PUT", f"/projects/{project.pk}/dashboard", {"app": record["id"]}),
+        ]
+        for method, endpoint, body in writes:
+            response = bearer(token, method, endpoint, body, {"If-Match": '"1"'})
+            assert response.status_code == expected, response.content
+            if expected == 403:
+                problem(response, 403, "insufficient_scope")
+                assert (
+                    response["WWW-Authenticate"]
+                    == 'Bearer error="insufficient_scope", scope="apps"'
+                )
+            else:
+                assert "WWW-Authenticate" not in response
+
+
+def test_an_installed_action_can_produce_and_update_views_with_the_run_scope(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from test_runs import COMPUTE
+    from test_views import protein, view
+
+    from iki_server.entities import registry
+    from iki_server.runs import catalog
+    from iki_spec.model import Creates, Input, Updates
+
+    installed = catalog.action(COMPUTE)
+    assert installed is not None
+    action = replace(
+        installed,
+        name="annotate_view",
+        inputs={"view": Input("view", "iki/core.View")},
+        updates=(Updates("view", ("name",)),),
+        creates=(Creates("iki/core.View"),),
+        params={},
+    )
+    monkeypatch.setitem(registry.plugins()[action.plugin].actions, action.name, action)
+    api = api_as(world)
+    saved = view(api, world, protein(api, world)["id"]).json()
+    _, credentials = signed_in_token(world, scope="read run")
+    answer = bearer(
+        credentials["access_token"],
+        "POST",
+        f"/actions/{action.qualified_name}/runs",
+        {"project": str(world.project.pk), "inputs": {"view": saved["id"]}},
+    )
+    assert answer.status_code == 201, answer.content
 
 
 def test_its_spec_fits_its_schema_and_says_where_it_doesnt(world: World) -> None:

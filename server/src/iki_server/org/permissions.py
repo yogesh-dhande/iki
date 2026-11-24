@@ -95,6 +95,12 @@ class Action(StrEnum):
     PROJECT_READ = "project.read"
     """Read the project's data: entities, runs, views."""
     PROJECT_EDIT = "project.edit"
+    APP_EDIT = "app.edit"
+    """Build and change apps, saved views and app drafts."""
+    RUN_EDIT_APP = "run.edit_app"
+    """Change an app or view as a declared effect of running an installed action."""
+    DASHBOARD_MANAGE = "dashboard.manage"
+    DASHBOARD_CHOICES = "dashboard.choices"
     PROJECT_SET_STATE = "project.set_state"
     """Set one of a record's state fields (ADR 0125): with one of the state's lab roles,
     which this never stands in for."""
@@ -141,6 +147,10 @@ ACTION_SCOPES: dict[Action, str] = {
     Action.AUDIT_READ: "read",
     Action.PROJECT_CREATE: "write",
     Action.PROJECT_EDIT: "write",
+    Action.APP_EDIT: "apps",
+    Action.RUN_EDIT_APP: "run",
+    Action.DASHBOARD_MANAGE: "apps",
+    Action.DASHBOARD_CHOICES: "read",
     Action.PROJECT_SET_STATE: "write",
     Action.PROJECT_MANAGE: "write",
     Action.PROJECT_MEMBERS_MANAGE: "write",
@@ -231,6 +241,10 @@ _PROJECT_ACTION_ROLE = {
     Action.PROJECT_SEE: ProjectRole.VIEWER,
     Action.PROJECT_READ: ProjectRole.VIEWER,
     Action.PROJECT_EDIT: ProjectRole.EDITOR,
+    Action.APP_EDIT: ProjectRole.EDITOR,
+    Action.RUN_EDIT_APP: ProjectRole.EDITOR,
+    Action.DASHBOARD_MANAGE: ProjectRole.ADMIN,
+    Action.DASHBOARD_CHOICES: ProjectRole.ADMIN,
     # Any member: what decides it is the state's lab role (ADR 0125).
     Action.PROJECT_SET_STATE: ProjectRole.VIEWER,
     Action.RUN_SELF_HOSTED: ProjectRole.EDITOR,
@@ -257,6 +271,8 @@ _ARCHIVED_PROJECT_ACTIONS = frozenset(
         Action.PROJECT_SEE,
         Action.PROJECT_READ,
         Action.PROJECT_MANAGE,
+        Action.DASHBOARD_MANAGE,
+        Action.DASHBOARD_CHOICES,
         Action.PROJECT_MEMBERS_MANAGE,
         # Exporting only reads.
         Action.PROJECT_EXPORT,
