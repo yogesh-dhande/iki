@@ -496,7 +496,12 @@ function RunForm({
       if (encoded.ok) values[param.name] = encoded.value;
       else errors[key] = encoded.error;
     }
-    if (overridesVerdict && !String(values["override_reason"] ?? "").trim()) {
+    const overrideReason = values["override_reason"];
+    if (
+      overridesVerdict &&
+      !errors["params/override_reason"] &&
+      (typeof overrideReason !== "string" || !overrideReason.trim())
+    ) {
       errors["params/override_reason"] =
         "Give a reason to record a match over differing or incomplete evidence.";
     }
