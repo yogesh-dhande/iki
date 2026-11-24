@@ -440,6 +440,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compute/image-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Deployment-supplied environment images
+         * @description List the image pins configured in compute.yaml for this deployment.
+         */
+        get: operations["iki_server_api_compute_list_image_bindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/compute/overview": {
         parameters: {
             query?: never;
@@ -10074,6 +10094,39 @@ export interface components {
              * @constant
              */
             mode: "iki_id";
+        };
+        /** ImageBindingOut */
+        ImageBindingOut: {
+            /**
+             * Active
+             * @description Whether this binding applies to the installed environment.
+             */
+            active: boolean;
+            /**
+             * Environment
+             * @description The qualified plugin environment.
+             */
+            environment: string;
+            /**
+             * Image
+             * @description The deployment-supplied image pinned by digest.
+             */
+            image: string;
+            /**
+             * Installed Version
+             * @description The installed plugin version, if any.
+             */
+            installed_version: string | null;
+            /**
+             * Plugin Version
+             * @description The plugin release range the image applies to.
+             */
+            plugin_version: string;
+            /**
+             * Pull Secret
+             * @description The name of a Kubernetes pull Secret, if set.
+             */
+            pull_secret: string | null;
         };
         /** ImportCounts */
         ImportCounts: {
@@ -20246,6 +20299,26 @@ export interface operations {
                 };
                 content: {
                     "text/csv": unknown;
+                };
+            };
+        };
+    };
+    iki_server_api_compute_list_image_bindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageBindingOut"][];
                 };
             };
         };

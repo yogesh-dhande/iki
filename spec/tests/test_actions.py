@@ -283,6 +283,31 @@ def test_provisioned_tiers_need_an_image(tmp_path: Path) -> None:
     assert "environment-needs-image" in codes(result)
 
 
+def test_an_environment_can_ask_its_deployment_for_an_image(tmp_path: Path) -> None:
+    env = BACKEND.replace("[backend, self_hosted]", "[backend, self_hosted, container]")
+    opt_in = env + "customer_image_required: true\nlabels: [local-tools]\n"
+    loaded = make(tmp_path, ACTION, opt_in)
+    assert loaded.problems == []
+    assert loaded.plugin is not None
+    assert loaded.plugin.environments["tools"].customer_image_required
+    assert loaded.plugin.environments["tools"].labels == ("local-tools",)
+    assert plugin_from_dict(plugin_to_dict(loaded.plugin)) == loaded.plugin
+
+    pinned = GPU + "customer_image_required: true\n"
+    assert "schema" in codes(make(tmp_path, ACTION, BACKEND, pinned))
+    vm = action(runs_on="{ tier: vm, environment: gpu }")
+    explicit_pin = make(tmp_path, vm, GPU + "customer_image_required: false\n")
+    assert explicit_pin.problems == []
+    assert explicit_pin.plugin is not None
+    previous_format = plugin_to_dict(explicit_pin.plugin)
+    assert "customer_image_required" not in previous_format["environments"]["gpu"]
+    assert plugin_from_dict(previous_format) == explicit_pin.plugin
+    assert only(
+        make(tmp_path, ACTION, BACKEND + "customer_image_required: true\n"),
+        "customer-image-wrong-tier",
+    )
+
+
 def test_the_backend_needs_packages(tmp_path: Path) -> None:
     env = "apiVersion: iki/v1\nkind: Environment\nname: tools\ntiers: [backend]\n"
     assert "neither" in only(make(tmp_path, ACTION, env), "environment-needs-packages")

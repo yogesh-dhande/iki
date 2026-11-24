@@ -33,6 +33,7 @@ from iki_server.runs import (
     catalog,
     costs,
     input_files,
+    launches,
     outside,
     provisioner,
     quotas,
@@ -1171,13 +1172,20 @@ def _may_reproduce(
     available_builds: set[str],
 ) -> bool:
     """Whether the original ended with an output and this deployment still has its
-    plugin commit and reference data."""
+    plugin commit, deployment-supplied image and reference data."""
     linked = run.reused_from_id or run.reproduces_id
     original = refs.get(linked) if linked else run
     if original is None or not _has_output(original):
         return False
     if here.get(original.action.split(".")[0]) != (original.plugin_sha, original.plugin_version):
         return False
+    if original.environment_image:
+        action = catalog.action(original.action)
+        bound = catalog.customer_image_for(action) if action is not None else None
+        if bound is None or launches.image_digest(bound.image) != launches.image_digest(
+            original.environment_image
+        ):
+            return False
     if original.volumes is None or (
         original.volumes and setups.build_id(original.volumes) not in available_builds
     ):

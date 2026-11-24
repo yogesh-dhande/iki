@@ -7,7 +7,9 @@
   "required": ["apiVersion", "kind"],
   "properties": {
     "apiVersion": { "const": "iki/v1" },
-    "kind": { "enum": ["ComputeTemplate", "EnvironmentBinding", "ApiPrice"] }
+    "kind": {
+      "enum": ["ComputeTemplate", "EnvironmentBinding", "EnvironmentImageBinding", "ApiPrice"]
+    }
   },
   "allOf": [
     {
@@ -17,6 +19,13 @@
     {
       "if": { "properties": { "kind": { "const": "EnvironmentBinding" } }, "required": ["kind"] },
       "then": { "$ref": "https://ikisci.org/schemas/environment-binding/v1" }
+    },
+    {
+      "if": {
+        "properties": { "kind": { "const": "EnvironmentImageBinding" } },
+        "required": ["kind"]
+      },
+      "then": { "$ref": "https://ikisci.org/schemas/environment-image-binding/v1" }
     },
     {
       "if": { "properties": { "kind": { "const": "ApiPrice" } }, "required": ["kind"] },

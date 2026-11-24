@@ -182,6 +182,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
         labels=tuple(sorted(set(body.get("labels") or ()))),
         resources=Resources.from_manifest(body.get("resources")),
         image=body.get("image"),
+        customer_image_required=body.get("customer_image_required", False),
         python_version=python.get("version"),
         requirements=python.get("requirements"),
         conda_lockfile=(body.get("conda") or {}).get("lockfile"),
@@ -245,13 +246,21 @@ class _Rules:
     def environment(self, env: Environment, source: Document) -> None:
         tiers = set(env.tiers)
         native = env.requirements is not None or env.conda_lockfile is not None
-        if tiers & PROVISIONED and env.image is None:
+        if tiers & PROVISIONED and env.image is None and not env.customer_image_required:
             self.add(
                 "environment-needs-image",
                 "The container and vm tiers run an image, and this environment has none.",
                 source,
                 ("tiers",),
-                hint="Add `image:`, pinned by its digest (`registry/name@sha256:…`).",
+                hint="Add `image:` pinned by digest, or declare `customer_image_required: true`.",
+            )
+        if env.customer_image_required and not tiers & PROVISIONED:
+            self.add(
+                "customer-image-wrong-tier",
+                "A deployment can supply an image for the container or vm tier.",
+                source,
+                ("customer_image_required",),
+                key=True,
             )
         if "backend" in tiers and not native:
             self.add(

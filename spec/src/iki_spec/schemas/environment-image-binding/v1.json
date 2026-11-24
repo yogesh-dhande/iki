@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/environment-image-binding/v1",
+  "title": "Iki environment image binding (iki/v1)",
+  "description": "An image supplied by this deployment for a plugin environment and a range of that plugin's releases.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "environment", "plugin_version", "image"],
+  "properties": {
+    "apiVersion": { "const": "iki/v1" },
+    "kind": { "const": "EnvironmentImageBinding" },
+    "environment": {
+      "$ref": "https://ikisci.org/schemas/environment-binding/v1#/properties/environment"
+    },
+    "plugin_version": {
+      "description": "The plugin releases this image supports, as comma-separated comparisons such as `>=1.2,<2`.",
+      "$ref": "https://ikisci.org/schemas/plugin/v1#/properties/iki"
+    },
+    "image": {
+      "$ref": "https://ikisci.org/schemas/environment/v1#/properties/image",
+      "not": { "pattern": "\\s" }
+    },
+    "pull_secret": {
+      "description": "The name of a Kubernetes image pull secret in the namespace where runs start.",
+      "type": "string",
+      "maxLength": 253,
+      "not": { "pattern": "\\s" },
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+    }
+  },
+  "additionalProperties": false
+}

@@ -334,6 +334,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
         environment=build.environment,
         plugin_sha=build.plugin_sha,
         image=build.image,
+        image_pull_secret=build.image_pull_secret,
         namespace=build.place,
         once=True,
         setup=build,
@@ -346,7 +347,7 @@ def _start(cluster: Cluster, pods: RunPods, build: SetupBuild, now: datetime) ->
         template=template,
         environment=build.environment,
         image=build.image,
-        pods=pods,
+        pods=pods.with_image_pull_secret(build.image_pull_secret),
         once=True,
         claims=claims,
     )
