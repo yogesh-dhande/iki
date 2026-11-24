@@ -4,16 +4,15 @@
 import ItemLink from "../components/ItemLink.astro";
 import Base from "../layouts/Base.astro";
 import { inSection, sitePages } from "../lib/pages.ts";
-import { AUDIENCES, REFERENCES, REPOSITORY_GUIDES, type Audience, type Item } from "../lib/site.ts";
+import { AUDIENCES, REFERENCES, useCasesInOrder, type Audience, type Item } from "../lib/site.ts";
 
 const pages = await sitePages();
 const listed = (id: Audience): Item[] => {
-  const audience = AUDIENCES[id];
+  if (id === "bench") return useCasesInOrder(pages);
   // A guide in several pages is listed by its first.
-  const own = inSection(pages, audience.section).filter(
+  return inSection(pages, AUDIENCES[id].section).filter(
     (page) => page.audience === id && !page.parent,
   );
-  return [...own, ...(id === "bench" ? [] : REPOSITORY_GUIDES[id])];
 };
 const doors = (Object.keys(AUDIENCES) as Audience[]).map((id) => ({
   ...AUDIENCES[id],

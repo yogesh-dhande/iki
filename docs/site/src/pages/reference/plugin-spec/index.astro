@@ -1,7 +1,6 @@
 ---
 // The plugin spec reference's overview: every kind of manifest and document, by group, and
 // the schemas editors check files against.
-import SpecNav from "../../../components/spec/SpecNav.astro";
 import Doc from "../../../layouts/Doc.astro";
 import { render } from "../../../lib/markdown.ts";
 import { BASE, CHOOSERS, GROUPS, chooserKinds, loadSchemas, spec } from "../../../lib/spec.ts";
@@ -26,7 +25,6 @@ const firstLine = (text: string) => text.split(/(?<=\.)\s/)[0] ?? text;
   audience="build"
   measure={900}
 >
-  <SpecNav slot="nav" />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / Plugin spec
   </nav>

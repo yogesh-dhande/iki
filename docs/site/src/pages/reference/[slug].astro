@@ -1,0 +1,48 @@
+---
+// A written reference page, such as the CLI's commands: what each one takes and does.
+import { getCollection, render } from "astro:content";
+
+import Toc from "../../components/Toc.astro";
+import Doc from "../../layouts/Doc.astro";
+
+export async function getStaticPaths() {
+  return (await getCollection("reference")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const { data } = entry;
+const sections = headings
+  .filter((heading) => heading.depth === 2)
+  .map((heading) => ({ id: heading.slug, label: heading.text }));
+---
+
+<Doc title={data.title} description={data.description} section="Reference" audience="build">
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / {data.title}
+  </nav>
+  <h1 class="doc-title">{data.title}</h1>
+  <p class="lede">{data.description}</p>
+  <div class="prose reference">
+    <Content />
+  </div>
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={sections} />
+  </aside>
+</Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .reference {
+    margin-top: 8px;
+  }
+</style>

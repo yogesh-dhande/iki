@@ -34,22 +34,23 @@ WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 WIDTHS = [390, 1440]
 
 PREP = "/use-cases/verify-a-plasmid-prep/"
-ALIGNMENTS = "/concepts/whole-plasmid-alignments/"
 ASSAY = "/use-cases/dose-response-plate-assay/"
 SIGNATURES = "/reference/api/get-entities-ref-signatures/"
 STATES = "/concepts/states-locks-and-signatures/"
 FIELD = "/reference/plugin-spec/field/"
 STATE_FIELDS = "/guides/write-a-plugin/states/"
+LOTS = "/reference/plugins/lots/"
+CLI = "/reference/cli/"
 
 #: Every kind of page: the home page, a use case with a viewer's frame, a use case with
-#: the live plate, a concept with a viewer and one in words, the API's overview, a call and
-#: a schema, the plugin spec's overview and a kind's keys, a page of a guide in several
-#: pages, the sections' indexes, and the page a host serves for a missing path.
+#: the live plate, a concept, the API's overview, a call and a schema, the plugin spec's
+#: overview and a kind's keys, a plugin's types and actions, a written reference page, a
+#: page of a guide in several pages, the sections' indexes, and the page a host serves for a
+#: missing path.
 PAGES = [
     "/",
     PREP,
     ASSAY,
-    ALIGNMENTS,
     STATES,
     "/reference/",
     "/reference/api/",
@@ -57,6 +58,8 @@ PAGES = [
     "/reference/api/schemas/SignaturesOut/",
     "/reference/plugin-spec/",
     FIELD,
+    LOTS,
+    CLI,
     STATE_FIELDS,
     "/guides/",
     "/use-cases/",
@@ -274,13 +277,40 @@ def test_a_spec_key_is_a_place_to_link_to(browser: Browser, site: str) -> None:
 def test_a_guide_in_several_pages_links_its_pages(browser: Browser, site: str) -> None:
     opened = open_page(browser, site, STATE_FIELDS)
     page = opened.page
-    pages = page.get_by_role("navigation", name="Pages for this audience")
+    pages = page.get_by_role("navigation", name="Documentation")
     expect(pages.get_by_role("link", name="Write a plugin", exact=True)).to_be_visible()
     expect(pages.locator("a[aria-current=page]")).to_have_attribute("href", STATE_FIELDS)
     pager = page.get_by_role("navigation", name="This guide's pages")
     expect(pager.locator("a[rel=prev]")).to_be_visible()
     pager.locator("a[rel=next]").click()
     expect(page.get_by_role("navigation", name="Breadcrumbs")).to_contain_text("Write a plugin")
+    assert opened.errors == []
+    page.context.close()
+
+
+@pytest.mark.parametrize("script", [True, False])
+def test_on_a_phone_the_navigation_is_behind_the_menu_button(
+    browser: Browser, site: str, script: bool
+) -> None:
+    opened = open_page(browser, site, STATES, width=390, script=script)
+    page = opened.page
+    nav = page.get_by_role("navigation", name="Documentation")
+    if not script:
+        # Without scripts there's no button, and the navigation follows the page.
+        expect(page.get_by_role("button", name="Menu")).to_be_hidden()
+        expect(nav).to_be_attached()
+        expect(nav.get_by_role("link", name="Corrections")).to_be_visible()
+        page.context.close()
+        return
+    menu = page.get_by_role("button", name="Menu")
+    expect(nav).to_be_hidden()
+    menu.click()
+    expect(menu).to_have_attribute("aria-expanded", "true")
+    expect(nav.locator("a[aria-current=page]")).to_have_attribute("href", STATES)
+    expect(nav.locator("a[aria-current=page]")).to_be_in_viewport()
+    page.keyboard.press("Escape")
+    expect(nav).to_be_hidden()
+    expect(menu).to_be_focused()
     assert opened.errors == []
     page.context.close()
 
@@ -319,6 +349,52 @@ def test_search_finds_pages_offline(browser: Browser, site: str) -> None:
     assert opened.errors == []
     assert opened.elsewhere == []
     page.context.close()
+
+
+NAV = re.compile(r'<nav id="site-nav".*?</nav>', re.S)
+
+
+def built_pages() -> list[Path]:
+    """Every page of the site but the home page and the viewers' frames, which have no
+    navigation: the frames are shown inside pages, and the home page is the doors to all."""
+    skip = {DIST / "index.html", DIST / "404.html"}
+    return [
+        page
+        for page in sorted(DIST.rglob("*.html"))
+        if page not in skip
+        and "viewers" not in page.relative_to(DIST).parts
+        and "pagefind" not in page.relative_to(DIST).parts
+    ]
+
+
+def test_every_page_has_the_same_navigation_but_for_the_page_it_marks() -> None:
+    """One navigation, the same on every page: only the link marked as the page being read
+    and the group open around it differ."""
+    unmarked: dict[str, list[str]] = {}
+    unmarked_pages: list[str] = []
+    for page in built_pages():
+        found = NAV.search(page.read_text(encoding="utf-8"))
+        assert found, f"{page.relative_to(DIST)} has no navigation"
+        html = found.group(0)
+        if "aria-current=" not in html:
+            unmarked_pages.append(str(page.relative_to(DIST)))
+        bare = re.sub(r'\s(aria-current="[^"]*"|open)(?=[\s>])', "", html)
+        unmarked.setdefault(bare, []).append(str(page.relative_to(DIST)))
+    assert len(unmarked) == 1, {bare[:200]: pages[:3] for bare, pages in unmarked.items()}
+    assert unmarked_pages == []
+
+
+def test_use_cases_concepts_and_guides_link_only_to_the_site_and_its_sources() -> None:
+    """What a page says is on the site: no use case, concept or guide sends its reader to
+    GitHub. Only the header's link to the repository leaves for it."""
+    main = re.compile(r"<main\b.*?</main>", re.S)
+    found = [
+        str(page.relative_to(DIST))
+        for page in built_pages()
+        if page.relative_to(DIST).parts[0] in {"use-cases", "concepts", "guides"}
+        and "github.com" in "".join(main.findall(page.read_text(encoding="utf-8")))
+    ]
+    assert found == []
 
 
 def test_no_sentence_is_split_into_paragraphs() -> None:

@@ -2,7 +2,6 @@
 // One kind of the plugin spec: every key it takes, with its type, allowed values, default,
 // limits and description, generated from its JSON Schema.
 import Keys from "../../../components/spec/Keys.astro";
-import SpecNav from "../../../components/spec/SpecNav.astro";
 import Toc from "../../../components/Toc.astro";
 import Doc from "../../../layouts/Doc.astro";
 import { render } from "../../../lib/markdown.ts";
@@ -29,7 +28,6 @@ const what = page.kind ? `A ${page.kind} manifest` : page.title;
   audience="build"
   measure={900}
 >
-  <SpecNav slot="nav" />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / <a href={SPEC}>Plugin spec</a> / {group?.title}
   </nav>

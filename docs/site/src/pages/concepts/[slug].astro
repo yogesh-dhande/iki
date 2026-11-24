@@ -4,7 +4,6 @@
 import { getCollection, render } from "astro:content";
 
 import ItemLink from "../../components/ItemLink.astro";
-import SectionNav from "../../components/SectionNav.astro";
 import Toc from "../../components/Toc.astro";
 import Doc from "../../layouts/Doc.astro";
 import { itemOf } from "../../lib/site.ts";
@@ -25,7 +24,6 @@ const sections = headings
 ---
 
 <Doc title={data.title} description={data.description} section="Concepts" audience={data.audience}>
-  <SectionNav slot="nav" audience={data.audience} />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/concepts/">Concepts</a> / {data.topic}
   </nav>

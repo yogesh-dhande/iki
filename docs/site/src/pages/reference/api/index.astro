@@ -1,6 +1,5 @@
 ---
 // The REST API's overview: how to call it, then every call by area.
-import ApiNav from "../../../components/api/ApiNav.astro";
 import MethodBadge from "../../../components/api/MethodBadge.astro";
 import Doc from "../../../layouts/Doc.astro";
 import { api, apiTags, endpointPath, OPENAPI, shortPath } from "../../../lib/api.ts";
@@ -18,7 +17,6 @@ const groups = apiTags();
   audience="build"
   measure={900}
 >
-  <ApiNav slot="nav" />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / REST API
   </nav>

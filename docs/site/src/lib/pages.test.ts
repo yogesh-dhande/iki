@@ -1,6 +1,7 @@
-// The written pages' links, checked from their sources: each guide's and concept's link to
-// another page, to a key of the plugin spec, to a call of the API or to a file in the
-// repository goes somewhere that's there. The built site's check finds the same, and this
+// The written pages' links, checked from their sources: each link to another page, to a key
+// of the plugin spec, to a plugin's type or action, to a call of the API or to a file in the
+// repository goes somewhere that's there, and use cases, concepts and guides link only to
+// the site. The built site's check finds the same, and this
 // says which page and which link, without a build.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -9,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { api } from "./api.ts";
+import { anchors, pluginHref, plugins } from "./plugins.ts";
 import { ROOT } from "./repo.ts";
 import { specPages } from "./spec.ts";
 
@@ -62,6 +64,7 @@ function written(): Map<string, Set<string>> {
     ["guides", "/guides/"],
     ["concepts", "/concepts/"],
     ["use-cases", "/use-cases/"],
+    ["reference", "/reference/"],
   ] as const) {
     for (const file of mdx(join(CONTENT, collection))) {
       const path = `${prefix}${relative(join(CONTENT, collection), file).replace(/\.mdx$/, "")}/`;
@@ -81,6 +84,9 @@ const specKeys = new Map(
       ...(page.byType.length ? ["by-type"] : []),
     ]),
   ]),
+);
+const pluginAnchors = new Map(
+  plugins().map((plugin) => [pluginHref(plugin), new Set(anchors(plugin))]),
 );
 const calls = new Set(api().all.map((endpoint) => `/reference/api/${endpoint.slug}/`));
 const pages = written();
@@ -103,6 +109,12 @@ export function problemWith(link: string): string | null {
     const keys = specKeys.get(path);
     if (!keys && path !== "/reference/plugin-spec/") return "a spec page that isn't generated";
     if (fragment && !keys?.has(fragment)) return `no key ${fragment} on ${path}`;
+    return null;
+  }
+  if (path.startsWith("/reference/plugins/")) {
+    const ids = pluginAnchors.get(path);
+    if (!ids && path !== "/reference/plugins/") return "a plugin that isn't generated";
+    if (fragment && !ids?.has(fragment)) return `no type or action ${fragment} on ${path}`;
     return null;
   }
   if (path.startsWith("/reference/api/")) {
@@ -140,6 +152,10 @@ describe("the written pages' links", () => {
       "a design record",
     );
     expect(problemWith("repo:spec/README.md")).toBe("the old spec README");
+    expect(problemWith("/reference/plugins/lots/#Lot")).toBeNull();
+    expect(problemWith("/reference/plugins/lots/#NoSuchType")).toBe(
+      "no type or action NoSuchType on /reference/plugins/lots/",
+    );
   });
 
   it("put each table they write by hand in a region a keyboard can scroll", () => {
@@ -149,6 +165,22 @@ describe("the written pages' links", () => {
         .map(([tag]) => `${relative(CONTENT, file)}: ${tag}`),
     );
     expect(unreachable).toEqual([]);
+  });
+
+  it("go to the site's own pages from use cases, concepts and guides, never to GitHub", () => {
+    const written = ["use-cases", "concepts", "guides"].flatMap((collection) =>
+      mdx(join(CONTENT, collection)),
+    );
+    const outward = written.flatMap((file) => {
+      const source = readFileSync(file, "utf-8");
+      return [
+        ...linksOf(source).filter(
+          (link) => link.startsWith("repo:") || link.includes("github.com"),
+        ),
+        ...(/\bgithub\(/.test(source) ? ["github(…)"] : []),
+      ].map((link) => `${relative(CONTENT, file)}: ${link}`);
+    });
+    expect(outward).toEqual([]);
   });
 
   it("each go to a page, a key, a call or a file that's there", () => {

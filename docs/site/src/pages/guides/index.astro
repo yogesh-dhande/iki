@@ -3,12 +3,12 @@
 import Listing from "../../components/listing/Listing.astro";
 import Doc from "../../layouts/Doc.astro";
 import { inSection, sitePages } from "../../lib/pages.ts";
-import { AUDIENCES, REPOSITORY_GUIDES, nested } from "../../lib/site.ts";
+import { AUDIENCES, nested } from "../../lib/site.ts";
 
 const guides = inSection(await sitePages(), "Guides");
 const doors = (["run", "build"] as const).map((id) => ({
   ...AUDIENCES[id],
-  items: [...nested(guides.filter((page) => page.audience === id)), ...REPOSITORY_GUIDES[id]],
+  items: nested(guides.filter((page) => page.audience === id)),
 }));
 ---
 

@@ -1,17 +1,15 @@
 ---
-import { getCollection } from "astro:content";
-
+// Every use case, one line each, in the navigation's order.
 import Listing from "../../components/listing/Listing.astro";
 import Doc from "../../layouts/Doc.astro";
+import { sitePages } from "../../lib/pages.ts";
+import { useCasesInOrder } from "../../lib/site.ts";
 
-const items = (await getCollection("useCases"))
-  .sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title))
-  .map((entry) => ({
-    label: entry.data.title,
-    href: `/use-cases/${entry.id}/`,
-    text: entry.data.description,
-    note: entry.data.topic,
-  }));
+const items = useCasesInOrder(await sitePages()).map((page) => ({
+  label: page.label,
+  href: page.href,
+  ...(page.text === undefined ? {} : { text: page.text }),
+}));
 ---
 
 <Doc

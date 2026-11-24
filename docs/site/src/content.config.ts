@@ -33,6 +33,8 @@ export const collections = {
       description: z.string(),
       audience,
       topic: z.string(),
+      /** Which of the use cases' four kinds it is: see USE_CASE_CATEGORIES. */
+      category: z.enum(["registry-and-inventory", "data-tracking", "analysis", "collaboration"]),
       order: z.number().default(100),
       facts: z.array(
         z.object({ label: z.string(), value: z.string(), code: z.boolean().default(false) }),
@@ -41,6 +43,17 @@ export const collections = {
       concepts: z.array(link).default([]),
       reference: z.array(link),
       aside: z.object({ title: z.string(), text: z.string(), href: z.string() }).optional(),
+    }),
+  }),
+  /** Written reference pages, such as the CLI's commands. The API, the plugin spec and the
+   * plugins are generated. */
+  reference: defineCollection({
+    loader: glob({ pattern: "*.mdx", base: "./src/content/reference" }),
+    schema: z.object({
+      title: z.string(),
+      description: z.string(),
+      /** Its order among the reference's pages: lower first. */
+      order: z.number().default(100),
     }),
   }),
   /** How Iki behaves, one idea each, named as a noun. */

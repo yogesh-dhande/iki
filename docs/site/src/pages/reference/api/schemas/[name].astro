@@ -1,6 +1,5 @@
 ---
 // One named schema of the REST API: its fields, and the calls that take or return it.
-import ApiNav from "../../../../components/api/ApiNav.astro";
 import Fields from "../../../../components/api/Fields.astro";
 import MethodBadge from "../../../../components/api/MethodBadge.astro";
 import TypeText from "../../../../components/api/TypeText.astro";
@@ -28,8 +27,8 @@ const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
   section="Reference"
   audience="build"
   measure={900}
+  navUnder="/reference/api/"
 >
-  <ApiNav slot="nav" />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/reference/">Reference</a> / <a href="/reference/api/">REST API</a> / Schemas
   </nav>

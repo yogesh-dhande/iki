@@ -4,7 +4,6 @@
 import { getCollection, render } from "astro:content";
 
 import ItemLink from "../../components/ItemLink.astro";
-import SectionNav from "../../components/SectionNav.astro";
 import Toc from "../../components/Toc.astro";
 import Doc from "../../layouts/Doc.astro";
 import { sitePages } from "../../lib/pages.ts";
@@ -30,7 +29,6 @@ const { previous, next } = pager(pages, `/guides/${entry.id}/`);
 ---
 
 <Doc title={data.title} description={data.description} section="Guides" audience={data.audience}>
-  <SectionNav slot="nav" audience={data.audience} />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href={AUDIENCES[data.audience].all}>Guides</a> / {AUDIENCES[data.audience].label}
     {guide && (

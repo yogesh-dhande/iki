@@ -1,14 +1,14 @@
-// The site's pages of the three written sections, from their collections, as the
-// navigation lists them.
+// The site's written pages, from their collections, as the navigation lists them.
 import { getCollection } from "astro:content";
 
 import type { Page } from "./site.ts";
 
 export async function sitePages(): Promise<Page[]> {
-  const [guides, useCases, concepts] = await Promise.all([
+  const [guides, useCases, concepts, reference] = await Promise.all([
     getCollection("guides"),
     getCollection("useCases"),
     getCollection("concepts"),
+    getCollection("reference"),
   ]);
   return [
     ...guides.map((entry) => ({
@@ -27,12 +27,21 @@ export async function sitePages(): Promise<Page[]> {
       href: `/use-cases/${entry.id}/`,
       order: entry.data.order,
       text: entry.data.description,
+      category: entry.data.category,
     })),
     ...concepts.map((entry) => ({
       section: "Concepts" as const,
       audience: entry.data.audience,
       label: entry.data.title,
       href: `/concepts/${entry.id}/`,
+      order: entry.data.order,
+      text: entry.data.description,
+    })),
+    ...reference.map((entry) => ({
+      section: "Reference" as const,
+      audience: "build" as const,
+      label: entry.data.title,
+      href: `/reference/${entry.id}/`,
       order: entry.data.order,
       text: entry.data.description,
     })),

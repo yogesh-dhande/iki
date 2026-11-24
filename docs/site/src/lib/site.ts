@@ -78,9 +78,9 @@ export function hrefOf(item: Item): string | null {
 }
 
 export const TOP_NAV = [
-  { label: "Guides", href: "/guides/" },
   { label: "Use cases", href: "/use-cases/" },
   { label: "Concepts", href: "/concepts/" },
+  { label: "Guides", href: "/guides/" },
   { label: "Reference", href: "/reference/" },
 ] as const;
 
@@ -89,40 +89,30 @@ export type Section = (typeof TOP_NAV)[number]["label"];
 export const PAGES = {
   api: "/reference/api/",
   spec: "/reference/plugin-spec/",
+  plugins: "/reference/plugins/",
 } as const;
-
-/** What the home page lists for admins and plugin authors that isn't a page here yet: the
- * repository's own documents. The bench's list is its use cases. */
-export const REPOSITORY_GUIDES: Record<"run" | "build", Item[]> = {
-  run: [
-    { label: "Run Iki on a laptop with kind", source: "deploy/dev/README.md" },
-    { label: "Deploy on Google Cloud", source: "deploy/gcp/README.md" },
-    { label: "Deploy on AWS", source: "deploy/aws/README.md" },
-    {
-      label: "Add a plugin through the config repository",
-      source: "deploy/config-template/README.md",
-    },
-    { label: "Restore from a backup", source: "docs/disaster-recovery.md" },
-  ],
-  build: [
-    {
-      label: "Validate and test a plugin in CI",
-      source: "plugin-template/.agents/skills/iki-test-plugin/SKILL.md",
-    },
-    {
-      label: "Upgrade a plugin without losing history",
-      source: "plugin-template/.agents/skills/iki-upgrade-plugin/SKILL.md",
-    },
-  ],
-};
 
 /** The references. */
 export const REFERENCES: Item[] = [
   { label: "REST API", href: PAGES.api, note: "every call and schema" },
   { label: "Plugin spec", href: PAGES.spec, note: "every manifest kind and key" },
-  { label: "The iki CLI", source: "cli/README.md", note: "plugin, bundle, deploy, starter" },
-  { label: "Python SDK and MCP server", source: "sdk/python/README.md" },
+  { label: "Plugins", href: PAGES.plugins, note: "Iki's own plugins: their types and actions" },
+  { label: "The iki CLI", href: "/reference/cli/", note: "plugin, bundle, deploy, starter" },
+  { label: "Python SDK and MCP server", href: "/reference/python-sdk/" },
 ];
+
+/** The four kinds of use case, in the order they're listed. */
+export const USE_CASE_CATEGORIES = [
+  { id: "registry-and-inventory", label: "Registry and inventory" },
+  { id: "data-tracking", label: "Data tracking" },
+  { id: "analysis", label: "Analysis" },
+  { id: "collaboration", label: "Collaboration" },
+] as const;
+
+export type UseCaseCategory = (typeof USE_CASE_CATEGORIES)[number]["id"];
+
+/** Use cases are listed under their kinds once there are more than this many. */
+export const USE_CASES_BEFORE_GROUPS = 8;
 
 /** A page of one of the sections, as the navigation lists it. */
 export interface Page {
@@ -134,6 +124,8 @@ export interface Page {
   text?: string;
   /** The first page of the guide in several pages it's one of, by its path. */
   parent?: string;
+  /** A use case's kind. */
+  category?: UseCaseCategory;
 }
 
 function inOrder(a: Page, b: Page): number {
@@ -156,28 +148,130 @@ export function nested(pages: readonly Page[]): (Item & { text?: string })[] {
   return sorted.filter((page) => !page.parent || !hrefs.has(page.parent)).map(item);
 }
 
-/** A page's left-hand navigation: its audience's pages, and every concept, grouped under
- * the top navigation's own section names in its order, so a page is filed under one name
- * everywhere. Only this site's pages. */
-export function sideNav(
-  pages: readonly Page[],
-  audience: Audience,
-): { section: Section; items: Item[] }[] {
-  const bare = (item: Item): Item => ({
-    label: item.label,
-    ...(item.href === undefined ? {} : { href: item.href }),
-    ...(item.children ? { children: item.children.map(bare) } : {}),
-  });
-  return TOP_NAV.map((entry) => entry.label)
-    .map((section) => ({
-      section,
-      items: nested(
-        pages
-          .filter((page) => page.section === section)
-          .filter((page) => page.audience === audience || section === "Concepts"),
-      ).map(bare),
-    }))
-    .filter((group) => group.items.length > 0);
+/** A link in the site's navigation. */
+export interface NavLink {
+  label: string;
+  href: string;
+}
+
+/** A named set of links within a section, such as the guides for running Iki. */
+export interface NavGroup {
+  label: string;
+  links: NavLink[];
+}
+
+export type NavEntry = NavLink | NavGroup;
+
+/** A section of the site's navigation, named and ordered as the top navigation is. */
+export interface NavSection {
+  section: Section;
+  href: string;
+  entries: NavEntry[];
+}
+
+/** What the navigation lists besides the written pages: the generated references. */
+export interface Generated {
+  api: readonly { label: string; slug: string }[];
+  spec: readonly { title: string; href: string }[];
+  plugins: readonly { title: string; href: string }[];
+}
+
+export function isGroup(entry: NavEntry): entry is NavGroup {
+  return "links" in entry;
+}
+
+/** The use cases in the order they're listed: by kind, then their own order. */
+export function useCasesInOrder(pages: readonly Page[]): Page[] {
+  const kind = (page: Page) =>
+    USE_CASE_CATEGORIES.findIndex((category) => category.id === page.category);
+  return pages
+    .filter((page) => page.section === "Use cases")
+    .sort((a, b) => kind(a) - kind(b) || inOrder(a, b));
+}
+
+/** The site's one navigation, the same on every page: each section of the top navigation in
+ * its order, each page under one of them, never more than a section and a group deep. A
+ * guide in several pages lists its pages after its first. */
+export function siteNav(pages: readonly Page[], generated: Generated): NavSection[] {
+  const links = (section: Section, audience?: Audience): NavLink[] => {
+    const flat = (items: Item[]): NavLink[] =>
+      items.flatMap((item) => [
+        { label: item.label, href: item.href ?? "" },
+        ...flat(item.children ?? []),
+      ]);
+    return flat(
+      nested(
+        pages.filter(
+          (page) =>
+            page.section === section && (audience === undefined || page.audience === audience),
+        ),
+      ),
+    );
+  };
+  const overview = (href: string): NavLink => ({ label: "Overview", href });
+  const useCases = useCasesInOrder(pages);
+  const link = (page: Page): NavLink => ({ label: page.label, href: page.href });
+  const byKind: NavEntry[] =
+    useCases.length > USE_CASES_BEFORE_GROUPS
+      ? USE_CASE_CATEGORIES.map((category) => ({
+          label: category.label,
+          links: useCases.filter((page) => page.category === category.id).map(link),
+        })).filter((group) => group.links.length > 0)
+      : useCases.map(link);
+  const reference: NavEntry[] = [
+    {
+      label: "REST API",
+      links: [
+        overview(PAGES.api),
+        ...generated.api.map((tag) => ({ label: tag.label, href: `${PAGES.api}#${tag.slug}` })),
+      ],
+    },
+    {
+      label: "Plugin spec",
+      links: [
+        overview(PAGES.spec),
+        ...generated.spec.map((page) => ({ label: page.title, href: page.href })),
+      ],
+    },
+    ...(generated.plugins.length > 0
+      ? [
+          {
+            label: "Plugins",
+            links: [
+              overview(PAGES.plugins),
+              ...generated.plugins.map((page) => ({ label: page.title, href: page.href })),
+            ],
+          },
+        ]
+      : []),
+    ...links("Reference"),
+  ];
+  const entries: Record<Section, NavEntry[]> = {
+    "Use cases": byKind,
+    Concepts: links("Concepts"),
+    Guides: (["run", "build"] as const)
+      .map((audience) => ({ label: AUDIENCES[audience].label, links: links("Guides", audience) }))
+      .filter((group) => group.links.length > 0),
+    Reference: reference,
+  };
+  return TOP_NAV.map((entry) => ({
+    section: entry.label,
+    href: entry.href,
+    entries: entries[entry.label],
+  }));
+}
+
+/** Where a page is in the navigation: the link to it, or for a page the navigation doesn't
+ * list, such as an API call, the link it's listed under. */
+export function currentIn(nav: readonly NavSection[], path: string, under?: string): string | null {
+  const all = nav.flatMap((section) => [
+    section.href,
+    ...section.entries.flatMap((entry) =>
+      isGroup(entry) ? entry.links.map((link) => link.href) : [entry.href],
+    ),
+  ]);
+  if (all.includes(path)) return path;
+  return under !== undefined && all.includes(under) ? under : null;
 }
 
 /** The pages before and after a page of a guide in several pages, in the guide's order:
