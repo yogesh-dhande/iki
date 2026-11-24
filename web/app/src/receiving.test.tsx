@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { expect, it } from "vitest";
 
-import { renderApp, withTypes } from "./entity-fixtures";
+import { PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import type { ObservationEvent, Receipt, ReceiptLine } from "./storage";
 import { answer, calls, ME, page, problem } from "./test-server";
 
@@ -94,14 +94,17 @@ function event(changes: Partial<ObservationEvent>): ObservationEvent {
   };
 }
 
-async function openReceipt(open: Receipt) {
+async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
   withTypes();
+  if (types) answer("GET /api/v1/entity-types", types);
   answer(`GET /api/v1/entities/${ask}/receipts`, {
     receipts: [open],
     expected: open.lines.length,
     can_receive: true,
     why_not: null,
   });
+  // Read again just before it's completed: unchanged unless a test says otherwise.
+  answer(`GET ${api}`, open);
   const rendered = await renderApp(`/storage/receive/${ask}/`);
   await screen.findByRole("list", { name: "Checklist" });
   return rendered;
@@ -969,7 +972,9 @@ it("reloads a receipt that changed since it was reviewed, and waits to be comple
     }),
     tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
   ]);
-  answer(`GET ${api}`, fresh);
+  // Unchanged when it's read just before completing; changed by the time it's sent.
+  let reads = 0;
+  answer(`GET ${api}`, () => (++reads === 1 ? received() : fresh));
   await user.click(completeButton());
   const stale = await screen.findByText(/^The checklist changed while you were looking at it/);
   expect(stale.closest(".complete-feedback")).toHaveFocus();
@@ -1108,4 +1113,280 @@ it("says a saved handover beside its Save, without moving the page", async () =>
   const said = await screen.findByText("Saved.");
   expect(said.closest(".actions")).toContainElement(screen.getByRole("button", { name: "Save" }));
   expect(document.querySelector(".messages")).toBeEmptyDOMElement();
+});
+
+/** A response held back until the test lets it go. */
+function holding<T>(value: T) {
+  let release = (): void => undefined;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  return {
+    answer: async () => {
+      await gate;
+      return value;
+    },
+    release: async () => {
+      await act(async () => {
+        release();
+        await gate;
+      });
+    },
+  };
+}
+
+it("completes nothing on a press held while the box’s wells appeared, only on a fresh one", async () => {
+  const { user } = await openReceipt(received());
+  const box = holding(ONE_BOX);
+  answer("POST /api/v1/storage/scan/resolve", box.answer);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await showBox(user);
+  await screen.findByText("Finding the box and its free positions…");
+  // Pressed while it can't complete; the wells appear under the press; then released.
+  await user.pointer({ keys: "[MouseLeft>]", target: completeButton() });
+  await box.release();
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 3 free" });
+  expect(completeButton()).not.toHaveAttribute("aria-disabled");
+  await user.pointer({ keys: "[/MouseLeft]", target: completeButton() });
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  // A press held while the plan changed is the same: the well chosen under it isn't approved.
+  await user.pointer({ keys: "[MouseLeft>]", target: completeButton() });
+  await user.selectOptions(where("TUB-000001"), "A4");
+  await user.pointer({ keys: "[/MouseLeft]", target: completeButton() });
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  // So is a key held down across it.
+  await user.keyboard("{Escape}");
+  completeButton().focus();
+  await user.keyboard("[Space>]");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  completeButton().focus();
+  await user.keyboard("[/Space]");
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  // A fresh press completes the plan it was pressed on.
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    put_away: [{ line: "line-000001", to: BOX_CODE, position: "A4" }],
+    keep_in_custody: ["line-000002"],
+  });
+});
+
+function refOf(number: number) {
+  const { ref } = tube(number);
+  if (!ref) throw new Error("A linked tube has its record.");
+  return ref;
+}
+
+const TUBE_TYPE = {
+  ...PROTEIN,
+  name: "acme/lims.Tube",
+  plugin: "acme/lims",
+  label: "Tube",
+  label_plural: "Tubes",
+  extends: "acme/lims.Vessel",
+};
+const VESSEL_TYPE = {
+  ...PROTEIN,
+  name: "acme/lims.Vessel",
+  plugin: "acme/lims",
+  label: "Vessel",
+  label_plural: "Vessels",
+  abstract: true,
+};
+
+it.each([
+  [
+    "archived",
+    { archived: true },
+    "BOX-000135 is archived: choose another box, or keep them in your custody.",
+  ],
+  [
+    "one you can’t put things in",
+    { can: { keep: false, label: true } },
+    "Putting things in BOX-000135 needs Editor in its project: choose another box, or keep them in your custody.",
+  ],
+])("offers no wells in a box that’s %s, and says why", async (_, changes, why) => {
+  const { user } = await openReceipt(received());
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, { ...incoming(), ...changes });
+  await showBox(user);
+  expect(await screen.findByText(why)).toBeVisible();
+  for (const hrid of ["TUB-000001", "TUB-000002"]) {
+    expect(where(hrid)).toHaveValue("");
+    expect(
+      within(where(hrid))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Not decided", "Keep in my custody"]);
+  }
+  expect(completeButton()).toHaveAttribute("aria-disabled", "true");
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Decide for TUB-000001 and TUB-000002: put each away in a free position, or keep them in your custody.",
+  );
+  await user.selectOptions(where("TUB-000001"), "Keep in my custody");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    put_away: [],
+    keep_in_custody: ["line-000001", "line-000002"],
+  });
+});
+
+it("offers no well for an archived tube, or one the box doesn’t hold, and says why on its row", async () => {
+  const shown = receipt(5, [
+    tube(1, { outcome: "matched", checked_by: ME }),
+    tube(2, {
+      outcome: "matched",
+      checked_by: ME,
+      ref: { ...refOf(2), archived: true },
+    }),
+    tube(3, {
+      outcome: "matched",
+      checked_by: ME,
+      ref: { ...refOf(3), type: "acme/lims.Plate" },
+    }),
+  ]);
+  const { user } = await openReceipt(shown, [
+    TUBE_TYPE,
+    VESSEL_TYPE,
+    { ...PROTEIN, name: "acme/lims.Plate", plugin: "acme/lims", label: "Plate" },
+  ]);
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  // It holds vessels: a tube is one, so it's offered a well; a plate isn't.
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, {
+    ...incoming(),
+    holds: ["acme/lims.Vessel"],
+  });
+  await showBox(user);
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 3 free" });
+  expect(where("TUB-000001")).toHaveValue("A2");
+  expect(where("TUB-000002")).toHaveValue("");
+  expect(where("TUB-000002")).toHaveAccessibleDescription(
+    "TUB-000002 is archived: restore it to put it away, or keep it in your custody.",
+  );
+  expect(where("TUB-000003")).toHaveAccessibleDescription(
+    "BOX-000135 doesn’t hold a Plate: choose another box, or keep it in your custody.",
+  );
+  for (const hrid of ["TUB-000002", "TUB-000003"])
+    expect(
+      within(where(hrid))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Not decided", "Keep in my custody"]);
+  // The wells they'd have had stay free for the one that can go there.
+  expect(within(where("TUB-000001")).getAllByRole("option")).toHaveLength(4);
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Decide for TUB-000002 and TUB-000003: put each away in a free position, or keep them in your custody.",
+  );
+});
+
+it("waits for each write on its way before completing, and says which", async () => {
+  const first = tube(1, { outcome: "matched", checked_by: ME });
+  const second = tube(2);
+  const extra = tube(5, {
+    expected: false,
+    outcome: "extra",
+    code: "UNLABELLED-5",
+    ref: null,
+    entity: null,
+  });
+  const { user } = await openReceipt(receipt(5, [first, second, extra]));
+  await user.selectOptions(where("TUB-000001"), "Keep in my custody");
+  expect(completeButton()).not.toHaveAttribute("aria-disabled");
+  // A scan on its way.
+  const matched = { ...second, outcome: "matched" as const, checked_by: ME, line_revision: 2 };
+  const scan = holding({
+    found: "matched",
+    line: second.id,
+    receipt: receipt(6, [first, matched, extra]),
+  });
+  answer(`POST ${api}/scan`, scan.answer);
+  await user.type(scanBox(), "RC000002{Enter}");
+  expect(completeButton()).toHaveAttribute("aria-disabled", "true");
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Waiting for the scan of RC000002 to be saved.",
+  );
+  await user.click(completeButton());
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  await scan.release();
+  await screen.findByText("TUB-000002: matched.");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  // A note, and the handover, on their way together.
+  const noted = receipt(7, [first, { ...matched, note: "Label smudged", line_revision: 3 }, extra]);
+  const note = holding({ found: "recorded", line: second.id, receipt: noted });
+  answer(`PATCH ${api}/lines/${second.id}`, note.answer);
+  await user.type(line("TUB-000002").getByRole("textbox", { name: /^Note on/ }), "Label smudged");
+  await user.click(line("TUB-000002").getByRole("button", { name: "Save note" }));
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Waiting for the note on TUB-000002 to be saved.",
+  );
+  const handed = holding({ ...noted, plan_revision: 8, handed_over_by: "Courier 104" });
+  answer(`PATCH ${api}`, handed.answer);
+  await user.type(screen.getByRole("textbox", { name: "Handed over by" }), "Courier 104");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  expect(completeButton()).toHaveAccessibleDescription("Waiting for 2 changes to be saved.");
+  await note.release();
+  expect(completeButton()).toHaveAccessibleDescription("Waiting for the handover to be saved.");
+  await handed.release();
+  await screen.findByText("Saved.");
+  // An extra's removal, with its reason.
+  const removed = receipt(9, [first, { ...matched, note: "Label smudged", line_revision: 3 }], {
+    handed_over_by: "Courier 104",
+    removed_lines: [{ ...extra, line_revision: 2 }],
+  });
+  const removal = holding(removed);
+  answer(`DELETE ${api}/lines/${extra.id}`, removal.answer);
+  await user.click(line("UNLABELLED-5").getByRole("button", { name: "Remove" }));
+  await why(user, "Belongs to another request", "Remove it");
+  // Behind the reason's dialog while it's sent.
+  expect(
+    screen.getByRole("button", { name: "Complete receiving", hidden: true }),
+  ).toHaveAccessibleDescription("Waiting for the removal of UNLABELLED-5 to be saved.");
+  await removal.release();
+  await screen.findByRole("list", { name: "Removed extras" });
+  // Read again first, then sent with the revision that includes every write.
+  answer(`GET ${api}`, removed);
+  answer(`POST ${api}/complete`, { ...removed, plan_revision: 10, status: "completed" });
+  expect(completeButton()).toHaveAccessibleDescription("Ready: 2 kept in your custody.");
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    plan_revision: 9,
+    keep_in_custody: ["line-000001", "line-000002"],
+  });
+});
+
+it("reads the receipt again before completing, and sends nothing if it changed since it was shown", async () => {
+  const { user } = await openReceipt(received());
+  await user.selectOptions(where("TUB-000001"), "Keep in my custody");
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  const fresh = receipt(6, [
+    tube(1, { outcome: "matched", checked_by: ME }),
+    tube(2, { outcome: "damaged", note: "Cap cracked through", checked_by: ADA, line_revision: 2 }),
+    tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
+  ]);
+  answer(`GET ${api}`, fresh);
+  answer(`POST ${api}/complete`, { ...fresh, plan_revision: 7, status: "completed" });
+  await user.click(completeButton());
+  const stale = await screen.findByText(/^The checklist changed while you were looking at it/);
+  expect(stale.closest(".complete-feedback")).toHaveFocus();
+  expect(stale.closest("[role=alert]")).toHaveTextContent(
+    "TUB-000002: Now damaged · note “Cap cracked through”, checked by Ada Lovelace",
+  );
+  expect(calls("POST", `${api}/complete`)).toHaveLength(0);
+  // Reviewed, it completes with the revision now shown.
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({ plan_revision: 6 });
 });

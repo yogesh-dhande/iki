@@ -593,6 +593,8 @@ export function fieldErrors(problem: Problem | undefined): Record<string, string
 export interface MutateCallbacks<TResult, TVariables> {
   onSuccess?: (result: TResult, variables: TVariables) => void;
   onError?: (error: ApiError, variables: TVariables) => void;
+  /** Once it's answered, or failed in any way: after `onSuccess` or `onError`. */
+  onSettled?: () => void;
 }
 
 /**
@@ -622,13 +624,15 @@ export function useApiMutation<TVariables, TResult>(
   const { mutateAsync } = mutation;
   const mutate = useCallback(
     (variables: TVariables, callbacks?: MutateCallbacks<TResult, TVariables>) => {
-      mutateAsync(variables).then(
-        (result) => callbacks?.onSuccess?.(result, variables),
-        (error: unknown) => {
-          // The mutation's state holds it too, for the component to show.
-          if (error instanceof ApiError) callbacks?.onError?.(error, variables);
-        },
-      );
+      void mutateAsync(variables)
+        .then(
+          (result) => callbacks?.onSuccess?.(result, variables),
+          (error: unknown) => {
+            // The mutation's state holds it too, for the component to show.
+            if (error instanceof ApiError) callbacks?.onError?.(error, variables);
+          },
+        )
+        .finally(() => callbacks?.onSettled?.());
     },
     [mutateAsync],
   );
