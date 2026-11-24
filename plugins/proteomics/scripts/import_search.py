@@ -367,8 +367,9 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
 def main() -> None:
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
     output = Path(os.environ["IKI_OUTPUT"])
+    artifacts = Path(os.environ["IKI_OUT_DIR"])
     try:
-        document = result(run, output.parent / "identifications.jsonl")
+        document = result(run, artifacts / "identifications.jsonl")
     except (EOFError, OSError, ValueError, zlib.error) as error:
         print(f"::error {error}", flush=True)
         raise SystemExit(1) from None

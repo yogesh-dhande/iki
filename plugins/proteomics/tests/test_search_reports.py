@@ -43,7 +43,7 @@ def test_fragpipe_preserves_peptide_and_protein_intensity_labels():
     assert protein_hit["quantities"] == {"A MaxLFQ Intensity": 9.0, "A Spectral Count": 1.0}
 
 
-def test_result_keeps_raw_references_and_matches_the_registry_entry(tmp_path):
+def test_result_keeps_raw_references_and_the_downloadable_artifact(tmp_path, monkeypatch):
     source = tmp_path / "synthetic.tsv"
     source.write_text("Protein IDs\tIntensity\nP00330;P12345\t42\n")
     run = {
@@ -60,8 +60,19 @@ def test_result_keeps_raw_references_and_matches_the_registry_entry(tmp_path):
         },
         "files": {"report": {"name": source.name, "path": str(source), "sha256": "synthetic"}},
     }
-    artifact = tmp_path / "artifact.jsonl"
-    result = SCRIPT["result"](run, artifact)["creates"][0]
+    input_path = tmp_path / "input.json"
+    input_path.write_text(json.dumps(run))
+    output = tmp_path / "output.json"
+    artifacts = tmp_path / "out"
+    artifacts.mkdir()
+    monkeypatch.setenv("IKI_INPUT", str(input_path))
+    monkeypatch.setenv("IKI_OUTPUT", str(output))
+    monkeypatch.setenv("IKI_OUT_DIR", str(artifacts))
+
+    SCRIPT["main"]()
+
+    artifact = artifacts / "identifications.jsonl"
+    result = json.loads(output.read_text())["creates"][0]
     assert result["derived_from"] == ["dataset", "project-record"]
     assert result["values"]["dataset_revision"] == 3
     assert result["values"]["raw_files"] == ["raw"]
