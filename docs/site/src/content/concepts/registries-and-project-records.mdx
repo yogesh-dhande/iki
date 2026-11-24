@@ -1,0 +1,176 @@
+---
+title: Registries and project records
+description: How a registered thing has one entry and one ID across a registry, while each project keeps its own record of it, and who may change which.
+audience: bench
+topic: Records
+order: 30
+useCases:
+  - {
+      label: Release a lot with a certificate of analysis,
+      href: /use-cases/release-a-lot-with-a-certificate-of-analysis/,
+    }
+---
+
+## In short
+
+Some types say what makes two records the same thing: a compound by its structure, a strain by its
+accession. Such a type is **registered**. Each identity has one **registry entry**, with one ID,
+such as `CPD-000087`, and the values that belong to the identity. The entry belongs to no project.
+
+Each project that has the thing keeps its own **record** of the entry, with the type's other fields,
+which it revises and archives on its own. The record shares the entry's ID. Registering something
+that's registered already gives the project a record of the existing entry, so one thing has one ID
+however many projects use it.
+
+## How it works
+
+### An entry and its records
+
+An entry holds three kinds of value:
+
+- **Identity fields**, which make it this one. They're given when it's registered, and never
+  change.
+- **Derived values**, which follow from the identity alone, such as a compound's formula. They're
+  set once, by whoever registers it or by the action that computes them.
+- **Registry facts**, which are curated rather than computed, such as a CAS number. Anyone who
+  holds the entry may set one while it's empty. After that only the registry's registrars change
+  it, with a reason.
+
+Every other field is the record's: a name the project uses, its notes, a LIMS ID. Two projects'
+records of one entry can say different things in those fields.
+
+A project has at most one record of each entry. A type with no identity has no entries: a lot, a
+sample or a tube is its project's record alone, and refers to the entry of what it's a lot of.
+
+### The registry is the boundary of identity
+
+Each project is in one registry. A deployment has a default registry, and Org Admins add others for
+programs that must stay apart, such as a contract lab's clients. Identities are compared only
+within a registry, and a record can refer only to entries in its own registry.
+
+### Registering
+
+Creating a record of a registered type looks its identity up in the project's registry:
+
+- If it isn't there, a new entry is registered, with a new ID, and the project gets its record.
+- If it's there and the project has no record of it, the project gets a new record of that entry,
+  with only the values it gave.
+- If the project has a record of it already, that record is returned unchanged.
+
+The second case tells the person registering that the thing exists, and its ID. It never tells them
+who registered it, when, which projects hold it, or what any of them recorded.
+
+### Who sees an entry
+
+An entry is visible only through a record of it. Its ID alone grants nothing: someone whose
+projects hold no record of `CPD-000087` gets "not found" for it, as for anything they can't read.
+Holders see the entry's values, and in its history, what registrars changed, who and why, and what
+was set through the projects they can read. Of anything else, they see only what was set.
+
+### Registrars
+
+Org Admins make people **registrars** of a registry. A registrar curates its facts, and supersedes
+an entry registered in error with the right one. They see every entry in the registry and how many
+projects hold each, never which projects, nor their records. Being an Org Admin doesn't make
+someone a registrar.
+
+## Worked example
+
+The deployment's default registry holds the projects **Formulation** and **Stability**.
+
+On 3 November 2026 Marta Okafor, in Formulation, registers Tris base from its structure, with the
+small molecule plugin. Nothing in the registry has that identity, so it's a new entry, `CPD-000087`,
+and Formulation gets its record. The plugin's trigger, which Formulation's Admins turned on, runs
+once for the new entry and fills in its formula, C4H11NO3, and its molecular weight, 121.14 g/mol.
+Marta adds its CAS number, 77-86-1, while the entry has none.
+
+On 10 November Luis Romero, in Stability, registers Tris base too, from the same structure. Stability
+gets its own record of `CPD-000087`. Luis learns that it's registered, and its ID; not that
+Formulation holds it, nor who registered it.
+
+| Field            | Whose         | In Formulation's record | In Stability's record |
+| ---------------- | ------------- | ----------------------- | --------------------- |
+| Structure        | The entry's   | Tris base's             | The same              |
+| Molecular weight | The entry's   | 121.14 g/mol            | The same              |
+| CAS number       | The entry's   | 77-86-1                 | The same              |
+| Name             | Each record's | Tris base               | Trometamol            |
+| Synonyms         | Each record's | Tris, THAM              | None                  |
+
+Luis's lot of it, `GLOT-000015`, refers to `CPD-000087`: the reference holds the entry, so it reads
+the same in every project that can see it. When Luis renames Stability's record, Formulation's
+record doesn't change. Luis can't change the CAS number now that it's set: only a registrar can,
+saying why, and both projects' holders are told.
+
+## The rules in full
+
+### Entries and records
+
+- A registry entry has a registry and no project. A record has a project. The database holds each
+  of these, and that an identity is registered once per registry and held once per project.
+- An entry's ID is its type's prefix and a number, never given to another entry or record.
+- A record of an entry is addressed by its own UUID, or by the entry's ID and its project. Without a
+  project, the ID names the one record the reader can read; a reader of several is asked which.
+- References to a registered type hold the entry. A project refers only to entries it holds a record
+  of, its own or one shared into it: "refers to `CPD-000087`, which isn't in Stability: add it to
+  the project first, by registering it there."
+- Fields of an entry refer only to other entries.
+- A type with an identity has no amount, and no states on its entries: lots, samples and tubes are
+  records of their own, with their own amounts and states. A lock freezes a record's own values,
+  not its entry's.
+
+### Values
+
+- Identity fields never change once they're set, and every identity has at least one required
+  field. Iki compares identities by a hash of their values, read as what they are rather than as
+  they were typed.
+- A registration of an existing entry that gives a derived value it hasn't got fills it in. A
+  derived value that differs from the entry's is the entry's already, and the entry's stays.
+- A registration or a run that gives a fact the entry hasn't got fills it in. One that gives a fact
+  that differs is refused, without saying what the entry holds.
+- A registrar changes a fact with a reason, as a revision of the entry of kind **Curated**, audited
+  and told to every project holding it.
+- A fixed fact is given once, and then changed by no one, registrars included. A wrong one is
+  corrected by superseding its entry.
+- A fact is never free text: it's a number, a date, a choice, a reference to another entry, or text
+  with a pattern or a format.
+
+### Superseding and moving
+
+- A registrar supersedes an entry with another live entry of the same type in the same registry,
+  with a reason. It can't be undone. The superseded entry keeps its ID and values, says what
+  replaced it, and can't be registered again.
+- Each holding project's Admins, and whoever added its record, are told.
+- An Editor of a holding project moves its record to the replacement, with a reason. The record
+  keeps its data, history and runs, and the project's references to the old entry are pointed at
+  the new one, each a revision with that reason. Archived records, and records a state locks,
+  keep their references to the old entry.
+- A record that's archived, or that a state locks, can't be moved until it's restored or unlocked.
+- A project that holds the replacement already archives one of its two records instead.
+
+### Projects and registries
+
+- A project's registry is chosen when it's made, from those its team may use. An Org Admin can
+  change it until the project has records; after that it's fixed.
+- Adding an entry to another project gives that project a new, empty record of its own: the
+  identity goes, none of the first project's data. Linking a record shares its data, as the first
+  project's sharing setting allows.
+- Runs register what they create in their project's registry, under the same rules as a person.
+
+## Reference
+
+- Entity type keys: [identity](/reference/plugin-spec/entity-type/#identity) and
+  [hrid](/reference/plugin-spec/entity-type/#hrid)
+- Field keys: [registry](/reference/plugin-spec/field/#registry),
+  [immutable](/reference/plugin-spec/field/#immutable) and
+  [unique](/reference/plugin-spec/field/#unique)
+- Register, or make a record: [POST /entities](/reference/api/post-entities/)
+- An entry: [GET /entries/\{ref\}](/reference/api/get-entries-ref/), its revisions:
+  [GET /entries/\{ref\}/revisions](/reference/api/get-entries-ref-revisions/), and change its facts:
+  [PATCH /entries/\{ref\}](/reference/api/patch-entries-ref/)
+- Supersede an entry: [POST /entries/\{ref\}/supersede](/reference/api/post-entries-ref-supersede/),
+  and move a record to its replacement: [POST /entities/\{ref\}/move](/reference/api/post-entities-ref-move/)
+- Add an entry to a project: [POST /entries/\{ref\}/records](/reference/api/post-entries-ref-records/)
+- Registries and their registrars: [GET /registries](/reference/api/get-registries/) and
+  [PUT /registries/\{id\}/registrars/\{user\}](/reference/api/put-registries-registry-id-registrars-user-id/)
+- Record types: [iki/small_molecule.Compound](repo:plugins/small_molecule/types/compound.yaml) and
+  [iki/lots.GenericLot](repo:plugins/lots/types/generic_lot.yaml)
