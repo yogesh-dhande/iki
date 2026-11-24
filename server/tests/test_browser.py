@@ -724,6 +724,9 @@ def test_a_server_pages_header_is_the_apps(
         assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
         assert shown_at["x"] + shown_at["width"] <= 390
     if path == "/teams/structural-biology/":
+        # The desktop sidebar still covers the left edge while it slides away on resize.
+        page.locator("#sidebar").wait_for(state="hidden")
+        page.evaluate(NEXT_FRAMES)
         about = page.get_by_role("button", name="About Structural Biology")
         about.click()
         toggletip = page.get_by_role("dialog", name="About Structural Biology")
@@ -2811,13 +2814,18 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     assert (gc, tm) == (62.5, 64.2)
     readout = page.get_by_text(re.compile("^Bases 1–24 selected"))
     readout.wait_for()
-    assert readout.text_content() == f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C"
+    assert readout.text_content() == (
+        f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C (50 mM Na⁺)"
+    )
     assert_clean(page)
     page.get_by_role("button", name="Copy", exact=True).click()
     page.get_by_role("status").filter(has_text="Copied 24 bases.").wait_for()
     page.get_by_role("button", name="Copy reverse complement").click()
     page.get_by_role("status").filter(has_text="reverse complement").wait_for()
-    assert page.evaluate("window.__copied") == [first, sequences.reverse_complement(first)]
+    # Spelled out rather than taken from the plugin: what is under test is the button, and
+    # a reverse complement the test computed the same way the page does would prove nothing.
+    backwards = first.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    assert page.evaluate("window.__copied") == [first, backwards]
 
     # By keyboard: the whole of it, whose GC content is what compute_composition records.
     rows.focus()

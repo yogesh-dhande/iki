@@ -63,6 +63,10 @@ for name in (
     "rust-standard-library.html",
 ):
     assert installed.joinpath(name).read_bytes() == (artifact / name).read_bytes(), name
+# The plugin modules iki-spec carries for `iki deploy build` (ADR 0200, 0201).
+for name in ("plasmid-tools.wasm", "oligo-checks.wasm"):
+    carried = installed.joinpath("modules", name)
+    assert carried.read_bytes() == (artifact / name).read_bytes(), name
 
 native = Path("/opt/iki/wasm")
 for name in ("iki_wasm.cwasm", "iki_wasm.json"):

@@ -320,8 +320,9 @@ fields:
           melting_temperature:
             type: number
             description: >-
-              The site's Tm in degrees Celsius, of its annealed bases against the
-              template's own, so a mismatch lowers it. Left out where there are no
+              The site's Tm in degrees Celsius at 50 mM Na+ alone, no Mg2+ or
+              dNTPs, of its annealed bases against the template's own, so a
+              mismatch lowers it. Left out where there are no
               parameters for a mismatch.
   primer_binding_sites_found_with:
     type: string
