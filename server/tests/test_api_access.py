@@ -1655,6 +1655,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         COMPUTE_ONLY,
     ),
     ("GET", "/compute/overview", fixed("/compute/overview"), COMPUTE_ONLY),
+    ("GET", "/compute/image-bindings", fixed("/compute/image-bindings"), COMPUTE_ONLY),
     ("GET", "/compute/workers", fixed("/compute/workers"), COMPUTE_ONLY),
     # Environments' volumes and the setup builds that fill them (ADR 0075).
     ("GET", "/compute/volumes", fixed("/compute/volumes"), COMPUTE_ONLY),
