@@ -449,7 +449,9 @@ export interface paths {
         };
         /**
          * Deployment-supplied environment images
-         * @description List the image pins configured in compute.yaml for this deployment.
+         * @description Each installed environment that needs an image from this deployment, and the binding
+         *     in compute.yaml its plugin's installed version matches; and the bindings that none
+         *     matches, so stale pins show. Pull Secrets are named; their values stay in the cluster.
          */
         get: operations["iki_server_api_compute_list_image_bindings"];
         put?: never;
@@ -8549,6 +8551,27 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** EnvironmentImageOut */
+        EnvironmentImageOut: {
+            /** @description The binding the installed version matches. Without one, the environment's container and VM runs are unavailable. */
+            binding: components["schemas"]["ImageBindingOut"] | null;
+            /**
+             * Environment
+             * @description The qualified plugin environment.
+             */
+            environment: string;
+            /**
+             * Installed Version
+             * @description The installed plugin version.
+             */
+            installed_version: string;
+            /** Label */
+            label: string;
+            /** Plugin */
+            plugin: string;
+            /** Plugin Title */
+            plugin_title: string;
+        };
         /** EnvironmentVolumesOut */
         EnvironmentVolumesOut: {
             /**
@@ -10098,25 +10121,10 @@ export interface components {
         /** ImageBindingOut */
         ImageBindingOut: {
             /**
-             * Active
-             * @description Whether this binding applies to the installed environment.
-             */
-            active: boolean;
-            /**
-             * Environment
-             * @description The qualified plugin environment.
-             */
-            environment: string;
-            /**
              * Image
              * @description The deployment-supplied image pinned by digest.
              */
             image: string;
-            /**
-             * Installed Version
-             * @description The installed plugin version, if any.
-             */
-            installed_version: string | null;
             /**
              * Plugin Version
              * @description The plugin release range the image applies to.
@@ -10127,6 +10135,19 @@ export interface components {
              * @description The name of a Kubernetes pull Secret, if set.
              */
             pull_secret: string | null;
+        };
+        /** ImageBindingsOut */
+        ImageBindingsOut: {
+            /**
+             * Environments
+             * @description Each installed environment that needs a deployment-supplied image.
+             */
+            environments: components["schemas"]["EnvironmentImageOut"][];
+            /**
+             * Unused
+             * @description Bindings in compute.yaml that no installed environment uses.
+             */
+            unused: components["schemas"]["UnusedImageBindingOut"][];
         };
         /** ImportCounts */
         ImportCounts: {
@@ -18468,6 +18489,40 @@ export interface components {
              */
             symbol: string;
         };
+        /** UnusedImageBindingOut */
+        UnusedImageBindingOut: {
+            /**
+             * Environment
+             * @description The qualified plugin environment it names.
+             */
+            environment: string;
+            /**
+             * Image
+             * @description The deployment-supplied image pinned by digest.
+             */
+            image: string;
+            /**
+             * Installed Version
+             * @description The installed version of the environment's plugin, if it's installed.
+             */
+            installed_version: string | null;
+            /**
+             * Plugin Version
+             * @description The plugin release range the image applies to.
+             */
+            plugin_version: string;
+            /**
+             * Pull Secret
+             * @description The name of a Kubernetes pull Secret, if set.
+             */
+            pull_secret: string | null;
+            /**
+             * Reason
+             * @description Why no run uses it: the installed release is outside its range; no installed plugin has the environment; the environment doesn't ask for an image; or another binding matches the same release too.
+             * @enum {string}
+             */
+            reason: "other_release" | "not_installed" | "not_requested" | "overlapping";
+        };
         /** UpdatesOut */
         UpdatesOut: {
             /** Fields */
@@ -20318,7 +20373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ImageBindingOut"][];
+                    "application/json": components["schemas"]["ImageBindingsOut"];
                 };
             };
         };

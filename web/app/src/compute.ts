@@ -21,6 +21,51 @@ export const overviewQuery = queryOptions({
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
+export type ImageBindings = Schemas["ImageBindingsOut"];
+export type EnvironmentImage = Schemas["EnvironmentImageOut"];
+export type UnusedImageBinding = Schemas["UnusedImageBindingOut"];
+
+/** The environments that need an image from this deployment, and compute.yaml's pins. */
+export const imageBindingsQuery = queryOptions({
+  queryKey: [...COMPUTE, "image-bindings"],
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/compute/image-bindings", { signal })),
+});
+
+/** An image reference with its digest cut to its first 12 hex digits, as `docker images`
+ * shows IDs. A reference without a digest is shown whole. */
+export function shortImage(image: string): string {
+  const at = image.lastIndexOf("@sha256:");
+  if (at < 0) return image;
+  const digest = image.slice(at + "@sha256:".length);
+  return digest.length > 12 ? `${image.slice(0, at)}@sha256:${digest.slice(0, 12)}…` : image;
+}
+
+/** A release range an example binding can start from: the installed release up to the next
+ * major one, or the next minor one before 1.0, as compatible releases usually go. */
+export function exampleRange(version: string): string {
+  const match = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(version);
+  if (!match) return `==${version}`;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const release = `${String(major)}.${String(minor)}.${match[3] ?? "0"}`;
+  return major === 0
+    ? `>=${release},<0.${String(minor + 1)}`
+    : `>=${release},<${String(major + 1)}`;
+}
+
+/** The binding a Compute admin would add to compute.yaml for `environment`. */
+export function exampleBinding(environment: EnvironmentImage): string {
+  return [
+    "apiVersion: iki/v1",
+    "kind: EnvironmentImageBinding",
+    `environment: ${environment.environment}`,
+    `plugin_version: "${exampleRange(environment.installed_version)}"`,
+    "image: <registry>/<repository>@sha256:<digest>",
+    "pull_secret: <secret name>  # Optional: Kubernetes templates only",
+  ].join("\n");
+}
+
 /** Each tier by name, as Compute admins call them. */
 export const TIER_NAME: Record<string, string> = {
   self_hosted: "Self-hosted",

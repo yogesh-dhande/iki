@@ -436,6 +436,15 @@ input:focus-visible {
   overflow-wrap: anywhere;
 }
 
+/* A value to copy, in a summary's line or a row (Compute → Images). */
+.summary .copy-row {
+  margin: 0;
+}
+
+.row-main .copy-row {
+  margin: 0.5rem 0 0;
+}
+
 .summary {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -3346,6 +3355,27 @@ input[type="file"]::file-selector-button {
   width: 100%;
   height: 0.6rem;
   accent-color: var(--accent);
+}
+
+/* --- Compute → Images ------------------------------------------------------ */
+
+/* An unbound environment's example binding, with its Copy button above it. */
+.image-example-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.image-example-head p {
+  margin: 0;
+}
+
+.image-example {
+  margin: 0;
+  background: var(--surface);
 }
 
 /* --- Runs ------------------------------------------------------------------ */

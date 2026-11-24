@@ -477,6 +477,7 @@ PAGES = [
     ("compute_admin", "/admin/compute/workers/"),
     ("compute_admin", "/admin/compute/slurm/"),
     ("compute_admin", "/admin/compute/quotas/"),
+    ("compute_admin", "/admin/compute/images/"),
     ("org_admin", "/admin/registries/"),
     ("org_admin", "/admin/signatures/"),
     ("org_admin", "/admin/people/"),
