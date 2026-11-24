@@ -45,18 +45,21 @@ export interface Period {
 export function orgCostsQuery(by: OrgCostsBy, period: Period) {
   return queryOptions({
     queryKey: ["costs", "org", by, period.since, period.until],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/compute/costs", { params: { query: { by, ...period } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/compute/costs", { params: { query: { by, ...period } }, signal }),
+      ),
   });
 }
 
 export function projectCostsQuery(projectId: string, by: ProjectCostsBy = "action") {
   return queryOptions({
     queryKey: ["costs", "project", projectId, by],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/costs", {
           params: { path: { project_id: projectId }, query: { by } },
+          signal,
         }),
       ),
   });
@@ -95,7 +98,7 @@ export type BudgetStatus = Schemas["BudgetStatusOut"];
 
 export const budgetsQuery = queryOptions({
   queryKey: ["costs", "budgets"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/compute/budgets")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/budgets", { signal })),
 });
 
 /** "50, 80 and 100%" for a budget's warning levels. */

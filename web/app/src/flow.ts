@@ -26,8 +26,10 @@ export type TypeFlow = Schemas["TypeFlowOut"];
 export function typeFlowQuery(name: string) {
   return queryOptions({
     queryKey: ["entity-types", name, "flow"],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entity-types/{name}/flow", { params: { path: { name } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entity-types/{name}/flow", { params: { path: { name } }, signal }),
+      ),
     staleTime: 10 * 60_000,
   });
 }

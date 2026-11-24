@@ -307,8 +307,11 @@ class Moved:
     repointed: list[Entity]
 
 
-def move(user: User, record: Entity, *, reason: str = "") -> Moved:
-    """Moves a project's record from its superseded entry to the one that replaced it."""
+def move(user: User, record: Entity, *, reason: str) -> Moved:
+    """Moves a project's record to its superseded entry's replacement, with a reason."""
+    said = reason.strip()
+    if not said:
+        raise Invalid({"reason": ["Say why the record is being moved."]})
     with transaction.atomic():
         locked = Entity.objects.select_for_update().get(pk=record.pk)
         if locked.entry_id is None:
@@ -331,7 +334,6 @@ def move(user: User, record: Entity, *, reason: str = "") -> Moved:
                 f"{project.name} has a record of {new.hrid} already: archive this one, or "
                 "move its data there by hand."
             )
-        said = reason.strip() or f"{old.hrid} was superseded by {new.hrid}."
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
         revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
         repointed = _repoint(user, project, old, new, said)

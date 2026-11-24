@@ -1057,6 +1057,12 @@ export function EntityGrid({
               type={type}
               projectId={editIn.id}
               picked={pickedRows.slice(0, MAX_REASSIGN)}
+              refresh={async () => {
+                const read = await list.refetch({ throwOnError: true });
+                return (read.data?.pages.flatMap((p) => p.items) ?? [])
+                  .filter((e) => picked.has(e.hrid))
+                  .slice(0, MAX_REASSIGN);
+              }}
               onClose={(done) => {
                 setReassigning(false);
                 if (done) setSelection({ list: listKey, hrids: new Set() });

@@ -27,13 +27,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models.functions import Now
+from django.db.models import F
+from django.db.models.functions import Greatest, Now
 
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
@@ -53,6 +55,8 @@ from iki_server.entities import access, registry, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.org.services import Refused
+from iki_server.storage import scan_identity
+from iki_server.storage import services as storage
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
 from iki_spec.model import EntityType
@@ -62,6 +66,12 @@ class Wrong(Invalid):
     """What's wrong with a request to change an amount, by where it is in the request
     (``amount``, ``to``, ``values/0/lot``), or ``""`` for the request as a whole."""
 
+
+class StaleBalanceError(Exception):
+    """The balance changed after the caller observed it."""
+
+
+UNRECORDED_REVISION = "unrecorded"
 
 #: At most this many aliquots in one split.
 MAX_ALIQUOTS = 200
@@ -155,6 +165,12 @@ def held(entity: Entity, values: Mapping[str, Any] | None = None) -> str | None:
     return None
 
 
+def _whole_units(entity: Entity, wanted: AmountSpec, value: Fraction | Decimal) -> None:
+    """Check indivisible quantities in their ledger unit, before any decimal rounding."""
+    if wanted.whole_units and Fraction(value).denominator != 1:
+        raise Wrong({"amount": [f"{entity.hrid} requires whole units of {wanted.unit}."]})
+
+
 def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = None) -> Decimal:
     """``given`` in ``entity``'s amount's unit: converted, or through its concentration."""
     wanted = spec(entity.type)
@@ -162,7 +178,9 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
     target, source = units.parse(wanted.unit), units.parse(given.unit)
     exact = Fraction(given.value)
     if source.is_commensurable(target):
-        return _exactly(entity, wanted.unit, exact * source.factor / target.factor, given)
+        converted = exact * source.factor / target.factor
+        _whole_units(entity, wanted, converted)
+        return _exactly(entity, wanted.unit, converted, given)
     if wanted.concentration is not None:
         if values is None:
             from iki_server.entities import services
@@ -185,6 +203,7 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
             elif units.parse(f"({given.unit})/({f.unit})").is_commensurable(target):
                 through = exact * source.factor / concentration / target.factor
             if through is not None:
+                _whole_units(entity, wanted, through)
                 value = _rounded(through)
                 if value == 0 and exact > 0:
                     raise Wrong(
@@ -256,7 +275,7 @@ def draw(
     purpose: str = DrawPurpose.ROUTINE,
     reason: str = "",
     used_in: Entity | None = None,
-    confirm: str = "",
+    confirm: str | storage.Confirmation = "",
 ) -> Movement:
     """Takes ``given`` from ``entity``'s amount: used up, in an assay or a reaction.
     ``used_in`` is what it went into (ADR 0180), which depends on it from then on; ``confirm``
@@ -268,7 +287,6 @@ def draw(
     receipt = registry.draws_received(used_in.type) if used_in is not None else None
     with transaction.atomic():
         from iki_server.entities import services
-        from iki_server.storage.services import holds_material
 
         # Take source, destination and followed record locks in one global order. A
         # concurrent edit to the tube's sources is checked again after taking the locks.
@@ -277,7 +295,7 @@ def draw(
         locked = _lock_records(records, related=parents)
         entity = locked[entity.pk]
         if not access.can_edit(user, entity) and not (
-            access.can_read(user, entity) and holds_material(user, entity)
+            access.can_read(user, entity) and storage.holds_material(user, entity)
         ):
             raise PermissionDenied(
                 "Drawing material needs Editor in its owning or storing project."
@@ -288,7 +306,7 @@ def draw(
                 raise PermissionDenied(
                     "Recording material used needs Editor in the receiving project."
                 )
-        _confirmed(entity, confirm)
+        confirmed = _confirmed(user, entity, confirm)
 
         current = services.current_values_of([entity])[entity.pk]
         followed = eligibility.followed(entity, current)
@@ -311,7 +329,7 @@ def draw(
             purpose=purpose,
             used_in=used_in,
             source=source,
-            confirmed=confirm,
+            confirmed=confirmed,
         )
         if receipt and used_in is not None:
             _receive_draw(user, used_in, receipt, movement, entity, source)
@@ -367,21 +385,28 @@ def _receive_draw(
         raise Wrong({"used_in": [str(error)]}) from None
 
 
-def _confirmed(entity: Entity, code: str) -> None:
-    """Refuses a draw its type asks a scan for, without the record's code (ADR 0180)."""
-    from iki_server.storage import services as storage
-
-    found = storage.spec(entity.type)
-    if found is None or "draw" not in found.confirm:
-        return
-    if not code.strip():
+def _confirmed(user: User, entity: Entity, value: str | storage.Confirmation) -> str:
+    """Return the physical proof to record with this debit, while the source is locked."""
+    proof = storage.Confirmation(value) if isinstance(value, str) else value
+    code = proof.code.strip()
+    if not code:
+        found = storage.spec(entity.type)
+        if found is None or "draw" not in found.confirm:
+            if value == "":
+                return ""
+            raise Wrong({"confirm": [str(scan_identity.ScanRefused())]})
         raise Wrong(
             {"confirm": [f"Scan {entity.hrid} to confirm it's the one you're drawing from."]}
         )
-    if not storage.confirms(entity, code):
-        raise Wrong(
-            {"confirm": [f"“{code.strip()}” isn't {entity.hrid}: check you have the right one."]}
-        )
+    if len(proof.code) > 200:
+        raise Wrong({"confirm": ["The confirmation must be at most 200 characters."]})
+    try:
+        scope = storage.ConfirmationScope(user, [entity], [code])
+        if scope.resolve(code, mode=proof.mode).record != entity:
+            raise scan_identity.ScanRefused()
+    except scan_identity.ScanRefused as refusal:
+        raise Wrong({"confirm": [str(refusal)]}) from None
+    return code
 
 
 def transfer(
@@ -411,6 +436,7 @@ def transfer(
                 }
             )
         moved = Fraction(out) * here.factor / there.factor
+        _whole_units(target, wanted, moved)
         into = _rounded(moved)
         if Fraction(into) != moved:
             raise Wrong(
@@ -450,22 +476,25 @@ def transfer(
         return sent, came
 
 
-def adjust(user: User, entity: Entity, given: Given, *, reason: str) -> Movement:
+def adjust(
+    user: User, entity: Entity, given: Given, *, reason: str, expected_revision: str
+) -> Movement:
     """Sets ``entity``'s amount to what it was found to be: a recount, or a correction.
     It always says why."""
     if not reason.strip():
         raise Wrong({"reason": ["is required: say why it's adjusted."]})
-    wanted = spec(entity.type)
-    assert wanted is not None  # noqa: S101
     with transaction.atomic():
         _lock_records([entity])
-        fresh = not Amount.objects.filter(entity=entity).exists()
-        _ensure(entity, wanted.unit)
-        (amount,) = _locked([entity])
+        # The entity lock also serializes creation of the first balance by adjust or transfer.
+        amount = Amount.objects.select_for_update().filter(entity=entity).first()
+        revision = amount.updated_at.isoformat() if amount is not None else UNRECORDED_REVISION
+        if revision != expected_revision:
+            raise StaleBalanceError
+        if amount is None:
+            return record(user, entity, given, reason=reason)
         value = in_unit(entity, given)
-        kind = MovementKind.RECORDED if fresh else MovementKind.ADJUSTED
         change = _EXACT.subtract(value, amount.value)
-        return _change(user, entity, amount, kind, change, given, reason)
+        return _change(user, entity, amount, MovementKind.ADJUSTED, change, given, reason)
 
 
 @dataclass(frozen=True)
@@ -745,7 +774,15 @@ def _change(
     confirmed: str = "",
 ) -> Movement:
     amount.value = _EXACT.add(amount.value, change)
-    Amount.objects.filter(pk=amount.pk).update(value=amount.value, updated_at=Now())
+    wanted = spec(entity.type)
+    assert wanted is not None  # noqa: S101 - only records with an amount get here
+    _whole_units(entity, wanted, amount.value)
+    # The timestamp is also the balance revision. Advance it even if two writes get the
+    # same clock reading, the clock moves backwards, or the numeric balance is unchanged.
+    Amount.objects.filter(pk=amount.pk).update(
+        value=amount.value,
+        updated_at=Greatest(Now(), F("updated_at") + timedelta(microseconds=1)),
+    )
     return _movement(
         user,
         entity,

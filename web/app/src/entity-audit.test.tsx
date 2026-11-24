@@ -196,6 +196,44 @@ function onPlasmid(currentRevision: 2 | 3 = 3): void {
 }
 
 describe("a record's header", () => {
+  it("draws its tabs once its links are counted, so none moves once it can be pressed", async () => {
+    onPlasmid(2);
+    const held: ((graph: unknown) => void)[] = [];
+    answer(
+      `GET /api/v1/entities/PLS-000001/graph`,
+      () =>
+        new Promise((resolve) => {
+          held.push(resolve);
+        }),
+    );
+    await renderApp("/entities/PLS-000001/");
+    // As tall as the tabs, in their place, with nothing in it to press or to read.
+    await waitFor(() => {
+      expect(held).toHaveLength(1);
+    });
+    const settling = document.querySelector(".tabs-settling");
+    expect(settling).toHaveAttribute("aria-hidden", "true");
+    expect(settling?.querySelectorAll("a, button")).toHaveLength(0);
+    expect(screen.queryByRole("navigation", { name: "Record" })).toBeNull();
+    held[0]?.({
+      root: PLS_ID,
+      entities: [
+        { id: PLS_ID, hrid: "PLS-000001", title: "pUC19c", type: "iki/dna.Plasmid", at: 0 },
+      ],
+      runs: [],
+      edges: [],
+      hidden: 0,
+      earlier: false,
+      later: false,
+      capped: false,
+    });
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
+    expect(
+      within(tabs).getByRole("link", { name: /^Lineage,\s*0\s*linked records$/ }),
+    ).toBeVisible();
+    expect(document.querySelector(".tabs-settling")).toBeNull();
+  });
+
   it("has its actions, its ⋯ menu, and tabs that count its links and revisions", async () => {
     onPlasmid(2);
     const { user } = await renderApp("/entities/PLS-000001/");
@@ -205,7 +243,7 @@ describe("a record's header", () => {
       "/entities/PLS-000001/edit/",
     );
     expect(screen.getByRole("link", { name: "Run action" })).toBeInTheDocument();
-    const tabs = screen.getByRole("navigation", { name: "Record" });
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
     expect(
       await within(tabs).findByRole("link", { name: /^Lineage,\s*2\s*linked records$/ }),
     ).toBeInTheDocument();
@@ -456,7 +494,7 @@ describe("a record's overview", () => {
     const links = await within(lineage).findAllByRole("link", { name: /DNA-000004/ });
     expect(links).toHaveLength(1);
     expect(links[0]?.closest("li")).toHaveTextContent("DNA-000004 · pUC19 via Bases");
-    const tabs = screen.getByRole("navigation", { name: "Record" });
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
     expect(
       within(tabs).getByRole("link", { name: /^Lineage,\s*1\s*linked records$/ }),
     ).toBeInTheDocument();

@@ -335,6 +335,10 @@ iki.spreadsheets.save_mapping(sheet, "Core facility manifest")
 iki.spreadsheets.commit(sheet, reason="Batch 12")
 ```
 
+Each step is made from the import as the step before returned it: pass that
+along, as above, or give `revision=`. If it changed since (in another session),
+the step raises `iki.Conflict` and changes nothing.
+
 Importing requires project Editor access and the `write` scope. The REST API
 is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
 `POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then

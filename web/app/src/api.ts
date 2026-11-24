@@ -12,15 +12,20 @@ import {
   type Schemas,
 } from "@ikisci/sdk";
 import {
+  CancelledError,
   infiniteQueryOptions,
   QueryClient,
   queryOptions,
   useMutation,
   useQueryClient,
+  type DefaultError,
+  type QueryExecuteOptions,
+  type QueryKey,
 } from "@tanstack/react-query";
 import { useCallback } from "react";
 
 import { BACKGROUND_HEADER, isIdle } from "./activity";
+import { fetchPageRead, runPageQuery } from "./page-reads";
 
 export type Me = Schemas["MeOut"];
 export type Project = Schemas["ProjectOut"];
@@ -45,8 +50,16 @@ function csrfToken(): string | undefined {
 export const iki: IkiClient = createIkiClient({
   baseUrl: window.location.origin,
   csrfToken,
-  // Looked up on each call, not captured once.
-  fetch: (input, init) => globalThis.fetch(input, init),
+  // Page data uses GET or HEAD, and stops when the page goes away (page-reads.ts). A query
+  // that sends JSON selects fetchPageRead too. A write goes straight to the browser, so a
+  // save in flight finishes after the page has gone, as does an independent operation such
+  // as a download, which supplies its own fetch.
+  fetch: (input, init) => {
+    const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+    return method === "GET" || method === "HEAD"
+      ? fetchPageRead(input, init)
+      : globalThis.fetch(input, init);
+  },
 });
 
 // What the page asks for by itself doesn't keep the session open (ADR 0153).
@@ -103,9 +116,39 @@ export function signInAgain(): void {
   window.location.assign(signInUrl());
 }
 
-export const queryClient = new QueryClient({
+/** Each query's reads take its signal, so TanStack cancels one whose last observer leaves
+ * (a form closes, a page is left). A caller still awaiting the same read, such as the next
+ * route's loader, reads again instead of failing with the cancellation. */
+class PageQueryClient extends QueryClient {
+  override async query<
+    TQueryFnData,
+    TError = DefaultError,
+    TData = TQueryFnData,
+    TQueryData = TQueryFnData,
+    TQueryKey extends QueryKey = QueryKey,
+    TPageParam = never,
+  >(
+    options: QueryExecuteOptions<TQueryFnData, TError, TData, TQueryData, TQueryKey, TPageParam>,
+  ): Promise<TData> {
+    for (;;) {
+      try {
+        return await super.query(options);
+      } catch (error) {
+        if (!(error instanceof CancelledError && error.revert)) throw error;
+      }
+    }
+  }
+}
+
+export const queryClient = new PageQueryClient({
   defaultOptions: {
     queries: {
+      // TanStack passes ordinary and infinite query executions through this hook.
+      persister: (read, context) =>
+        runPageQuery(
+          () => read(context),
+          () => context.signal,
+        ),
       staleTime: 30_000,
       retry: (failures, error) =>
         !(error instanceof ApiError && error.status < 500) && failures < 2,
@@ -142,20 +185,20 @@ const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(
 
 export const meQuery = queryOptions({
   queryKey: ["me"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/me")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/me", { signal })),
   staleTime: 5 * 60_000,
 });
 
 export const rolesQuery = queryOptions({
   queryKey: ["project-roles"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/project-roles")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/project-roles", { signal })),
   staleTime: Infinity,
 });
 
 /** The lab roles installed plugins declare (ADR 0116); none unless a plugin declares some. */
 export const labRolesQuery = queryOptions({
   queryKey: ["lab-roles"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/lab-roles")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/lab-roles", { signal })),
   staleTime: Infinity,
 });
 
@@ -163,11 +206,12 @@ export const labRolesQuery = queryOptions({
  * form. Browsing them is a page at a time, with {@link projectPagesQuery}. */
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
-  queryFn: () =>
+  queryFn: ({ signal }) =>
     everything(async (cursor) =>
       unwrap(
         await iki.GET("/api/v1/projects", {
           params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+          signal,
         }),
       ),
     ),
@@ -180,7 +224,7 @@ export function projectPagesQuery(filter: { member?: boolean; archived?: boolean
   return infiniteQueryOptions({
     queryKey: ["projects", "pages", filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects", {
           params: {
@@ -191,6 +235,7 @@ export function projectPagesQuery(filter: { member?: boolean; archived?: boolean
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -201,10 +246,11 @@ export function projectPagesQuery(filter: { member?: boolean; archived?: boolean
  * does: one row is enough to say so. */
 export const othersProjectsQuery = queryOptions({
   queryKey: ["projects", "others"],
-  queryFn: async () =>
+  queryFn: async ({ signal }) =>
     unwrap(
       await iki.GET("/api/v1/projects", {
         params: { query: { member: false, archived: false, limit: 1 } },
+        signal,
       }),
     ).items.length > 0,
 });
@@ -214,9 +260,9 @@ export const othersProjectsQuery = queryOptions({
 export function seesProjectQuery(slug: string) {
   return queryOptions({
     queryKey: ["projects", "sees", slug],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/projects", { params: { query: { slug, limit: 1 } } })).items
-        .length > 0,
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/projects", { params: { query: { slug, limit: 1 } }, signal }))
+        .items.length > 0,
   });
 }
 
@@ -224,9 +270,12 @@ export function seesProjectQuery(slug: string) {
 export function projectByIdQuery(id: string) {
   return queryOptions({
     queryKey: ["projects", "by-id", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } }),
+        await iki.GET("/api/v1/projects/{project_id}", {
+          params: { path: { project_id: id } },
+          signal,
+        }),
       ),
   });
 }
@@ -236,8 +285,10 @@ export function projectByIdQuery(id: string) {
 export function projectQuery(slug: string) {
   return queryOptions({
     queryKey: ["projects", "by-slug", slug],
-    queryFn: async () => {
-      const found = unwrap(await iki.GET("/api/v1/projects", { params: { query: { slug } } }));
+    queryFn: async ({ signal }) => {
+      const found = unwrap(
+        await iki.GET("/api/v1/projects", { params: { query: { slug } }, signal }),
+      );
       const project = found.items[0];
       if (!project) {
         throw new ApiError({
@@ -256,7 +307,7 @@ export function projectQuery(slug: string) {
 export function membersQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "members"],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       everything(async (cursor) =>
         unwrap(
           await iki.GET("/api/v1/projects/{project_id}/members", {
@@ -264,6 +315,7 @@ export function membersQuery(projectId: string) {
               path: { project_id: projectId },
               query: { limit: 100, ...(cursor ? { cursor } : {}) },
             },
+            signal,
           }),
         ),
       ),
@@ -273,7 +325,7 @@ export function membersQuery(projectId: string) {
 export function grantableTeamsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "grantable-teams"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       (
         await everything(async (cursor) =>
           unwrap(
@@ -282,6 +334,7 @@ export function grantableTeamsQuery(projectId: string) {
                 path: { project_id: projectId },
                 query: { limit: 100, ...(cursor ? { cursor } : {}) },
               },
+              signal,
             }),
           ),
         )
@@ -291,7 +344,7 @@ export function grantableTeamsQuery(projectId: string) {
 
 export const creatableTeamsQuery = queryOptions({
   queryKey: ["teams", "can-create-projects"],
-  queryFn: async () =>
+  queryFn: async ({ signal }) =>
     (
       await everything(async (cursor) =>
         unwrap(
@@ -299,6 +352,7 @@ export const creatableTeamsQuery = queryOptions({
             params: {
               query: { can_create_projects: true, limit: 100, ...(cursor ? { cursor } : {}) },
             },
+            signal,
           }),
         ),
       )
@@ -315,7 +369,8 @@ export const unreadQuery = queryOptions({
   queryKey: [...NOTIFICATIONS, "summary"],
   // On every page, refreshed in the background: a 401 here isn't the person's doing.
   meta: { background: true },
-  queryFn: async () => unwrap(await iki.GET("/api/v1/notifications/summary")).unread,
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/notifications/summary", { signal })).unread,
 });
 
 export type InboxFilter = "unread" | "all";
@@ -325,7 +380,7 @@ export function inboxQuery(filter: InboxFilter) {
   return infiniteQueryOptions({
     queryKey: [...NOTIFICATIONS, "list", filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/notifications", {
           params: {
@@ -335,6 +390,7 @@ export function inboxQuery(filter: InboxFilter) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -365,8 +421,13 @@ export function watchQuery(ref: string) {
   return queryOptions({
     queryKey: [...NOTIFICATIONS, "watch", ref],
     meta: { background: true },
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/watch", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/watch", {
+          params: { path: { ref } },
+          signal: signal,
+        }),
+      ),
   });
 }
 
@@ -380,7 +441,8 @@ export async function chooseWatch(ref: string, mode: WatchMode): Promise<Watchin
 export const notificationSettingsQuery = queryOptions({
   queryKey: [...NOTIFICATIONS, "settings"],
   meta: { background: true },
-  queryFn: async () => unwrap(await iki.GET("/api/v1/me/notification-settings")),
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/me/notification-settings", { signal })),
 });
 
 /** Chooses how you're told of kinds in one project; null follows your choice everywhere. */
@@ -402,42 +464,44 @@ export const WEBHOOKS = ["webhooks"] as const;
 export function webhookEventsQuery(scope: WebhookScope) {
   return queryOptions({
     queryKey: ["webhook-events", scope],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/webhook-events", { params: { query: { scope } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/webhook-events", { params: { query: { scope } }, signal })),
     staleTime: Infinity,
   });
 }
 
 export const webhookPolicyQuery = queryOptions({
   queryKey: [...WEBHOOKS, "policy"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/webhook-policy")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/webhook-policy", { signal })),
 });
 
 /** A project's webhooks, or the organization's (no project). */
 export function webhooksQuery(projectId: string | undefined) {
   return queryOptions({
     queryKey: [...WEBHOOKS, "list", projectId ?? "org"],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       everything(async (cursor) => {
         const query = { limit: 100, ...(cursor ? { cursor } : {}) };
         return projectId
           ? unwrap(
               await iki.GET("/api/v1/projects/{project_id}/webhooks", {
                 params: { path: { project_id: projectId }, query },
+                signal,
               }),
             )
-          : unwrap(await iki.GET("/api/v1/webhooks", { params: { query } }));
+          : unwrap(await iki.GET("/api/v1/webhooks", { params: { query }, signal }));
       }),
   });
 }
 
 export const inventoryQuery = queryOptions({
   queryKey: [...WEBHOOKS, "inventory"],
-  queryFn: () =>
+  queryFn: ({ signal }) =>
     everything(async (cursor) =>
       unwrap(
         await iki.GET("/api/v1/project-webhooks", {
           params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+          signal,
         }),
       ),
     ),
@@ -446,10 +510,11 @@ export const inventoryQuery = queryOptions({
 export function webhookQuery(webhookId: string) {
   return queryOptions({
     queryKey: [...WEBHOOKS, "one", webhookId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/webhooks/{webhook_id}", {
           params: { path: { webhook_id: webhookId } },
+          signal,
         }),
       ),
   });
@@ -459,13 +524,14 @@ export function deliveriesQuery(webhookId: string) {
   return infiniteQueryOptions({
     queryKey: [...WEBHOOKS, "deliveries", webhookId],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/webhooks/{webhook_id}/deliveries", {
           params: {
             path: { webhook_id: webhookId },
             query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -475,10 +541,11 @@ export function deliveriesQuery(webhookId: string) {
 export function deliveryQuery(webhookId: string, deliveryId: string) {
   return queryOptions({
     queryKey: [...WEBHOOKS, "delivery", deliveryId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/webhooks/{webhook_id}/deliveries/{delivery_id}", {
           params: { path: { webhook_id: webhookId, delivery_id: deliveryId } },
+          signal,
         }),
       ),
   });
@@ -487,7 +554,11 @@ export function deliveryQuery(webhookId: string, deliveryId: string) {
 /** Looks a person or service account up by email address, for adding them to a project. */
 export async function findPerson(email: string) {
   const found = unwrap(
-    await iki.GET("/api/v1/users", { params: { query: { email: email.trim() } } }),
+    await iki.GET("/api/v1/users", {
+      // The membership change needs this person's ID before it can submit the PUT.
+      fetch: globalThis.fetch,
+      params: { query: { email: email.trim() } },
+    }),
   );
   return found.items[0];
 }

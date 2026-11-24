@@ -1,0 +1,44 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StockLot
+label: Received stock lot
+schema_version: 1
+abstract: true
+extends: iki/lots.Lot
+storage: {}
+description: Material from one supplier delivery line, received together into a storage position.
+fields:
+  item: { type: ref, to: StockItem, required: true, immutable: true, indexed: true }
+  order_line: { type: ref, to: ReorderLine, required: true, immutable: true, indexed: true }
+  receipt_key:
+    type: string
+    computed: true
+    indexed: true
+    unique: true
+    max_length: 64
+    description: Project-unique digest of the supplier, delivery note and line. A repeated line cannot post another receipt.
+  delivery_note:
+    {
+      type: string,
+      computed: true,
+      max_length: 160,
+      description: The supplier's identifier for the delivery.,
+    }
+  delivery_line:
+    {
+      type: string,
+      computed: true,
+      max_length: 100,
+      description: The line or subline printed on that delivery.,
+    }
+  packs: { type: int, computed: true, min: 1, label: Packs received }
+rules:
+  receipted:
+    check: record.receipt_key != null
+    message: Receive a delivery against a reorder line to create a stock lot.
+    fields: [order_line]
+  ordered_item:
+    check: record.item.id == record.order_line.item
+    message: The lot must be for the catalogue item on its reorder line.
+    fields: [item, order_line]
+display: { title: "{{ lot_number or hrid }}" }

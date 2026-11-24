@@ -6,7 +6,7 @@ from org_world import build_world
 from test_storage import box, contents, moved, tube
 
 from iki_server.audit.models import AuditEvent
-from iki_server.storage.models import Event
+from iki_server.storage.models import Event, ObservationEvent
 
 
 @pytest.mark.django_db
@@ -38,8 +38,7 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
     ]
     scanned = api.post(f"{path}/scans", {"scans": scans})
     assert scanned.status_code == 200, scanned.content
-    view = scanned.json()
-    lines = {line["code"]: line["id"] for line in view["lines"]}
+    lines = {line["code"]: line for line in scanned.json()["lines"]}
     for code, decision in [
         ("SWAP-1", "moved"),
         ("SWAP-2", "moved"),
@@ -47,21 +46,30 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
         ("KEEP", "kept"),
         ("EXTRA", "placed"),
     ]:
+        line = lines[code]
         saved = api.patch(
-            f"{path}/lines/{lines[code]}",
+            f"{path}/lines/{line['id']}",
             {
                 "resolution": decision,
                 "note": "Inventory check",
-                "plan_revision": view["plan_revision"],
+                "line_revision": line["line_revision"],
             },
         )
         assert saved.status_code == 200, saved.content
-        view = saved.json()
     reviewed = api.get(path)
     assert reviewed.status_code == 200, reviewed.content
     revision = reviewed.json()["plan_revision"]
     done = api.post(f"{path}/complete", {"missing_rest": True, "plan_revision": revision})
     assert done.status_code == 200, done.content
+    recorded = ObservationEvent.objects.filter(reconciliation_id=started.json()["id"])
+    operator = str(world.users["editor"].pk)
+    assert set(recorded.filter(kind="scan").values_list("after__scanned_by", flat=True)) == {
+        operator
+    }
+    # Includes both the explicitly reviewed decisions and the one marked missing on completion.
+    assert set(recorded.filter(kind="resolution").values_list("after__resolved_by", flat=True)) == {
+        operator
+    }
     assert contents(api, container) == {
         "A1": other["hrid"],
         "A2": swapped["hrid"],

@@ -110,6 +110,11 @@ class SpreadsheetImport(models.Model):
     sheets = models.JSONField(default=list)
 
     # What's imported, as its requester chooses.
+    #: One more with each change to what it imports, Iki's first reading of the workbook
+    #: among them. A change, a preview, a commit and saving its mapping each say the
+    #: revision they were made from (If-Match): one made from another is refused, so
+    #: nobody previews, imports or saves a mapping they haven't seen.
+    revision = models.PositiveIntegerField(default=1, db_default=1)
     sheet = models.CharField(max_length=100, blank=True, default="")
     #: The row its columns' headers are in, from 1; 0 when it has none.
     header_row = models.PositiveIntegerField(default=1)
@@ -128,6 +133,9 @@ class SpreadsheetImport(models.Model):
         SavedMapping, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
 
+    #: The name and identity of the saved mapping when this draft selected it.
+    mapping_source = models.JSONField(null=True, blank=True)
+
     # Its preview: each round is one, from the start; changing what's imported starts afresh.
     round = models.PositiveIntegerField(default=0)
     phase = models.CharField(max_length=16, choices=PreviewPhase.choices, blank=True, default="")
@@ -145,6 +153,8 @@ class SpreadsheetImport(models.Model):
     failures = models.PositiveSmallIntegerField(default=0)
 
     # Its commit.
+    #: The exact mapping confirmed at commit, independent of the reusable template.
+    applied_mapping = models.JSONField(null=True, blank=True)
     #: Leave out the rows with problems: the person said so, when they committed it.
     skip_problems = models.BooleanField(default=False)
     reason = models.TextField(blank=True, default="")
@@ -184,6 +194,9 @@ class SpreadsheetImport(models.Model):
             models.CheckConstraint(
                 condition=Q(state="committed", run__isnull=False) | ~Q(state="committed"),
                 name="iki_spreadsheet_import_run",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gt=0), name="iki_spreadsheet_import_revision"
             ),
         ]
 

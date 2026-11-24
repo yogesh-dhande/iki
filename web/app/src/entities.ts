@@ -10,6 +10,7 @@ import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/
 import { iki, projectQuery, queryClient } from "./api";
 import { searchWords, validateFilters, type Filter } from "./filters";
 import { objectList, objectListText } from "./object-lists";
+import { fetchPageRead } from "./page-reads";
 
 export type EntityType = Schemas["EntityTypeOut"];
 export type FieldDef = Schemas["FieldOut"];
@@ -27,7 +28,7 @@ export const ENTITIES = ["entities"] as const;
 /** The installed types: they change only when the deployment does. */
 export const typesQuery = queryOptions({
   queryKey: ["entity-types"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/entity-types")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/entity-types", { signal: signal })),
   staleTime: 10 * 60_000,
 });
 
@@ -120,16 +121,26 @@ export function searchCsvUrl(filter: EntityFilter, columns: readonly string[] = 
   return `/api/v1/entities/search.csv?${query.toString()}`;
 }
 
+/** A search sends its filters as JSON, but has the same lifetime as the other reads on a page. */
+export function searchEntities(body: Schemas["SearchIn"], signal: AbortSignal) {
+  return iki.POST("/api/v1/entities/search", { body, fetch: fetchPageRead, signal });
+}
+
 /** A page at a time, in the order asked for; the grid asks for more as it scrolls. */
 export function entitiesQuery(filter: EntityFilter) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "list", filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: { limit: 100, ...gridSearch(filter), ...(pageParam ? { cursor: pageParam } : {}) },
-        }),
+        await searchEntities(
+          {
+            limit: 100,
+            ...gridSearch(filter),
+            ...(pageParam ? { cursor: pageParam } : {}),
+          },
+          signal,
+        ),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     // A search that went wrong (too slow, say) won't go right by asking again.
@@ -150,9 +161,12 @@ export const SAVED_SEARCHES = ["saved-searches"] as const;
 export function savedSearchesQuery(projectId: string) {
   return queryOptions({
     queryKey: [...SAVED_SEARCHES, projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/saved-searches", { params: { query: { project: projectId } } }),
+        await iki.GET("/api/v1/saved-searches", {
+          params: { query: { project: projectId } },
+          signal,
+        }),
       ),
   });
 }
@@ -165,7 +179,7 @@ export function pickerQuery(types: readonly string[], q: string) {
   const named = types.includes("iki/core.Entity") ? [] : [...types];
   return queryOptions({
     queryKey: [...ENTITIES, "picker", named.join(" "), q.trim()],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities", {
           params: {
@@ -180,6 +194,7 @@ export function pickerQuery(types: readonly string[], q: string) {
               ...(q.trim() ? { q: q.trim() } : {}),
             },
           },
+          signal,
         }),
       ).items,
     staleTime: 30_000,
@@ -194,11 +209,12 @@ export function pickerQuery(types: readonly string[], q: string) {
 export function entityQuery(ref: string, project?: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "one", ref.toUpperCase(), project ?? null],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const id = project ? (await queryClient.query(projectQuery(project))).id : undefined;
       return unwrap(
         await iki.GET("/api/v1/entities/{ref}", {
           params: { path: { ref }, query: id ? { project: id } : {} },
+          signal,
         }),
       );
     },
@@ -210,10 +226,11 @@ export function entityQuery(ref: string, project?: string) {
 export function recordQuery(ref: string, project?: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "record", ref.toUpperCase(), project ?? null],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}", {
           params: { path: { ref }, query: project ? { project } : {} },
+          signal,
         }),
       ),
   });
@@ -264,8 +281,10 @@ export function hasIdentity(types: EntityType[] | undefined, name: string): bool
 export function provenanceQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "provenance", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/provenance", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/provenance", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -273,8 +292,10 @@ export function provenanceQuery(ref: string) {
 export function originsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "origins", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/origins", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/origins", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -282,8 +303,8 @@ export function originsQuery(ref: string) {
 export function makingQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "making", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/making", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/making", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -291,16 +312,20 @@ export function makingQuery(ref: string) {
 export function bundleOriginsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "bundles", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/bundles", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/bundles", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function entityProjectsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "projects", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/projects", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/projects", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -309,13 +334,14 @@ export function revisionsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "revisions", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/revisions", {
           params: {
             path: { ref },
             query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -327,10 +353,11 @@ export function revisionsQuery(ref: string) {
 export function revisionQuery(ref: string, number: number, project?: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "revision", ref.toUpperCase(), number, project ?? null],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/revisions/{number}", {
           params: { path: { ref, number }, query: project ? { project } : {} },
+          signal,
         }),
       ),
     // A revision never changes.

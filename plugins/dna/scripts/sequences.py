@@ -21,26 +21,23 @@ import json
 import math
 import os
 import sys
+from functools import cache
 from pathlib import Path
+
+import wasmtime
 
 GC = frozenset("GCS")
 KNOWN = frozenset("ACGTUSW")
 
-#: ΔH (kcal/mol) and ΔS (cal/K/mol) for each pair of neighbours, 5'→3' on one strand.
-NEIGHBOURS = {
-    "AA": (-7.9, -22.2), "AT": (-7.2, -20.4), "TA": (-7.2, -21.3), "CA": (-8.5, -22.7),
-    "GT": (-8.4, -22.4), "CT": (-7.8, -21.0), "GA": (-8.2, -22.2), "CG": (-10.6, -27.2),
-    "GC": (-9.8, -24.4), "GG": (-8.0, -19.9),
-}  # fmt: skip
-#: Initiation, by the base pair at each end.
-INITIATION = {"G": (0.1, -2.8), "C": (0.1, -2.8), "A": (2.3, 4.1), "T": (2.3, 4.1)}
-SYMMETRY = (0.0, -1.4)
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
-GAS_CONSTANT = 1.987  # cal/K/mol
-SODIUM = 0.05  # mol/L
-#: SantaLucia's CT, all the strands together (mol/L): 25 nM each of the primer and its
-#: complement, or 50 nM of a primer that pairs with itself.
-STRANDS = 50e-9
+MEASUREMENT = Path(__file__).resolve().parent.parent / "data" / "oligo-measurement.wasm"
+
+
+@cache
+def _measurement_module() -> tuple[wasmtime.Engine, wasmtime.Module]:
+    """Compile the action archive's pinned module once per process for a batch of records."""
+    engine = wasmtime.Engine()
+    return engine, wasmtime.Module.from_file(engine, str(MEASUREMENT))
 
 
 def gc_content(bases: str) -> float | None:
@@ -56,27 +53,27 @@ def reverse_complement(bases: str) -> str:
 
 def melting_temperature(bases: str) -> float | None:
     """°C, or None for a primer with other bases than A, C, G and T, or fewer than two."""
-    bases = bases.upper()
-    if len(bases) < 2 or set(bases) - set("ACGT"):
+    if not bases.isascii() or len(bases) < 2:
         return None
-    enthalpy = INITIATION[bases[0]][0] + INITIATION[bases[-1]][0]
-    entropy = INITIATION[bases[0]][1] + INITIATION[bases[-1]][1]
-    for i in range(len(bases) - 1):
-        pair = bases[i : i + 2]
-        dh, ds = NEIGHBOURS.get(pair) or NEIGHBOURS[reverse_complement(pair)]
-        enthalpy += dh
-        entropy += ds
-    # One strand pairs with itself, at CT; otherwise with an equal amount of its
-    # complement, at CT/4 (SantaLucia 1998, equation 3).
-    if bases == reverse_complement(bases):
-        enthalpy += SYMMETRY[0]
-        entropy += SYMMETRY[1]
-        strands = STRANDS
-    else:
-        strands = STRANDS / 4
-    entropy += 0.368 * (len(bases) - 1) * math.log(SODIUM)
-    kelvin = 1000 * enthalpy / (entropy + GAS_CONSTANT * math.log(strands))
-    return round(kelvin - 273.15, 1)
+    engine, module = _measurement_module()
+    with wasmtime.Store(engine) as store:
+        exports = wasmtime.Instance(store, module, []).exports(store)
+        memory = exports["memory"]
+        allocate = exports["iki_input"]
+        measure = exports["iki_melting_temperature_value"]
+        if not (
+            isinstance(memory, wasmtime.Memory)
+            and isinstance(allocate, wasmtime.Func)
+            and isinstance(measure, wasmtime.Func)
+        ):
+            raise RuntimeError("The packaged oligo measurement has an incompatible ABI.")
+        encoded = bases.encode("ascii")
+        at = allocate(store, len(encoded))
+        if not at:
+            raise ValueError("The oligo exceeds the measurement module’s 64 MiB input limit.")
+        memory.write(store, encoded, at)
+        result = float(measure(store))
+        return None if math.isnan(result) else result
 
 
 def composition(bases: str) -> dict[str, float]:

@@ -18,6 +18,11 @@
 
 An import is its requester's until it's committed. Each change to what it imports starts
 its preview afresh (a new round); its rows are kept until it's committed or discarded.
+
+Each change to what it imports is a new revision of it. A change, a preview, a commit and
+saving its mapping each say the revision they were made from, and are refused
+(:class:`Stale`) if it's moved on since: a change made in another tab, or one of the
+person's own sent before it but arriving after, never goes unseen.
 """
 
 from __future__ import annotations
@@ -80,6 +85,7 @@ from iki_spec.model import Creates, Field
 
 __all__ = [
     "ACTION",
+    "Stale",
     "action_for",
     "change",
     "commit",
@@ -112,6 +118,22 @@ ABANDONED_AFTER = timedelta(days=14)
 #: The sources origins name, by the workbook's kind (ADR 0052).
 SOURCES = {"xlsx": "XLSX workbook", "csv": "CSV file"}
 WRITTEN = (RowOutcome.CREATE, RowOutcome.REGISTER, RowOutcome.ADD)
+
+
+class Stale(Exception):  # noqa: N818 - reads as "the request was stale"
+    """The import changed since the revision a request was made from."""
+
+    def __init__(self, current: int) -> None:
+        super().__init__(f"The import changed since: it's at revision {current} now.")
+        self.current = current
+
+
+def _locked(imported: SpreadsheetImport, expected_revision: int) -> SpreadsheetImport:
+    """The import, locked for the transaction, if it's still at ``expected_revision``."""
+    locked = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+    if locked.revision != expected_revision:
+        raise Stale(locked.revision)
+    return locked
 
 
 # --- The core action ---------------------------------------------------------------------------
@@ -225,17 +247,21 @@ def read(import_id: str) -> str:
         ]
         chosen = next((s for s in sheets if not s.hidden and s.rows), None) or sheets[0]
         locked.sheet = chosen.name
-        header = next(
-            (i for i, row in enumerate(chosen.sample, 1) if any(c.strip() for c in row)), 1
-        )
-        locked.header_row = header
-        locked.first_row = header + 1
+        locked.header_row = _header_of(chosen.sample)
+        locked.first_row = locked.header_row + 1
         locked.last_row = None
         locked.columns = [c.as_json() for c in _suggested(locked)]
         locked.state = ImportState.MAPPING
+        # Iki's reading is what it imports to start with: a revision of its own.
+        locked.revision += 1
         locked.updated_at = timezone.now()
         locked.save()
     return "read"
+
+
+def _header_of(sample: Sequence[Sequence[str]]) -> int:
+    """A sheet's header row, as Iki first takes it: its first row with anything in it."""
+    return next((i for i, row in enumerate(sample, 1) if any(c.strip() for c in row)), 1)
 
 
 def _suggested(imported: SpreadsheetImport) -> list[Column]:
@@ -249,10 +275,19 @@ def _suggested(imported: SpreadsheetImport) -> list[Column]:
         ):
             best = saved
     if best is not None:
-        imported.mapping = best
+        _remember_mapping(imported, best)
         imported.locale = Locale.of(best.locale).as_json()
         return mapping.from_saved(best.columns, headers)
     return mapping.suggest(imported.type, headers)
+
+
+def _remember_mapping(imported: SpreadsheetImport, saved: SavedMapping) -> None:
+    imported.mapping = saved
+    imported.mapping_source = {
+        "id": str(saved.pk),
+        "name": saved.name,
+        "match": mapping.matches(saved.headers, headers_of(imported)),
+    }
 
 
 def sheet_of(imported: SpreadsheetImport) -> dict[str, Any]:
@@ -281,13 +316,22 @@ class Choice:
     locale: dict[str, Any] | None = None
 
 
-def change(user: User, imported: SpreadsheetImport, choice: Choice) -> SpreadsheetImport:
-    """Chooses what it imports. A new sheet or header row maps its columns afresh, unless
-    ``columns`` are given too. Its preview, if it had one, starts again. Raises
-    :class:`Invalid` with what's wrong, by where, or :class:`Refused`."""
+def change(
+    user: User, imported: SpreadsheetImport, choice: Choice, *, expected_revision: int
+) -> SpreadsheetImport:
+    """Chooses what it imports, from the revision the person saw: a new revision.
+
+    Everything given is checked together, against the sheet it chooses: a new sheet and a
+    header row on it are one change. Choosing another sheet takes its rows afresh too (its
+    header row as Iki finds it, every row after it, none left out), but for those given
+    with it: the old sheet's rows mean nothing on another. A new sheet or header row maps
+    its columns afresh, unless ``columns`` are given too. Its preview, if it had one,
+    starts again. Raises :class:`Stale` if it's moved on from ``expected_revision``,
+    :class:`Invalid` with what's wrong, by where, or :class:`Refused`. Nothing is
+    changed unless all of it is."""
     _may_write(user, imported.project)
     with transaction.atomic():
-        imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        imported = _locked(imported, expected_revision)
         if imported.state not in (
             ImportState.MAPPING,
             ImportState.PREVIEWED,
@@ -303,6 +347,10 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             else:
                 imported.sheet = choice.sheet
                 remap = True
+                # Its rows, afresh: those given with it are set below, on this sheet.
+                imported.header_row = _header_of(sheet_of(imported).get("sample", []))
+                imported.last_row = None
+                imported.skip = []
         sheet = sheet_of(imported)
         rows = int(sheet.get("rows") or 0)
         if choice.header_row is not None:
@@ -320,6 +368,9 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
         if choice.skip is not None:
             imported.skip = choice.skip
         _check_rows(imported, rows, errors)
+        if remap and choice.mapping is None:
+            imported.mapping = None
+            imported.mapping_source = None
         if choice.mapping is not None:
             saved = SavedMapping.objects.filter(
                 pk=choice.mapping, project=imported.project_id, type=imported.type
@@ -327,7 +378,7 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             if saved is None:
                 errors["mapping"] = ["isn't a mapping saved for this type in the project."]
             else:
-                imported.mapping = saved
+                _remember_mapping(imported, saved)
                 imported.locale = Locale.of(saved.locale).as_json()
                 imported.columns = [
                     c.as_json() for c in mapping.from_saved(saved.columns, headers_of(imported))
@@ -339,7 +390,6 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
             if not wrong:
                 imported.columns = [c.as_json() for c in mapping.columns_from_json(choice.columns)]
         elif remap:
-            imported.mapping = None
             imported.columns = [
                 c.as_json() for c in mapping.suggest(imported.type, headers_of(imported))
             ]
@@ -351,6 +401,7 @@ def change(user: User, imported: SpreadsheetImport, choice: Choice) -> Spreadshe
         if errors:
             raise Invalid(errors)
         _reset(imported)
+        imported.revision += 1
         imported.save()
     return imported
 
@@ -492,20 +543,27 @@ def _reset(imported: SpreadsheetImport) -> None:
 
 
 def save_mapping(
-    user: User, imported: SpreadsheetImport, name: str, *, replace: SavedMapping | None = None
+    user: User,
+    imported: SpreadsheetImport,
+    name: str,
+    *,
+    expected_revision: int,
+    replace: SavedMapping | None = None,
 ) -> SavedMapping:
     """Keeps the import's mapping in its project, by its headers, as ``name``: or as
-    ``replace``, changing it. Raises :class:`Refused`."""
+    ``replace``, changing it. The mapping kept is the one at ``expected_revision``, the
+    one the person saw. Raises :class:`Stale` or :class:`Refused`."""
     _may_write(user, imported.project)
     name = name.strip()
     if not name or len(name) > 100:
         raise Refused("Give it a name, of at most 100 characters.", field="name")
-    headers = headers_of(imported)
-    columns = mapping.saved_columns(mapping.columns_from_json(imported.columns), headers)
-    if not columns:
-        raise Refused("Map a column to a field first.", field="columns")
-    kept = [str(c["header"]) for c in columns]
     with transaction.atomic():
+        imported = _locked(imported, expected_revision)
+        headers = headers_of(imported)
+        columns = mapping.saved_columns(mapping.columns_from_json(imported.columns), headers)
+        if not columns:
+            raise Refused("Map a column to a field first.", field="columns")
+        kept = [str(c["header"]) for c in columns]
         clash = SavedMapping.objects.filter(
             project=imported.project_id, type=imported.type, name=name
         )
@@ -527,15 +585,19 @@ def save_mapping(
             )
             what = "spreadsheet_mapping.saved"
         else:
-            saved = replace
+            saved = SavedMapping.objects.select_for_update().get(pk=replace.pk)
             saved.name, saved.columns, saved.headers = name, columns, kept
             saved.header_row, saved.updated_by = imported.header_row, user
             saved.locale = imported.locale
             saved.updated_at = timezone.now()
             saved.save()
             what = "spreadsheet_mapping.changed"
-        imported.mapping = saved
-        imported.save(update_fields=["mapping"])
+        if imported.applied_mapping is None and imported.state not in (
+            ImportState.COMMITTING,
+            ImportState.COMMITTED,
+        ):
+            _remember_mapping(imported, saved)
+            imported.save(update_fields=["mapping", "mapping_source"])
         audit.record(
             what,
             actor=user,
@@ -562,14 +624,17 @@ def delete_mapping(user: User, saved: SavedMapping) -> None:
 # --- Previewing --------------------------------------------------------------------------------
 
 
-def preview(user: User, imported: SpreadsheetImport) -> SpreadsheetImport:
+def preview(
+    user: User, imported: SpreadsheetImport, *, expected_revision: int
+) -> SpreadsheetImport:
     """Checks every row it imports, as it would be written, a chunk at a time (a task's
-    work). Raises :class:`Refused` while it can't be."""
+    work): what it imports at ``expected_revision``, as the person saw it. Raises
+    :class:`Stale` if it's moved on since, or :class:`Refused` while it can't be."""
     from iki_server.spreadsheets import tasks
 
     _may_write(user, imported.project)
     with transaction.atomic():
-        imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        imported = _locked(imported, expected_revision)
         if imported.state not in (
             ImportState.MAPPING,
             ImportState.PREVIEWED,
@@ -1350,16 +1415,33 @@ def clear_rows(import_id: str, round_: int) -> str:
 # --- Committing --------------------------------------------------------------------------------
 
 
+def _applied_mapping(imported: SpreadsheetImport) -> dict[str, Any]:
+    return {
+        "template": imported.mapping_source,
+        "header_row": imported.header_row,
+        "locale": Locale.of(imported.locale).as_json(),
+        "columns": mapping.saved_columns(
+            mapping.columns_from_json(imported.columns), headers_of(imported), keep_index=True
+        ),
+    }
+
+
 def commit(
-    user: User, imported: SpreadsheetImport, *, skip_problems: bool = False, reason: str = ""
+    user: User,
+    imported: SpreadsheetImport,
+    *,
+    expected_revision: int,
+    skip_problems: bool = False,
+    reason: str = "",
 ) -> SpreadsheetImport:
-    """Imports what the preview checked, as a run (a task starts it). Rows with problems
-    stop it, unless ``skip_problems`` leaves them out. Raises :class:`Refused`."""
+    """Imports what the preview checked, as a run (a task starts it): the preview of
+    ``expected_revision``, the one the person saw. Rows with problems stop it, unless
+    ``skip_problems`` leaves them out. Raises :class:`Stale` or :class:`Refused`."""
     from iki_server.spreadsheets import tasks
 
     _may_write(user, imported.project)
     with transaction.atomic():
-        imported = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        imported = _locked(imported, expected_revision)
         if imported.state != ImportState.PREVIEWED:
             if imported.state in (ImportState.MAPPING, ImportState.PREVIEWING):
                 raise Refused("Preview it first: Iki checks every row before it imports them.")
@@ -1377,6 +1459,7 @@ def commit(
         if not sum(int(counts.get(o, 0)) for o in (*WRITTEN, RowOutcome.REUSE, RowOutcome.SAME)):
             raise Refused("It has no rows to import.")
         imported.state = ImportState.COMMITTING
+        imported.applied_mapping = _applied_mapping(imported)
         imported.skip_problems = skip_problems and bool(problems)
         imported.reason = reason.strip()[:2000]
         imported.via = audit.current_via()
@@ -1424,16 +1507,20 @@ def committing(import_id: str) -> str:
             locked.error = f"{user.name} can no longer add records to {project.name}."
             locked.save(update_fields=["state", "error"])
             return "refused"
-        headers = headers_of(locked)
+        # A task queued before upgrades may not have a snapshot yet.
+        pinned = locked.applied_mapping or _applied_mapping(locked)
         params = {
             "workbook": str(locked.file_id),
             "sheet": locked.sheet,
-            "header_row": locked.header_row,
+            "header_row": pinned["header_row"],
             "first_row": locked.first_row,
             "last_row": locked.last_row,
             "skip": locked.skip,
-            "locale": Locale.of(locked.locale).as_json(),
-            "columns": mapping.saved_columns(mapping.columns_from_json(locked.columns), headers),
+            "locale": pinned["locale"],
+            "columns": [
+                {key: value for key, value in column.items() if key != "index"}
+                for column in pinned["columns"]
+            ],
             "skip_problems": locked.skip_problems,
         }
         with audit.using(audit.Context(via=locked.via or "api", oauth_client=locked.client)):
@@ -1449,6 +1536,7 @@ def committing(import_id: str) -> str:
                 agent=locked.agent,
             )
             locked.run = run
+            locked.applied_mapping = pinned
             locked.state = ImportState.COMMITTED
             locked.committed_at = timezone.now()
             locked.updated_at = timezone.now()

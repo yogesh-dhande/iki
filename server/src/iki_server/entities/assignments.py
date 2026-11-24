@@ -41,6 +41,7 @@ from typing import Any, cast
 from django.core import signing
 from django.db.models import Exists, F, OuterRef, Q, QuerySet, Value
 from django.db.models.functions import Cast
+from django.db.transaction import atomic
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
@@ -175,6 +176,18 @@ def due_field_name(type_name: str) -> str | None:
         if t.due is not None:
             return t.due
     return None
+
+
+def _can_withdraw(type_name: str) -> bool:
+    """Whether the asking project can end a request's work via its standing."""
+    if requests.spec_of(type_name) is None or requests.is_service_field(type_name, "standing"):
+        return False
+    standing = states.state_fields(type_name).get("standing")
+    return standing is not None and "withdrawn" in standing.states
+
+
+def _withdrawn(type_name: str, values: Mapping[str, Any]) -> bool:
+    return values.get("standing") == "withdrawn" and _can_withdraw(type_name)
 
 
 def _in_state(form: Shape, a: Assignment) -> Q:
@@ -595,6 +608,8 @@ def _page(
             .filter(type=name, archived_at__isnull=True)
             .filter(condition)
         )
+        if _can_withdraw(name):
+            found = found.exclude(**{_column_of(form, "standing"): "withdrawn"})
         if filters.projects:
             # A request's work is in the service it was sent to, too (ADR 0132).
             found = found.filter(
@@ -844,6 +859,9 @@ def takeable(
         owner = entity.owner_project
         if entity.locked or entity.archived_at is not None or owner is None:
             continue
+        current = values.get(entity.pk, {})
+        if _withdrawn(entity.type, current):
+            continue
         stale_fields = {s.field for s in stale.get(entity.pk, ())}
         found = []
         for a in of(entity.type):
@@ -853,9 +871,9 @@ def takeable(
             ):
                 continue
             held = permissions.lab_roles(user, project)
-            if a.role is None or a.role not in held or not a.counts(values.get(entity.pk, {})):
+            if a.role is None or a.role not in held or not a.counts(current):
                 continue
-            named = _people_in(values.get(entity.pk, {}).get(a.name))
+            named = _people_in(current.get(a.name))
             if user.pk in named:
                 continue
             if a.many or not named or a.name in stale_fields:
@@ -865,6 +883,7 @@ def takeable(
     return out
 
 
+@atomic
 def take(user: User, entity: Entity, name: str, *, expected_revision: int, reason: str = "") -> Any:  # noqa: ANN401 - a Saved
     """Assigns ``user`` the record in assignment field ``name``, theirs to take as
     :func:`takeable` says: a revision, like any edit. Raises :class:`PermissionDenied`
@@ -895,10 +914,15 @@ def take(user: User, entity: Entity, name: str, *, expected_revision: int, reaso
             f"Only someone with the {lab_roles.label(assignment.role)} role in {project.name} "
             f"takes it as {assignment.label}."
         )
+    if _can_withdraw(entity.type):
+        # Keep the request standing stable through the assignment write.
+        entity = Entity.objects.select_for_update().get(pk=entity.pk)
     why = states.locked_why(entity, doing="be taken")
     if why:
         raise Refused(why)
     values = services.current_values_of([entity])
+    if _withdrawn(entity.type, values[entity.pk]):
+        raise Refused(f"{entity.hrid} was withdrawn and can't be taken.")
     stale = stale_of([entity], values)
     if name not in takeable(user, [entity], values, stale).get(entity.pk, []):
         if not assignment.counts(values[entity.pk]):
@@ -952,9 +976,19 @@ MAX_REASSIGN = 500
 REASSIGN_OPS = ("set", "add", "remove")
 
 
+class MissingAssignmentRecordsError(Exception):
+    def __init__(self, ids: set[uuid.UUID]) -> None:
+        self.ids = ids
+
+
+class StaleAssignmentsError(Exception):
+    def __init__(self, records: list[Entity]) -> None:
+        self.records = records
+
+
 def reassign(
     user: User,
-    ids: Sequence[uuid.UUID],
+    expected_revisions: Mapping[uuid.UUID, int],
     name: str,
     person: str | None,
     *,
@@ -965,7 +999,8 @@ def reassign(
     ``name`` of each record: ``set`` it, or for a list ``add`` or ``remove`` them. Each change
     is its record's own revision, audited as part of one reassignment, which tells each
     person once. A record that can't change (you can't edit it, its state locks it, the
-    field isn't its, the person can't be named in its project) is skipped, with why."""
+    field isn't its, the person can't be named in its project) is skipped, with why.
+    A missing or stale record refuses the whole operation before anything is written."""
     from django.db import transaction
 
     from iki_server.entities import services
@@ -975,17 +1010,27 @@ def reassign(
     group = uuid.uuid4().hex
     changed: list[Entity] = []
     skipped: list[Skipped] = []
-    wanted = list(dict.fromkeys(ids))
-    found = {
-        e.pk: e for e in access.visible(user).filter(pk__in=wanted).select_related("owner_project")
-    }
     with transaction.atomic(), batch(user):
+        found = {
+            e.pk: e
+            for e in access.visible(user)
+            .filter(pk__in=expected_revisions)
+            .select_related("owner_project")
+            .select_for_update(of=("self",))
+            .order_by("pk")
+        }
+        if missing := expected_revisions.keys() - found.keys():
+            raise MissingAssignmentRecordsError(missing)
+        stale = [
+            found[pk]
+            for pk, expected in expected_revisions.items()
+            if found[pk].revision != expected
+        ]
+        if stale:
+            raise StaleAssignmentsError(stale)
         values = services.current_values_of(list(found.values()))
-        for pk in wanted:
-            entity = found.get(pk)
-            if entity is None:
-                skipped.append(Skipped(pk, "", "No such entity, or you can't read it."))
-                continue
+        for pk, expected in expected_revisions.items():
+            entity = found[pk]
             why = _cannot_reassign(user, entity, name)
             if why is not None:
                 skipped.append(Skipped(pk, entity.hrid, why))
@@ -998,16 +1043,13 @@ def reassign(
                         user,
                         entity,
                         {name: value},
-                        expected_revision=entity.revision,
+                        expected_revision=expected,
                         reason=reason,
                         group=group,
                     )
             except Invalid as error:
                 said = error.errors.get(name) or [str(error)]
                 skipped.append(Skipped(pk, entity.hrid, f"{assignment.label} {' '.join(said)}"))
-                continue
-            except services.Stale:
-                skipped.append(Skipped(pk, entity.hrid, "Someone changed it meanwhile."))
                 continue
             except Refused as error:
                 skipped.append(Skipped(pk, entity.hrid, str(error)))

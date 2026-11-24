@@ -77,6 +77,9 @@ describe("positions", () => {
       resolution: null,
       resolution_stale: false,
       resolved_by: null,
+      line_revision: 1,
+      observation: null,
+      reviewed_observation: null,
     };
     expect(resolutionsFor({ ...line, finding: "wrong_slot" })).toEqual(["moved", "kept"]);
     expect(resolutionsFor({ ...line, finding: "missing" })).toEqual(["removed", "kept"]);
