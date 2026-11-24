@@ -1640,7 +1640,9 @@ export interface paths {
          *     them: one made through a project you can't read says what it set, not who, how or when.
          *
          *     Anyone who can read the record may download it, and each download is in the audit
-         *     log (``entity.trail_exported``) before its first row is sent. No cell starts as a
+         *     log (``entity.trail_exported``) before its first row is sent, with the record's
+         *     ``revision`` and its entry's ``entry_revision``: the file holds those and the ones
+         *     before them, and nothing made after. No cell starts as a
          *     formula would (OWASP's CSV injection guidance): one that would starts with a quote.
          */
         get: operations["iki_server_api_trails_trail_csv"];

@@ -36157,7 +36157,7 @@
     },
     "/api/v1/entities/{ref}/revisions.csv": {
       "get": {
-        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
+        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent, with the record's\n``revision`` and its entry's ``entry_revision``: the file holds those and the ones\nbefore them, and nothing made after. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
         "operationId": "iki_server_api_trails_trail_csv",
         "parameters": [
           {
