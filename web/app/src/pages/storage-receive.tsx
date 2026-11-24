@@ -12,13 +12,14 @@
  */
 
 import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
+import { buttonState } from "@ikisci/ui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { BoxMap, MapLegend, slotKey } from "../box-map";
-import { entityQuery, personName } from "../entities";
+import { entityQuery, personName, typeLabel, typesQuery, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import {
   HistoryDisclosure,
@@ -244,6 +245,24 @@ function lineOf(receipt: Receipt, fix: Fix): ReceiptLine | undefined {
   return [...receipt.lines, ...receipt.removed_lines].find((l) => l.id === fix.line);
 }
 
+/** A change on its way, as Complete's wait names it: “TUB-000001’s outcome”. */
+function writing(fix: Fix, receipt: Receipt): string {
+  const line = lineOf(receipt, fix);
+  const name = line ? shortName(line) : "the line";
+  switch (fix.do) {
+    case "outcome":
+      return fix.outcome === line?.outcome ? `the note on ${name}` : `${name}’s outcome`;
+    case "remove":
+      return `the removal of ${name}`;
+    case "restore":
+      return `restoring ${name}`;
+    case "handoff":
+      return "the handover";
+    case "cancel":
+      return "the cancellation";
+  }
+}
+
 /** Sends a change, with the version of what it replaces as it's shown now. */
 async function send(receipt: Receipt, fix: Fix, reason: string | undefined): Promise<Receipt> {
   const id = receipt.id;
@@ -370,10 +389,12 @@ function dispositions(
   free: readonly string[] | null,
   where: Readonly<Record<string, string>>,
   kept: ReadonlySet<string>,
+  /** Lines that can't go in the box shown: archived, or a kind it doesn't hold. */
+  cannot: ReadonlySet<string> = new Set(),
 ): Map<string, Disposition> {
   const chosen = new Set(
     lines
-      .filter((l) => !kept.has(l.id))
+      .filter((l) => !kept.has(l.id) && !cannot.has(l.id))
       .map((l) => where[l.id])
       .filter((w): w is string => !!w && !!free?.includes(w)),
   );
@@ -382,7 +403,7 @@ function dispositions(
   for (const l of lines) {
     const choice = where[l.id];
     if (kept.has(l.id)) out.set(l.id, { kind: "custody" });
-    else if (!free) out.set(l.id, { kind: "open" });
+    else if (!free || cannot.has(l.id)) out.set(l.id, { kind: "open" });
     else if (choice !== undefined)
       out.set(
         l.id,
@@ -452,6 +473,31 @@ function boxCaption(box: Container, free: number): string {
   return `${name}${path ? `, in ${path}` : ""} · ${String(free)} free`;
 }
 
+/** A type and each it extends, as the server checks what a box holds. */
+function lineage(types: readonly EntityType[], name: string): Set<string> {
+  const out = new Set<string>();
+  for (let at: string | null | undefined = name; at && !out.has(at);) {
+    out.add(at);
+    at = types.find((t) => t.name === at)?.extends;
+  }
+  return out;
+}
+
+/** The lines whose version changed between two readings of a receipt, or that came or went. */
+function revisedLines(shown: Receipt, now: Receipt): { line_id: string }[] {
+  const seen = (r: Receipt) =>
+    new Map(
+      [...r.lines, ...r.removed_lines].map((l) => [
+        l.id,
+        `${String(l.line_revision)}${r.removed_lines.includes(l) ? " removed" : ""}`,
+      ]),
+    );
+  const before = seen(shown);
+  return [...seen(now)]
+    .filter(([line, version]) => before.get(line) !== version)
+    .map(([line_id]) => ({ line_id }));
+}
+
 /** Names in a sentence: “A”, “A and B”, “A, B and C”. */
 function listed(names: readonly string[]): string {
   if (names.length < 2) return names.join("");
@@ -514,6 +560,17 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     void client.invalidateQueries({ queryKey: [...STORAGE, "receipts"] });
     void client.invalidateQueries({ queryKey: historyKey("receipts", id) });
   };
+  // Writes still on their way: Complete waits for each, so what it approves includes them.
+  const [writes, setWrites] = useState<readonly { key: number; what: string }[]>([]);
+  const nextWrite = useRef(0);
+  /** A write starting: what it is, as Complete's wait says it; call what's returned once settled. */
+  const begin = (what: string) => {
+    const key = ++nextWrite.current;
+    setWrites((now) => [...now, { key, what }]);
+    return () => {
+      setWrites((now) => now.filter((w) => w.key !== key));
+    };
+  };
   /** After a refusal: the receipt as it is now, and what the server says changed. */
   const refetch = async (error: unknown) => {
     const shown = latest.current;
@@ -538,6 +595,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     setRefused(null);
     const { code } = sent;
     scan.mutate(sent, {
+      onSettled: begin(`the scan of ${code.trim()}`),
       onSuccess: (done) => {
         update(done.receipt);
         setLastLine(done.line);
@@ -607,6 +665,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     fixing.mutate(
       { fix, reason: undefined },
       {
+        onSettled: begin(writing(fix, latest.current)),
         onSuccess: (next) => {
           update(next);
           setHandoffStale(null);
@@ -634,6 +693,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     fixing.mutate(
       { fix, reason },
       {
+        onSettled: begin(writing(fix, latest.current)),
         onSuccess: (next) => {
           update(next);
           setAsking(null);
@@ -709,18 +769,46 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   );
   // Where the received tubes can go: a box whose free positions are shown, or not yet known.
   const shownBox = boxShown && shape ? container.data : undefined;
+  const typesRead = useQuery(typesQuery);
+  const types = typesRead.data;
   const waitingFor = findBox.isPending
     ? "Finding the box and its free positions…"
     : boxFound?.kind === "ambiguous"
       ? `Choose which box “${boxFound.code.trim()}” is, above.`
-      : (boxShown && container.isPending) || reread.isPending
+      : (boxShown && container.isPending) || reread.isPending || (shownBox && typesRead.isPending)
         ? "Loading the box’s free positions…"
         : null;
+  // Only wells that can be used are offered: the server checks again when it's completed.
+  const boxWhyNot = !shownBox
+    ? null
+    : shownBox.archived
+      ? `${shownBox.hrid} is archived: choose another box, or keep them in your custody.`
+      : !shownBox.can.keep
+        ? `Putting things in ${shownBox.hrid} needs Editor in its project: choose another box, or keep them in your custody.`
+        : null;
+  const whyNot = new Map<string, string>();
+  if (shownBox && types && !boxWhyNot) {
+    for (const l of putting) {
+      if (!l.ref) continue;
+      if (l.ref.archived)
+        whyNot.set(
+          l.id,
+          `${l.ref.hrid} is archived: restore it to put it away, or keep it in your custody.`,
+        );
+      else if (!shownBox.holds.some((h) => lineage(types, l.ref?.type ?? "").has(h)))
+        whyNot.set(
+          l.id,
+          `${shownBox.hrid} doesn’t hold a ${typeLabel(types, l.ref.type)}: choose another box, or keep it in your custody.`,
+        );
+    }
+  }
+  const cannot = new Set(boxWhyNot ? putting.map((l) => l.id) : whyNot.keys());
   const decided = dispositions(
     putting,
     shownBox && !waitingFor ? free.map((s) => s.label) : null,
     where,
     kept,
+    cannot,
   );
   const undecided = putting.filter((l) => decided.get(l.id)?.kind === "open");
   const planned = shownBox
@@ -731,13 +819,19 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     : [];
   const keeping = putting.filter((l) => decided.get(l.id)?.kind === "custody");
   const complete = useApiMutation(
-    async (plan: CompletePlan) =>
-      completeReceipt(id, {
-        plan_revision: plan.plan_revision,
-        missing_rest: plan.missing_rest,
-        put_away: plan.put_away,
-        keep_in_custody: plan.keep_in_custody,
-      }),
+    async (plan: CompletePlan): Promise<{ done: Receipt } | { changed: Receipt }> => {
+      // The receipt as it is now: what's approved is what was reviewed, every write included.
+      const now = await readReceipt(id);
+      if (now.plan_revision !== plan.plan_revision) return { changed: now };
+      return {
+        done: await completeReceipt(id, {
+          plan_revision: plan.plan_revision,
+          missing_rest: plan.missing_rest,
+          put_away: plan.put_away,
+          keep_in_custody: plan.keep_in_custody,
+        }),
+      };
+    },
     [STORAGE],
   );
   // A refusal of what was sent: each error on the line it's about, and listed by Complete.
@@ -763,17 +857,22 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   // The Box field names another box than the one shown: what would be put away isn't known.
   const typed = box.trim();
   const boxChanged = !!shownBox && !!planned.length && typed !== lookedUp.trim();
-  // Completing waits for a decision on every received tube, made with the box as shown.
-  const ready = !undecided.length && !boxChanged;
-  const status = !putting.length
-    ? ""
-    : waitingFor && !ready
-      ? waitingFor
-      : boxChanged
-        ? `Show the free positions in ${typed || "a box"} first, or put the text back to ${lookedUp.trim()}.`
-        : !ready
-          ? `Decide for ${listed(undecided.map(shortName))}: put ${undecided.length === 1 ? "it" : "each"} away in a free position, or keep ${undecided.length === 1 ? "it" : "them"} in your custody.`
-          : `Ready: ${planSummary(planned.length, keeping.length, shownBox?.hrid)}.`;
+  // Completing waits for every write on its way, and a decision on every received tube, made
+  // with the box as shown.
+  const ready = !writes.length && !undecided.length && !boxChanged;
+  const status = writes.length
+    ? writes.length === 1
+      ? `Waiting for ${writes[0]?.what ?? ""} to be saved.`
+      : `Waiting for ${String(writes.length)} changes to be saved.`
+    : !putting.length
+      ? ""
+      : waitingFor && !ready
+        ? waitingFor
+        : boxChanged
+          ? `Show the free positions in ${typed || "a box"} first, or put the text back to ${lookedUp.trim()}.`
+          : !ready
+            ? `Decide for ${listed(undecided.map(shortName))}: put ${undecided.length === 1 ? "it" : "each"} away in a free position, or keep ${undecided.length === 1 ? "it" : "them"} in your custody.`
+            : `Ready: ${planSummary(planned.length, keeping.length, shownBox?.hrid)}.`;
   const statusId = useId();
   // After a refusal, the keyboard and screen reader go to what it says.
   const feedback = useRef<HTMLDivElement>(null);
@@ -781,6 +880,27 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   useEffect(() => {
     if (refusedAt) feedback.current?.focus();
   }, [refusedAt]);
+  // What Complete would send, while it can: a press completes only the plan it began on.
+  const planKey = ready
+    ? JSON.stringify([
+        receipt.plan_revision,
+        missingRest,
+        shownBox?.id ?? null,
+        planned.map((p) => [p.line.id, p.position]),
+        keeping.map((l) => l.id),
+      ])
+    : null;
+  const pressed = useRef<{ plan: string | null } | null>(null);
+  const completeButton = buttonState(
+    {
+      variant: "primary",
+      busy: complete.isPending,
+      busyText: "Completing…",
+      disabled: !ready,
+      describedBy: status ? statusId : undefined,
+    },
+    "Complete receiving",
+  );
   const completeNow = () => {
     if (!ready || complete.isPending) return;
     // What's shown is what's sent: this receipt's revision, and each tube's decision.
@@ -798,8 +918,19 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
       keep_in_custody: keeping.map((l) => l.id),
     };
     const into = shownBox?.hrid;
+    const shown = receipt;
     complete.mutate(plan, {
-      onSuccess: () => {
+      onSuccess: (result) => {
+        if ("changed" in result) {
+          // Newer than what was reviewed: nothing is sent; the person reviews it, then completes.
+          setMissingRest(false);
+          update(result.changed);
+          setCompleteStale(
+            changedSince(shown, result.changed, revisedLines(shown, result.changed)),
+          );
+          setRefusedAt((n) => n + 1);
+          return;
+        }
         setCompleteStale(null);
         say(
           `Received ${receipt.request.hrid}${putting.length ? `: ${planSummary(plan.put_away.length, plan.keep_in_custody.length, into)}` : ""}.`,
@@ -937,6 +1068,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
                 check.mutate(
                   { line: line.id, outcome, note: text },
                   {
+                    onSettled: begin(`${shortName(line)}’s outcome`),
                     onSuccess: (done) => {
                       update(done.receipt);
                       if (done.found === "again") {
@@ -1094,6 +1226,11 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           <ProblemAlert problem={problemOf(findBox.error)} />
         ) : null}
         {container.error ? <ProblemAlert problem={problemOf(container.error)} /> : null}
+        {boxWhyNot ? (
+          <div className="alert alert-warning" role="note">
+            <p>{boxWhyNot}</p>
+          </div>
+        ) : null}
         {boxShown && container.data && !shape ? (
           <div className="alert alert-warning" role="note">
             <p>{container.data.hrid} has no positions: choose a box.</p>
@@ -1134,7 +1271,8 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
                         .filter((o) => o.id !== l.id && !kept.has(o.id))
                         .map((o) => where[o.id]),
                     );
-                    const wells = shownBox ? free.filter((s) => !others.has(s.label)) : [];
+                    const wells =
+                      shownBox && !cannot.has(l.id) ? free.filter((s) => !others.has(s.label)) : [];
                     return (
                       <tr key={l.id}>
                         <th scope="row">{lineName(l)}</th>
@@ -1164,6 +1302,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
                               setWhere(v === KEEP ? rest : { ...rest, [l.id]: v });
                             }}
                             error={rowErrors.get(l.id)}
+                            {...(whyNot.has(l.id) ? { help: whyNot.get(l.id) ?? "" } : {})}
                           />
                         </td>
                       </tr>
@@ -1216,16 +1355,29 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           />
         ) : null}
         <div className="actions">
-          <Button
-            variant="primary"
-            busy={complete.isPending}
-            busyText="Completing…"
-            disabled={!ready}
-            describedBy={status ? statusId : undefined}
-            onClick={completeNow}
+          <button
+            {...completeButton.attributes}
+            onPointerDown={() => {
+              pressed.current = { plan: planKey };
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") pressed.current = { plan: planKey };
+            }}
+            onClick={(event) => {
+              // A press held while the plan changed, such as a box's wells appearing under
+              // it, completes nothing: only one that began on the plan shown completes it.
+              const began = pressed.current;
+              pressed.current = null;
+              const fresh = began ? began.plan !== null && began.plan === planKey : !event.detail;
+              if (!fresh) {
+                event.preventDefault();
+                return;
+              }
+              completeButton.press(event, completeNow);
+            }}
           >
-            Complete receiving
-          </Button>
+            {completeButton.content}
+          </button>
           <Button
             variant="quiet"
             onClick={() => {

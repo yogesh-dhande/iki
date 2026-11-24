@@ -2236,7 +2236,8 @@ def _lookup(
             "hrid": e.hrid,
             "title": _title(shown_by, shown),
             "type": e.type,
-            "archived": shown_by.archived_at is not None and shown_by is not e,
+            # Archived as the record it's shown by is: itself, or an identity's record of it.
+            "archived": shown_by.archived_at is not None,
             "purged": False,
         }
 
