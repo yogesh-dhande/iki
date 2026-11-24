@@ -1222,44 +1222,44 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         for owner in owners:
             entities.identity_lock(registry.types()[owner], registry_of(project), shared=False)
         params["identified"] = identified
+        # PostgreSQL can underestimate a freshly staged import and rescan an
+        # unindexed CTE for every line. Resolve each identity once and give
+        # the next join an indexed lookup with current statistics.
+        cursor.execute(
+            "CREATE TEMP TABLE iki_import_entries ON COMMIT DROP AS "  # noqa: S608 - ours; values are parameters
+            "SELECT f.identity_hash, f.line AS first_line, f.type AS first_type,"
+            " f.entity_id AS first_entity_id, COALESCE(x.id, uuidv7()) AS entry_id,"
+            " x.id IS NULL AS new_entry, x.type AS entry_type, x.hrid AS entry_hrid,"
+            " x.superseded_by_id, h.id AS held_id"
+            " FROM (SELECT DISTINCT ON (identity_hash) identity_hash, line, entity_id, type"
+            f" FROM {table} WHERE identity_hash IS NOT NULL AND type = ANY(%(identified)s)"
+            " ORDER BY identity_hash, line) f"
+            " LEFT JOIN iki_entity x ON x.registry_id = %(registry)s"
+            "  AND x.identity_hash = f.identity_hash"
+            " LEFT JOIN iki_entity h ON h.owner_project_id = %(project)s AND h.entry_id = x.id",
+            params,
+        )
+        cursor.execute("CREATE UNIQUE INDEX ON iki_import_entries (identity_hash)")
+        cursor.execute("ANALYZE iki_import_entries")
         # Each line's record: a new one, an earlier line's of the same identity, or the
         # project's own of the entry there is; and for an identity, its entry: a new one
         # (the first line with it makes it), or the registry's.
         cursor.execute("DROP TABLE IF EXISTS iki_import_resolved")
         cursor.execute(
             "CREATE TEMP TABLE iki_import_resolved ON COMMIT DROP AS "  # noqa: S608 - ours; values are parameters
-            "WITH firsts AS ("
-            f" SELECT DISTINCT ON (identity_hash) identity_hash, line, entity_id, type FROM {table}"
-            " WHERE identity_hash IS NOT NULL AND type = ANY(%(identified)s)"
-            " ORDER BY identity_hash, line"
-            "), registered AS ("
-            " SELECT e.identity_hash, e.id, e.type, e.hrid, e.superseded_by_id FROM iki_entity e"
-            " WHERE e.registry_id = %(registry)s"
-            " AND e.identity_hash IN (SELECT identity_hash FROM firsts)"
-            "), entries AS ("
-            " SELECT f.identity_hash, f.line, f.type AS first_type,"
-            "  COALESCE(x.id, uuidv7()) AS entry_id, x.id IS NULL AS new_entry,"
-            "  x.type AS entry_type, x.hrid AS entry_hrid, x.superseded_by_id"
-            " FROM firsts f LEFT JOIN registered x USING (identity_hash)"
-            "), held AS ("
-            " SELECT DISTINCT ON (r.entry_id) r.entry_id, r.id FROM iki_entity r"
-            " WHERE r.owner_project_id = %(project)s"
-            " AND r.entry_id IN (SELECT entry_id FROM entries WHERE NOT new_entry)"
-            " ORDER BY r.entry_id, r.created_at, r.id"
-            "), lines AS ("
+            "WITH lines AS ("
             " SELECT s.line, s.entity_id, s.type, n.entry_id, n.entry_type, n.entry_hrid,"
-            "  n.superseded_by_id, n.new_entry AND n.line = s.line AS makes_entry,"
-            "  CASE WHEN n.new_entry AND n.line <> s.line THEN n.line END AS registered_by,"
+            "  n.superseded_by_id, n.new_entry AND n.first_line = s.line AS makes_entry,"
+            "  CASE WHEN n.new_entry AND n.first_line <> s.line"
+            "   THEN n.first_line END AS registered_by,"
             # A new identity is the first line's type: a later line of it as another type
             # would be that entry under another type (ADR 0165).
             "  CASE WHEN n.new_entry THEN n.first_type END AS first_type,"
-            "  COALESCE(h.id, f.entity_id, s.entity_id) AS target,"
-            "  h.id IS NOT NULL AS reused"
+            "  COALESCE(n.held_id, n.first_entity_id, s.entity_id) AS target,"
+            "  n.held_id IS NOT NULL AS reused"
             f" FROM {table} s"
-            " LEFT JOIN firsts f ON f.identity_hash = s.identity_hash"
+            " LEFT JOIN iki_import_entries n ON n.identity_hash = s.identity_hash"
             "  AND s.type = ANY(%(identified)s)"
-            " LEFT JOIN entries n ON n.identity_hash = f.identity_hash"
-            " LEFT JOIN held h ON h.entry_id = n.entry_id"
             ") SELECT line, entity_id, type, entry_id, entry_type, entry_hrid, superseded_by_id,"
             " makes_entry, registered_by, first_type, target, reused,"
             " target = entity_id AND NOT reused AS new,"
@@ -1267,6 +1267,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " FROM lines",
             params,
         )
+        cursor.execute("DROP TABLE iki_import_entries")
         cursor.execute("CREATE UNIQUE INDEX ON iki_import_resolved (line)")
         _refuse_unregistrable(cursor)
         # An entity the run already changed (one of its inputs, updated) keeps that effect.
