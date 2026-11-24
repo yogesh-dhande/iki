@@ -72,6 +72,8 @@ export interface Problem {
   approvers?: string[];
   /** For `starter_plan_changed` (409): what applying the starter does now, to review. */
   plan?: Schemas["StarterSetupOut"];
+  /** For `moves_plan_changed` (409): what the moves do now, to review. */
+  moves?: Schemas["MovesOut"];
   /** For a bulk reassignment's `stale` (412): each record that changed since it was read. */
   stale?: { id: string; hrid: string; expected_revision: number; current_revision: number }[];
   request_id?: string;

@@ -2875,6 +2875,8 @@ class MovesIn(TypedDict):
     #: Proof for each selected record that requires confirmation, keyed by its ID or HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.
     confirmations: NotRequired[dict[str, str | IkiIdConfirmationIn]]
     items: list[MoveItemIn]
+    #: The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.
+    plan: NotRequired[str | None]
     #: Say what each move would do, changing nothing.
     preview: NotRequired[bool]
     #: Why: required to change anything.
@@ -2887,6 +2889,8 @@ class MovesOut(TypedDict):
     items: list[PlannedOut]
     #: The moves' operation, once they're made.
     operation: str | None
+    #: A preview's: identifies what it shows, to send with the moves. Null once they're made.
+    plan: str | None
 
 
 class MySigningOut(TypedDict):

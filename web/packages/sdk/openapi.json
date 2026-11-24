@@ -12550,6 +12550,19 @@
             "title": "Items",
             "type": "array"
           },
+          "plan": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.",
+            "title": "Plan"
+          },
           "preview": {
             "default": false,
             "description": "Say what each move would do, changing nothing.",
@@ -12596,12 +12609,25 @@
             ],
             "description": "The moves' operation, once they're made.",
             "title": "Operation"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A preview's: identifies what it shows, to send with the moves. Null once they're made.",
+            "title": "Plan"
           }
         },
         "required": [
           "items",
           "done",
-          "operation"
+          "operation",
+          "plan"
         ],
         "title": "MovesOut",
         "type": "object"
@@ -46558,7 +46584,7 @@
     },
     "/api/v1/storage/moves": {
       "post": {
-        "description": "Puts each record in its container, at its position or the next free one, or takes it\nout of storage, as one change with one reason. Any move refused refuses them all (422),\nsaying which and why. ``preview`` answers the plan, with each problem, and changes\nnothing. Needs Editor in the project of each container a record goes into or leaves.",
+        "description": "Puts each record in its container, at its position or the next free one, or takes it\nout of storage, as one change with one reason. Any move refused refuses them all (422),\nsaying which and why. ``preview`` answers the plan, with each problem, and changes\nnothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or\nrefused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the\nproject of each container a record goes into or leaves.",
         "operationId": "iki_server_api_storage_move",
         "parameters": [],
         "requestBody": {

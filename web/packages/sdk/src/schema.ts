@@ -4655,7 +4655,9 @@ export interface paths {
          * @description Puts each record in its container, at its position or the next free one, or takes it
          *     out of storage, as one change with one reason. Any move refused refuses them all (422),
          *     saying which and why. ``preview`` answers the plan, with each problem, and changes
-         *     nothing. Needs Editor in the project of each container a record goes into or leaves.
+         *     nothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or
+         *     refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
+         *     project of each container a record goes into or leaves.
          */
         post: operations["iki_server_api_storage_move"];
         delete?: never;
@@ -11445,6 +11447,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["MoveItemIn"][];
             /**
+             * Plan
+             * @description The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.
+             */
+            plan?: string | null;
+            /**
              * Preview
              * @description Say what each move would do, changing nothing.
              * @default false
@@ -11471,6 +11478,11 @@ export interface components {
              * @description The moves' operation, once they're made.
              */
             operation: string | null;
+            /**
+             * Plan
+             * @description A preview's: identifies what it shows, to send with the moves. Null once they're made.
+             */
+            plan: string | null;
         };
         /**
          * MySigningOut

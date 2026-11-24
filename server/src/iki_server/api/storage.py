@@ -448,6 +448,14 @@ class MovesIn(Schema):
         "HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
     )
     preview: bool = Field(False, description="Say what each move would do, changing nothing.")
+    plan: str | None = Field(
+        None,
+        pattern="^[0-9a-f]{64}$",
+        description="The `plan` a preview of these moves returned: what was reviewed. They're "
+        "made only if they'd still do exactly that, each record from where it was shown and to "
+        "the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, "
+        "what they'd do now). Without it, a null position is the next free one when it's made.",
+    )
 
 
 class PlannedOut(Schema):
@@ -462,6 +470,10 @@ class MovesOut(Schema):
     items: list[PlannedOut]
     done: bool = Field(description="Every move was made. False for a preview.")
     operation: UUID | None = Field(description="The moves' operation, once they're made.")
+    plan: str | None = Field(
+        description="A preview's: identifies what it shows, to send with the moves. Null once "
+        "they're made."
+    )
 
 
 def _records(me: User, refs: Sequence[str]) -> list[Entity]:
@@ -544,15 +556,25 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
     """Puts each record in its container, at its position or the next free one, or takes it
     out of storage, as one change with one reason. Any move refused refuses them all (422),
     saying which and why. ``preview`` answers the plan, with each problem, and changes
-    nothing. Needs Editor in the project of each container a record goes into or leaves."""
+    nothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or
+    refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
+    project of each container a record goes into or leaves."""
     me = caller(request)
     wanted = _wanted(me, payload.items)
     confirmations = _confirmations(wanted, payload.confirmations)
     if payload.preview:
-        planned = storage.plan(me, wanted, confirmations=confirmations)
-        return {"items": _planned_out(me, planned), "done": False, "operation": None}
+        return _previewed(me, storage.plan(me, wanted, confirmations=confirmations))
     try:
-        events = storage.move(me, wanted, reason=payload.reason, confirmations=confirmations)
+        events = storage.move(
+            me, wanted, reason=payload.reason, confirmations=confirmations, reviewed=payload.plan
+        )
+    except storage.PlanChanged as changed:
+        raise Problem(
+            409,
+            str(changed),
+            code="moves_plan_changed",
+            extensions={"moves": _previewed(me, changed.planned)},
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     ends = {x for e in events for x in (e.entity_id, e.from_container_id, e.to_container_id) if x}
@@ -572,7 +594,16 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
                 "problems": [],
             }
         )
-    return {"items": items, "done": True, "operation": events[0].operation}
+    return {"items": items, "done": True, "operation": events[0].operation, "plan": None}
+
+
+def _previewed(me: User, planned: Sequence[storage.Planned]) -> dict[str, Any]:
+    return {
+        "items": _planned_out(me, planned),
+        "done": False,
+        "operation": None,
+        "plan": storage.identify(planned),
+    }
 
 
 class CheckOutIn(Schema):
