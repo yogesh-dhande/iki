@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from iki_spec.model import Field, included_reference
+
 if TYPE_CHECKING:
     from iki_server.entities.models import Entity
 
@@ -105,9 +107,9 @@ def _make(user: Any, project: Any, sample: dict[str, Any]) -> Any:  # noqa: ANN4
     from iki_server.entities.services import Invalid
     from iki_server.entities.values import shape
 
-    values = sample["values"]
     entity_type = types().get(sample["type"])
     fields = shape(sample["type"]).fields() if entity_type is not None else {}
+    values = _with_included(user, project, sample, fields)
     needed = set(identity_of(entity_type)) if entity_type is not None else set()
     first = {k: v for k, v in values.items() if k in needed or (k in fields and fields[k].required)}
     later = {k: v for k, v in values.items() if k not in first}
@@ -130,6 +132,35 @@ def _make(user: Any, project: Any, sample: dict[str, Any]) -> Any:  # noqa: ANN4
             f"The sample from {sample['from']} isn't a valid {sample['type']} at the earlier "
             f"commit: {invalid}"
         ) from None
+
+
+def _with_included(
+    user: Any,  # noqa: ANN401 - Django model
+    project: Any,  # noqa: ANN401 - Django model
+    sample: dict[str, Any],
+    fields: dict[str, Field],
+) -> dict[str, Any]:
+    values = dict(sample["values"])
+    for reference, named in sample.get("included", {}).items():
+        field = included_reference(fields, reference)
+        target = field.items if field is not None and field.type == "list" else field
+        if field is None or target is None or target.type != "ref":
+            raise _StepError(
+                f"The sample from {sample['from']} has no reference {reference} "
+                "at the earlier commit."
+            )
+        ids = [str(_make(user, project, other).pk) for other in named]
+        if "." in reference:
+            rows, _, cell = reference.partition(".")
+            values[rows] = [
+                {**row, cell: ids[i] if i < len(ids) else row.get(cell)}
+                for i, row in enumerate(values.get(rows) or [])
+            ]
+        elif field.type == "list":
+            values[reference] = ids
+        else:
+            values[reference] = ids[0] if ids else None
+    return values
 
 
 def _units(entity: Any) -> dict[str, str]:  # noqa: ANN401 - an Entity

@@ -24,6 +24,11 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9_]*$"
     },
+    "upgrade": {
+      "description": "Use these inputs as database samples for the plugin's upgrade probe. Supply values that can be stored by the earlier build, including any required references.",
+      "type": "boolean",
+      "default": false
+    },
     "params": {
       "description": "Its params' values, as a person would give them. A file param names one of `files` as `{\"$file\": \"name\"}`.",
       "type": "object"
