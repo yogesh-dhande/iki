@@ -1,0 +1,24 @@
+apiVersion: iki/v1
+kind: Action
+name: record_measurement
+label: Record stability measurement
+description: Record a planned test on a completed pull with the study's reporting unit and pinned method.
+inputs:
+  pull: { type: Pull, schema: ">=1", include: [study] }
+params:
+  test:
+    type: string
+    max_length: 100
+    required: true
+    description: The test or attribute from the study protocol.
+  value: { type: float, required: true }
+  report:
+    type: file
+    label: Test report
+    media_types: [application/pdf, text/csv, text/plain]
+    max_size: 50MiB
+  notes: { type: text, max_length: 4000 }
+effects:
+  creates: [{ type: Measurement, derived_from: [pull] }]
+runs_on: { tier: backend, environment: stability-tools }
+command: [python, ./scripts/stability.py, measure]

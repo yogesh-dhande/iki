@@ -31,7 +31,7 @@ from django.contrib.postgres.fields import (
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models import Q
-from django.db.models.functions import Now
+from django.db.models.functions import Coalesce, Now
 
 from iki_server.core.ids import uuid7
 from iki_server.entities import hrids, identity, registry
@@ -737,6 +737,35 @@ class RuleHold(models.Model):
 
     def __str__(self) -> str:
         return f"{self.entity_id} held by {self.rule}"
+
+
+class RuleHoldOccurrence(models.Model):
+    """The evidence of one failing observation, preserved for the hold's review."""
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    hold = models.ForeignKey(RuleHold, on_delete=models.PROTECT, related_name="occurrences")
+    revision = models.PositiveIntegerField()
+    entry = models.ForeignKey(Entity, null=True, on_delete=models.PROTECT, related_name="+")
+    entry_revision = models.PositiveIntegerField(null=True)
+    label = models.CharField(max_length=100)
+    message = models.TextField(null=True)
+    reason = models.TextField(null=True)
+    held_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    held_agent = models.ForeignKey(
+        "iki_audit.Agent", null=True, on_delete=models.PROTECT, related_name="+"
+    )
+    held_at = models.DateTimeField(null=True, db_default=Now())
+    #: Only old aggregated failures had a gap in their evidence. This is when it closed.
+    legacy_gap_ended_at = models.DateTimeField(null=True)
+
+    class Meta:
+        db_table = "iki_rule_hold_occurrence"
+        db_table_comment = "Each failing observation that a rule held, and why it was kept."
+        ordering = ("revision", Coalesce("held_at", "legacy_gap_ended_at"), "id")
 
 
 class RuleBreach(models.Model):

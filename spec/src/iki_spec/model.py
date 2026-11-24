@@ -107,6 +107,8 @@ class Field:
     required: bool = False
     immutable: bool = False
     computed: bool = False
+    #: For an editable boolean, clearing a true value requires a reason in the edit.
+    reason_on_clear: bool = False
     #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
     #: rather than of each project's record (ADR 0115). None for a record's own field.
     registry: str | None = None
@@ -201,6 +203,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
             unique=bool(data.get("unique", False)),
@@ -851,6 +854,20 @@ class StockCatalogue:
 
 
 @dataclass(frozen=True)
+class DrawTarget:
+    """A record intended to receive one matched draw while it awaits material."""
+
+    from_field: str
+    source: str
+    state_field: str
+    state: str
+    by: tuple[str, ...]
+    ready: str
+    amount: str
+    stored: bool = False
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -869,7 +886,7 @@ class EntityType:
     viewers: tuple[Viewer, ...] = ()
     #: The files Iki writes of its records, such as GenBank (ADR 0171). Subtypes have their
     #: nearest ancestor's unless they declare their own.
-    exports: tuple[Export, ...] = ()
+    exports: tuple[Export | ReportExport, ...] = ()
     file: str | None = None
     #: The date or datetime field saying when its records are due (ADR 0122): its own or a
     #: parent's. Subtypes have their ancestor's unless they name their own.
@@ -893,6 +910,8 @@ class EntityType:
     draw_guards: dict[str, Guard] = field(default_factory=dict)
     #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
     draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: An optional one-draw ledger target, such as a scheduled stability pull.
+    draw_target: DrawTarget | None = None
     #: Where its records are kept, and what they keep (ADR 0180): its own or a parent's.
     storage: Storage | None = None
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
@@ -953,6 +972,16 @@ class Export:
     description: str = ""  # a string or text field, or ""
     accession: str = ""  # a string field: an INSDC accession with its version, or ""
     organism: str = ""  # a reference to iki/core.Organism, or ""
+
+
+@dataclass(frozen=True)
+class ReportExport:
+    """A JSON report issued by a signed state change."""
+
+    export: str
+    report: str
+    review: str
+    issued: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -1597,6 +1626,7 @@ _DATACLASSES = (
     StockCatalogue,
     StockOrders,
     StockLots,
+    DrawTarget,
     Grid,
     Storage,
     Field,
@@ -1611,6 +1641,7 @@ _DATACLASSES = (
     ResultSpec,
     EntityType,
     Export,
+    ReportExport,
     Extension,
     Plugin,
     Action,
@@ -1651,7 +1682,20 @@ def plugin_to_dict(plugin: Plugin) -> dict[str, Any]:
 
 def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-shaped values
     if isinstance(value, _DATACLASSES):
-        return {f.name: _to_json(getattr(value, f.name)) for f in fields(value)}
+        return {
+            f.name: _to_json(getattr(value, f.name))
+            for f in fields(value)
+            if not (
+                f.name == "draw_target"
+                and isinstance(value, EntityType)
+                and value.draw_target is None
+            )
+            and not (
+                f.name == "reason_on_clear"
+                and isinstance(value, Field)
+                and not value.reason_on_clear
+            )
+        }
     if isinstance(value, dict):
         return {k: _to_json(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -1662,6 +1706,12 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
 def _viewer(data: dict[str, Any]) -> Viewer:
     tracks = tuple(Track(**t) for t in data.get("tracks") or ())
     return Viewer(**{**data, "tracks": tracks})
+
+
+def _export(data: dict[str, Any]) -> Export | ReportExport:
+    if data["export"] == "signed_report":
+        return ReportExport(**{**data, "issued": tuple(data["issued"])})
+    return Export(**data)
 
 
 def plugin_from_dict(data: dict[str, Any]) -> Plugin:
@@ -1678,7 +1728,7 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # Plugins built before viewers have none.
                         "viewers": tuple(_viewer(x) for x in v.get("viewers") or ()),
                         # ...or exports.
-                        "exports": tuple(Export(**x) for x in v.get("exports") or ()),
+                        "exports": tuple(_export(x) for x in v.get("exports") or ()),
                         # ...or rules.
                         "rules": {n: _rule(r) for n, r in (v.get("rules") or {}).items()},
                         # ...or notifications.
@@ -1699,6 +1749,11 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         "draw_purposes": {
                             n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
                         },
+                        "draw_target": (
+                            DrawTarget(**{**target, "by": tuple(target["by"])})
+                            if (target := v.get("draw_target"))
+                            else None
+                        ),
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}

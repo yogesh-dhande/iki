@@ -1725,9 +1725,155 @@ def lims() -> None:
     ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
     bookings(alice, project)
     signatures(alice, project, first)
+    stability_study(alice, project)
     plate_assay(alice, project)
     reagent_stock(alice, project)
     dose_response_starters(alice, project)
+    qc_release(alice, project)
+
+
+def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Release a teaching lot against a public USP excerpt and a signed OOS decision."""
+    prefix = "iki/qc_release."
+    give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer", prefix + "qa")
+    # PubChem CID 5234 identifies sodium chloride. All local lot and test data below are synthetic.
+    material = created(
+        alice,
+        project,
+        "iki/small_molecule.Compound",
+        {
+            "name": "Sodium chloride",
+            "smiles": "[Na+].[Cl-]",
+            "inchikey": "FAPWRFPIFSIZLT-UHFFFAOYSA-M",
+            "pubchem_cid": "5234",
+        },
+    )
+    lot = created(
+        alice,
+        project,
+        "iki/lots.GenericLot",
+        {"of": material["id"], "lot_number": "Synthetic NaCl release example", "source": "bought"},
+    )
+
+    def effect(run: dict[str, Any], kind: str) -> dict[str, Any]:
+        [made] = [e["entity"] for e in run["effects"] if e["type"] == prefix + kind]
+        return record(alice, made)
+
+    def sign(entity: dict[str, Any], field: str, state: str, reason: str = "") -> None:
+        result = signing(alice, entity, state, "alice", field=field, reason=reason)
+        if result["status"] != "signed" or not result["set"]:
+            fail(f"signing {entity['hrid']} gave {result}")
+
+    fixture = (
+        Path(__file__).resolve().parents[2]
+        / "plugins/qc_release/tests/data/sodium-chloride-specification.json"
+    )
+    specification = json.loads(fixture.read_text(encoding="utf-8"))
+    schedule = created(
+        alice, project, prefix + "SpecificationSchedule", {"material": material["id"]}
+    )
+    version = created(
+        alice,
+        project,
+        prefix + "SpecificationVersion",
+        {"schedule": schedule["id"], **specification},
+    )
+    sign(version, "approval", "approved")
+    approved = record(alice, version["id"])
+    launch(
+        alice,
+        project,
+        prefix + "publish_version",
+        {"schedule": schedule["id"], "version": version["id"]},
+    )
+    case = effect(
+        launch(
+            alice,
+            project,
+            prefix + "open_release",
+            {"lot": lot["id"], "schedule": schedule["id"]},
+            {"testing_on": datetime.now(UTC).date().isoformat()},
+        ),
+        "ReleaseCase",
+    )
+    assay, drying = specification["criteria"]
+
+    def test(criterion: dict[str, Any], value: float, **inputs: str) -> dict[str, Any]:
+        params = {key: criterion[key] for key in ("attribute", "method", "unit")}
+        return launch(
+            alice,
+            project,
+            prefix + "record_test",
+            {"case": case["id"], **inputs},
+            {**params, "value": value},
+        )
+
+    first = test(assay, 98.7)
+    original = effect(first, "ReleaseTest")
+    investigation = effect(first, "ResearchOOSInvestigation")
+    evidence = upload(
+        alice,
+        project,
+        "synthetic-investigation.txt",
+        b"Synthetic training evidence. The original record used another sample's report.",
+        "text/plain",
+    )
+    amended = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{investigation['id']}",
+        {
+            "values": {
+                "resolution": "invalidated",
+                "findings": "Synthetic scenario: the report ID belongs to a different specimen.",
+                "evidence": evidence,
+            },
+            "reason": "Record the synthetic investigation evidence.",
+        },
+        {"If-Match": f'"{investigation["revision"]}"'},
+    )
+    if amended.status_code != 200:
+        fail(f"recording an OOS disposition answered HTTP {amended.status_code}: {amended.text}")
+    sign(investigation, "review", "signed_off", "Signed synthetic investigation conclusion.")
+    repeat = effect(
+        test(assay, 99.9, repeat_of=original["id"], investigation=investigation["id"]),
+        "ReleaseTest",
+    )
+    moisture = effect(test(drying, 0.2), "ReleaseTest")
+    certificate = effect(
+        launch(
+            alice,
+            project,
+            prefix + "prepare_certificate",
+            {
+                "case": case["id"],
+                "tests": [original["id"], repeat["id"], moisture["id"]],
+                "investigations": [investigation["id"]],
+            },
+        ),
+        "ResearchCertificate",
+    )
+    report = certificate["values"]["report"]
+    if (
+        report["specification"]["revision"] != approved["revision"]
+        or [row["value"] for row in report["tests"]] != [98.7, 99.9, 0.2]
+        or report["investigations"][0]["resolution"] != "invalidated"
+    ):
+        fail(f"{certificate['hrid']} lost the pinned data: {report}")
+    sign(certificate, "review", "signed_off")
+    proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
+    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        fail(f"{certificate['hrid']} has no verifiable reviewer signature")
+    url = f"/entities/{certificate['id']}/export?format=signed-report-json"
+    receipt = api_call(alice, "GET", url)
+    if (
+        receipt.status_code != 200
+        or receipt.json()["report"] != report
+        or len(receipt.json()["signatures"]) != 1
+        or api_call(alice, "GET", url).content != receipt.content
+    ):
+        fail(f"{certificate['hrid']} has no reproducible signed certificate download")
+    ok(f"{certificate['hrid']} pins an effective specification, original OOS and signed resolution")
 
 
 def signing(
@@ -1742,7 +1888,8 @@ def signing(
 ) -> Any:  # noqa: ANN401
     """Starts signing for a state, signs in again at Keycloak as `as_user` (someone other
     than the session's person, if `someone_else`), and returns what came of it."""
-    etag = api_call(session, "GET", f"/entities/{entity['id']}").headers["ETag"]
+    reviewed = api_call(session, "GET", f"/entities/{entity['id']}")
+    entry = reviewed.json()["entry"]
     started = api_call(
         session,
         "POST",
@@ -1750,11 +1897,12 @@ def signing(
         {
             "field": field,
             "state": state,
+            "entry_revision": entry["revision"] if entry else None,
             "acknowledge": True,
             "reason": reason,
             "return_to": f"/entities/{entity['hrid']}/",
         },
-        {"If-Match": etag},
+        {"If-Match": reviewed.headers["ETag"]},
     )
     if started.status_code != 201:
         fail(f"signing {entity['hrid']} answered HTTP {started.status_code}: {started.text[:300]}")
@@ -1995,13 +2143,13 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if made.status_code != 201:
         fail(f"making a sample answered HTTP {made.status_code}: {made.text[:300]}")
     sample = made.json()
-    for state in ("received", "in_testing"):
+    for state, reason in (("received", ""), ("in_testing", "Start testing the example sample")):
         etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
         moved = api_call(
             alice,
             "POST",
             f"/entities/{sample['id']}/states/status",
-            {"state": state, "reason": ""},
+            {"state": state, "reason": reason},
             {"If-Match": etag},
         )
         if moved.status_code != 200:
@@ -2039,6 +2187,7 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
+    core_facility_requests(alice, bob, carol, project, core)
     bench_material(alice, project, core, protein)
     cell_bank_history(alice, project)
 
@@ -2203,6 +2352,109 @@ def analysis_result(
     ):
         fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
     ok(f"{result['hrid']}: QA released corrected revision {review['revision']} to the requester")
+
+
+def core_facility_requests(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    qa: requests.Session,
+    asking: dict[str, Any],
+    core: dict[str, Any],
+) -> None:
+    """The working core returns production and sequencing deliverables through Requests."""
+    give_lab_roles(analyst, core, LIMS_TYPE + "coordinator")
+    example = Path(__file__).resolve().parents[2] / "plugins" / "example_lims" / "examples"
+    # The production transaction is simulated; only the registered UniProt identity is public.
+    fasta = (example / "P00330.fasta").read_text().splitlines()
+    protein = created(
+        analyst,
+        asking,
+        "iki/protein.Protein",
+        {
+            "name": "Yeast alcohol dehydrogenase 1",
+            "sequence": "".join(fasta[1:]),
+            "uniprot_accession": "P00330",
+        },
+    )
+    # The tube handoff is simulated; the public ENA run is for yeast isolate CEY652.
+    tube = created(analyst, asking, LIMS_TYPE + "Tube", {"name": "Training CEY652"})
+    requester = cli_read_token(analyst, project=asking["id"])
+    for prefix, filename, values, evidence, steps in (
+        (
+            "Research",
+            "P00330-production.txt",
+            {
+                "title": "Training: ADH1 production",
+                "facility_service": "protein_production",
+                "protein": entry_of(protein),
+                "requested_mass": 1,
+            },
+            {"protein": entry_of(protein), "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            ((reviewer, "bob", "signed_off"),),
+        ),
+        (
+            "QC",
+            "ERR13376132-delivery.txt",
+            {
+                "title": "Training: long-read sequencing",
+                "facility_service": "sequencing",
+                "sequencing_method": "long_read",
+                "tubes": [tube["id"]],
+            },
+            {"tube": tube["id"], "run_accession": "ERR13376132"},
+            (
+                (analyst, "alice", "submitted"),
+                (reviewer, "bob", "reviewed"),
+                (qa, "carol", "released"),
+            ),
+        ),
+    ):
+        request = created(analyst, asking, f"{LIMS_TYPE}{prefix}CoreRequest", values)
+        path = f"/entities/{request['id']}"
+        sent = api_call(
+            analyst,
+            "POST",
+            f"{path}/submit",
+            {"service": core["id"]},
+            {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+        )
+        if sent.status_code != 200:
+            fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+        for state in ("accepted", "in_progress"):
+            advanced = api_call(
+                analyst,
+                "POST",
+                f"{path}/states/status",
+                {"state": state, "reason": ""},
+                {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+            )
+            if advanced.status_code != 200:
+                fail(
+                    f"setting {request['hrid']} {state} gave {advanced.status_code}: "
+                    f"{advanced.text[:200]}"
+                )
+        report = upload(analyst, core, filename, (example / filename).read_bytes(), "text/plain")
+        delivery = created(
+            analyst,
+            core,
+            f"{LIMS_TYPE}{prefix}CoreDeliverable",
+            {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
+        )
+        if bearer_call(requester, "GET", f"/files/{report}").status_code != 404:
+            fail(f"{delivery['hrid']}'s report was visible before signing")
+        for signer, name, state in steps:
+            done = signing(signer, delivery, state, name, field="review")
+            if done["status"] != "signed" or not done["set"]:
+                fail(f"signing {delivery['hrid']} as {state} gave {done}")
+        received = bearer_call(requester, "GET", path + "/request").json()["result_releases"]
+        if [item["entity"] for item in received] != [delivery["id"]]:
+            fail(f"{request['hrid']} didn't receive {delivery['hrid']}: {received}")
+        if bearer_call(requester, "GET", f"/files/{report}").status_code != 200:
+            fail(f"{delivery['hrid']}'s report wasn't delivered to the requester")
+        ok(
+            f"{request['hrid']}: {delivery['hrid']} returned its report "
+            f"with {len(steps)} signatures"
+        )
 
 
 #: Example LIMS types (ADR 0180).
@@ -3173,6 +3425,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{entity['hrid']} has no verifiable research sign-off")
     ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
     linked_experiment(alice, project, sample["id"], plate["values"]["reader_file"], entity["id"])
+    equipment_calibration(alice, project, entity)
 
 
 def fit_assay_plate(
@@ -3744,6 +3997,310 @@ def sequence_library_annotation(alice: requests.Session, project: dict[str, Any]
     if not expected.issubset(found) or not values.get("library_annotated_with"):
         fail(f"{run['hrid']} found {sorted(found)} on {dna['hrid']}, missing matches or provenance")
     ok(f"{action} annotated {dna['hrid']} on both strands and kept its GenBank features")
+
+
+def equipment_calibration(
+    alice: requests.Session, project: dict[str, Any], measured: dict[str, Any]
+) -> None:
+    """Trace a synthetic calibration failure to an already signed measurement."""
+    prefix = "iki/equipment."
+    give_lab_roles(alice, project, "iki/example_lims.engineer", prefix + "qa")
+    engineer = api_call(alice, "GET", "/me").json()["id"]
+    result = record(alice, measured["id"])
+    instrument = created(
+        alice, project, "iki/example_lims.Instrument", {"name": "Synthetic MARS absorbance reader"}
+    )
+    now = datetime.now(UTC).replace(microsecond=0)
+    performed = now - timedelta(days=3)
+    measured_at = now - timedelta(days=2)
+    failed_at = now - timedelta(days=1)
+
+    def change(
+        entity: dict[str, Any], path: str, values: dict[str, Any], *, method: str = "PATCH"
+    ) -> None:
+        at = f"/entities/{entity['id']}"
+        etag = api_call(alice, "GET", at).headers["ETag"]
+        changed = api_call(alice, method, at + path, values, {"If-Match": etag})
+        if changed.status_code != 200:
+            fail(f"changing {entity['hrid']} answered HTTP {changed.status_code}: {changed.text}")
+
+    def appointment(at: datetime, outcome: str, more: dict[str, Any]) -> dict[str, Any]:
+        run = launch(
+            alice,
+            project,
+            prefix + "schedule_service",
+            {"instrument": instrument["id"]},
+            {
+                "kind": "calibration",
+                "due_on": at.date().isoformat(),
+                "procedure": "Synthetic optical check, demonstration revision 1",
+            },
+        )
+        [made] = [effect["entity"] for effect in run["effects"]]
+        service = record(alice, made)
+        report = upload(
+            alice,
+            project,
+            "synthetic-calibration-report.txt",
+            f"Synthetic service report for {instrument['hrid']}: {outcome}.\n".encode(),
+            "text/plain",
+        )
+        change(
+            service,
+            "",
+            {
+                "values": {
+                    "outcome": outcome,
+                    "performed_by": engineer,
+                    "performed_at": at.isoformat(),
+                    "report": report,
+                    **more,
+                }
+            },
+        )
+        signed = signing(alice, service, "signed_off", "alice", field="review")
+        if signed["status"] != "signed" or not signed["set"]:
+            fail(f"signing the equipment service {service['hrid']} answered {signed}")
+        return record(alice, made)
+
+    passing = appointment(
+        performed, "in_tolerance", {"valid_until": (now + timedelta(days=10)).isoformat()}
+    )
+    change(instrument, "/states/calibration", {"state": "calibrated", "reason": ""}, method="POST")
+    used = launch(
+        alice,
+        project,
+        prefix + "record_instrument_use",
+        {"instrument": instrument["id"], "result": result["id"], "calibration": passing["id"]},
+        {"measurement_at": measured_at.isoformat()},
+    )
+    [use_id] = [effect["entity"] for effect in used["effects"]]
+    use = record(alice, use_id)
+    if (
+        use["values"]["calibration_revision"] != passing["revision"]
+        or use["values"]["result_revision"] != result["revision"]
+    ):
+        fail(f"{use['hrid']} did not pin the measurement and calibration revisions")
+
+    failure = appointment(
+        failed_at,
+        "out_of_tolerance",
+        {
+            "notes": "Synthetic failure. The passing check was the last known good evidence.",
+            "suspect_since": performed.isoformat(),
+        },
+    )
+    configured = api_call(
+        alice,
+        "POST",
+        f"/projects/{project['id']}/triggers/{prefix}trace_failed_instrument/enable",
+        {},
+    )
+    if configured.status_code != 200 or not configured.json()["enabled"]:
+        fail(
+            f"enabling the calibration trigger answered {configured.status_code}: {configured.text}"
+        )
+    for field, state in (("service", "out_of_service"), ("calibration", "failed")):
+        change(
+            instrument,
+            f"/states/{field}",
+            {"state": state, "reason": "Synthetic calibration failure"},
+            method="POST",
+        )
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        cases = api_call(
+            alice,
+            "POST",
+            "/entities/search",
+            {
+                "type": prefix + "CalibrationImpact",
+                "project": project["id"],
+                "where": {"field": "failure", "op": "eq", "value": failure["id"]},
+            },
+        )
+        if cases.status_code != 200:
+            fail(f"reading calibration impacts answered HTTP {cases.status_code}: {cases.text}")
+        if cases.json()["items"]:
+            break
+        time.sleep(2)
+    else:
+        fail(f"the calibration trigger did not find {use['hrid']} for {failure['hrid']}")
+    [impact] = cases.json()["items"]
+    if (
+        impact["values"]["use"] != use["id"]
+        or impact["values"]["failure_revision"] != failure["revision"]
+    ):
+        fail(f"calibration impact {impact['hrid']} does not identify the failure and use")
+    change(
+        impact,
+        "",
+        {
+            "values": {
+                "disposition": "repeat_required",
+                "reasoning": "Synthetic case; repeat the read.",
+            }
+        },
+    )
+    disposition = signing(alice, impact, "signed_off", "alice", field="review")
+    original = record(alice, result["id"])
+    proofs = api_call(alice, "GET", f"/entities/{result['id']}/signatures?verify=true").json()
+    if (
+        disposition["status"] != "signed"
+        or not disposition["set"]
+        or original["revision"] != result["revision"]
+        or not proofs["items"][0]["verification"]["valid"]
+    ):
+        fail(f"{impact['hrid']} did not preserve {result['hrid']}'s signed revision")
+    ok(f"{use['hrid']} pins the calibration; {impact['hrid']} keeps QA's repeat decision")
+
+
+def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Generate a study pull, draw its stored material and sign a trended measurement."""
+    prefix = "iki/stability."
+    give_lab_roles(alice, project, prefix + "coordinator", prefix + "reviewer", "iki/lots.qa")
+    token = secrets.token_hex(4)
+    # PubChem CID 2244 identifies aspirin. Its lot, report and test results here are synthetic.
+    material = created(
+        alice,
+        project,
+        "iki/small_molecule.Compound",
+        {
+            "name": "Aspirin",
+            "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+            "inchikey": "BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+        },
+    )
+    lot = created(
+        alice,
+        project,
+        "iki/lots.GenericLot",
+        {"lot_number": f"Stability demo {token}", "of": entry_of(material)},
+    )
+    box = created(
+        alice, project, LIMS_TYPE + "Box", {"name": "Stability study", "rows": 1, "columns": 1}
+    )
+    tube = created(
+        alice,
+        project,
+        LIMS_TYPE + "Tube",
+        {"barcode": f"DEMO-STABILITY-{token}", "lot": lot["id"]},
+        amount={"value": "100", "unit": "uL"},
+    )
+    moved(alice, [(tube, box, "A1")], "Store study tube at its assigned position.")
+    # ICH Q1A(R2) §2.1.7.1 general-case conditions:
+    # https://database.ich.org/sites/default/files/Q1A%28R2%29%20Step4.pdf
+    study = created(
+        alice,
+        project,
+        prefix + "Study",
+        {
+            "name": "Aspirin stability demonstration",
+            "material": entry_of(material),
+            "lot": lot["id"],
+            "protocol": "Synthetic practice study",
+            "protocol_revision": "1",
+            "owner": api_call(alice, "GET", "/me").json()["id"],
+            "starts_on": datetime.now(UTC).date().isoformat(),
+            "conditions": [
+                {
+                    "code": "long_term",
+                    "label": "Long term",
+                    "temperature": 25,
+                    "temperature_tolerance": 2,
+                    "humidity": 60,
+                    "humidity_tolerance": 5,
+                }
+            ],
+            "time_points": [{"month": 0, "days_before": 0, "days_after": 1}],
+            "assignments": [
+                {"condition": "long_term", "month": 0, "tube": tube["id"], "volume_ul": 12}
+            ],
+            "tests": [{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
+        },
+    )
+
+    def visible(component: str) -> list[dict[str, Any]]:
+        answer = api_call(
+            alice, "POST", f"/components/{prefix}{component}/entities", {"entity": study["id"]}
+        )
+        if answer.status_code != 200:
+            fail(f"{component} answered HTTP {answer.status_code}: {answer.text}")
+        found: list[dict[str, Any]] = answer.json()["items"]
+        return found
+
+    launch(alice, project, prefix + "schedule_pulls", {"study": study["id"]})
+    [pull] = visible("pull_schedule")
+    if (pull["values"]["status"], pull["values"]["tube"]) != ("scheduled", tube["id"]):
+        fail(f"the study did not schedule its stored tube: {pull}")
+    path = f"/entities/{tube['id']}/amount/draw"
+    draw = {
+        "amount": {"value": 12, "unit": "uL"},
+        "purpose": "qa_sampling",
+        "used_in": pull["id"],
+        "confirm": tube["values"]["barcode"],
+    }
+    drawn = api_call(alice, "POST", path, draw)
+    if drawn.status_code != 200:
+        fail(f"drawing study material answered HTTP {drawn.status_code}: {drawn.text}")
+    movement = drawn.json()["movement"]
+    if (
+        movement["source"] != lot["id"]
+        or movement["used_in"] != pull["id"]
+        or drawn.json()["amount"]["value"] != "88"
+        or api_call(alice, "POST", path, draw).status_code != 422
+    ):
+        fail(f"the ledger did not record exactly one draw for the pull: {drawn.json()}")
+    path = f"/entities/{pull['id']}"
+    etag = api_call(alice, "GET", path).headers["ETag"]
+    changed = api_call(
+        alice,
+        "PATCH",
+        path,
+        {"values": {"pulled_on": movement["created_at"][:10]}},
+        {"If-Match": etag},
+    )
+    if changed.status_code != 200:
+        fail(f"recording the pull date answered HTTP {changed.status_code}: {changed.text}")
+    done = api_call(
+        alice,
+        "POST",
+        path + "/states/status",
+        {"state": "pulled"},
+        {"If-Match": changed.headers["ETag"]},
+    )
+    if done.status_code != 200:
+        fail(f"reconciling the pull answered HTTP {done.status_code}: {done.text}")
+    report = upload(
+        alice, project, "synthetic-stability-report.csv", b"test,peak area\ndemo,1.25\n", "text/csv"
+    )
+    launch(
+        alice,
+        project,
+        prefix + "record_measurement",
+        {"pull": pull["id"]},
+        {"test": "Demo peak area", "value": 1.25, "report": report},
+    )
+    if visible("measurement_trend"):
+        fail("the study trended a draft measurement")
+    response = api_call(
+        alice,
+        "POST",
+        "/entities/search",
+        {
+            "project": project["id"],
+            "type": prefix + "Measurement",
+            "where": {"field": "pull", "op": "eq", "value": pull["id"]},
+        },
+    )
+    if response.status_code != 200:
+        fail(f"looking up the measurement returned HTTP {response.status_code}: {response.text}")
+    [measurement] = response.json()["items"]
+    witness = signing(alice, measurement, "signed", "alice", field="review")
+    [point] = visible("measurement_trend")
+    if witness["status"] != "signed" or point["values"]["value"] != 1.25:
+        fail(f"the signed stability measurement was not trended: {point}")
+    ok(f"{study['hrid']} scheduled and drew its stored tube, then trended its signed result")
 
 
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:

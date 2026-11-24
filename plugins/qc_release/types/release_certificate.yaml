@@ -1,0 +1,41 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ReleaseCertificate
+label: Certificate of analysis
+schema_version: 1
+abstract: true
+description: A lot's evaluated results and investigation decisions, assembled for review and signed issue.
+fields:
+  case: { type: ref, to: ReleaseCase, computed: true, immutable: true }
+  lot: { type: ref, to: iki/lots.Lot, computed: true, immutable: true }
+  specification: { type: ref, to: SpecificationVersion, computed: true, immutable: true }
+  specification_revision: { type: int, min: 1, computed: true, immutable: true }
+  version: { type: string, max_length: 100, computed: true, immutable: true }
+  testing_on: { type: date, computed: true, immutable: true }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true, immutable: true }
+  report:
+    type: json
+    computed: true
+    immutable: true
+    description: The reproducible certificate basis with all results, evaluated criteria and OOS dispositions.
+  analysts:
+    type: list
+    items: { type: person }
+    max_items: 250
+    computed: true
+    immutable: true
+    description: People who recorded any observation in this release case.
+  notes:
+    type: text
+    max_length: 10000
+    description: Review remarks to carry with the signed certificate.
+rules:
+  assembled:
+    label: The certificate was assembled by the lot release procedure
+    check: >-
+      record.case != null && record.lot != null && record.specification != null &&
+      record.specification_revision != null && record.version != null &&
+      record.testing_on != null && record.review_flow != null && record.report != null &&
+      record.analysts != null && size(record.analysts) > 0
+    message: Assemble the certificate from the completed release case.
+display: { title: "Certificate of analysis · {{ version or hrid }}" }

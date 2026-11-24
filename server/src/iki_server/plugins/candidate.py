@@ -204,8 +204,8 @@ def _rules(rules: Mapping[str, Rule], plugin: str, *, extension: bool) -> None:
         _named("fieldName", key)
         if (rule.name, rule.plugin, rule.extension) != (key, plugin, extension):
             raise ValueError(f"Rule {key} must belong to {plugin}.")
-        if rule.unique and not 2 <= len(rule.unique) <= 5:
-            raise ValueError(f"Rule {key} needs 2 to 5 unique fields.")
+        if len(rule.unique) > 5:
+            raise ValueError(f"Rule {key} supports up to 5 unique fields.")
         if rule.no_overlap and len(rule.no_overlap) != 2:
             raise ValueError(f"Rule {key} needs both ends of its range.")
         _expressions(rule)

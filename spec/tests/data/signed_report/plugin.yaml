@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Plugin
+name: acme/signed_reports
+version: 1.0.0
+roles:
+  analyst: { label: Analyst }
+  reviewer: { label: Reviewer }
+  qa: { label: QA }

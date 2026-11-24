@@ -34,17 +34,16 @@ It shows the parts of Iki such a plugin needs:
 - **`Sample`**, a protein's sample as the lab tests it, with a `status`
   state field
   ([ADR 0125](../../docs/adr/0125-a-state-is-a-field-each-state-says-who-sets-it.md)):
-  Registered, Received, In testing, In review, then Approved, Released or
-  Rejected. Each state says which lab roles set it, from any other:
-  Coordinators register and receive samples, Analysts test and submit
-  them, Reviewers approve them, and QA releases or rejects them. Rejecting a
-  sample or registering it again requires a reason. Saving a correction to an Approved sample
-  also returns it to In testing and records the editor and reason. Released
-  and Rejected lock its values until an authorized person changes the status.
+  Coordinators register and receive samples. Analysts test and submit them,
+  reviewers approve them, and QA releases or rejects them. Saving a correction to
+  an Approved sample returns it to In testing and records the editor and reason.
+  Released and Rejected lock the sample's values. For a released sample, someone
+  with the QA role signs a reasoned return to testing before an analyst can edit
+  it again. The original release and its signature stay in the sample's history.
 - **Electronic signatures** under 21 CFR Part 11
   ([ADR 0126](../../docs/adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)):
   setting a sample In review is its analyst's signature of authorship,
-  Approved the reviewer's, and Released or Rejected QA's. Each signer signs
+  Approved the reviewer's, and Released, Rejected or Returned to testing QA's. Each signer signs
   in again at the identity provider
   ([ADR 0124](../../docs/adr/0124-signing-signs-in-again-at-the-identity-provider.md)),
   and the sample's page shows each signature: who, when, and what it means,
@@ -53,12 +52,12 @@ It shows the parts of Iki such a plugin needs:
 - **Guards** on its status
   ([ADR 0128](../../docs/adr/0128-guards-say-when-a-state-may-be-set.md)),
   conditions on top of who may set a state. A sample moves along its process:
-  it's submitted for review from In testing, once its result is recorded, and
-  approved from In review, released once approved, and rejected once in review
-  or approved. Whoever submitted it for review can't approve it, and whoever
-  approved it can't release it (four eyes). Recording or changing its purity,
-  concentration, result or testing notes since it entered In testing also
-  disqualifies the editor from approval and release. A reviewer can still
+  an analyst submits it for review after testing or retesting, once its result is
+  recorded. A reviewer approves it from In review. QA releases an approved sample
+  and can reject it from In review or Approved. Whoever submitted it for review
+  can't approve it, and whoever approved it can't release it (four eyes). Anyone
+  who records or changes purity, concentration, result or testing notes during
+  the current testing or retesting cycle also can't approve or release it. A reviewer can still
   claim their assignment. Guards are checked as each
   signature is given, with its signer acting, so nobody signs a change a guard
   refuses. Where one won't let someone sign, the sample's page says why.
@@ -74,8 +73,8 @@ It shows the parts of Iki such a plugin needs:
   ([ADR 0122](../../docs/adr/0122-records-name-people-and-each-person-has-their-work.md)):
   its `analyst`, `reviewer` and `qa`, each someone in the project with that
   lab role, and its `due_on` date. Each is assigned the sample in its turn:
-  the analyst while its status is Received or In testing, the reviewer while it's In
-  review, QA once it's Approved, and it's on their My work, soonest due
+  the analyst while its status is Received, In testing or Returned to testing, the
+  reviewer while it's In review, and QA once it's Approved. It's on their My work, soonest due
   first. A received sample nobody has is open to everyone with the
   Analyst role, who can take it. An approved sample is locked, its people
   with it, so its QA is named before it's approved; if nobody is, it's open
@@ -123,6 +122,35 @@ It shows the parts of Iki such a plugin needs:
   QA must also be independent of the creator, submitting analyst, reviewer
   and value editors to sign the reviewed revision. The project that asked
   receives the locked release. Released is final.
+- **Protein production and sequencing** use the same request queue, assignment,
+  tube receipt, and released result links
+  ([ADR 0195](../../docs/adr/0195-core-facility-requests-return-signed-deliverables.md)).
+  A core's admin accepts `ResearchCoreRequest` or `QCCoreRequest` in the
+  service project's **Settings → Requests**, and names the projects that can
+  send them. An intake for the parent `AnalysisRequest` accepts both
+  subtypes. Choose a concrete subtype to set one review flow for intake.
+  The request type determines which deliverable can be made for that request.
+
+  - The project asking for production names the protein and mass. For
+    sequencing, it names the method and the tubes to send. It can provide a
+    needed-by date and instructions with either service.
+  - The core accepts and schedules the request, assigns an analyst, and
+    receives any tubes against the submitted list. The analyst moves it to
+    In progress and records one deliverable per produced lot or sequenced
+    tube, with a delivery report uploaded to the core's project. A
+    successful production deliverable records its protein, lot number, and
+    delivered mass. A successful sequencing deliverable names the shipped
+    tube and holds the files or public run accession. If work failed, the
+    analyst records the outcome and explains it in the report.
+  - In Research, a Reviewer signs the recorded `ResearchCoreDeliverable` to
+    send it back. In Regulated QC, the Analyst submits the
+    `QCCoreDeliverable` with a signature, an independent Reviewer signs the
+    review, and another person in QA signs release. Corrections before
+    release return the deliverable to Recorded with a reason and require new
+    submission and review. The requesting project can open the returned
+    report and release receipt from its request. The core marks the request
+    Delivered once its deliverables have been released.
+
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):
   a sample's volume, in µL (shown in mL), and each aliquot's. A sample is
@@ -222,3 +250,21 @@ lims_host: lims.example.org
 and map the `LIMS_TOKEN` secret (key `iki__example_lims.LIMS_TOKEN`) to an API token the LIMS issued for Iki,
 which can read and change proteins. The scripts use only Python's standard
 library.
+
+### Try a facility request
+
+For production, register the yeast alcohol dehydrogenase 1 sequence from
+`examples/P00330.fasta`. Send a Research request for 1 mg and upload
+`examples/P00330-production.txt` in the core as the delivery report for the
+training lot and 0.8 mg delivery. The requested quantity, delivered quantity,
+and lot are synthetic. The protein and sequence come from the UniProtKB
+entry under its attribution license.
+[UniProtKB P00330](https://www.uniprot.org/uniprotkb/P00330/entry),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
+For sequencing, register a training tube named CEY652 and send it with a
+Regulated QC request for long-read sequencing. In the core, receive it and
+use `examples/ERR13376132-delivery.txt` for the tube's report with public
+run accession `ERR13376132`. The accession and sample identifier refer to
+a published yeast dataset. The request, custody, and signatures are training
+events. [NCBI Sequence Read Archive](https://www.ncbi.nlm.nih.gov/sra/ERX12747051)

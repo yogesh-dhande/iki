@@ -1,0 +1,20 @@
+{
+  "version": "USP-2015 teaching excerpt",
+  "effective_from": "2015-12-01",
+  "source": "USP Sodium Chloride, Stage 6 Harmonization (official December 1, 2015), historical teaching excerpt. https://dev.uspnf.com/sites/default/files/usp_pdf/EN/USPNF/sodium-chloride.pdf",
+  "criteria": [
+    {
+      "attribute": "Sodium chloride assay",
+      "method": "USP <541> potentiometric silver nitrate titration",
+      "unit": "% dried basis",
+      "lower": 99.0,
+      "upper": 100.5
+    },
+    {
+      "attribute": "Loss on drying",
+      "method": "USP <731> Loss on Drying",
+      "unit": "%",
+      "upper": 0.5
+    }
+  ]
+}

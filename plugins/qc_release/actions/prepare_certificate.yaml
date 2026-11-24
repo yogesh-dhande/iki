@@ -1,0 +1,26 @@
+apiVersion: iki/v1
+kind: Action
+name: prepare_certificate
+label: Prepare a certificate of analysis
+description: Assemble a complete, passing set of tests and signed investigation decisions for review.
+inputs:
+  case: { type: ReleaseCase, include: [lot, specification] }
+  tests:
+    type: ReleaseTest
+    cardinality: many
+    max: 250
+    description: Select every attempt recorded for the case, including invalidated attempts.
+  investigations:
+    type: OOSInvestigation
+    cardinality: many
+    max: 250
+    optional: true
+    description: Include the signed investigation for each out-of-specification attempt.
+effects:
+  creates:
+    - { type: ResearchCertificate, derived_from: [case] }
+    - { type: QCCertificate, derived_from: [case] }
+  updates: [{ input: case, fields: [sealed] }]
+runs_on: { tier: backend, environment: qc-tools }
+command: [python, ./scripts/qc_release.py, prepare_certificate]
+timeout: 1m

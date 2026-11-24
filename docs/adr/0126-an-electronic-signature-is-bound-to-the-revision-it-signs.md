@@ -52,6 +52,14 @@ is workflow policy, which a plugin declares as a guard (step 58). Agents,
 tokens, apps and service accounts never sign: the API refuses any token, and
 the MCP server and both SDKs only read and verify.
 
+**A signature or approval authorises the exact content reviewed.** Changed
+content voids a pending decision. The signing request identifies the displayed
+record revision and, for a project record of a registry entry, the displayed
+entry revision. The server checks both when signing starts and completes. A
+dialog showing a newer revision clears the draft reason and asks the person
+to review the content again. Completed signatures stay with their original
+content.
+
 **A signature is Ed25519 over a canonical document.** The document,
 `iki/signature/v1`, is RFC 8785 canonical JSON naming the deployment, the
 record (its ID, type, HRID, revision, and its registry entry's revision),

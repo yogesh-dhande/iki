@@ -139,19 +139,30 @@ describe("a flow as a diagram has it", () => {
   });
 
   it("draws a state reached from every other once, not an arrow from each", () => {
-    const model = modelOf(SAMPLE, "status");
+    const model = modelOf(REQUEST, "status");
     expect(model.nodes.filter((n) => n.fromAny).map((n) => n.name)).toEqual([
-      "registered",
-      "received",
-      "in_testing",
+      "submitted",
+      "accepted",
+      "in_progress",
+      "delivered",
+      "declined",
     ]);
-    expect(model.edges.some((e) => e.to === "received")).toBe(false);
-    expect(model.edges.filter((e) => e.kind === "move").map((e) => e.id)).toEqual([
-      "in_testing>in_review",
-      "in_review>approved",
-      "approved>released",
-      "in_review>rejected",
-      "approved>rejected",
+    expect(model.edges.filter((e) => e.kind === "move")).toEqual([]);
+  });
+
+  it("draws a released sample's signed return to testing and its next review", () => {
+    const model = modelOf(SAMPLE, "status");
+    expect(nextFrom(model, "released").map((n) => n.name)).toEqual(["retesting"]);
+    expect(nextFrom(model, "retesting").map((n) => n.name)).toEqual(["in_review"]);
+    expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
+      from: ["released"],
+      setters: ["Sample and result QA"],
+      reason: "required",
+      locks: false,
+      signatures: [{ label: "QA return to testing", meaning: "Approval" }],
+    });
+    expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([
+      "approved~in_testing",
     ]);
   });
 
@@ -239,8 +250,14 @@ describe("laying a flow out", () => {
   });
 
   it("starts a state reached from any other at a dot of its own", () => {
-    const placed = layout(modelOf(SAMPLE, "status"), 400);
-    expect(placed.stubs.map((s) => s.to)).toEqual(["registered", "received", "in_testing"]);
+    const placed = layout(modelOf(REQUEST, "status"), 400);
+    expect(placed.stubs.map((s) => s.to)).toEqual([
+      "submitted",
+      "accepted",
+      "in_progress",
+      "delivered",
+      "declined",
+    ]);
     for (const stub of placed.stubs) {
       const node = placed.nodes.find((n) => n.name === stub.to);
       expect(stub.cx).toBeGreaterThan((node?.x ?? 0) + (node?.width ?? 0));

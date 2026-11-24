@@ -24,6 +24,10 @@
       "type": "boolean",
       "description": "Only actions set this value; people can't edit it."
     },
+    "reason_on_clear": {
+      "type": "boolean",
+      "description": "For an editable Boolean: changing true to false or unsetting it requires a reason in the edit. The record's revision keeps the reason."
+    },
     "registry": {
       "enum": ["derived", "fact"],
       "description": "For a type with an identity, or an extension of one: the field is its registry entry's, which every project holding the entry sees, rather than each project's record's (ADR 0115). `derived`: derived from the identity alone, set once at registration (a formula, a weight, a canonical form). `fact`: a curated fact the identity doesn't determine (a CAS number, an INN, a hazard class), which anyone holding the entry may set while it's empty, and only a registrar changes after."
@@ -506,7 +510,8 @@
                 "registry",
                 "indexed",
                 "removed",
-                "default"
+                "default",
+                "reason_on_clear"
               ]
             },
             "properties": {

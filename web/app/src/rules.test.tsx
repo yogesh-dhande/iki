@@ -54,6 +54,17 @@ vi.mock("./apps", async (original) => {
 
 const LOT_ID = "00000000-0000-7000-8000-00000000c001";
 const HOLD_ID = "00000000-0000-7000-8000-00000000c101";
+const OBSERVATION = {
+  id: "00000000-0000-7000-8000-00000000c201",
+  label: "Purity in specification",
+  message: "Its purity, 88.5%, is under 90%.",
+  held_by: ALICE,
+  agent: null,
+  held_at: "2026-11-18T09:00:00Z",
+  reason: "Retested.",
+  revision: 2,
+  legacy_gap: false,
+};
 
 function rule(more: Partial<Schemas["RuleOut"]> & Pick<Schemas["RuleOut"], "name">) {
   return {
@@ -311,13 +322,15 @@ describe("holds and breaches", () => {
     reason: "Retested.",
     revision: 2,
     last_revision: 2,
+    occurrences: [OBSERVATION],
+    review_version: "a".repeat(64),
     can_review: true,
     why_not: null,
   };
 
   it("shows a hold, and its reviewer clears it with a reason", async () => {
     onLab();
-    answer("GET /api/v1/entities/LOT-000001", lot({ holds: [HOLD] }));
+    answer("GET /api/v1/entities/LOT-000001", lot({ revision: 2, holds: [HOLD] }));
     answer(`POST /api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`, respond(200, lot()));
     const { user } = await renderApp("/entities/LOT-000001/");
     const held = await screen.findByRole("region", { name: "Held for review" });
@@ -338,8 +351,66 @@ describe("holds and breaches", () => {
     await waitFor(() => {
       expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     });
-    expect(calls("POST", `/api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`)[0]?.body).toEqual({
+    const sent = calls("POST", `/api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`)[0];
+    expect(sent?.headers.get("If-Match")).toBe('"2"');
+    expect(sent?.body).toEqual({
       reason: "Within the method's error.",
+      review_version: HOLD.review_version,
+    });
+  });
+
+  it("requires reopening the hold and entering a new reason after a stale review", async () => {
+    onLab();
+    const record = "/api/v1/entities/LOT-000001";
+    const route = `/api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`;
+    answer(`GET ${record}`, lot({ revision: 2, holds: [HOLD] }));
+    const { user } = await renderApp("/entities/LOT-000001/");
+    const held = await screen.findByRole("region", { name: "Held for review" });
+    await user.click(within(held).getByRole("button", { name: "Review" }));
+    const dialog = await screen.findByRole("alertdialog");
+    const reason = within(dialog).getByRole("textbox", { name: "Why it may stand" });
+    const clear = within(dialog).getByRole("button", { name: "Clear the hold" });
+    await user.type(reason, "Reviewed the original measurement.");
+    const retest = {
+      ...OBSERVATION,
+      id: "00000000-0000-7000-8000-00000000c202",
+      message: "Retest under 90%.",
+      reason: "As measured on the SEC.",
+      revision: 3,
+    };
+    const updated = {
+      ...HOLD,
+      last_revision: 3,
+      occurrences: [OBSERVATION, retest],
+      review_version: "b".repeat(64),
+    };
+    answer(`GET ${record}`, lot({ revision: 3, holds: [updated] }));
+    answer(`POST ${route}`, problem(412, "hold_changed", "The hold changed. Read it again."));
+    await user.click(clear);
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Read it again.");
+    expect(clear).toHaveAttribute("aria-disabled", "true");
+    expect(reason).toHaveValue("");
+    expect(calls("POST", route)[0]?.headers.get("If-Match")).toBe('"2"');
+
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await within(held).findByText(retest.message);
+    await user.click(within(held).getByRole("button", { name: "Review" }));
+    const refreshed = await screen.findByRole("alertdialog");
+    expect(refreshed).toHaveTextContent("You’re reviewing record revision 3.");
+    expect(refreshed).toHaveTextContent("As measured on the SEC.");
+    expect(refreshed).toHaveTextContent("Its purity, 88.5%, is under 90%.");
+    const nextReason = within(refreshed).getByRole("textbox", { name: "Why it may stand" });
+    expect(nextReason).toHaveValue("");
+    await user.type(nextReason, "Reviewed the retest.");
+    answer(`POST ${route}`, lot({ revision: 3 }));
+    await user.click(within(refreshed).getByRole("button", { name: "Clear the hold" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(calls("POST", route).at(-1)?.headers.get("If-Match")).toBe('"3"');
+    expect(calls("POST", route).at(-1)?.body).toEqual({
+      reason: "Reviewed the retest.",
+      review_version: updated.review_version,
     });
   });
 
@@ -496,6 +567,8 @@ describe("finding what rules caught", () => {
     reason: "Retested.",
     revision: 2,
     last_revision: 2,
+    occurrences: [OBSERVATION],
+    review_version: "a".repeat(64),
     can_review: true,
     why_not: null,
   };

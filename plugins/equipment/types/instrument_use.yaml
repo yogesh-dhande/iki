@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: InstrumentUse
+label: Instrument use
+label_plural: Instrument uses
+schema_version: 1
+hrid: { prefix: EQU }
+description: The measured result and precise calibration evidence at the time it was produced.
+fields:
+  key:
+    { type: string, max_length: 64, computed: true, immutable: true, unique: true, indexed: true }
+  instrument: { type: ref, to: iki/example_lims.Instrument, required: true, immutable: true }
+  result: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  result_record_id:
+    type: string
+    label: Result's project record UUID
+    max_length: 36
+    computed: true
+    immutable: true
+    description: The project record the run read, even when the result reference resolves to a registry entry.
+  result_revision: { type: int, min: 1, computed: true, immutable: true }
+  calibration: { type: ref, to: EquipmentService, required: true, immutable: true }
+  calibration_revision: { type: int, min: 1, computed: true, immutable: true }
+  measurement_at: { type: datetime, required: true, immutable: true, indexed: true }
+rules:
+  pinned_use:
+    label: The action pinned the evidence
+    check: >-
+      record.key != null && record.result_record_id != null &&
+      record.result_revision != null && record.calibration_revision != null
+    message: Record the instrument use with the action so the result and calibration revisions are pinned.
+  valid_for_measurement:
+    label: Calibration covers this instrument and time
+    check: >-
+      record.calibration.instrument == record.instrument.id && record.calibration.kind == "calibration" &&
+      record.calibration.outcome == "in_tolerance" && record.calibration.review in ["signed_off", "released"] &&
+      record.calibration.performed_at <= record.measurement_at &&
+      record.measurement_at < record.calibration.valid_until && record.measurement_at <= now
+    message: Select a signed passing calibration for this instrument whose validity covers the measurement.
+    fields: [calibration, instrument, measurement_at]
+display:
+  title: "Measurement {{ measurement_at }}"

@@ -26,8 +26,43 @@ function roles(names: string[], declared: readonly LabRole[]): string {
   return `${labels.slice(0, -1).join(", ")} or ${labels[labels.length - 1] ?? ""}`;
 }
 
+function Observations({ hold }: { hold: Hold }) {
+  const evidence = hold.occurrences;
+  const latest = evidence.at(-1);
+  return (
+    <ul className="row-holds" aria-label="Failing observations">
+      {evidence.map((o) => (
+        <li key={o.id}>
+          {o.message ? (
+            <>
+              <span>{o.message}</span>{" "}
+            </>
+          ) : null}
+          {o.legacy_gap
+            ? "Earlier hold evidence is incomplete"
+            : o.held_by
+              ? personName(o.held_by)
+              : "Iki’s check of its plugins’ rules"}
+          {o.agent ? `, through ${o.agent}` : ""}
+          {o.held_at ? (
+            <>
+              , <RelativeTime value={o.held_at} />
+            </>
+          ) : null}{" "}
+          (revision {o.revision}
+          {o.entry_revision == null ? "" : `, registry entry revision ${String(o.entry_revision)}`}
+          ): {o.reason === null ? "Reason unavailable." : <>“{o.reason}”</>}
+        </li>
+      ))}
+      {!latest || latest.revision < hold.last_revision ? (
+        <li>Earlier hold evidence is incomplete.</li>
+      ) : null}
+    </ul>
+  );
+}
+
 export function EntityHolds({ entity }: { entity: Entity }) {
-  const [reviewing, setReviewing] = useState<Hold | null>(null);
+  const [reviewing, setReviewing] = useState<{ entity: Entity; hold: Hold } | null>(null);
   const id = useId();
   const holds = entity.holds ?? [];
   const breaches = entity.breaches ?? [];
@@ -52,15 +87,7 @@ export function EntityHolds({ entity }: { entity: Entity }) {
               <li key={h.id} className="row">
                 <div className="row-main">
                   <span className="row-title">{h.label}</span>
-                  <span className="row-meta">{h.message}</span>
-                  <span className="row-meta">
-                    {h.held_by ? personName(h.held_by) : "Iki’s check of its plugin’s rules"}
-                    {h.agent ? `, through ${h.agent}` : ""}, <RelativeTime value={h.held_at} />{" "}
-                    (revision {h.revision}): “{h.reason}”
-                  </span>
-                  {h.last_revision !== h.revision ? (
-                    <span className="row-meta">Revision {h.last_revision} broke it again.</span>
-                  ) : null}
+                  <Observations hold={h} />
                   {!h.can_review && h.why_not ? (
                     <span className="row-meta" id={`${id}-${h.id}-why`}>
                       {h.why_not}
@@ -72,7 +99,7 @@ export function EntityHolds({ entity }: { entity: Entity }) {
                     disabled={!h.can_review}
                     describedBy={h.can_review ? undefined : `${id}-${h.id}-why`}
                     onClick={() => {
-                      setReviewing(h);
+                      setReviewing({ entity, hold: h });
                     }}
                   >
                     Review
@@ -109,8 +136,8 @@ export function EntityHolds({ entity }: { entity: Entity }) {
       ) : null}
       {reviewing ? (
         <ReviewDialog
-          entity={entity}
-          hold={reviewing}
+          entity={reviewing.entity}
+          hold={reviewing.hold}
           declared={declared}
           onClose={() => {
             setReviewing(null);
@@ -140,13 +167,17 @@ function ReviewDialog({
     async () =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/holds/{hold_id}/review", {
-          params: { path: { ref: entity.id, hold_id: hold.id } },
-          body: { reason: reason.trim() },
+          params: {
+            path: { ref: entity.id, hold_id: hold.id },
+            header: { "If-Match": `"${String(entity.revision)}"` },
+          },
+          body: { reason: reason.trim(), review_version: hold.review_version },
         }),
       ),
     [ENTITIES, WORK],
   );
   const problem = review.error ? problemOf(review.error) : undefined;
+  const changed = problem?.status === 412;
   const errors = fieldErrors(problem);
   const reasonError = errors["reason"] ?? (missing ? "Say why it may stand as it is." : undefined);
   return (
@@ -155,15 +186,23 @@ function ReviewDialog({
       title={`Review the hold on ${entity.hrid}`}
       confirmLabel="Clear the hold"
       confirmVariant="primary"
+      confirmDisabled={changed}
       busy={review.isPending}
       problem={problem && !errors["reason"] ? problem : undefined}
       onCancel={onClose}
       onConfirm={() => {
+        if (changed) return;
         if (!reason.trim()) {
           setMissing(true);
           return;
         }
         review.mutate(undefined, {
+          onError: (error) => {
+            if (error.status === 412) {
+              setReason("");
+              void client.invalidateQueries({ queryKey: ENTITIES });
+            }
+          },
           onSuccess: (saved) => {
             client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
             onClose();
@@ -172,10 +211,8 @@ function ReviewDialog({
         });
       }}
     >
-      <p>
-        {hold.message} {hold.held_by ? personName(hold.held_by) : "Iki"} saved it, saying: “
-        {hold.reason}”.
-      </p>
+      <p>You’re reviewing record revision {entity.revision}.</p>
+      <Observations hold={hold} />
       <p>
         As one of its {roles(hold.reviewed_by, declared)} reviewers, you say why it may stand as it
         is. Your name and reason are kept in its history, and the hold is cleared.

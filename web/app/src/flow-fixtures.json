@@ -259,7 +259,15 @@
               "on_edit": null,
               "holds_amount": true,
               "reason": "required",
-              "guards": [],
+              "guards": [
+                {
+                  "name": "outside_retesting",
+                  "description": null,
+                  "check": "state.from != \"released\" && state.from != \"retesting\"",
+                  "when": null,
+                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
+                }
+              ],
               "signatures": []
             },
             {
@@ -271,7 +279,15 @@
               "on_edit": null,
               "holds_amount": false,
               "reason": null,
-              "guards": [],
+              "guards": [
+                {
+                  "name": "outside_retesting",
+                  "description": null,
+                  "check": "state.from != \"released\" && state.from != \"retesting\"",
+                  "when": null,
+                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
+                }
+              ],
               "signatures": []
             },
             {
@@ -287,8 +303,45 @@
               "on_edit": null,
               "holds_amount": false,
               "reason": "optional",
-              "guards": [],
+              "guards": [
+                {
+                  "name": "outside_retesting",
+                  "description": null,
+                  "check": "state.from != \"released\" && state.from != \"retesting\"",
+                  "when": null,
+                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
+                }
+              ],
               "signatures": []
+            },
+            {
+              "name": "retesting",
+              "label": "Returned to testing",
+              "description": "QA returned this released sample to the analyst for retesting.",
+              "set_by": ["iki/example_lims.qa"],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "previously_released",
+                  "description": null,
+                  "check": "state.from == \"released\"",
+                  "when": null,
+                  "message": "Only a released sample is returned to testing by QA."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "approval",
+                  "meaning_label": "Approval",
+                  "verb": "Approved",
+                  "label": "QA return to testing",
+                  "statement": "I return this released sample to testing for the reason recorded.",
+                  "roles": ["iki/example_lims.qa"]
+                }
+              ]
             },
             {
               "name": "in_review",
@@ -303,9 +356,9 @@
                 {
                   "name": "tested",
                   "description": "It's submitted for review once it's been tested.",
-                  "check": "state.from == \"in_testing\"",
+                  "check": "state.from in [\"in_testing\", \"retesting\"]",
                   "when": null,
-                  "message": "A sample is submitted for review from In testing."
+                  "message": "Submit a sample for review after testing or retesting it."
                 },
                 {
                   "name": "has_result",
@@ -353,7 +406,7 @@
                 {
                   "name": "independent_measurement",
                   "description": null,
-                  "check": "edits.status.in_testing.all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
+                  "check": "(last.status.retesting == null ? edits.status.in_testing : edits.status.retesting) .all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
                   "when": null,
                   "message": "You edited the test results, so someone else approves this sample."
                 }
@@ -403,7 +456,7 @@
                 {
                   "name": "independent_measurement",
                   "description": null,
-                  "check": "edits.status.in_testing.all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
+                  "check": "(last.status.retesting == null ? edits.status.in_testing : edits.status.retesting) .all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
                   "when": null,
                   "message": "You edited the test results, so someone else in QA releases this sample."
                 }
@@ -471,11 +524,6 @@
               "conditional": false
             },
             {
-              "from": "released",
-              "to": "registered",
-              "conditional": false
-            },
-            {
               "from": "rejected",
               "to": "registered",
               "conditional": false
@@ -497,11 +545,6 @@
             },
             {
               "from": "approved",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "released",
               "to": "received",
               "conditional": false
             },
@@ -531,17 +574,22 @@
               "conditional": false
             },
             {
-              "from": "released",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
               "from": "rejected",
               "to": "in_testing",
               "conditional": false
             },
             {
+              "from": "released",
+              "to": "retesting",
+              "conditional": false
+            },
+            {
               "from": "in_testing",
+              "to": "in_review",
+              "conditional": true
+            },
+            {
+              "from": "retesting",
               "to": "in_review",
               "conditional": true
             },

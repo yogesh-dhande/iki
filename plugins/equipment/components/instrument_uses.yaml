@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: instrument_uses
+label: Instrument evidence
+description: Measurement times, the results recorded with them and the calibration revisions that covered them.
+module: ./components/equipment.js
+element: iki-instrument-uses
+entities:
+  type: InstrumentUse
+  fields: [instrument, result, result_revision, calibration, calibration_revision, measurement_at]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: iki/example_lims.Instrument
+    search:
+      where: { field: instrument, op: eq, value: "{{ entity }}" }
+      sort: measurement_at
+      descending: true
+  - slot: entity.tab
+    type: iki/example_lims.AnalysisResult
+    search:
+      where: { field: result, op: eq, value: "{{ entity }}" }
+      sort: measurement_at
+      descending: true

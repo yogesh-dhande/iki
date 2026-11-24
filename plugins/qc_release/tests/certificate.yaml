@@ -1,0 +1,162 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: retain_invalidated_evidence_and_pin_the_accepted_repeat
+action: prepare_certificate
+description: Build a regulated certificate from a synthetic out-of-specification observation, its signed invalidation and its passing authorized repeat. Keep both observations.
+inputs:
+  case:
+    - values:
+        lot_revision: 1
+        lot_number: SYNTHETIC-NACL-01
+        schedule: 00000000-0000-7000-8003-000000000099
+        schedule_revision: 2
+        specification_revision: 1
+        version: USP-2015-example
+        testing_on: 2024-12-31
+        review_flow: regulated_qc
+        sealed: false
+        attempts:
+          - { sequence: 1, attribute: NaCl assay, outcome: oos }
+          - { sequence: 2, attribute: NaCl assay, outcome: pass }
+      included:
+        lot:
+          - type: iki/lots.GenericLot
+            values: { lot_number: SYNTHETIC-NACL-01 }
+        specification:
+          - values:
+              schedule: 00000000-0000-7000-8003-000000000099
+              version: USP-2015-example
+              effective_from: 2024-01-01
+              approval: approved
+              source: https://dev.uspnf.com/sites/default/files/usp_pdf/EN/USPNF/sodium-chloride.pdf
+              # USP Sodium Chloride, official December 1, 2015, Definition and Assay.
+              criteria:
+                - {
+                    attribute: NaCl assay,
+                    method: USP Sodium Chloride assay (2015),
+                    unit: "% NaCl, dried basis",
+                    lower: 99.0,
+                    upper: 100.5,
+                  }
+  tests:
+    - values:
+        case: 00000000-0000-7000-8003-000000000001
+        lot: 00000000-0000-7000-8003-000000000002
+        sequence: 1
+        attribute: NaCl assay
+        method: USP Sodium Chloride assay (2015)
+        unit: "% NaCl, dried basis"
+        value: 98.9
+        lower: 99.0
+        upper: 100.5
+        outcome: oos
+        observed_by: 00000000-0000-7000-8005-000000000001
+    - values:
+        case: 00000000-0000-7000-8003-000000000001
+        lot: 00000000-0000-7000-8003-000000000002
+        sequence: 2
+        attribute: NaCl assay
+        method: USP Sodium Chloride assay (2015)
+        unit: "% NaCl, dried basis"
+        value: 99.8
+        lower: 99.0
+        upper: 100.5
+        outcome: pass
+        repeat_of: 00000000-0000-7000-8003-000000000004
+        observed_by: 00000000-0000-7000-8005-000000000001
+  investigations:
+    - type: iki/qc_release.QCOOSInvestigation
+      values:
+        case: 00000000-0000-7000-8003-000000000001
+        test: 00000000-0000-7000-8003-000000000004
+        review: released
+        resolution: invalidated
+        findings: Synthetic laboratory error verified in the original bench record.
+        evidence: 00000000-0000-7000-8003-000000000098
+expect:
+  output:
+    updates:
+      case:
+        - require_unchanged: true
+          values: { sealed: true }
+    creates:
+      - type: iki/qc_release.QCCertificate
+        values:
+          case: 00000000-0000-7000-8003-000000000001
+          lot: 00000000-0000-7000-8003-000000000002
+          specification: 00000000-0000-7000-8003-000000000003
+          specification_revision: 1
+          version: USP-2015-example
+          testing_on: 2024-12-31
+          review_flow: regulated_qc
+          report:
+            format: iki/coa/v1
+            title: Certificate of analysis
+            testing_on: 2024-12-31
+            lot: { lot_number: SYNTHETIC-NACL-01, revision: 1 }
+            tests:
+              - { sequence: 1, revision: 1, value: 98.9, outcome: oos }
+              - {
+                  sequence: 2,
+                  revision: 1,
+                  value: 99.8,
+                  outcome: pass,
+                  repeat_of: 00000000-0000-7000-8003-000000000004,
+                }
+            investigations:
+              - {
+                  resolution: invalidated,
+                  findings: Synthetic laboratory error verified in the original bench record.,
+                  evidence: 00000000-0000-7000-8003-000000000098,
+                }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: cannot_omit_an_out_of_specification_observation
+action: prepare_certificate
+description: Omitting a result from the action inputs cannot remove it from the case history or let the certificate be assembled. Inputs are synthetic.
+inputs:
+  case:
+    - values:
+        lot_revision: 1
+        lot_number: SYNTHETIC-02
+        schedule: 00000000-0000-7000-8003-000000000099
+        schedule_revision: 1
+        specification_revision: 1
+        version: synthetic-specification
+        testing_on: 2024-12-31
+        review_flow: research
+        sealed: false
+        attempts:
+          - { sequence: 1, attribute: Synthetic result, outcome: oos }
+          - { sequence: 2, attribute: Synthetic result, outcome: pass }
+      included:
+        lot:
+          - type: iki/lots.GenericLot
+            values: { lot_number: SYNTHETIC-02 }
+        specification:
+          - values:
+              version: synthetic-specification
+              effective_from: 2024-01-01
+              approval: approved
+              source: Synthetic method fixture
+              criteria:
+                - {
+                    attribute: Synthetic result,
+                    method: Synthetic method,
+                    unit: arbitrary,
+                    lower: 1,
+                  }
+  tests:
+    - values:
+        case: 00000000-0000-7000-8003-000000000001
+        lot: 00000000-0000-7000-8003-000000000002
+        sequence: 2
+        attribute: Synthetic result
+        method: Synthetic method
+        unit: arbitrary
+        value: 2
+        lower: 1
+        outcome: pass
+        observed_by: 00000000-0000-7000-8005-000000000001
+expect: { error: every attempt }

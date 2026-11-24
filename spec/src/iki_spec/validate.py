@@ -48,6 +48,7 @@ from iki_spec.model import (
     Action,
     Amount,
     Component,
+    DrawTarget,
     EntityType,
     Environment,
     Export,
@@ -57,6 +58,7 @@ from iki_spec.model import (
     Guard,
     LabRole,
     Plugin,
+    ReportExport,
     RequestSpec,
     ResultSpec,
     RowRole,
@@ -764,6 +766,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             n: tuple(lab_role_name(role, plugin) for role in policy["by"])
             for n, policy in (body.get("draw_purposes") or {}).items()
         },
+        draw_target=_draw_target(body.get("draw_target"), plugin),
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
             for n, x in (body.get("notifications") or {}).items()
@@ -792,6 +795,21 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             for name, body_refines in (body.get("refines") or {}).items()
             if isinstance(body_refines, dict)
         },
+    )
+
+
+def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
+    if data is None:
+        return None
+    return DrawTarget(
+        from_field=data["from"],
+        source=data["source"],
+        state_field=data["state"]["field"],
+        state=data["state"]["is"],
+        by=tuple(lab_role_name(role, plugin) for role in data["by"]),
+        ready=data["ready"],
+        amount=data["amount"],
+        stored=data.get("stored", False),
     )
 
 
@@ -900,7 +918,9 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
-def _export(body: dict[str, Any]) -> Export:
+def _export(body: dict[str, Any]) -> Export | ReportExport:
+    if body["export"] == "signed_report":
+        return ReportExport(body["export"], body["report"], body["review"], tuple(body["issued"]))
     return Export(
         export=body["export"],
         sequence=body["sequence"],
@@ -1365,6 +1385,8 @@ class _Semantics:
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
         self.stock_catalogue(entity_type, source)
+        if entity_type.draw_target is not None:
+            self.draw_target(entity_type.draw_target, source, names)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
 
@@ -1511,6 +1533,40 @@ class _Semantics:
                 source,
                 ("draws_received",) if entity_type.draws_received else ("name",),
             )
+
+    def draw_target(self, target: DrawTarget, source: Document, fields: dict[str, Field]) -> None:
+        """A target opts in using an assigned container and amount, both fixed at creation."""
+        for key, name, kind in (
+            ("from", target.from_field, "ref"),
+            ("source", target.source, "ref"),
+            ("amount", target.amount, "quantity"),
+        ):
+            field = fields.get(name)
+            if field is None or field.type != kind or not field.immutable or not field.required:
+                self.add(
+                    "invalid-draw-target",
+                    f"`{name}` must be a required, immutable {kind} field.",
+                    source,
+                    ("draw_target", key),
+                )
+        field = fields.get(target.state_field)
+        if field is None or field.type != "state" or target.state not in field.live_states:
+            self.add(
+                "invalid-draw-target",
+                "Name a live state of the draw target.",
+                source,
+                ("draw_target", "state"),
+            )
+        prepared = fields.get(target.ready)
+        if prepared is None or not prepared.computed:
+            self.add(
+                "invalid-draw-target",
+                f"`{target.ready}` must be a computed field set when preparing the record.",
+                source,
+                ("draw_target", "ready"),
+            )
+        for index, role in enumerate(target.by):
+            self.lab_role(role, source, ("draw_target", "by", index))
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 
@@ -2763,6 +2819,9 @@ class _Semantics:
                     hint="Give each export once: its files are offered on the record's page.",
                 )
             seen.add(export.export)
+            if isinstance(export, ReportExport):
+                self.report_export(export, source, path, fields)
+                continue
             for role, wanted, kinds in self._export_roles():
                 name = getattr(export, role)
                 if not name:
@@ -2780,6 +2839,42 @@ class _Semantics:
                         source,
                         (*path, role),
                     )
+
+    def report_export(
+        self, export: ReportExport, source: Document, path: Path, fields: dict[str, Field]
+    ) -> None:
+        report, review = fields.get(export.report), fields.get(export.review)
+        if report is None or report.type != "json":
+            self.add(
+                "export-field",
+                f"`{export.report}` must be a JSON field for a signed report.",
+                source,
+                (*path, "report"),
+            )
+        if review is None or review.type != "state":
+            self.add(
+                "export-field",
+                f"`{export.review}` must be a state field for a signed report.",
+                source,
+                (*path, "review"),
+            )
+            return
+        for index, name in enumerate(export.issued):
+            state = review.states.get(name)
+            if (
+                state is None
+                or state.removed
+                or not state.signatures
+                or not state.locks
+                or state.on_edit
+            ):
+                self.add(
+                    "export-state",
+                    f"`{name}` must be a signed locking state of `{export.review}` with no "
+                    "edit destination.",
+                    source,
+                    (*path, "issued", index),
+                )
 
     def _export_roles(self) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
         return (
@@ -2810,7 +2905,7 @@ class _Semantics:
         declared = next((t.exports for t in [target, *self.ancestors(target)] if t.exports), ())
         fields = {n: f for n, (f, _) in self.all_fields(target).items()}
         return any(
-            e.export == "sequence"
+            isinstance(e, Export)
             and (f := fields.get(e.sequence)) is not None
             and f.type == "string"
             and f.format in NUCLEIC_FORMATS
@@ -3101,6 +3196,14 @@ class _Semantics:
                     "creating an entity couldn't fill them in.",
                     source,
                     (*path, "required"),
+                    key=True,
+                )
+            if f.reason_on_clear and (f.computed or f.immutable or f.registry or f.removed):
+                self.add(
+                    "clear-reason-field",
+                    "Only an editable record field can require a reason when it is cleared.",
+                    source,
+                    (*path, "reason_on_clear"),
                     key=True,
                 )
             if f.indexed:

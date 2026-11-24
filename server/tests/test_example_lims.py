@@ -49,11 +49,15 @@ def test_the_plugin_is_valid() -> None:
     # A sample's analyst, reviewer and QA each sign for their decision (ADR 0126).
     sample = result.plugin.types["iki/example_lims.Sample"]
     status = sample.fields["status"].states
+    assert status["in_testing"].reason == "optional"
+    assert status["retesting"].reason == "required" and not status["retesting"].locks
+    assert sample.fields["analyst"].assignment_states == ("received", "in_testing", "retesting")
     signed = {n: [(s.meaning, s.label) for s in st.signatures] for n, st in status.items()}
     assert signed == {
         "registered": [],
         "received": [],
         "in_testing": [],
+        "retesting": [("approval", "QA return to testing")],
         "in_review": [("authorship", "Authorship")],
         "approved": [("review", "Review")],
         "released": [("approval", "QA release")],
@@ -255,14 +259,18 @@ def test_correcting_an_approved_sample_reopens_testing_but_claiming_it_keeps_rev
     variables = rules.guard_variables(schema, {"status": status}, [], status)
     for target in ("approved", "released"):
         guard = status.states[target].guards["independent_measurement"]
-        for field in ("purity", "concentration", "result", "notes", "reviewer"):
-            context = {
-                "actor": {"person": "signer"},
-                "edits": {"status": {"in_testing": [{"by": "signer", "fields": [field]}]}},
-            }
-            ((outcome,),) = rules.evaluate(variables, [(guard.check, rules.CONDITION)], [context])
-            assert outcome.error is None
-            assert outcome.value is (field == "reviewer")
+        for testing_state in ("in_testing", "retesting"):
+            for field in ("purity", "concentration", "result", "notes", "reviewer"):
+                context = {
+                    "actor": {"person": "signer"},
+                    "last": {"status": {"retesting": {} if testing_state == "retesting" else None}},
+                    "edits": {"status": {testing_state: [{"by": "signer", "fields": [field]}]}},
+                }
+                ((outcome,),) = rules.evaluate(
+                    variables, [(guard.check, rules.CONDITION)], [context]
+                )
+                assert outcome.error is None
+                assert outcome.value is (field == "reviewer")
 
 
 def test_an_analysis_requires_independent_review_and_signed_release(

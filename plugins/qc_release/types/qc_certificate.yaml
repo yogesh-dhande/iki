@@ -1,0 +1,64 @@
+apiVersion: iki/v1
+kind: EntityType
+name: QCCertificate
+label: Regulated certificate of analysis
+schema_version: 1
+extends: ReleaseCertificate
+hrid: { prefix: QCA }
+exports: [{ export: signed_report, report: report, review: review, issued: [released] }]
+fields:
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          correctable:
+            check: state.from in ["submitted", "reviewed"]
+            message: Return a submitted or reviewed certificate for correction.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: authorship
+            statement: I submit the complete record of lot testing and investigations for independent review.
+        guards:
+          complete:
+            check: state.from == "recorded" && record.review_flow == "regulated_qc" && record.case.sealed == true
+            message: Submit the certificate assembled from a completed regulated QC release case.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: review
+            statement: I independently reviewed the pinned specification and all results and exception resolutions.
+        guards:
+          independent:
+            check: >-
+              state.from == "submitted" && !(actor.person in record.analysts) &&
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: The reviewer must be independent of the testing, certificate preparation, submission and edits.
+      released:
+        label: Issued by QA
+        set_by: [qa]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: QA issue
+            statement: I issue this certificate of analysis on the complete independently reviewed lot release evidence.
+        guards:
+          independent:
+            check: >-
+              state.from == "reviewed" && last.review.reviewed.from == "submitted" &&
+              !(actor.person in record.analysts) &&
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: QA must be independent of the testing, preparation, submission, edits and review.

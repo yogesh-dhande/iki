@@ -1,0 +1,28 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ResearchOOSInvestigation
+label: Research OOS investigation
+schema_version: 1
+extends: OOSInvestigation
+hrid: { prefix: ROI }
+fields:
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded: { label: Recorded }
+      signed_off:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        reason: required
+        signatures:
+          - meaning: review
+            statement: I reviewed the original observation and sign this investigation's conclusion.
+        guards:
+          resolved:
+            check: >-
+              state.from == "recorded" && record.case.review_flow == "research" &&
+              record.resolution != null && record.findings != null && size(record.findings) > 0 &&
+              (record.resolution != "invalidated" || record.evidence != null)
+            message: Record findings and a conclusion. Invalidation requires supporting evidence.

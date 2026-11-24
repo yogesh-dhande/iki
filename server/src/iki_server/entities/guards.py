@@ -155,6 +155,17 @@ def _actor(user: User, roles: frozenset[str], plugin: str) -> dict[str, Any]:
     }
 
 
+def _draws(entity: Entity) -> list[dict[str, str]]:
+    from iki_server.amounts.models import Movement, MovementKind
+
+    return [
+        {"on": checking.now_values(draw)["today"]}
+        for draw in Movement.objects.filter(used_in_id=entity.pk, kind=MovementKind.DRAWN)
+        .order_by("created_at", "id")
+        .values_list("created_at", flat=True)
+    ]
+
+
 def refusals(
     user: User,
     entity: Entity,
@@ -191,6 +202,12 @@ def refusals(
         for g in s.guards.values()
         for source in (g.check, g.when or "", g.message)
     )
+    with_draws = any(
+        "draws" in source
+        for s in guarded
+        for g in s.guards.values()
+        for source in (g.check, g.when or "", g.message)
+    )
     history, edits = _history(entity, state_fields, values, with_edits=with_edits)
     last = {
         name: {
@@ -214,6 +231,7 @@ def refusals(
         "last": last,
         "edits": edits,
         "holds": held,
+        "draws": _draws(entity) if with_draws else [],
         "signatures": list(signatures),
     }
     current = values.get(field) or ""

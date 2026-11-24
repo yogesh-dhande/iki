@@ -1,0 +1,67 @@
+apiVersion: iki/v1
+kind: EntityType
+name: QCOOSInvestigation
+label: Regulated OOS investigation
+schema_version: 1
+extends: OOSInvestigation
+hrid: { prefix: QOI }
+fields:
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          correctable:
+            check: state.from in ["submitted", "reviewed"]
+            message: Return a submitted or reviewed investigation for correction.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: authorship
+            statement: I submit the original observation, investigation findings and conclusion.
+        guards:
+          resolved:
+            check: >-
+              state.from == "recorded" && record.case.review_flow == "regulated_qc" &&
+              record.resolution != null && record.findings != null && size(record.findings) > 0 &&
+              (record.resolution != "invalidated" || record.evidence != null)
+            message: Record findings and a conclusion. Invalidation requires supporting evidence.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures:
+          - meaning: review
+            statement: I independently reviewed the original observation, evidence and findings.
+        guards:
+          independent:
+            check: >-
+              state.from == "submitted" && record.test.observed_by != actor.person &&
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: An independent reviewer signs after submission.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        reason: required
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: I approve the signed disposition of this original out-of-specification observation.
+        guards:
+          independent:
+            check: >-
+              state.from == "reviewed" && last.review.reviewed.from == "submitted" &&
+              record.test.observed_by != actor.person && history.review[0].by != actor.person &&
+              last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person &&
+              edits.review.recorded.all(e, e.by != actor.person)
+            message: QA signs independently of the analyst, investigator and reviewer.

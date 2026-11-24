@@ -1,0 +1,89 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Pull
+label: Stability pull
+schema_version: 1
+hrid: { prefix: STP }
+due: due_on
+sample: true
+description: The scheduled use of a specific storage tube at one condition and time point.
+draw_target:
+  from: tube
+  source: lot
+  state: { field: status, is: scheduled }
+  by: [coordinator]
+  stored: true
+  ready: study_revision
+  amount: volume_ul
+fields:
+  study: { type: ref, to: Study, required: true, immutable: true, indexed: true }
+  study_revision: { type: int, min: 1, computed: true }
+  lot: { type: ref, to: iki/lots.Lot, required: true, immutable: true }
+  tube: { type: ref, to: iki/example_lims.Tube, required: true, immutable: true }
+  volume_ul:
+    {
+      type: quantity,
+      unit: uL,
+      label: Planned volume (µL),
+      min: 0.000001,
+      required: true,
+      immutable: true,
+    }
+  condition: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
+  condition_label: { type: string, max_length: 100, required: true, immutable: true }
+  month: { type: int, min: 0, max: 120, required: true, immutable: true, indexed: true }
+  opens_on: { type: date, required: true, immutable: true }
+  due_on: { type: date, required: true, immutable: true, indexed: true }
+  closes_on: { type: date, required: true, immutable: true }
+  owner:
+    type: person
+    label: Pull coordinator
+    role: coordinator
+    assignment: { field: status, states: [scheduled] }
+    required: true
+  pulled_on:
+    type: date
+    description: Record the UTC date of the scan-confirmed draw in the assigned tube's ledger.
+  window_note:
+    type: text
+    max_length: 2000
+    description: Describe why a pull was made outside its window.
+  status:
+    type: state
+    initial: scheduled
+    states:
+      scheduled: { label: Scheduled }
+      pulled:
+        label: Pulled
+        set_by: [coordinator]
+        locks: true
+        guards:
+          draw_recorded:
+            check: state.from == "scheduled" && record.study_revision != null && size(draws) == 1
+            message: Record the scan-confirmed draw from the assigned tube before closing the pull.
+          actual_date:
+            check: record.pulled_on == draws[0].on
+            message: The pull date must match the UTC date of its draw in the amount ledger.
+          explain_deviation:
+            check: (record.opens_on <= record.pulled_on && record.pulled_on <= record.closes_on) || (record.window_note != null && size(record.window_note) > 0)
+            message: Explain the deviation before closing an early or late pull.
+      missed:
+        label: Missed
+        set_by: [coordinator]
+        locks: true
+        reason: required
+        guards:
+          past_window:
+            check: state.from == "scheduled" && record.study_revision != null && today > record.closes_on
+            message: Record a missed pull after the last date of its window.
+          nothing_drawn:
+            check: size(draws) == 0 && record.pulled_on == null
+            message: Reconcile the recorded draw as a pull.
+rules:
+  window_order:
+    label: The due date is within the pull window
+    fields: [opens_on, due_on, closes_on]
+    check: record.opens_on <= record.due_on && record.due_on <= record.closes_on
+    message: The window must contain the due date.
+display:
+  title: "{{ condition_label }} · Month {{ month }}"
