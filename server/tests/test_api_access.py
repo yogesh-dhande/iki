@@ -98,6 +98,7 @@ def starter_choice(operation: str) -> Build:
             "version": "1.0.0",
             "flow": "research",
             "role_assignments": {},
+            **({"plan": "0" * 64} if operation == "apply" else {}),
         }
 
     return build

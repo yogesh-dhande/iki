@@ -26,19 +26,24 @@ mapping quality of 0: folding makes the two places one, so mapping quality isn't
 **Each read's indels moved 3'.** In a run of repeated bases an aligner may put a read's
 deletion or insertion at any place along the run, and reads of one molecule would then each
 say a different base is gone, none by a majority. Each indel is moved as far 3' as the read's
-matching bases allow before it's counted (Tan et al. 2015, "Unified representation of genetic
-variants", https://doi.org/10.1093/bioinformatics/btv112); HGVS's 3' rule picks the same end
-(den Dunnen et al. 2016, https://doi.org/10.1002/humu.22981).
+matching bases allow before it's counted, the end HGVS's 3' rule names a change at (den
+Dunnen et al. 2016, https://doi.org/10.1002/humu.22981; HGVS, "General recommendations": "the
+most 3' position possible"). VCF's normalization goes the other way, left (Tan et al. 2015),
+so a VCF record of the same deletion starts at the run's first base.
 
 **The consensus.** At each base, the reads that observe it (with a base, or a deletion) are
-its depth. With at least `min_depth` of them, the consensus is the base, or the deletion,
-more than half of them have; with no majority it's N, unresolved. Between two bases, the
-consensus has an insertion where more than half the reads that read across that place have
-one, and has the inserted bases most of those reads have. A base fewer than `min_depth` reads
-observe is N. Reads disagree most inside a long insertion, where no single read's bases are
-a majority's, so the reads are aligned again to that consensus and it's called again, until
-it no longer changes (at most four rounds), as reference-guided polishing does (racon: Vaser
-et al. 2017, https://doi.org/10.1101/gr.214270.116).
+its depth, each read once however many times it passes the base: a read longer than the
+plasmid reads some of it twice, but it's one molecule's evidence, so its passes vote among
+themselves first, and a read whose passes tie is one of the reads there that says nothing
+of which allele. With at least `min_depth` reads, the consensus is the base, or the
+deletion, more than half of them have; with no majority it's N, unresolved. Between two
+bases, the consensus has an insertion where more than half the reads that read across that
+place insert something, and has the inserted bases most of those reads have; where two
+sets of bases tie, the insertion is N, as many as most of them inserted. A base fewer than
+`min_depth` reads observe is N. Reads disagree most inside a long insertion, where no single
+read's bases are a majority's, so the reads are aligned again to that consensus and it's
+called again, until it no longer changes (at most four rounds), as reference-guided
+polishing does (racon: Vaser et al. 2017, https://doi.org/10.1101/gr.214270.116).
 
 **Comparing.** The consensus, the reads' or a service's, is then aligned to the reference
 as one sequence, with a stretch of its own circle either side so its cut ends don't hide a
@@ -46,12 +51,19 @@ difference, and each place on the reference is taken once. Where the reference h
 ambiguity code, a consensus base the code allows isn't a difference. Side-by-side changes
 are one change. Each is named as HGVS's DNA recommendations name it, numbered from the
 reference's first base: `o.` for a circular reference, `g.` for a linear one (HGVS,
-"Reference sequences"). It lies in each of the reference's features that holds it. Its reads
-are those that agree with the consensus there: the fewest of any base it has, or for a
-deletion, the reads across the place that insert nothing.
+"Reference sequences"). It lies in each of the reference's features that holds all of it
+(part by part, for a join). Its reads are those across it, each once, and its support those
+whose own bases there are closer to its whole allele than to the reference's (see
+`support_of`), so a change of several bases is supported only by reads that have all of it.
 
-The result's agreement is `matches` where every base is called and none differs, `differs`
-where any does, and `incomplete` where none differs but some weren't called.
+Every base of the consensus must be placed on the reference once. Bases no alignment holds
+(more sequence than the plasmid has) and bases placed where earlier ones already were (such
+as a second lap of the circle) are listed as unplaced, and the consensus is then kept as it
+was given rather than in the reference's frame.
+
+The result's agreement is `matches` where every base is called, none differs and the whole
+consensus is placed once; `differs` where any differs or some of the consensus isn't placed
+once; and `incomplete` where none differs but some weren't called.
 """
 
 from __future__ import annotations
@@ -187,7 +199,7 @@ def hits(paf: Iterable[str]) -> Iterator[Hit]:
 
 def normalized(hit: Hit, target: str) -> list[Event]:
     """The hit's events, each deletion and insertion moved as far 3' as the matching bases
-    after it allow (Tan et al. 2015): never into the next event, nor past the alignment."""
+    after it allow (HGVS's 3' rule): never into the next event, nor past the alignment."""
     out: list[Event] = []
     for index, each in enumerate(hit.events):
         limit = hit.events[index + 1].start if index + 1 < len(hit.events) else hit.stop
@@ -245,54 +257,97 @@ def write_fasta(path: Path, name: str, bases: str) -> Path:
 
 # --- The pileup --------------------------------------------------------------------------
 
+#: A read whose passes over one place disagree, as many for each allele: it's one of the
+#: reads there, but says nothing of which allele the place has.
+UNSURE = "?"
+
 
 @dataclass
 class Pileup:
-    """What reads say of each place on a sequence of `size` bases: `calls[k]`, what they
-    have at base k (a base, or `-` for a deletion), with their strand; `inserted[k]`, the
-    bases they insert before base k; and `across[k]`, the reads, by strand, that read
-    across the place before base k, so would show an insertion there."""
+    """What reads say of each place on a sequence of `size` bases, one vote per read however
+    many times it passes the place (a read longer than the plasmid reads some of it more
+    than once): `calls[k]`, what they have at base k (a base, or `-` for a deletion), with
+    their strand; `inserted[k]`, the bases they insert before base k; and `across[k]`, the
+    reads, by strand, that read across the place before base k, so would show an insertion
+    there. A read whose passes disagree as much one way as another votes `UNSURE`."""
 
     size: int
+    target: str
     calls: list[Counter[tuple[str, bool]]]
     inserted: list[Counter[tuple[str, bool]]]
     across: list[Counter[bool]]
-    aligned: set[str] = field(default_factory=set)
+    reads: dict[str, list[Hit]] = field(default_factory=dict)
 
     @classmethod
-    def of(cls, size: int) -> Pileup:
+    def of(cls, size: int, target: str = "") -> Pileup:
         return cls(
             size,
+            target,
             [Counter() for _ in range(size)],
             [Counter() for _ in range(size)],
             [Counter() for _ in range(size)],
         )
 
+    @property
+    def aligned(self) -> set[str]:
+        return set(self.reads)
+
     def depth(self, k: int) -> int:
         return sum(self.calls[k].values())
 
     def add(self, hit: Hit, target: str) -> None:
-        self.aligned.add(hit.read)
-        size, strand = self.size, hit.forward
-        spot = hit.start
-        for each in [*normalized(hit, target), None]:
-            until = each.start if each else hit.stop
-            for t in range(spot, until):
-                self.calls[t % size][target[t], strand] += 1
-                if t > hit.start:
-                    self.across[t % size][strand] += 1
-            if each is None:
-                break
-            if each.start == each.stop:
-                if each.start > hit.start:
-                    self.inserted[each.start % size][each.bases, strand] += 1
-            else:
-                for offset, t in enumerate(range(each.start, each.stop)):
-                    allele = each.bases[offset] if each.bases else "-"
-                    self.calls[t % size][allele, strand] += 1
+        """One alignment of a read; with `add_read`, all of a read's at once."""
+        self.add_read([hit], target)
+
+    def add_read(self, passes: list[Hit], target: str) -> None:
+        """All of one read's alignments, primary and supplementary: what it has at each
+        place, from as many passes as cross it, counted as one read."""
+        self.reads.setdefault(passes[0].read, []).extend(passes)
+        size = self.size
+        bases: dict[int, Counter[tuple[str, bool]]] = {}
+        places: dict[int, Counter[tuple[str, bool]]] = {}
+        for hit in passes:
+            strand, spot = hit.forward, hit.start
+            events = normalized(hit, target)
+            inserts = {e.start: e.bases for e in events if e.start == e.stop}
+            for each in [*events, None]:
+                until = each.start if each else hit.stop
+                observed = [(t, target[t]) for t in range(spot, until)]
+                if each is not None and each.stop > each.start:
+                    observed += [
+                        (t, each.bases[o] if each.bases else "-")
+                        for o, t in enumerate(range(each.start, each.stop))
+                    ]
+                for t, allele in observed:
+                    bases.setdefault(t % size, Counter())[allele, strand] += 1
                     if t > hit.start:
-                        self.across[t % size][strand] += 1
-            spot = each.stop
+                        places.setdefault(t % size, Counter())[inserts.get(t, ""), strand] += 1
+                if each is None:
+                    break
+                spot = each.stop
+        for k, counts in bases.items():
+            allele, strand = vote(counts)
+            self.calls[k][allele, strand] += 1
+        for k, counts in places.items():
+            allele, strand = vote(counts)
+            self.across[k][strand] += 1
+            if allele:
+                self.inserted[k][allele, strand] += 1
+
+
+def vote(counts: Counter[tuple[str, bool]]) -> tuple[str, bool]:
+    """One read's allele at a place, from its passes over it: the allele most of them have,
+    on the strand most of those were read on. Where two alleles tie, the read is unsure of
+    a base (`UNSURE`); of an insertion, it's unsure which bases if every tied allele is
+    one, and otherwise inserts nothing it's sure of (""), so it never adds to a majority."""
+    ranked = alleles(counts).most_common()
+    tied = [a for a, n in ranked if n == ranked[0][1]]
+    if len(tied) == 1:
+        allele = tied[0]
+        return allele, counts[allele, True] >= counts[allele, False]
+    allele = UNSURE if all(tied) or "" not in tied else ""
+    forward = sum(n for (_, strand), n in counts.items() if strand)
+    return allele, 2 * forward >= sum(counts.values())
 
 
 def alleles(counts: Counter[tuple[str, bool]]) -> Counter[str]:
@@ -318,25 +373,46 @@ class Call:
 
 
 def base_call(pileup: Pileup, k: int, min_depth: int) -> Call:
+    """The allele more than half the reads at base k have; N with no majority, or with
+    fewer than `min_depth` reads."""
     counts = pileup.calls[k]
     depth = sum(counts.values())
     if depth == 0 or depth < min_depth:
         return Call("N", depth)
-    allele, support = alleles(counts).most_common(1)[0]
-    if 2 * support <= depth:
+    ranked = [(a, n) for a, n in alleles(counts).most_common() if a != UNSURE]
+    if not ranked or 2 * ranked[0][1] <= depth:
         return Call("N", depth)
+    allele = ranked[0][0]
     return Call(allele, depth, counts[allele, True], counts[allele, False])
 
 
 def insert_call(pileup: Pileup, k: int, min_depth: int) -> Call | None:
     """The insertion the consensus has before base k: where more than half of the reads
-    across that place have one, the bases most of those reads inserted."""
+    across that place insert something, the bases most of those reads inserted. Where the
+    most inserted bases are a tie, which bases is unresolved: N, as many as most of those
+    reads inserted. Its support is then the reads that insert something there."""
     across = sum(pileup.across[k].values())
     found = pileup.inserted[k]
-    if across < min_depth or 2 * sum(found.values()) <= across:
+    present = sum(found.values())
+    if across < min_depth or 2 * present <= across:
         return None
-    bases = alleles(found).most_common(1)[0][0]
-    return Call(bases, across, found[bases, True], found[bases, False])
+    ranked = [(a, n) for a, n in alleles(found).most_common() if a != UNSURE]
+    if ranked and (len(ranked) == 1 or ranked[1][1] < ranked[0][1]):
+        bases = ranked[0][0]
+        return Call(bases, across, found[bases, True], found[bases, False])
+    lengths = Counter(len(a) for a, n in ranked for _ in range(n))
+    longest = max(lengths.values()) if lengths else 0
+    length = min((n for n, c in lengths.items() if c == longest), default=1)
+    forward = sum(n for (_, strand), n in found.items() if strand)
+    return Call("N" * length, across, forward, present - forward)
+
+
+def grouped(found: Iterable[Hit]) -> list[list[Hit]]:
+    """Each read's alignments, together, in the order the reads first appear."""
+    reads: dict[str, list[Hit]] = {}
+    for hit in found:
+        reads.setdefault(hit.read, []).append(hit)
+    return list(reads.values())
 
 
 def pileup_of(
@@ -345,9 +421,9 @@ def pileup_of(
     target = draft + draft if circular else draft
     ref = write_fasta(work / "draft.fasta", "draft", target)
     paf = minimap2(["-x", preset, "-c", "--cs", "--secondary=no", *threads(), str(ref), *paths])
-    pileup = Pileup.of(len(draft))
-    for hit in hits(paf):
-        pileup.add(hit, target)
+    pileup = Pileup.of(len(draft), target)
+    for passes in grouped(hits(paf)):
+        pileup.add_read(passes, target)
     return pileup, paf
 
 
@@ -368,15 +444,88 @@ def consensus_of(pileup: Pileup, min_depth: int) -> tuple[str, list[Call]]:
     return "".join(bases), calls
 
 
-def deletion_call(pileup: Pileup, k: int) -> Call:
-    """The reads across the place before base k, and those that insert nothing there."""
-    across = pileup.across[k % pileup.size]
-    inserted = pileup.inserted[k % pileup.size]
-    agree = {
-        s: across[s] - sum(n for (_, strand), n in inserted.items() if strand == s)
-        for s in (True, False)
-    }
-    return Call("", sum(across.values()), agree[True], agree[False])
+def within(a: str, b: str, limit: int) -> int:
+    """The edit distance between `a` and `b`, N matching any base, or `limit + 1` if it's
+    more than `limit` (Ukkonen's band: only cells within `limit` of the diagonal)."""
+    if abs(len(a) - len(b)) > limit:
+        return limit + 1
+    over = limit + 1
+    previous = [j if j <= limit else over for j in range(len(b) + 1)]
+    for i in range(1, len(a) + 1):
+        low, high = max(1, i - limit), min(len(b), i + limit)
+        current = [over] * (len(b) + 1)
+        current[0] = i if i <= limit else over
+        for j in range(low, high + 1):
+            same = a[i - 1] == b[j - 1] or "N" in (a[i - 1], b[j - 1])
+            current[j] = min(
+                previous[j - 1] + (0 if same else 1), previous[j] + 1, current[j - 1] + 1, over
+            )
+        previous = current
+    return min(previous[len(b)], over)
+
+
+def segment(events: list[Event], target: str, u: int, length: int) -> tuple[str, int]:
+    """What one pass of a read has from base `u` of its target for `length` bases, with
+    what it inserts at each place from just before base u to just after the last: the
+    read's own bases between the two either side. And the cost of its alignment there (a
+    base for each substitution, deleted base and inserted base; none for a base the
+    target has as N), which is at least its edit distance from the target's bases."""
+    inserts = {e.start: e.bases for e in events if e.start == e.stop}
+    changed: dict[int, str] = {}
+    for e in events:
+        for o, t in enumerate(range(e.start, e.stop)):
+            changed[t] = e.bases[o] if e.bases else ""
+    out: list[str] = []
+    cost = 0
+    for t in range(u, u + length + 1):
+        out.append(inserts.get(t, ""))
+        cost += len(inserts.get(t, ""))
+        if t < u + length:
+            here = changed.get(t, target[t])
+            out.append(here)
+            cost += here != target[t] and target[t] != "N"
+    return "".join(out), cost
+
+
+def support_of(pileup: Pileup, qstart: int, qstop: int, was: str, bases: str) -> Call:
+    """The reads across one of the consensus's differences, its bases `qstart` to `qstop`
+    (none for a deletion), and those that have its whole allele `bases`.
+
+    A read is across it where one of its passes reads the bases either side. A pass has the
+    allele where what it read there is closer to `bases` than to the reference's `was`, in
+    edit distance with N matching any base; it has the reference's where it's closer to
+    that. A read with more passes for the allele than against supports it, on the strand
+    most of those passes were read on; a read with as many each way, or closer to neither,
+    is one of the reads there but not one of its support. Each read counts once."""
+    size, target = pileup.size, pileup.target
+    circular = len(target) == 2 * size
+    length = qstop - qstart
+    forward = reverse = depth = 0
+    for passes in pileup.reads.values():
+        tally: Counter[tuple[int, bool]] = Counter()
+        for hit in passes:
+            events = normalized(hit, target)
+            for u in range(qstart, len(target), size):
+                before = u > hit.start or (u == 0 == hit.start and not circular)
+                after = u + length < hit.stop or (
+                    u + length == hit.stop == len(target) and not circular
+                )
+                if not (before and after):
+                    continue
+                read, cost = segment(events, target, u, length)
+                near = within(read, bases, cost)
+                far = within(read, was, near)
+                tally[(near < far) - (far < near), hit.forward] += 1
+        if not tally:
+            continue
+        depth += 1
+        agree, disagree = tally[1, True] + tally[1, False], tally[-1, True] + tally[-1, False]
+        if agree > disagree:
+            if tally[1, True] >= tally[1, False]:
+                forward += 1
+            else:
+                reverse += 1
+    return Call(bases, depth, forward, reverse)
 
 
 # --- Comparing a consensus with the reference ---------------------------------------------
@@ -405,6 +554,13 @@ class Comparison:
     before: list[str]
     changes: list[Change]
     consensus: str
+    #: The consensus's bases (0-based, end exclusive, as it was given or turned round to the
+    #: reference's strand) that aren't placed on the reference once: `unaligned`, those no
+    #: alignment holds, and `repeated`, those placed where earlier bases already were, such as
+    #: a second lap of the circle.
+    unplaced: list[tuple[int, int, str]] = field(default_factory=list)
+    #: The consensus as given, on the reference's strand.
+    oriented: str = ""
 
 
 def compare(reference: str, consensus: str, circular: bool, work: Path) -> Comparison:
@@ -438,33 +594,81 @@ def compare(reference: str, consensus: str, circular: bool, work: Path) -> Compa
     before = [""] * size
     changes: list[Change] = []
     window = range(flank, flank + found)
+    # Each of the consensus's bases: placed on the reference once (1), placed where earlier
+    # ones already were (2), or not placed (0).
+    placed = [0] * found
+    taken = [False] * size
+
+    def take(q: int, k: int) -> bool:
+        """Places the consensus's base q (in the query) at reference base k, unless an
+        earlier one is there: then it's repeated."""
+        if q not in window:
+            return False
+        if taken[k]:
+            placed[q - flank] = max(placed[q - flank], 2)
+            return False
+        taken[k] = True
+        placed[q - flank] = max(placed[q - flank], 1)
+        return True
+
     for hit in sorted(kept, key=lambda h: h.qstart):
         t, q = hit.start, hit.qstart
         for each in [*normalized(hit, target), None]:
             until = each.start if each else hit.stop
             for step in range(until - t):
-                if q + step in window and seen[(t + step) % size] == ".":
+                if take(q + step, (t + step) % size):
                     seen[(t + step) % size] = target[t + step]
             q += until - t
             if each is None:
                 break
-            if each.qstart in window or (each.qstart == each.qstop and each.qstart - 1 in window):
+            here = each.qstart if each.qstop > each.qstart else each.qstart - 1
+            if here in window:
                 at = each.start % size
+                fresh = True
                 if each.start == each.stop:
+                    for k in range(each.qstart, each.qstop):
+                        if k in window:
+                            placed[k - flank] = max(placed[k - flank], 1)
                     before[at] += each.bases
                 else:
                     for offset in range(each.stop - each.start):
                         k = (each.start + offset) % size
+                        query = each.qstart + offset if each.bases else here
+                        if taken[k]:
+                            fresh = False
+                            if query in window:
+                                placed[query - flank] = max(placed[query - flank], 2)
+                            continue
+                        taken[k] = True
+                        if each.bases and query in window:
+                            placed[query - flank] = max(placed[query - flank], 1)
                         seen[k] = each.bases[offset] if each.bases else "-"
-                changes.append(
-                    Change(
-                        each.start, each.stop, each.bases, each.qstart - flank, each.qstop - flank
+                if fresh:
+                    changes.append(
+                        Change(
+                            each.start,
+                            each.stop,
+                            each.bases,
+                            each.qstart - flank,
+                            each.qstop - flank,
+                        )
                     )
-                )
             t, q = each.stop, each.qstop
+    # Runs of the consensus's bases not placed once, each of one kind.
+    split: list[tuple[int, int, str]] = []
+    for k in range(found):
+        if placed[k] == 1:
+            continue
+        kind = "unaligned" if placed[k] == 0 else "repeated"
+        if split and split[-1][1] == k and split[-1][2] == kind:
+            split[-1] = (split[-1][0], k + 1, kind)
+        else:
+            split.append((k, k + 1, kind))
     # The consensus in the reference's frame, from its origin, read off what aligned.
     rebuilt = "".join(before[k] + (seen[k] if seen[k] not in "-." else "") for k in range(size))
-    return Comparison(seen, before, merged(reference, changes), rebuilt or consensus)
+    return Comparison(
+        seen, before, merged(reference, changes), rebuilt or consensus, split, consensus
+    )
 
 
 def merged(reference: str, changes: list[Change]) -> list[Change]:
@@ -586,14 +790,19 @@ def homopolymer(reference: str, change: Change, circular: bool) -> int:
     return longest
 
 
-def kind_of(was: str, bases: str) -> str:
-    if not bases:
+def kind_of(name: str) -> str:
+    """A change's kind, as its HGVS name says it (HGVS's DNA recommendations)."""
+    if name.endswith("dup"):
+        return "duplication"
+    if name.endswith("inv"):
+        return "inversion"
+    if "delins" in name:
+        return "deletion_insertion"
+    if name.endswith("del"):
         return "deletion"
-    if not was:
+    if "ins" in name:
         return "insertion"
-    if len(was) == 1 and len(bases) == 1:
-        return "substitution"
-    return "deletion_insertion"
+    return "substitution"
 
 
 # --- Features ----------------------------------------------------------------------------
@@ -601,33 +810,52 @@ def kind_of(was: str, bases: str) -> str:
 
 def features_of(sequence: dict[str, Any], plasmid: dict[str, Any]) -> list[dict[str, Any]]:
     """The sequence's own features (as GenBank lists them) and those the plasmid's
-    annotation found, each once."""
+    annotation found, each once, with their strand as given (`mixed` where a join's parts
+    lie on both strands, `none` where it has none) and, for a join or an order, its parts:
+    only those hold its bases, not the gaps between them (INSDC Feature Table, "location")."""
     seen: set[tuple[str, str, int, int]] = set()
     out = []
     for each in [*(sequence.get("features") or []), *(plasmid.get("annotated_features") or [])]:
         name = each.get("name") or (each.get("qualifiers") or {}).get("label") or each["type"]
         key = (each["type"], name, each["start"], each["end"])
-        if key not in seen:
-            seen.add(key)
-            strand = "reverse" if each.get("strand") in ("reverse", -1) else "forward"
-            out.append(
-                {
-                    "type": each["type"],
-                    "name": name,
-                    "start": each["start"],
-                    "end": each["end"],
-                    "strand": strand,
-                }
-            )
+        if key in seen:
+            continue
+        seen.add(key)
+        strand = each.get("strand")
+        strand = {-1: "reverse", 1: "forward", None: "none"}.get(strand, strand)
+        found: dict[str, Any] = {
+            "type": each["type"],
+            "name": name,
+            "start": each["start"],
+            "end": each["end"],
+            "strand": strand if strand in ("forward", "reverse", "mixed", "none") else "none",
+        }
+        parts = [
+            {"start": p["start"], "end": p["end"]}
+            for p in each.get("parts") or []
+            if not p.get("between")
+        ]
+        if parts:
+            found["parts"] = parts
+        out.append(found)
     return out
 
 
 def holds(feature: dict[str, Any], first: int, last: int, size: int) -> bool:
     """Whether a feature (1-based and inclusive, its end before its start where it wraps
-    the origin) holds the bases `first` to `last` (0-based, round the origin past the end)."""
-    start = feature["start"] - 1
-    span = (feature["end"] - 1 - start) % size
-    return (first - start) % size + (last - first) <= span
+    the origin; part by part where it has parts) holds every base from `first` to `last`
+    (0-based, round the origin past the end)."""
+
+    def within(part: dict[str, Any], k: int) -> bool:
+        start = part["start"] - 1
+        return (k - start) % size <= (part["end"] - 1 - start) % size
+
+    parts = feature.get("parts") or [feature]
+    if "parts" not in feature:
+        start = feature["start"] - 1
+        span = (feature["end"] - 1 - start) % size
+        return (first - start) % size + (last - first) <= span
+    return all(any(within(p, k % size) for p in parts) for k in range(first, last + 1))
 
 
 def falls_in(features: list[dict[str, Any]], first: int, last: int, size: int) -> list[str]:
@@ -696,12 +924,52 @@ def fasta_records(path: Path) -> list[tuple[str, str]]:
 
 
 def count_reads(paths: list[Path]) -> int:
-    """The reads in FASTQ files, gzipped or not: four lines each."""
+    """The reads in FASTQ files, gzipped or not: each record a header (`@`), its bases on
+    one line or several, a `+` line, and as many quality characters as bases, on one line
+    or several (Cock et al. 2010, https://doi.org/10.1093/nar/gkp1137)."""
     total = 0
     for path in paths:
         with opened(path) as handle:
-            total += sum(1 for _ in handle) // 4
+            lines = (line.rstrip("\r\n") for line in handle)
+            for header in lines:
+                if not header:
+                    continue
+                if not header.startswith("@"):
+                    fail(f"{path.name} isn't FASTQ: a record starts {header[:20]!r}.")
+                bases = 0
+                for line in lines:
+                    if line.startswith("+"):
+                        break
+                    bases += len(line.strip())
+                else:
+                    fail(f"{path.name} ends inside a record.")
+                quality = 0
+                while quality < bases:
+                    line = next(lines, None)
+                    if line is None:
+                        fail(f"{path.name} ends inside a record's qualities.")
+                    quality += len(line.strip())
+                if quality != bases:
+                    fail(f"{path.name} has a record with more qualities than bases.")
+                total += 1
     return total
+
+
+def unplaced_text(unplaced: list[dict[str, Any]], length: int, hrid: str) -> str:
+    """What the consensus has that isn't placed on the reference once, in words."""
+    if not unplaced:
+        return ""
+    kinds = {
+        "unaligned": "align nowhere on",
+        "repeated": "repeat bases already placed on",
+    }
+    parts = [
+        f"{sum(r['bases'] for r in unplaced if r['why'] == why):,} "
+        f"({spans([r for r in unplaced if r['why'] == why][:20])}) {kinds[why]} {hrid}"
+        for why in kinds
+        if any(r["why"] == why for r in unplaced)
+    ]
+    return f"Of the consensus's {length:,} bases, " + "; ".join(parts) + "."
 
 
 def wrap(bases: str, width: int = 70) -> str:
@@ -811,9 +1079,10 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             first_base, last_base = change.start, change.stop - 1
         else:
             first_base, last_base = change.start - 1, change.start
+        name = named(reference, change, circular, consensus_name)
         row: dict[str, Any] = {
-            "hgvs": named(reference, change, circular, consensus_name),
-            "kind": kind_of(was, change.bases),
+            "hgvs": name,
+            "kind": kind_of(name),
             "start": first_base % size + 1
             if change.stop > change.start
             else change.start % size or size,
@@ -825,20 +1094,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             "features": falls_in(features, first_base, last_base, size),
         }
         if source == "reads":
-            if change.qstop > change.qstart:
-                # The reads that agree with the consensus: the fewest at any of its bases.
-                calls = [
-                    base_call(pileup, k % pileup.size, min_depth)
-                    for k in range(change.qstart, change.qstop)
-                ]
-                call = Call(
-                    "",
-                    min(c.depth for c in calls),
-                    min(c.forward for c in calls),
-                    min(c.reverse for c in calls),
-                )
-            else:
-                call = deletion_call(pileup, change.qstart)
+            # The reads that have the whole of the consensus's allele, each read once.
+            call = support_of(pileup, change.qstart, change.qstop, was, change.bases)
             row.update(
                 depth=call.depth,
                 support=call.support,
@@ -848,6 +1105,9 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
             )
         listed.append(row)
 
+    unplaced = [
+        {"start": a + 1, "end": b, "bases": b - a, "why": why} for a, b, why in comparison.unplaced
+    ][:200]
     uncalled = [k for k in range(size) if comparison.aligned[k] in ("N", ".")]
     low = [k for k in range(size) if depths[k] < min_depth] if source == "reads" else uncalled
     low_regions = [{"start": a + 1, "end": b + 1} for a, b in regions(low, size, circular)][:200]
@@ -861,12 +1121,22 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         f">{hrid}\n{wrap(''.join(gapped_ref))}>{consensus_name}\n{wrap(''.join(gapped_con))}",
         encoding="utf-8",
     )
-    (out_dir / "consensus.fasta").write_text(
-        f">{consensus_name} {title}: the consensus "
-        f"{'of the reads' if source == 'reads' else 'the service sent'}, in {hrid}'s frame\n"
-        f"{wrap(comparison.consensus)}",
-        encoding="utf-8",
-    )
+    if unplaced:
+        # Only the bases placed once have a place in the reference's frame: keep it whole.
+        (out_dir / "consensus.fasta").write_text(
+            f">{consensus_name} {title}: the consensus "
+            f"{'of the reads' if source == 'reads' else 'the service sent'}, as it was, on "
+            f"{hrid}'s strand ({sum(r['bases'] for r in unplaced):,} of its bases aren't "
+            f"placed on {hrid} once)\n{wrap(comparison.oriented)}",
+            encoding="utf-8",
+        )
+    else:
+        (out_dir / "consensus.fasta").write_text(
+            f">{consensus_name} {title}: the consensus "
+            f"{'of the reads' if source == 'reads' else 'the service sent'}, in {hrid}'s "
+            f"frame\n{wrap(comparison.consensus)}",
+            encoding="utf-8",
+        )
     with (out_dir / "coverage.tsv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
         writer.writerow(["position", "reference", "depth", "consensus"])
@@ -884,7 +1154,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         for row in listed:
             writer.writerow([*(row[c] for c in columns), "; ".join(row["features"])])
 
-    if listed:
+    if listed or unplaced:
         agreement = "differs"
     elif uncalled:
         agreement = "incomplete"
@@ -893,12 +1163,21 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     called_percent = round(100 * (size - len(uncalled)) / size, 2)
     summary = {
         "matches": f"The consensus matches {hrid} at all {size:,} bases.",
-        "differs": (
-            f"The consensus differs from {hrid} in {len(listed)} "
-            f"place{'s' if len(listed) != 1 else ''}: "
-            + ", ".join(row["hgvs"] for row in listed[:12])
-            + (", …" if len(listed) > 12 else "")
-            + "."
+        "differs": " ".join(
+            part
+            for part in (
+                (
+                    f"The consensus differs from {hrid} in {len(listed)} "
+                    f"place{'s' if len(listed) != 1 else ''}: "
+                    + ", ".join(row["hgvs"] for row in listed[:12])
+                    + (", …" if len(listed) > 12 else "")
+                    + "."
+                )
+                if listed
+                else "",
+                unplaced_text(unplaced, len(comparison.oriented), hrid),
+            )
+            if part
         ),
         "incomplete": (
             f"No differences from {hrid} where called, but {len(uncalled):,} of its "
@@ -937,6 +1216,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "coverage": bins(depths),
         "low_coverage": low_regions,
         "differences": listed,
+        "consensus_length": len(comparison.oriented),
+        "unplaced": unplaced,
         "features": features[:2000],
         "consensus": {"$file": "consensus.fasta", "media_type": "chemical/seq-na-fasta"},
     }

@@ -22,9 +22,15 @@ import sys
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypedDict
 
 PLAN = "plan.json"
 RAN = "ran.json"
+
+
+class FileDuration(TypedDict):
+    tests: int
+    seconds: float
 
 
 @dataclass(frozen=True)
@@ -147,20 +153,23 @@ def check(reports: list[Report]) -> list[str]:
     return errors
 
 
-def durations(reports: list[Report]) -> dict[str, dict[str, dict[str, float]]]:
-    """The seconds each file's tests took, by Python version and kind."""
-    totals: dict[str, dict[str, dict[str, float]]] = defaultdict(
-        lambda: defaultdict(lambda: defaultdict(float))
+def durations(reports: list[Report]) -> dict[str, dict[str, dict[str, FileDuration]]]:
+    """How many tests each file ran and their total seconds, by Python version and kind."""
+    times: dict[str, dict[str, dict[str, list[float]]]] = defaultdict(
+        lambda: defaultdict(lambda: defaultdict(list))
     )
     for report in reports:
         for nodeid, seconds in report.seconds.items():
-            totals[report.python][report.kind][nodeid.split("::", 1)[0]] += seconds
+            times[report.python][report.kind][nodeid.split("::", 1)[0]].append(seconds)
     return {
         python: {
-            kind: {f: round(s, 1) for f, s in sorted(files.items())}
+            kind: {
+                f: FileDuration(tests=len(observed), seconds=round(sum(observed), 1))
+                for f, observed in sorted(files.items())
+            }
             for kind, files in sorted(kinds.items())
         }
-        for python, kinds in sorted(totals.items())
+        for python, kinds in sorted(times.items())
     }
 
 

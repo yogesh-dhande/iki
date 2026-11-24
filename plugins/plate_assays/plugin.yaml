@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plate_assays
-version: 0.2.1
+version: 0.3.0
 title: Plate assays
 description: Map endpoint reader files to a plate, fit the measured response and sign the result.
 license: Apache-2.0

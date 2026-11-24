@@ -18,13 +18,15 @@ def world() -> World:
     return build_world()
 
 
-def choice(world: World, requester: Project) -> dict[str, Any]:
+def choice(world: World, requester: Project, operation: str = "apply") -> dict[str, Any]:
+    """A setup, and for applying it, the plan its preview would have returned."""
     return {
         "version": "1.0.0",
         "flow": "research",
         "project": str(world.project.pk),
         "requester_project": str(requester.pk),
         "role_assignments": {},
+        **({"plan": "0" * 64} if operation == "apply" else {}),
     }
 
 
@@ -33,7 +35,7 @@ def test_setup_requires_access_to_the_requester(world: World, operation: str) ->
     requester = Project.objects.create(team=world.team, name="Assay requester")
     path = f"/starters/dose-response/{operation}"
     api = Api(world.browser("admin"))
-    body = choice(world, requester)
+    body = choice(world, requester, operation)
     problem(api.post(path, body), 404, "not_found")
     grant = ProjectMembership.objects.create(
         project=requester, user=world.users["admin"], role=ProjectRole.VIEWER

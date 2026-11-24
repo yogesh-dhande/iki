@@ -6368,6 +6368,53 @@
         "title": "EntrySupersededOut",
         "type": "object"
       },
+      "EnvironmentImageOut": {
+        "properties": {
+          "binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageBindingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The binding the installed version matches. Without one, the environment's container and VM runs are unavailable."
+          },
+          "environment": {
+            "description": "The qualified plugin environment.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "installed_version": {
+            "description": "The installed plugin version.",
+            "title": "Installed Version",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "plugin_title": {
+            "title": "Plugin Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "label",
+          "plugin",
+          "plugin_title",
+          "installed_version",
+          "binding"
+        ],
+        "title": "EnvironmentImageOut",
+        "type": "object"
+      },
       "EnvironmentVolumesOut": {
         "properties": {
           "environment": {
@@ -9734,32 +9781,10 @@
       },
       "ImageBindingOut": {
         "properties": {
-          "active": {
-            "description": "Whether this binding applies to the installed environment.",
-            "title": "Active",
-            "type": "boolean"
-          },
-          "environment": {
-            "description": "The qualified plugin environment.",
-            "title": "Environment",
-            "type": "string"
-          },
           "image": {
             "description": "The deployment-supplied image pinned by digest.",
             "title": "Image",
             "type": "string"
-          },
-          "installed_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The installed plugin version, if any.",
-            "title": "Installed Version"
           },
           "plugin_version": {
             "description": "The plugin release range the image applies to.",
@@ -9780,14 +9805,37 @@
           }
         },
         "required": [
-          "environment",
           "plugin_version",
           "image",
-          "pull_secret",
-          "installed_version",
-          "active"
+          "pull_secret"
         ],
         "title": "ImageBindingOut",
+        "type": "object"
+      },
+      "ImageBindingsOut": {
+        "properties": {
+          "environments": {
+            "description": "Each installed environment that needs a deployment-supplied image.",
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentImageOut"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "unused": {
+            "description": "Bindings in compute.yaml that no installed environment uses.",
+            "items": {
+              "$ref": "#/components/schemas/UnusedImageBindingOut"
+            },
+            "title": "Unused",
+            "type": "array"
+          }
+        },
+        "required": [
+          "environments",
+          "unused"
+        ],
+        "title": "ImageBindingsOut",
         "type": "object"
       },
       "ImportCounts": {
@@ -12608,6 +12656,19 @@
             "title": "Items",
             "type": "array"
           },
+          "plan": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.",
+            "title": "Plan"
+          },
           "preview": {
             "default": false,
             "description": "Say what each move would do, changing nothing.",
@@ -12654,12 +12715,25 @@
             ],
             "description": "The moves' operation, once they're made.",
             "title": "Operation"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A preview's: identifies what it shows, to send with the moves. Null once they're made.",
+            "title": "Plan"
           }
         },
         "required": [
           "items",
           "done",
-          "operation"
+          "operation",
+          "plan"
         ],
         "title": "MovesOut",
         "type": "object"
@@ -26422,6 +26496,65 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StarterApplyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan",
+            "type": "string"
+          },
+          "project": {
+            "description": "The assay service project. Requires its Admin role.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "description": "A different project in which the caller can create the example request.",
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "version": {
+            "description": "Installed starter version shown at setup.",
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "role_assignments",
+          "plan"
+        ],
+        "title": "StarterApplyIn",
+        "type": "object"
+      },
       "StarterFlowOut": {
         "properties": {
           "id": {
@@ -26649,6 +26782,11 @@
             "title": "Grants To Add",
             "type": "object"
           },
+          "plan": {
+            "description": "Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.",
+            "title": "Plan",
+            "type": "string"
+          },
           "project": {
             "format": "uuid",
             "title": "Project",
@@ -26694,7 +26832,8 @@
           "role_assignments",
           "grants_to_add",
           "examples_to_create",
-          "examples"
+          "examples",
+          "plan"
         ],
         "title": "StarterSetupOut",
         "type": "object"
@@ -28371,6 +28510,70 @@
           "symbol"
         ],
         "title": "UnitOption",
+        "type": "object"
+      },
+      "UnusedImageBindingOut": {
+        "properties": {
+          "environment": {
+            "description": "The qualified plugin environment it names.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "image": {
+            "description": "The deployment-supplied image pinned by digest.",
+            "title": "Image",
+            "type": "string"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The installed version of the environment's plugin, if it's installed.",
+            "title": "Installed Version"
+          },
+          "plugin_version": {
+            "description": "The plugin release range the image applies to.",
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "pull_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name of a Kubernetes pull Secret, if set.",
+            "title": "Pull Secret"
+          },
+          "reason": {
+            "description": "Why no run uses it: the installed release is outside its range; no installed plugin has the environment; the environment doesn't ask for an image; or another binding matches the same release too.",
+            "enum": [
+              "other_release",
+              "not_installed",
+              "not_requested",
+              "overlapping"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_version",
+          "image",
+          "pull_secret",
+          "environment",
+          "installed_version",
+          "reason"
+        ],
+        "title": "UnusedImageBindingOut",
         "type": "object"
       },
       "UpdatesOut": {
@@ -32363,7 +32566,7 @@
     },
     "/api/v1/compute/image-bindings": {
       "get": {
-        "description": "List the image pins configured in compute.yaml for this deployment.",
+        "description": "Each installed environment that needs an image from this deployment, and the binding\nin compute.yaml its plugin's installed version matches; and the bindings that none\nmatches, so stale pins show. Pull Secrets are named; their values stay in the cluster.",
         "operationId": "iki_server_api_compute_list_image_bindings",
         "parameters": [],
         "responses": {
@@ -32371,11 +32574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ImageBindingOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ImageBindingsOut"
                 }
               }
             },
@@ -34110,7 +34309,7 @@
     },
     "/api/v1/entities/search.csv": {
       "get": {
-        "description": "Every entity you can read that the search finds, as CSV: what ``POST\n/entities/search`` finds with the same filters, in its order, with the grid's columns\n(ADR 0175). Values are as the grid shows them, as you can read them: a reference by\nits HRID, a person by name, a state by its label; numbers in full, a quantity's unit\nin its column's heading, times in ISO 8601 (UTC). Each row ends with when the record\nlast changed, its revision and its UUID.\n\nIt's written a page at a time as it's read, so a large result starts at once. Each\npage may run for 15 seconds; one that runs out ends the file with a row saying so. No\ncell starts as a formula would (OWASP's CSV injection guidance): one that would starts\nwith a quote. Each download is in the audit log (``search.exported``) before its\nfirst row is sent.",
+        "description": "Every entity you can read that the search finds, as CSV: what ``POST\n/entities/search`` finds with the same filters, in its order, with the grid's columns\n(ADR 0175). Values are as the grid shows them, as you can read them: a reference by\nits HRID, a person by name, a state by its label; numbers in full, a quantity's unit\nin its column's heading, times in ISO 8601 (UTC). Each row ends with when the record\nlast changed, its revision and its UUID: each page is read at one moment, so a row's\nvalues are those of that revision, whatever's edited while it's read.\n\nIt's written a page at a time as it's read, so a large result starts at once. Each\npage may run for 15 seconds; one that runs out ends the file with a row saying so. No\ncell starts as a formula would (OWASP's CSV injection guidance): one that would starts\nwith a quote. Each download is in the audit log (``search.exported``) before its\nfirst row is sent.",
         "operationId": "iki_server_api_entities_search_csv",
         "parameters": [
           {
@@ -36250,7 +36449,7 @@
     },
     "/api/v1/entities/{ref}/revisions.csv": {
       "get": {
-        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
+        "description": "Every revision, oldest first, a row for each field it set with that field's value\nbefore and after: who made it, how (the web app, the API, a run, …), when in UTC, why,\nthe electronic signatures that set a state (ADR 0126) and the holds it opened (ADR\n0127). For a record of a registry entry, its entry's revisions follow, as you're told\nthem: one made through a project you can't read says what it set, not who, how or when.\n\nAnyone who can read the record may download it, and each download is in the audit\nlog (``entity.trail_exported``) before its first row is sent, with the record's\n``revision`` and its entry's ``entry_revision``: the file holds those and the ones\nbefore them, and nothing made after. No cell starts as a\nformula would (OWASP's CSV injection guidance): one that would starts with a quote.",
         "operationId": "iki_server_api_trails_trail_csv",
         "parameters": [
           {
@@ -46079,7 +46278,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.\nChanging the flow selects the result type for future fits. Existing results keep their flow.",
+        "description": "Apply the plan a preview returned: create the examples and grant the chosen roles.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -46096,7 +46295,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StarterSetupIn"
+                "$ref": "#/components/schemas/StarterApplyIn"
               }
             }
           },
@@ -46586,7 +46785,7 @@
     },
     "/api/v1/storage/moves": {
       "post": {
-        "description": "Puts each record in its container, at its position or the next free one, or takes it\nout of storage, as one change with one reason. Any move refused refuses them all (422),\nsaying which and why. ``preview`` answers the plan, with each problem, and changes\nnothing. Needs Editor in the project of each container a record goes into or leaves.",
+        "description": "Puts each record in its container, at its position or the next free one, or takes it\nout of storage, as one change with one reason. Any move refused refuses them all (422),\nsaying which and why. ``preview`` answers the plan, with each problem, and changes\nnothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or\nrefused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the\nproject of each container a record goes into or leaves.",
         "operationId": "iki_server_api_storage_move",
         "parameters": [],
         "requestBody": {

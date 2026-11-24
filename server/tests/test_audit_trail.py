@@ -10,7 +10,7 @@ import pytest
 from api_client import Api, problem
 from org_world import World
 from test_api_entities import api_as, create, patch
-from test_registries import PROTEIN, SEQUENCE
+from test_registries import PROTEIN, SEQUENCE, registrar
 from test_signatures import lab, lot, signed, world
 
 from iki_server.audit.models import AuditEvent
@@ -153,3 +153,35 @@ def test_a_records_trail_has_its_entrys_revisions_as_its_reader_is_told_them(
     assert editor.get(f"/entries/{entry_id}/revisions", person=editor_id).json()["items"]
     people = outsider.get(f"/entities/{theirs['id']}/contributors").json()
     assert [p["email"] for p in people] == ["outsider@example.com"]
+
+
+def test_the_trail_holds_the_revisions_its_export_event_records(world: World) -> None:
+    """The file is the trail as its download recorded it (ADR 0207): the record's and its
+    entry's revisions up to those in ``entity.trail_exported``, however late its body is
+    read. Edits made after the download started are in the next one."""
+    editor = api_as(world, "editor")
+    made = create(editor, world.project, {"sequence": SEQUENCE, "name": "Lead"}, PROTEIN).json()
+    curator = registrar(world)
+    seen = curator.get(f"/entries/{made['hrid']}")
+    response = api_as(world, "viewer").get(f"/entities/{made['id']}/revisions.csv")
+    assert response.status_code == 200, response.content
+    # Before its body is read, the record is renamed and its entry's facts change.
+    renamed = patch(editor, made["id"], {"values": {"name": "Renamed"}, "reason": "Rename"}, '"1"')
+    assert renamed.status_code == 200, renamed.content
+    curated = curator.patch(
+        f"/entries/{made['hrid']}",
+        {"values": {"hazard": "bsl2"}, "reason": "Biosafety committee, 2026-11-24"},
+        headers={"If-Match": seen["ETag"]},
+    )
+    assert curated.status_code == 200, curated.content
+    header, *rows = list(csv.reader(io.StringIO(response.getvalue().decode())))
+    held = {(r[header.index("Of")], r[header.index("Revision")]) for r in rows}
+    assert held == {("Record", "1"), ("Registry entry", "1")}
+    assert "Renamed" not in response.getvalue().decode()
+    event = AuditEvent.objects.get(action="entity.trail_exported")
+    assert event.data["revision"] == 1 and event.data["entry_revision"] == 1
+    # The next download holds both edits, and says so.
+    again = trail(api_as(world, "viewer"), made["id"])
+    assert {(r["Of"], r["Revision"]) for r in again} >= {("Record", "2"), ("Registry entry", "2")}
+    latest = AuditEvent.objects.filter(action="entity.trail_exported").latest("occurred_at")
+    assert latest.data["revision"] == 2 and latest.data["entry_revision"] == 2

@@ -68,6 +68,7 @@ const webhookPages = () => import("./pages/webhooks");
 const outsideApiPages = () => import("./pages/outside-apis");
 const OrgCosts = lazyRouteComponent(() => import("./pages/costs"), "OrgCosts");
 const ComputeVolumes = lazyRouteComponent(() => import("./pages/volumes"), "ComputeVolumes");
+const ComputeImages = lazyRouteComponent(() => import("./pages/compute-images"), "ComputeImages");
 const ComputeWorkersPage = lazyRouteComponent(
   () => import("./pages/compute-workers"),
   "ComputeWorkersPage",
@@ -228,6 +229,12 @@ const computeVolumesRoute = createRoute({
   getParentRoute: () => computeRoute,
   path: "volumes",
   component: ComputeVolumes,
+});
+
+const computeImagesRoute = createRoute({
+  getParentRoute: () => computeRoute,
+  path: "images",
+  component: ComputeImages,
 });
 
 const projectsRoute = createRoute({ getParentRoute: () => rootRoute, path: "projects" });
@@ -832,6 +839,7 @@ const routeTree = rootRoute.addChildren([
       computeQuotasRoute,
       computeSlurmRoute,
       computeVolumesRoute,
+      computeImagesRoute,
     ]),
     orgWebhooksRoute.addChildren([orgWebhookListRoute, orgWebhookRoute]),
     outsideApisRoute,

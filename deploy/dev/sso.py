@@ -1868,15 +1868,16 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
 
 
 #: What the long-read tools' minimap2 2.31 makes of 41 reads of SRA run SRR17915342 (a
-#: MinION run of pUC19) against L09137.2: its plasmid's multiple cloning site differs, and
-#: three single-base deletions sit in runs of six or seven bases.
+#: MinION run of pUC19) against L09137.2, each read counted once: its plasmid's multiple
+#: cloning site differs, and two single-base deletions in runs of six and seven bases are
+#: candidate nanopore errors for review. (A third such base, 2043, has no majority of reads
+#: and is left uncalled.)
 WHOLE_PLASMID_DIFFERENCES = [
     "o.413_418del",
     "o.419_420insACTGGCGGATTGTCAGGAACGCGACCCGGCGCTGTCCGAACTGTCCGAAATTCATGAGGCCGTTCTGACGCGCTGGCCATTGGT",
     "o.423T>A",
     "o.887del",
     "o.1446del",
-    "o.2043del",
 ]
 
 
@@ -1979,6 +1980,14 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(
             f"{result['hrid']} recorded {values['agreement']} {named} "
             f"from {values['reads_aligned']} reads"
+        )
+    # Each read counts once, however many times it passes a base.
+    depths = [*values["coverage"]["mean"], *(d["depth"] for d in values["differences"])]
+    deepest = max(depths, default=0)
+    if deepest > values["reads_aligned"] or values["unplaced"]:
+        fail(
+            f"{result['hrid']} counted {deepest} reads where {values['reads_aligned']} "
+            f"aligned, or left {values['unplaced']} of its consensus unplaced"
         )
     ok(
         f"{result['hrid']}: 37 of 41 public pUC19 reads, mean depth {values['mean_depth']}, "
@@ -3922,10 +3931,12 @@ def apply_plate_starter(
         "role_assignments": assignments,
     }
     path = f"/starters/{starter['id']}"
+    # Applying names the plan its preview returned: what was reviewed (ADR 0207).
     for operation in ("preview", "apply"):
         response = api_call(alice, "POST", f"{path}/{operation}", setup)
         if response.status_code != 200:
             fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
+        setup = {**setup, "plan": response.json()["plan"]}
     installed = response.json()
     again = api_call(alice, "POST", f"{path}/apply", setup)
     if (

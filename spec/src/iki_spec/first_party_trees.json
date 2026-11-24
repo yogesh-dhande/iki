@@ -197,21 +197,25 @@
       "118df138815593e9cc40611756dd0cedeae1e762",
       "deb9f8d3ee1c69011c0294441554705768cd024b",
       "ed61276632f2a3fce47733a64ca9336cfbd1e91c",
-      "e119b662cfd292759b48e6bd2b5d4411352fe601"
+      "e119b662cfd292759b48e6bd2b5d4411352fe601",
+      "da0a1f77bddda099eba2ff6b6d92533ce72cca43",
+      "1f834de83133905c8106772d57cafa9970e0adda"
     ],
     "iki/plasmid_sequencing": [
       "a75cacbd131d8b9c241f7bce714b28581403b513",
       "eb81be2e8e0f05872ceb986a7966ab1291e69a15",
       "9171e2b986d70d03300057a37289238d20e7c8bf",
       "a234dfc4a60b75eac8d7a2de003baf21217855c0",
-      "67ab041e9b98a9a6a92576c2323d32cb96fab309"
+      "4c1449ed8f252107bd6218cab185be1c7439b2c2",
+      "fdc605ceafb885dd10b53a6ea3c63e8aad6ee7fb"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",
       "d1f79552e4cb8a8745b7529ea0fafbad16804a28",
       "4d7851da4b9e7969337c490ab4994c9ff20098bb",
       "348e8653e1366ba2be7a5244e29c0bf52cf4215f",
-      "df756a15179c8adfb63163a460e83bacdcbc2537"
+      "df756a15179c8adfb63163a460e83bacdcbc2537",
+      "405409b50eacfadde31af379e833d129417e2ba8"
     ],
     "iki/polymer": [
       "cc56225c938a51b2f7fe385320b7216e50a6cb15",
@@ -240,7 +244,8 @@
     ],
     "iki/qc_release": [
       "9867f16287f5e4ec1929501d7c06b904fa4fb0c9",
-      "8606b26a81780ddbe30a0e071950887e890bf014"
+      "8606b26a81780ddbe30a0e071950887e890bf014",
+      "f4ecac98c3db32227862df1c1705fd9c57d14963"
     ],
     "iki/reagents": [
       "f292f6ca2072e01c3e5c31de06097104633b0b83"

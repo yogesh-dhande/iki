@@ -71,8 +71,9 @@ types, role requirements and review flows. Each flow gives its requested
 who can edit both sides of the setup. Omit the project to browse the installed
 catalog.
 
-`POST /api/v1/starters/{id}/preview` and
-`POST /api/v1/starters/{id}/apply` accept the same body. For example, a
+`POST /api/v1/starters/{id}/preview` takes the body below, and
+`POST /api/v1/starters/{id}/apply` the same body with the `plan` its preview
+returned (ADR 0207). For example, a
 project selecting regulated QC can ask for the following assignments. Replace
 the placeholders with UUIDs. Each role names memberships returned by the
 service project's members endpoint.
@@ -95,9 +96,13 @@ service project's members endpoint.
 Both responses identify the starter, version, projects, flow, result type,
 role assignments and example IDs. Preview reports whether applying would
 change the setup. `grants_to_add` maps roles to membership IDs and
-`examples_to_create` names the examples the operation will create.
-Repeating an identical apply yields `changed: false` and
-the same example IDs. An application adds the requested grants to existing
+`examples_to_create` names the examples the operation will create. `plan`
+identifies the setup, what was set up already and every change applying makes.
+Apply recomputes the plan under the projects' locks: if it differs from the
+`plan` sent, as when another administrator removed a grant or applied the
+starter first, nothing changes and it answers 409 `starter_plan_changed` with
+the plan as it is now, for review. Repeating an identical apply yields
+`changed: false` and the same example IDs. An application adds the requested grants to existing
 memberships. A switch reuses the example records. The audit trail records
 who applied the recipe and which version and flow were selected in
 `starter.applied`, alongside the project’s individual role-grant events. Applying to

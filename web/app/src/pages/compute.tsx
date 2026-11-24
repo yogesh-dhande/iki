@@ -47,6 +47,9 @@ export function ComputeHeader() {
         <Link to="/admin/compute/volumes/" {...tab}>
           Volumes
         </Link>
+        <Link to="/admin/compute/images/" {...tab}>
+          Images
+        </Link>
       </nav>
     </>
   );

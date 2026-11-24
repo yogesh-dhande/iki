@@ -59,6 +59,7 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/compute/slurm/", web.app, name="compute_slurm"),
     path("admin/compute/quotas/", web.app, name="compute_quotas"),
     path("admin/compute/volumes/", web.app, name="compute_volumes"),
+    path("admin/compute/images/", web.app, name="compute_images"),
     path("admin/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
     # One of the reader's saved searches, by its own address: the sidebar's saved views.
     path("saved-searches/<uuid:saved_id>/", web.app, name="saved_search"),

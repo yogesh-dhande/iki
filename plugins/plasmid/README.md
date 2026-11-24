@@ -335,9 +335,10 @@ out.
   its bases match; the rest is its 5' tail, which a product keeps. A site may cross a
   circle's origin and never a linear molecule's ends.
 - **Melting temperatures** are SantaLucia's unified nearest-neighbour model (_PNAS_
-  95:1460, 1998), with Allawi & SantaLucia's Watson–Crick stacks (1997) and internal
+  95:1460, 1998). Table 2 gives the initiation and symmetry terms and equation 3 gives the
+  melting temperature. The model uses Allawi & SantaLucia's Watson–Crick stacks (1997) and internal
   mismatches and SantaLucia & Peyret's terminal ones, and SantaLucia's monovalent salt
-  correction (his equation 7), at 50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each
+  correction (equation 8), at 50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each
   strand. A primer's own record quotes a Tm in a PCR's buffer instead, several degrees
   higher (ADR 0201): a site's Tm here says how warm that primer's duplex with this
   template is under stated, comparable conditions, which is a different question. A

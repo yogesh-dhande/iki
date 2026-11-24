@@ -30,7 +30,7 @@ all.
 Two questions had to be settled before writing any of it.
 
 **Which salt correction.** SantaLucia's 1998 unified model carries a salt
-correction of its own (his equation 7), fitted to sodium. It is what Biopython's
+correction of its own (his equation 8), fitted to sodium. It is what Biopython's
 `saltcorr=5` applies and what ADR 0200's port reproduces exactly, so it cannot
 simply be replaced: the ported numbers are cross-checked against Biopython and
 must stay so.
@@ -51,7 +51,7 @@ each one is cited in the code and in the tests.** Nothing is mixed.
 `thermodynamics` keeps SantaLucia's stacks, mismatches and initiation, and gains
 a choice of salt correction:
 
-- **SantaLucia's own** (1998, equation 7) for the fixed-condition temperature
+- **SantaLucia's own** (1998, equation 8) for the fixed-condition temperature
   the plasmid plugin's port quotes, so ADR 0200's parity with Biopython is
   untouched;
 - **Owczarzy's measured corrections** for a buffer: the monovalent equation
@@ -93,7 +93,7 @@ them, and wherever Iki shows a Tm it shows which one it is.
 
 SantaLucia's model at 50 mM Na⁺ has one implementation, as ADR 0191 asks: the
 oligo measurement's Rust (`oligo.rs`) holds the Watson-Crick stacks, initiation,
-the symmetry term, equation 3's concentration, equation 7's sodium term and the
+the symmetry term from Table 2, equation 3's concentration, equation 8's sodium term and the
 rounding, and `thermodynamics` takes all of them from it, adding the mismatch
 tables and Owczarzy's corrections. The two had been separate, and agreed on
 21,360 oligos, 1,360 of them palindromes; those oligos and every module's

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING
 from urllib.parse import quote
 from uuid import UUID
 
@@ -21,6 +21,12 @@ def _role_assignment(value: str) -> tuple[str, str]:
         return role, str(UUID(membership))
     except ValueError as error:
         raise argparse.ArgumentTypeError("expected a project membership UUID after '='") from error
+
+
+def _plan(value: str) -> str:
+    if len(value) != 64 or value.strip("0123456789abcdef"):
+        raise argparse.ArgumentTypeError("expected the plan 'iki starter preview' printed")
+    return value
 
 
 def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -60,13 +66,21 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
                 default=[],
                 help="Assign a qualified lab role to a project membership. Repeat for more.",
             )
+        if name == "apply":
+            parser.add_argument(
+                "--plan",
+                required=True,
+                type=_plan,
+                help="The plan 'iki starter preview' printed for these arguments: what you "
+                "reviewed. If what applying does has changed since, nothing is applied.",
+            )
         parser.set_defaults(handler=run)
 
 
 def run(args: argparse.Namespace) -> int:
     from httpx2 import HTTPError
 
-    from iki import Client, IkiError
+    from iki import ApiError, Client, IkiError
 
     operation = args.starter_command
     try:
@@ -91,9 +105,16 @@ def run(args: argparse.Namespace) -> int:
                         "version": args.version,
                         "flow": args.flow,
                         "role_assignments": assignments,
+                        **({"plan": args.plan} if operation == "apply" else {}),
                     },
                 )
-    except (IkiError, HTTPError, ValueError) as error:
+    except IkiError as error:
+        sys.stderr.write(f"iki starter {operation}: {error}\n")
+        if isinstance(error, ApiError) and error.code == "starter_plan_changed":
+            # What applying does now: review it, then apply again with its plan.
+            _print_application(error.problem["plan"], preview=True, out=sys.stderr)
+        return 2
+    except (HTTPError, ValueError) as error:
         sys.stderr.write(f"iki starter {operation}: {error}\n")
         return 2
     if args.json:
@@ -120,20 +141,25 @@ def _print_starters(starters: list[StarterOut]) -> None:
             sys.stdout.write(f"  Applied  {current['version']}  {current['flow']}\n")
 
 
-def _print_application(result: StarterSetupOut, *, preview: bool) -> None:
+def _print_application(
+    result: StarterSetupOut, *, preview: bool, out: IO[str] | None = None
+) -> None:
+    write = (out or sys.stdout).write
     status = "Would apply" if preview else "Applied"
     if not result["changed"]:
         status = "Already applied"
-    sys.stdout.write(f"{status}  {result['starter']} {result['version']}\n")
-    sys.stdout.write(f"  Service project   {result['project']}\n")
-    sys.stdout.write(f"  Requester project {result['requester_project']}\n")
-    sys.stdout.write(f"  Review flow       {result['flow']}  {result['result_type']}\n")
+    write(f"{status}  {result['starter']} {result['version']}\n")
+    write(f"  Service project   {result['project']}\n")
+    write(f"  Requester project {result['requester_project']}\n")
+    write(f"  Review flow       {result['flow']}  {result['result_type']}\n")
     for role, memberships in result["role_assignments"].items():
-        sys.stdout.write(f"  {role}  {', '.join(memberships)}\n")
+        write(f"  {role}  {', '.join(memberships)}\n")
     if preview:
         for role, memberships in result["grants_to_add"].items():
-            sys.stdout.write(f"  Grant {role} to {', '.join(memberships)}\n")
+            write(f"  Grant {role} to {', '.join(memberships)}\n")
         for key in result["examples_to_create"]:
-            sys.stdout.write(f"  Create example {key}\n")
+            write(f"  Create example {key}\n")
     for key, record in result["examples"].items():
-        sys.stdout.write(f"  Example {key}  {record}\n")
+        write(f"  Example {key}  {record}\n")
+    if preview and result["changed"]:
+        write(f"  Plan              {result['plan']}  (apply it with --plan)\n")

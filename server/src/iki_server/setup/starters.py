@@ -1,5 +1,7 @@
 """Recipes installed with active plugins and applied to projects (ADR 0198)."""
 
+import hashlib
+import json
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -232,6 +234,25 @@ def _members(
     return memberships
 
 
+class PlanChanged(Exception):  # noqa: N818 - what happened, as the API says it
+    """What applying would do isn't what was previewed (ADR 0207). Nothing was changed;
+    ``plan`` is what applying would do now, to review instead."""
+
+    def __init__(self, plan: dict[str, Any]) -> None:
+        super().__init__(
+            "What applying does changed since it was previewed. Review what it does now, "
+            "then apply again."
+        )
+        self.plan = plan
+
+
+def _identify(result: Mapping[str, Any], before: Mapping[str, str] | None) -> str:
+    """Names what applying does: the choice, what's set up already, and every change."""
+    shown = {**result, "before": before}
+    text = json.dumps(shown, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
 @dataclass
 class _Plan:
     starter: Starter
@@ -284,28 +305,25 @@ def _plan(
             if role not in held[pk]:
                 grants[pk].add(role)
                 missing.setdefault(role, []).append(str(pk))
-    return _Plan(
-        recipe,
-        current,
-        members,
-        grants,
-        {
-            "starter": starter,
-            "version": version,
-            "project": str(project.pk),
-            "requester_project": str(requester_project.pk),
-            "flow": flow,
-            "result_type": recipe.requested_types[flow],
-            "changed": current is None
-            or current.version != version
-            or current.flow != flow
-            or bool(grants),
-            "role_assignments": assignments,
-            "grants_to_add": missing,
-            "examples_to_create": list(recipe.example_keys) if current is None else [],
-            "examples": dict(current.examples) if current is not None else {},
-        },
-    )
+    result: dict[str, Any] = {
+        "starter": starter,
+        "version": version,
+        "project": str(project.pk),
+        "requester_project": str(requester_project.pk),
+        "flow": flow,
+        "result_type": recipe.requested_types[flow],
+        "changed": current is None
+        or current.version != version
+        or current.flow != flow
+        or bool(grants),
+        "role_assignments": assignments,
+        "grants_to_add": missing,
+        "examples_to_create": list(recipe.example_keys) if current is None else [],
+        "examples": dict(current.examples) if current is not None else {},
+    }
+    before = {"version": current.version, "flow": current.flow} if current is not None else None
+    result["plan"] = _identify(result, before)
+    return _Plan(recipe, current, members, grants, result)
 
 
 def preview(
@@ -331,7 +349,12 @@ def apply(
     *,
     requester_project: Project,
     by: User,
+    plan: str,
 ) -> dict[str, Any]:
+    """Applies the plan a preview returned, identified by its ``plan``. If what applying
+    does has changed since (another Admin changed a grant, or applied it first), raises
+    :class:`PlanChanged` before changing anything (ADR 0207). Applying a setup that's in
+    place already changes nothing, whatever the plan."""
     # Both intake and example writes involve the two projects. Ordered locking also
     # serializes two first applications and a flow switch against new result records.
     locked = {
@@ -342,18 +365,20 @@ def apply(
     }
     project, requester_project = locked[project.pk], locked[requester_project.pk]
     permissions.forget(by)
-    plan = _plan(project, starter, version, flow, role_assignments, requester_project, by)
-    result = plan.result
+    planned = _plan(project, starter, version, flow, role_assignments, requester_project, by)
+    result = planned.result
     if not result["changed"]:
         return result
-    current = plan.application
+    if result["plan"] != plan:
+        raise PlanChanged(result)
+    current = planned.application
     previous = {"version": current.version, "flow": current.flow} if current else None
-    for key, roles in plan.grants.items():
-        membership = plan.members[key]
+    for key, roles in planned.grants.items():
+        membership = planned.members[key]
         held = {g.role for g in membership.lab_roles.all()}
         services.set_lab_roles(membership, held | roles, by=by)
     if current is None:
-        examples = plan.starter.examples.seed_example(project, requester_project, by=by)
+        examples = planned.starter.examples.seed_example(project, requester_project, by=by)
         current = StarterApplication(
             project=project, requester_project=requester_project, starter=starter, examples=examples
         )
@@ -371,6 +396,7 @@ def apply(
             "after": {"version": version, "flow": flow},
             "role_assignments": result["role_assignments"],
             "grants_added": result["grants_to_add"],
+            "plan": result["plan"],
             "requester_project": str(requester_project.pk),
             "examples": result["examples"],
         },

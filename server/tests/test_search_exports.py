@@ -9,10 +9,12 @@ The proteins are human ones, with UniProt's accessions and masses: insulin (P013
 import csv
 import io
 import json
+import threading
 from typing import Any
 
 import pytest
 from api_client import Api, problem
+from django.db import connection
 from org_world import World, build_world
 from test_api_entities import api_as
 from test_oauth import bearer, signed_in_token
@@ -22,6 +24,7 @@ from iki_server.api import csvs
 from iki_server.api import entities as api_entities
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import search, services
+from iki_server.entities.models import Entity
 from iki_server.org.models import Project
 
 pytestmark = pytest.mark.django_db
@@ -293,6 +296,47 @@ def test_served_over_asgi_each_page_is_read_as_it_is_sent(
     assert got.status_code == 200
     rows = list(csv.reader(io.StringIO(body.decode())))
     assert [r["Name"] for r in by_header(rows)] == ["ABL1", "Insulin"]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_each_row_is_one_revision_of_its_record(
+    world: World, lab: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A row's values are those of the revision and time it ends with (ADR 0175, ADR 0207):
+    an edit committed while a page is read, after its records are found and before their
+    values are, is in the next download, not half in this one."""
+    monkeypatch.setattr(api_entities, "EXPORT_PAGE", 1)
+    found = search.page
+    editor = world.users["editor"]
+
+    def rename(pk: Any) -> None:
+        """Another person's edit, committed on its own connection."""
+        try:
+            record = Entity.objects.get(pk=pk)
+            services.update(editor, record, {"name": "Renamed"}, expected_revision=record.revision)
+        finally:
+            connection.close()
+
+    def page(*args: Any, **kwargs: Any) -> Any:
+        rows, cursor = found(*args, **kwargs)
+        for record in rows:
+            edit = threading.Thread(target=rename, args=(record.pk,))
+            edit.start()
+            edit.join()
+        return rows, cursor
+
+    monkeypatch.setattr(search, "page", page)
+    # In ID order, so an edit can't move a record past the next page's cursor.
+    _, rows = download(api_as(world, "viewer"), type=PROTEIN)
+    got = by_header(rows)
+    # Both records were renamed as their page was read: each row is still revision 1, whole.
+    assert [(r["Name"], r["Revision"]) for r in got] == [("Insulin", "1"), ("ABL1", "1")]
+    for row, made in zip(got, (lab["insulin"], lab["abl1"]), strict=True):
+        assert row["Last changed"] == made.updated_at.isoformat().replace("+00:00", "Z")
+    assert {Entity.objects.get(pk=r["UUID"]).revision for r in got} == {2}
+    # The next download has the edits, with their revision.
+    _, again = download(api_as(world, "viewer"), type=PROTEIN, columns=["name", "revision"])
+    assert again[1:] == [["Renamed", "2"], ["Renamed", "2"]]
 
 
 @pytest.mark.parametrize(
