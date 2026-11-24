@@ -1,0 +1,72 @@
+MTD	mzTab-version	1.0 rc5
+MTD	mzTab-mode	Summary
+MTD	mzTab-type	Quantification
+MTD	mzTab-ID	16649
+MTD	title	The Synaptic Proteome during Development and Plasticity of the Mouse Visual Cortex
+MTD	description	date of export: Mon Jun 16 10:57:56 BST 2014
+MTD	sample_processing[1]	[PRIDE, PRIDE:0000025, Reduction, DTT]
+MTD	sample_processing[2]	[MOD, MOD:00110, L-cysteine methyl disulfide, ]
+MTD	sample_processing[3]	[PRIDE, PRIDE:0000160, Enzyme, Trypsin]
+MTD	instrument[1]-name	[PRIDE, PRIDE:0000131, Instrument model, ABI 4800]
+MTD	instrument[1]-source	[MS, MS:1000075, matrix-assisted laser desorption ionization, ]
+MTD	instrument[1]-analyzer[1]	[MS, MS:1000084, time-of-flight, ]
+MTD	instrument[1]-detector	[MS, MS:1000116, photomultiplier, ]
+MTD	software[1]	[MS, MS:1001456, analysis software, Matrix Science Mascot v2.3.01]
+MTD	protein_search_engine_score[1]	[MS, MS:1001171, Mascot:score, ]
+MTD	psm_search_engine_score[1]	[PRIDE, PRIDE:0000069, Mascot score, ]
+MTD	publication[1]	pubmed:21398567
+MTD	contact[1]-name	August B. Smit
+MTD	contact[1]-affiliation	Department of Molecular and Cellular Neurobiology, Center for Neurogenomics and Cognitive Research, Neuroscience Campus Amsterdam, VU University, De Boelelaan 1085, 1081 HV Amsterdam, The Netherlands
+MTD	contact[1]-email	guus.smit@cncr.vu.nl
+MTD	contact[2]-name	Christiaan N. Levelt
+MTD	contact[2]-affiliation	Molecular Visual Plasticity group, Netherlands Institute for Neuroscience, an institute of the Royal Netherlands Academy of Arts and Sciences, Meibergdreef 47, 1105 BA Amsterdam, The Netherlands
+MTD	contact[2]-email	c.levelt@nin.knaw.nl
+MTD	contact[3]-name	Ka Wan Li
+MTD	contact[3]-affiliation	Department of Molecular and Cellular Neurobiology, Center for Neurogenomics and Cognitive Research, Neuroscience Campus Amsterdam, VU University, De Boelelaan 1085, 1081 HV Amsterdam, The Netherlands
+MTD	contact[3]-email	ka.wan.li@cncr.vu.nl
+MTD	contact[4]-name	Pim van Nierop
+MTD	contact[4]-affiliation	Department of Molecular and Cellular Neurobiology, Center for Neurogenomics and Cognitive Research, Neuroscience Campus Amsterdam, VU University, De Boelelaan 1085, 1081 HV Amsterdam, The Netherlands
+MTD	contact[4]-email	pim.van.nierop@cncr.vu.nl
+MTD	uri[1]	http://www.ebi.ac.uk/pride/archive/assays/16649
+MTD	fixed_mod[1]	[MS, MS:1002453, No fixed modifications searched, ]
+MTD	variable_mod[1]	[MOD, MOD:01499, iTRAQ4plex-116 reporter+balance reagent acylated residue, 144.102062]
+MTD	variable_mod[2]	[MOD, MOD:00425, monohydroxylated residue, 15.994915]
+MTD	quantification_method	[PRIDE, PRIDE:0000313, iTRAQ, ]
+MTD	protein-quantification_unit	[PRIDE, PRIDE:0000395, Ratio, ]
+MTD	ms_run[1]-format	[MS, MS:1000564, PSI mzData file, ]
+MTD	ms_run[1]-location	ftp://ftp.pride.ebi.ac.uk/pride/data/archive/2011/03/PRD000397/PRIDE_Exp_Complete_Ac_16649.xml.gz
+MTD	ms_run[1]-id_format	[MS, MS:1000777, spectrum identifier nativeID format, ]
+MTD	sample[1]-species[1]	[NEWT, 10090, Mus musculus (Mouse), subsample1]
+MTD	sample[1]-description	Biological replicate 1, P30
+MTD	sample[1]-custom[1]	[GO, GO:0044456, synapse part, subsample1]
+MTD	sample[1]-custom[2]	[EFO, EFO:0000916, visual cortex, subsample1]
+MTD	sample[2]-species[1]	[NEWT, 10090, Mus musculus (Mouse), subsample2]
+MTD	sample[2]-description	Biological replicate 1, P30 right eye occlusion
+MTD	sample[2]-custom[1]	[GO, GO:0044456, synapse part, subsample2]
+MTD	sample[2]-custom[2]	[EFO, EFO:0000916, visual cortex, subsample2]
+MTD	sample[3]-species[1]	[NEWT, 10090, Mus musculus (Mouse), subsample3]
+MTD	sample[3]-description	Biological replicate 1, P46
+MTD	sample[3]-custom[1]	[GO, GO:0044456, synapse part, subsample3]
+MTD	sample[3]-custom[2]	[EFO, EFO:0000916, visual cortex, subsample3]
+MTD	sample[4]-species[1]	[NEWT, 10090, Mus musculus (Mouse), subsample4]
+MTD	sample[4]-description	Biological replicate 1, P46 dark rearing
+MTD	sample[4]-custom[1]	[GO, GO:0044456, synapse part, subsample4]
+MTD	sample[4]-custom[2]	[EFO, EFO:0000916, visual cortex, subsample4]
+MTD	assay[1]-quantification_reagent	[PRIDE, PRIDE:0000114, iTRAQ reagent 114, subsample1]
+MTD	assay[1]-sample_ref	sample[1]
+MTD	assay[1]-ms_run_ref	ms_run[1]
+MTD	assay[2]-quantification_reagent	[PRIDE, PRIDE:0000115, iTRAQ reagent 115, subsample2]
+MTD	assay[2]-sample_ref	sample[2]
+MTD	assay[2]-ms_run_ref	ms_run[1]
+MTD	assay[3]-quantification_reagent	[PRIDE, PRIDE:0000116, iTRAQ reagent 116, subsample3]
+MTD	assay[3]-sample_ref	sample[3]
+MTD	assay[3]-ms_run_ref	ms_run[1]
+MTD	assay[4]-quantification_reagent	[PRIDE, PRIDE:0000117, iTRAQ reagent 117, subsample4]
+MTD	assay[4]-sample_ref	sample[4]
+MTD	assay[4]-ms_run_ref	ms_run[1]
+PRH	accession	description	taxid	species	database	database_version	search_engine	best_search_engine_score[1]	search_engine_score[1]_ms_run[1]	num_psms_ms_run[1]	num_peptides_distinct_ms_run[1]	num_peptides_unique_ms_run[1]	ambiguity_members	modifications	protein_coverage	protein_abundance_assay[1]	protein_abundance_assay[2]	protein_abundance_assay[3]	protein_abundance_assay[4]
+PRT	223462890	Spna2 protein [Mus musculus]	10090	Mus musculus (Mouse)	NCBInr_2010_10	nr_101020.fasta	[MS, MS:1001207, Mascot, ]	6539.67	6539.67	157	92	null	null	null	0	1	0.853	0.864	0.791
+PRT	19855078	RecName: Full=Sodium/potassium-transporting ATPase subunit alpha-3; Short=Na(+)/K(+) ATPase alpha-3 subunit; AltName: Full=Na(+)/K(+) ATPase alpha(III) subunit; AltName: Full=Sodium pump subunit alpha-3	10090	Mus musculus (Mouse)	NCBInr_2010_10	nr_101020.fasta	[MS, MS:1001207, Mascot, ]	6331.91	6331.91	144	49	null	null	32-MOD:00425,525-MOD:00425,606-MOD:00425,725-MOD:00425,739-MOD:00425,940-MOD:00425	0	null	null	null	null
+PSH	sequence	PSM_ID	accession	unique	database	database_version	search_engine	search_engine_score[1]	modifications	retention_time	charge	exp_mass_to_charge	calc_mass_to_charge	spectra_ref	pre	post	start	end
+PSM	QQVLDR	1661	223462890	null	NCBInr_2010_10	nr_101020.fasta	[MS, MS:1001207, Mascot, ]	37.76	0-MOD:01499	null	1	902.482117	902.518133	ms_run[1]:spectrum=1661	R	Y	20	25
+PSM	LVQYLR	2280	223462890	null	NCBInr_2010_10	nr_101020.fasta	[MS, MS:1001207, Mascot, ]	44.64	0-MOD:01499	null	1	935.577454	935.580003	ms_run[1]:spectrum=2280	K	E	151	156

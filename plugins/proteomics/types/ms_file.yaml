@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: EntityType
+name: MSFile
+label: Raw mass spectrometry file
+label_plural: Raw mass spectrometry files
+schema_version: 1
+hrid: { prefix: MSRAW }
+description: An instrument output registered at its source object version and checksum.
+fields:
+  raw_file:
+    type: file
+    required: true
+    immutable: true
+    max_size: 500GiB
+    description: Select a raw instrument file or mzML registered in place from the source bucket.
+  name: { type: string, required: true, max_length: 200 }
+  sample: { type: ref, to: iki/core.Entity, immutable: true }
+display: { title: "{{ name }}" }

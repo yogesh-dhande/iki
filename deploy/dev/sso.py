@@ -1733,6 +1733,7 @@ def lims() -> None:
     qc_release(alice, project)
     sequencing(alice, project)
     sequencing_analysis(alice, project)
+    proteomics(alice, project)
     whole_plasmid(alice, project)
 
 
@@ -2026,6 +2027,49 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         f"{verifications[0]['hrid']} links {result['hrid']} as {prep['hrid']}'s evidence, and "
         f"its consensus compared alone ({compared['hrid']}) names the same differences"
     )
+
+
+def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import the HUPO-PSI mzTab excerpt for legacy PRIDE 16649."""
+    prefix = "iki/proteomics."
+    name = "PRIDE 16649 visual cortex mzTab excerpt"
+    seen = matching_records(alice, project, prefix + "ProteomicsDataset", "name", name)
+    dataset = (
+        seen[0]
+        if seen
+        else created(
+            alice,
+            project,
+            prefix + "ProteomicsDataset",
+            {"name": name, "archive": "https://doi.org/10.1074/mcp.M110.005413"},
+        )
+    )
+    results = matching_records(
+        alice, project, prefix + "ProteomicsResult", "dataset", dataset["id"]
+    )
+    if results:
+        result = record(alice, results[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2] / "plugins/proteomics/tests/data/PRIDE-16649.mztab"
+        )
+        report = upload(alice, project, fixture.name, fixture.read_bytes(), "text/plain")
+        run = launch(
+            alice,
+            project,
+            prefix + "import_search",
+            {"dataset": dataset["id"]},
+            {"format": "mztab", "version": "PRIDE 1.0 rc5", "reports": [report]},
+        )
+        artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
+        if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
+            fail(f"{run['hrid']} did not retain the imported identifications")
+        effect = next(e for e in run["effects"] if e["type"] == prefix + "ProteomicsResult")
+        result = record(alice, effect["entity"])
+    counts = result["values"]["summary"]["counts"]
+    if counts != {"protein_group": 2, "spectrum_match": 2}:
+        fail(f"{result['hrid']} recorded unexpected mzTab counts {counts}")
+    ok(f"{result['hrid']}: imported the PRIDE 16649 proteomics excerpt")
 
 
 def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
