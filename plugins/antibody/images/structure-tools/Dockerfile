@@ -15,11 +15,6 @@
 # Iki's worker is copied in when a run starts (ADR 0061): the image needs
 # nothing of Iki's, and runs as any user, with no network.
 
-# The weights are architecture-independent. This attested release collected them
-# from Zenodo using the same file hashes now in SHA256SUMS. Keep its digest and
-# copy only its weight files so normal builds never contact Zenodo.
-FROM --platform=$BUILDPLATFORM ghcr.io/yogesh-dhande/iki-antibody-structure-tools@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85 AS immunebuilder-weights
-
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # hmmscan, and Debian's security updates. Debian rebuilt HMMER for arm64 alone
@@ -47,11 +42,12 @@ RUN pip install --no-cache-dir --no-deps --require-hashes \
  && rm /tmp/requirements.txt \
  && python -m pip uninstall -y pip
 
-# Verify the complete set of copied weights against the original file pins.
+# The separately published scratch image supplies the weights. Verify the
+# complete set of copied files against the original Zenodo hashes.
 RUN mkdir -p -m 0755 /opt/immunebuilder/weights /usr/share/licenses/openmm
-COPY --from=immunebuilder-weights --chmod=0444 \
-    /opt/immunebuilder/weights/antibody_model_[1234] \
-    /opt/immunebuilder/weights/nanobody_model_[1234] \
+COPY --from=ghcr.io/yogesh-dhande/iki-immunebuilder-weights@sha256:fc6fb1b804ceeee08eed3f20237d33a32d4797a95267411b6d3682f2632fc761 --chmod=0444 \
+    /weights/antibody_model_[1234] \
+    /weights/nanobody_model_[1234] \
     /opt/immunebuilder/weights/
 COPY images/structure-tools/SHA256SUMS images/structure-tools/WEIGHTS-NOTICE.txt /usr/share/licenses/immunebuilder-weights/
 RUN --network=none cd /opt/immunebuilder/weights \

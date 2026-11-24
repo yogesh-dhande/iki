@@ -11,14 +11,15 @@ concurrency:
 
 jobs:
   weights:
+    name: Publish the checksummed weights
     if: github.repository == 'yogesh-dhande/iki'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     permissions:
       contents: read
-      packages: write
-      attestations: write
-      id-token: write
+      packages: write # publish the data-only image and its provenance
+      attestations: write # store the SLSA attestation on GitHub
+      id-token: write # sign the attestation with the workflow's OIDC identity
     env:
       IMAGE: ghcr.io/yogesh-dhande/iki-immunebuilder-weights
     steps:
@@ -58,7 +59,8 @@ jobs:
           gh attestation verify "oci://$ref" --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-immunebuilder-weights.yml" \
             --source-digest "$GITHUB_SHA" --predicate-type https://slsa.dev/provenance/v1
-          # Tagged releases remain available to digest-pinned consumers after a new publication.
-          docker buildx imagetools create --tag "$IMAGE:sha-$GITHUB_SHA" --tag "$IMAGE:published" "$ref"
-          test "$(docker buildx imagetools inspect "$IMAGE:published" --format '{{.Manifest.Digest}}')" = "$DIGEST"
+          # Preserve each distinct digest even if a rerun of a commit produces another image.
+          docker buildx imagetools create --tag "$IMAGE:sha256-${DIGEST#sha256:}" --tag "$IMAGE:published" "$ref"
+          manifest_hash=$(docker buildx imagetools inspect --raw "$IMAGE:published" | sha256sum)
+          test "sha256:${manifest_hash%% *}" = "$DIGEST"
           printf 'Published %s\n' "$ref" | tee -a "$GITHUB_STEP_SUMMARY"
