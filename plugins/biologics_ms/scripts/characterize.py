@@ -29,7 +29,7 @@ GLYCANS = {
     "neugc": {"C": 11, "H": 17, "N": 1, "O": 9},
 }
 MAX_ROWS = 1000
-MODIFICATION = re.compile(r"([1-9][0-9]*):UNIMOD:([0-9]+)")
+MODIFICATION = re.compile(r"(0|[1-9][0-9]*):UNIMOD:([0-9]+)")
 
 
 def table(path: Path, fields: set[str]) -> Iterator[tuple[int, dict[str, str]]]:
@@ -40,13 +40,15 @@ def table(path: Path, fields: set[str]) -> Iterator[tuple[int, dict[str, str]]]:
             raise ValueError(
                 f"Expected a TSV with distinct headings including {', '.join(sorted(fields))}."
             )
-        for number, row in enumerate(reader, 2):
-            if number > MAX_ROWS + 1:
+        observations = 0
+        for observations, row in enumerate(reader, 1):
+            number = observations + 1
+            if observations > MAX_ROWS:
                 raise ValueError(f"Keep at most {MAX_ROWS} observations in one comparison.")
             if None in row or any(value is None for value in row.values()):
                 raise ValueError(f"Row {number} has the wrong number of columns.")
             yield number, row
-        if reader.line_num <= 1:
+        if not observations:
             raise ValueError("The report has no observations.")
 
 
@@ -212,18 +214,23 @@ def peptide_rows(path: Path, chains: dict[str, str]) -> dict[str, Any]:
                 f"Peptide row {number} does not match its registered chain and coordinates."
             )
         modifications = []
-        # UniMod IDs identify reported chemistry; positions are 1-based within this peptide.
+        # Use mzTab's peptide position convention: 0 and length + 1 are the termini.
+        # Unimod can name the same chemistry at a terminus and a residue.
         for annotation in filter(None, row["modifications"].split(";")):
             match = MODIFICATION.fullmatch(annotation)
-            if not match or int(match[1]) > len(sequence):
+            if not match or int(match[1]) > len(sequence) + 1:
                 raise ValueError(
-                    f"Peptide row {number} needs position:UNIMOD:id within the peptide."
+                    f"Peptide row {number} needs position:UNIMOD:id for a residue or terminus."
                 )
+            position = int(match[1])
+            if position == 0:
+                site, chain_position = "peptide_n_term", start
+            elif position == len(sequence) + 1:
+                site, chain_position = "peptide_c_term", end
+            else:
+                site, chain_position = "residue", start + position - 1
             modifications.append(
-                {
-                    "name": f"UNIMOD:{match[2]}",
-                    "chain_position": start + int(match[1]) - 1,
-                }
+                {"name": f"UNIMOD:{match[2]}", "chain_position": chain_position, "site": site}
             )
         covered[role].update(range(start, end + 1))
         peptides.append(
