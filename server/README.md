@@ -157,10 +157,17 @@ The container image (`server/Dockerfile`, built from the repo root) runs
 ### Server image Wasm artifacts
 
 Publishing builds all three Wasm modules once on a native Linux AMD64 runner.
-The native AMD64 and ARM64 image jobs use the same exported files and check
-them against their SHA-256 pins in Git before packaging them. The
+That runner also compiles the verified guard module for baseline Linux AMD64
+and ARM64 CPUs. Both image jobs use the same export, check the portable and
+native SHA-256 pins in Git, and install the native module for their architecture. The
 pull-request image check uses this build path on both architectures and runs
 the final ARM64 image on an ARM64 runner.
+
+The first guard evaluation in each web worker or maintenance process loads
+native code from the image-owned directory `/opt/iki/wasm`. The loader checks
+the portable and native digests, Wasmtime version, target and fuel settings.
+It logs a rejected artifact and compiles the packaged Wasm with one thread.
+Python installations without an image artifact also use this bounded fallback.
 
 To reproduce the payload on native Linux AMD64, run this from the repository root.
 
@@ -171,10 +178,12 @@ scripts/verify-server-wasm.sh build/server-wasm
 ```
 
 When a source or toolchain update changes the output, review the SHA-256 values
-and update the corresponding pins in `server/iki_wasm.wasm.sha256`,
-`plugins/plasmid/data/dna-annotation.wasm.sha256`, and
-`plugins/dna/data/oligo-measurement.sha256`. To build an image from the
-verified payload on either architecture, pass
+and update the affected pins. The portable and native guard pins are in
+`server/iki_wasm.wasm.sha256`, `server/iki_wasm.amd64.cwasm.sha256`, and
+`server/iki_wasm.arm64.cwasm.sha256`. The other portable modules are pinned in
+`plugins/plasmid/data/dna-annotation.wasm.sha256` and
+`plugins/dna/data/oligo-measurement.sha256`. To build an image from the verified
+payload on either architecture, pass
 `--build-context server-wasm-artifacts=build/server-wasm` to the image build.
 
 ## Configuration

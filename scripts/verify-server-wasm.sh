@@ -2,8 +2,15 @@
 # Check an exported server Wasm payload against this checkout's pins.
 set -eu
 
+# The dev deployment CLI stages only the portable modules into its local Python
+# package. Server images and published artifacts must also carry both native targets.
+check_native=true
+if [ "${1:-}" = --portable-only ]; then
+  check_native=false
+  shift
+fi
 if [ "$#" -ne 1 ]; then
-  printf 'Usage: %s <artifact-directory>\n' "$0" >&2
+  printf 'Usage: %s [--portable-only] <artifact-directory>\n' "$0" >&2
   exit 2
 fi
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -50,3 +57,6 @@ verify iki_wasm.wasm server/iki_wasm.wasm.sha256
 verify dna-annotation.wasm plugins/plasmid/data/dna-annotation.wasm.sha256
 verify oligo-measurement.wasm plugins/dna/data/oligo-measurement.sha256
 required_file "$artifact/rust-standard-library.html"
+if [ "$check_native" = true ]; then
+  python3 "$root/scripts/verify-server-aot.py" "$artifact"
+fi

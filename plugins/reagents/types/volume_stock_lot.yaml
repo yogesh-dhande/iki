@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: EntityType
+name: VolumeStockLot
+label: Reagent volume lot
+schema_version: 1
+extends: StockLot
+hrid: { prefix: RML }
+amount: { unit: "mL", label: Reagent volume, material: item }
+rules:
+  catalogue_unit:
+    check: record.item.stock_unit == "mL"
+    message: This lot requires a catalogue pack measured in mL.
+    fields: [item]

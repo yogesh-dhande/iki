@@ -16,5 +16,5 @@ for file in target/wasm32-unknown-unknown/release/iki_wasm.wasm oligo-measuremen
   chmod 644 "$tmp/$name"
 done
 # Verify the staged canonical bytes before replacing any installed resource.
-scripts/verify-server-wasm.sh "$tmp"
+scripts/verify-server-wasm.sh --portable-only "$tmp"
 mv "$tmp"/* spec/src/iki_spec/

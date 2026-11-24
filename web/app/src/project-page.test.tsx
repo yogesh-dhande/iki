@@ -5,7 +5,7 @@
 
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -202,6 +202,22 @@ describe("a project's page", () => {
     const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Entities 0" })).toBeVisible();
     expect(document.querySelector(".tabs-settling")).toBeNull();
+  });
+
+  it("keeps its tabs as they were while one is pressed, and counts afresh once it's let go", async () => {
+    signedIn();
+    onProject();
+    await renderApp("/projects/kinase-atlas/");
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
+    expect(within(tabs).getByRole("link", { name: "Members 3" })).toBeVisible();
+    fireEvent.pointerDown(within(tabs).getByRole("link", { name: "Runs" }));
+    // A fourth member, counted while the press is on.
+    answer(`GET ${BASE}/members`, page(["m1", "m2", "m3", "m4"].map((id) => member(id, ADA))));
+    await queryClient.invalidateQueries({ queryKey: ["projects", PROJECT.id, "members"] });
+    await screen.findByText("4 members", { exact: false });
+    expect(within(tabs).getByRole("link", { name: "Members 3" })).toBeVisible();
+    fireEvent.pointerUp(window);
+    expect(await within(tabs).findByRole("link", { name: "Members 4" })).toBeVisible();
   });
 
   it("says which types it didn't count, where counting would be slow", async () => {

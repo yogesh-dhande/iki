@@ -295,7 +295,8 @@ Tube of a sample and a lot, kept in µL, following both.
   check-out and receipt says who, when and why.
 - Where a record is isn't in its revisions or a bundle's records, as its
   amount isn't; its location history is where that is. A bundle doesn't
-  carry places yet, nor does an import or an action run's `creates`.
+  carry places yet. An inline run create can receive a fresh lot with its opening
+  amount and storage placement when its action declares `receive_into` (ADR 0190).
 - A record's place isn't a search condition or a grid column yet: the
   storage pages and its record's page are where it's found.
 - A receipt doesn't change a request's own status, which is the service's:
