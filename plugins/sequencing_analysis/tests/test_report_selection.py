@@ -25,6 +25,24 @@ def test_a_variant_present_in_the_other_sample_is_not_copied():
     assert report["preview"][0]["Genotype"] == "1/1"
 
 
+@pytest.mark.parametrize("sample", ["POS", "ID", "INFO", "QUAL"])
+def test_vcf_sample_names_are_resolved_within_the_sample_columns(sample):
+    rows = [
+        "##fileformat=VCFv4.5",
+        f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tother\t{sample}",
+        "1\t1\t.\tA\tG\t0\tPASS\t.\tGT\t1/1\t0/0",
+        "1\t2\t.\tT\tA\t0\tPASS\t.\tGT\t0/0\t0|1",
+    ]
+    output = io.StringIO()
+    report = SCRIPT["variant_rows"](rows, sample, csv.writer(output, delimiter="\t"))
+    assert report["metrics"] == {"VCF sites": 2, "Variant sites": 1}
+    assert [(row["Position"], row["Genotype"]) for row in report["preview"]] == [("2", "0|1")]
+    [headings, selected] = list(csv.reader(io.StringIO(output.getvalue()), delimiter="\t"))
+    assert headings[-2:] == ["FORMAT", sample]
+    assert selected[1] == "2"
+    assert selected[-2:] == ["GT", "0|1"]
+
+
 def test_curated_airr_match_must_exist_in_the_selected_repertoire():
     rows = [
         "sequence_id\tproductive\tv_call\tj_call\trepertoire_id",
