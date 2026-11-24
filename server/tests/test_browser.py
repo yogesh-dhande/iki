@@ -327,7 +327,11 @@ def session_cookie(user: User) -> str:
 
 @pytest.fixture
 def open_as(
-    browser: Browser, server: Server, world: World, request: pytest.FixtureRequest
+    browser: Browser,
+    server: Server,
+    world: World,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[Any]:
     contexts: list[BrowserContext] = []
     since = len(server.output)
@@ -341,6 +345,21 @@ def open_as(
             timezone_id=timezone_id,
         )
         contexts.append(context)
+        close = context.close
+
+        def close_context(*, reason: str | None = None) -> None:
+            if context.is_closed():
+                return
+            # Tests also close their contexts directly. A parked request may never finish;
+            # retire its handler before closing disposes the request client used by fetch().
+            try:
+                for tab in context.pages:
+                    tab.unroute_all(behavior="ignoreErrors")
+                context.unroute_all(behavior="ignoreErrors")
+            finally:
+                close(reason=reason)
+
+        monkeypatch.setattr(context, "close", close_context)
         user = world.users[principal]
         # The server runs without HTTPS, so its cookie has no __Host- prefix.
         context.add_cookies(
@@ -362,6 +381,45 @@ def open_as(
     for context in contexts:
         context.close()
     quiet()
+
+
+@pytest.mark.parametrize("scope", ["page", "context"])
+def test_a_retired_route_cannot_fail_the_next_browser_context(open_as: Any, scope: str) -> None:
+    """Leave a real response body unread until the context that requested it has closed."""
+    first: Page = open_as("org_admin", "/admin/sign-in/")
+    following: Page = open_as("org_admin", "/admin/sign-in/")
+
+    def roles(route: Route) -> None:
+        response = route.fetch()
+        following.evaluate("document.documentElement.dataset.rolesFetched = 'yes'")
+        try:
+            following.locator("html[data-read-roles]").wait_for(timeout=10000)
+            route.fulfill(json=response.json())
+        finally:
+            following.evaluate("document.documentElement.dataset.handlerReturned = 'yes'")
+
+    url = "**/api/v1/lab-roles"
+    owner = first if scope == "page" else first.context
+    owner.route(url, roles)
+    first.evaluate("() => { void fetch('/api/v1/lab-roles') }")
+    following.locator("html[data-roles-fetched]").wait_for()
+    first.context.close()
+    following.evaluate("document.documentElement.dataset.readRoles = 'yes'")
+    following.locator("html[data-handler-returned]").wait_for()
+    assert following.title()
+
+
+def test_a_live_route_still_reports_its_handler_error(open_as: Any) -> None:
+    page: Page = open_as("org_admin", "/admin/sign-in/")
+
+    def broken(route: Route) -> None:
+        route.fulfill(json=[])
+        raise ValueError("broken lab roles fixture")
+
+    page.route("**/api/v1/lab-roles", broken)
+    with pytest.raises(ValueError, match="broken lab roles fixture"):
+        page.evaluate("fetch('/api/v1/lab-roles').then(r => r.json())")
+        page.title()
 
 
 def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
