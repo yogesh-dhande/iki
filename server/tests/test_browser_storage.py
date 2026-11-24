@@ -993,7 +993,8 @@ def test_an_outcome_stays_under_the_press_while_the_line_above_changes(
     page.reload()
     receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
     first = receipt_line(page, above)
-    missing = receipt_line(page, below).get_by_role("button", name="Missing", exact=True)
+    # Named with its tick once it's pressed.
+    missing = receipt_line(page, below).get_by_role("button", name=re.compile(r"\bMissing$"))
     missing.wait_for()
 
     def by_keyboard(name: str) -> None:
