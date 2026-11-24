@@ -21,13 +21,11 @@ A site may run across a circle's origin, and never across a linear molecule's en
 (ADR 0168): beyond an end there is nothing to pair with.
 
 **Melting temperature** is SantaLucia's unified nearest-neighbour model (PNAS 95:1460,
-1998), as ``Bio.SeqUtils.MeltingTemp.Tm_NN`` computes it with its default table
-``DNA_NN3`` (Allawi & SantaLucia 1997, the same unified parameters) and SantaLucia's salt
-correction (``saltcorr=5``), at 50 mM Na+ with no Mg2+ or dNTPs and 25 nM of each strand
--- the conditions ``iki/dna`` gives a primer's own Tm under, so the two agree. A site's Tm
-is of its annealed bases against the template's own bases, so a mismatch lowers it
-(Biopython's ``DNA_IMM1`` for an internal mismatch and ``DNA_TMM1`` for a terminal one);
-where Biopython has no parameters for one, the Tm is left out rather than guessed.
+1998) at 50 mM Na+ with no Mg2+ or dNTPs and 25 nM of each strand -- the conditions
+``iki/dna`` gives a primer's own Tm under, so the two agree. A site's Tm is of its
+annealed bases against the template's own bases, so a mismatch lowers it (Allawi &
+SantaLucia's internal mismatches and Bommarito's terminal ones); where no published
+parameter covers a pair of neighbours, the Tm is left out rather than guessed.
 
 **A product** comes of two sites facing each other: one on the forward strand extending
 rightwards and one on the reverse extending leftwards, the first's 3' end at or before the
@@ -37,6 +35,12 @@ every base a primer mismatched, since the product is copied from the primer ther
 circle each facing pair gives the product that runs from one to the other, across the
 origin where that is the way round; on a linear molecule only a pair with the forward site
 to the left gives one.
+
+**Where the work happens.** All of it is the Rust in ``worker/crates/iki-wasm``, run from
+the module this plugin's archive carries (ADR 0200), so the server, the worker and the web
+app place a primer the same way. This module holds the shapes a run's output needs and
+the conditions the records quote; the scientific rules above are the module's, and
+Biopython is the oracle the tests cross-check it against.
 """
 
 from __future__ import annotations
@@ -44,14 +48,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from Bio.SeqUtils import MeltingTemp
+import molecular
 
 COMPLEMENT = str.maketrans("ACGTRYKMBVDHNSWacgtrykmbvdhnsw", "TGCAYRMKVBHDNSWtgcayrmkvbhdnsw")
-IUPAC = {
-    "A": "A", "C": "C", "G": "G", "T": "T", "U": "T", "R": "AG", "Y": "CT", "S": "CG",
-    "W": "AT", "K": "GT", "M": "AC", "B": "CGT", "D": "AGT", "H": "ACT", "V": "ACG",
-    "N": "ACGT",
-}  # fmt: skip
 #: The 3'-most bases that place a primer, and the fewest bases a primer is placed by.
 ANCHOR = 15
 SHORTEST = 8
@@ -66,20 +65,30 @@ LONGEST_PRODUCT = 20_000
 #: What a run keeps at most: sites of all the primers, and products of one reaction.
 MOST_SITES = 500
 MOST_PRODUCTS = 20
-#: Biopython's Tm_NN under iki/dna's conditions (see the module's docstring).
-CONDITIONS: dict[str, Any] = {
-    "Na": 50, "K": 0, "Tris": 0, "Mg": 0, "dNTPs": 0, "dnac1": 25, "dnac2": 25, "saltcorr": 5,
-}  # fmt: skip
+#: These conditions are what the temperatures here are computed at, and the text is shown
+#: to whoever checks our numbers against their own, so it has to keep describing what the
+#: code does. It says "25 nM of each strand" because that is what this path computes, for
+#: every primer including a self-complementary one -- two species at 25 nM, with no
+#: symmetry term. For a palindrome that is the wrong convention: SantaLucia 1998 has one
+#: species at the whole concentration and the symmetry term applied, which the DNA plugin's
+#: primer fields, the sequence viewer and ``thermodynamics::matched_melting_temperature``
+#: all do, and which this path deliberately does not, because the parity oracle in
+#: ``server/tests/oracles/priming_before.py`` pins it to the behaviour it was ported from.
+#: ``GGATCC`` reads -13.7 here and -11.4 there.
+#:
+#: So do not change this text on its own: it would turn a true description of a flaw into a
+#: false description of a fix. The arithmetic, this text, the Rust constant it mirrors in
+#: ``worker/crates/iki-wasm/src/priming.rs``, the ``tm_method`` written onto records, the
+#: fixtures in ``plugins/plasmid/tests/priming.yaml`` and the parity assertions move in one
+#: commit, with the oracle keeping its old text and old reference.
+#:
+#: And do not reach for Biopython's ``selfcomp=True`` by itself: ``Tm_NN`` then reads
+#: ``dnac1`` as the total, so with ``dnac1=25, dnac2=25`` it gives -13.758 for ``GGATCC``,
+#: 0.04 degrees further from right. The flag and the concentration go together.
 CONDITIONS_TEXT = (
     "SantaLucia 1998 nearest-neighbour (Biopython Tm_NN, DNA_NN3), 50 mM Na+, no Mg2+ or "
     "dNTPs, 25 nM of each strand"
 )
-
-
-#: The sites are found by walking every place a primer's 3' end could sit, which costs a
-#: run about a second for every 10 primers on a 100 kb molecule -- plasmid-sized work, which
-#: is what this plugin's types hold. A genome-wide search would want the seed index the
-#: annotation uses (``library.py``) rather than this scan.
 
 
 class Refused(ValueError):  # noqa: N818 - reads as "the run refuses"
@@ -90,33 +99,18 @@ def reverse_complement(bases: str) -> str:
     return bases.translate(COMPLEMENT)[::-1]
 
 
-def pairs(primer_base: str, template_base: str) -> bool:
-    """Whether a primer's base may pair with the template's: every base the template's
-    code may be is one the primer's may be. Nothing else says the primer pairs there."""
-    may_be = set(IUPAC.get(template_base, ""))
-    return bool(may_be) and may_be <= set(IUPAC.get(primer_base, ""))
-
-
 def melting_temperature(primer: str, template: str | None = None) -> float | None:
     """°C for ``primer`` (5' to 3') on ``template``: the template's bases under it, 5' to 3'
-    on the primer's own strand. None where a base isn't A, C, G or T, or Biopython has no
-    parameters for a mismatch there."""
-    primer = primer.upper()
-    if len(primer) < 2 or set(primer) - set("ACGT"):
-        return None
-    try:
-        if template is None or template.upper() == primer:
-            value = MeltingTemp.Tm_NN(primer, **CONDITIONS)
-        else:
-            if len(template) != len(primer) or set(template.upper()) - set("ACGT"):
-                return None
-            # Tm_NN wants the other strand, base for base under the primer, 3' to 5'.
-            value = MeltingTemp.Tm_NN(
-                primer, c_seq=template.upper().translate(COMPLEMENT), **CONDITIONS
-            )
-    except (ValueError, KeyError, IndexError, ZeroDivisionError):
-        return None
-    return round(float(value), 1)
+    on the primer's own strand. None where a base isn't A, C, G or T, where there are
+    fewer than two of them, or where no published parameter covers a pair of neighbours."""
+    request: dict[str, Any] = {"primer": primer}
+    if template is not None:
+        request["template"] = template
+    answer = molecular.call("iki_duplex_temperature", request)
+    if "error" in answer:
+        raise Refused(answer["error"])
+    celsius: float | None = answer["celsius"]
+    return celsius
 
 
 @dataclass(frozen=True)
@@ -163,137 +157,6 @@ class Site:
         }
 
 
-def _weight(away: int) -> int:
-    """What a mismatch weighs, ``away`` bases from the primer's 3' end (1 is its last)."""
-    return NEAR_THREE_PRIME if away <= THREE_PRIME else ELSEWHERE
-
-
-def _template_at(bases: str, at: int, length: int, circular: bool) -> str | None:
-    """The template's base at ``at`` (from 0), round a circle, or None past a linear end."""
-    if 0 <= at < length:
-        return bases[at]
-    return bases[at % length] if circular else None
-
-
-def find_sites(
-    template: str,
-    circular: bool,
-    primers: list[dict[str, Any]],
-    *,
-    anchor: int = ANCHOR,
-    most_penalty: int = MOST_PENALTY,
-) -> list[Site]:
-    """Every site the primers bind, on both strands, in order along the template.
-
-    ``primers`` are dicts with ``hrid``, ``name`` and ``bases``. A primer is looked for on
-    the forward strand (its bases are the forward strand's, so it reads rightwards) and on
-    the reverse (its bases are the reverse strand's, reading leftwards).
-    """
-    template = template.upper().replace("U", "T")
-    length = len(template)
-    if not length:
-        raise Refused("The template has no bases.")
-    found: list[Site] = []
-    for primer in primers:
-        bases = (primer.get("bases") or "").upper().replace("U", "T")
-        if len(bases) < SHORTEST:
-            continue
-        for strand in ("forward", "reverse"):
-            # The primer's bases along the forward strand, 5' to 3' of that strand: a
-            # reverse-strand primer reads as its reverse complement there.
-            along = bases if strand == "forward" else reverse_complement(bases)
-            # Where the primer's 3'-most base lies in `along`: its end, or its start.
-            tip = len(along) - 1 if strand == "forward" else 0
-            # Every place the primer's 3'-most base could sit (from 0). On a linear
-            # molecule a site whose anchor would reach past an end is no site, which
-            # `_site_at` finds when the template runs out.
-            for offset in range(length):
-                sites = _site_at(
-                    template, length, circular, primer, bases, along, tip, offset,
-                    anchor=anchor, most_penalty=most_penalty, strand=strand,
-                )  # fmt: skip
-                if sites is not None:
-                    found.append(sites)
-                if len(found) > MOST_SITES:
-                    raise Refused(
-                        f"The primers bind more than {MOST_SITES} places on a {length:,} bp "
-                        "template. Allow fewer mismatches, or a longer 3' match."
-                    )
-    found.sort(key=lambda site: (site.start, site.end, site.strand, site.hrid))
-    return found
-
-
-def _site_at(
-    template: str,
-    length: int,
-    circular: bool,
-    primer: dict[str, Any],
-    bases: str,
-    along: str,
-    tip: int,
-    offset: int,
-    *,
-    anchor: int,
-    most_penalty: int,
-    strand: str,
-) -> Site | None:
-    """The site where `along`'s base `tip` sits at `offset` (from 0), or None if the
-    primer's 3' end doesn't pair there well enough."""
-    anchored = min(max(anchor, 1), len(bases))
-    penalty = 0
-    mismatches: list[tuple[int, str, str]] = []
-    # From the 3'-most base of the primer back along it: `away` is 1 for its last base.
-    for away in range(1, len(along) + 1):
-        at = offset + (away - 1 if strand == "reverse" else 1 - away)
-        there = _template_at(template, at, length, circular)
-        mine = along[tip + (away - 1 if strand == "reverse" else 1 - away)]
-        if there is None:
-            # A linear molecule's end: the anchor must pair, and beyond it the primer's
-            # remaining bases are a 5' tail hanging off the end, which a product keeps.
-            if away <= anchored:
-                return None
-            break
-        if pairs(mine, there):
-            continue
-        if away > anchored:
-            break  # the pairing stops here: the rest of the primer is its 5' tail
-        penalty += _weight(away)
-        if penalty > most_penalty:
-            return None
-        # The primer's own base, 5' to 3' on its own strand, and the template's opposite it.
-        own = bases[len(bases) - away]
-        theirs = there if strand == "forward" else there.translate(COMPLEMENT)
-        mismatches.append((away, own, theirs))
-    else:
-        away = len(along) + 1
-    annealed = away - 1
-    if annealed < anchored:
-        return None
-    # Where the annealed bases lie on the template, as the map counts them (from 1).
-    if strand == "forward":
-        first, last = offset - annealed + 1, offset
-    else:
-        first, last = offset, offset + annealed - 1
-    start = first % length + 1
-    end = last % length + 1
-    annealed_bases = bases[len(bases) - annealed :]
-    opposite = "".join(template[at % length] for at in range(first, last + 1))
-    under = opposite if strand == "forward" else reverse_complement(opposite)
-    return Site(
-        hrid=primer["hrid"],
-        name=primer.get("name") or primer["hrid"],
-        bases=bases,
-        strand=strand,
-        start=start,
-        end=end,
-        three_prime=offset % length + 1,
-        annealed=annealed,
-        mismatches=tuple(reversed(mismatches)),
-        penalty=penalty,
-        tm=melting_temperature(annealed_bases, under),
-    )
-
-
 @dataclass(frozen=True)
 class Product:
     """What a pair of facing sites amplifies: its bases, and where it lies on the
@@ -312,13 +175,81 @@ class Product:
         return len(self.bases)
 
 
-def _distance(from_at: int, to_at: int, length: int, circular: bool) -> int | None:
-    """The bases from ``from_at`` to ``to_at`` (both from 1, both counted), going along the
-    forward strand, round a circle's origin where that is the way. None where a linear
-    molecule's order rules it out."""
-    if to_at >= from_at:
-        return to_at - from_at + 1
-    return length - from_at + 1 + to_at if circular else None
+def _sent(site: Site) -> dict[str, Any]:
+    """One site as the module reads it back."""
+    return {
+        "primer": site.hrid,
+        "name": site.name,
+        "strand": site.strand,
+        "start": site.start,
+        "end": site.end,
+        "three_prime": site.three_prime,
+        "annealed": site.annealed,
+        "tail": site.tail,
+        "mismatches": [
+            {"from_three_prime": away, "primer": mine, "template": theirs}
+            for away, mine, theirs in site.mismatches
+        ],
+        "penalty": site.penalty,
+        "melting_temperature": site.tm,
+    }
+
+
+def find_sites(
+    template: str,
+    circular: bool,
+    primers: list[dict[str, Any]],
+    *,
+    anchor: int = ANCHOR,
+    most_penalty: int = MOST_PENALTY,
+) -> list[Site]:
+    """Every site the primers bind, on both strands, in order along the template.
+
+    ``primers`` are dicts with ``hrid``, ``name`` and ``bases``. A primer is looked for on
+    the forward strand (its bases are the forward strand's, so it reads rightwards) and on
+    the reverse (its bases are the reverse strand's, reading leftwards).
+    """
+    answer = molecular.call(
+        "iki_place_primers",
+        {
+            "template": template,
+            "circular": circular,
+            "primers": [
+                {
+                    "hrid": primer["hrid"],
+                    "name": primer.get("name") or "",
+                    "bases": primer.get("bases") or "",
+                }
+                for primer in primers
+            ],
+            "anchor": anchor,
+            "most_penalty": most_penalty,
+        },
+    )
+    if "error" in answer:
+        raise Refused(answer["error"])
+    bases = {
+        primer["hrid"]: (primer.get("bases") or "").upper().replace("U", "T") for primer in primers
+    }
+    return [
+        Site(
+            hrid=site["primer"],
+            name=site["name"],
+            bases=bases.get(site["primer"], ""),
+            strand=site["strand"],
+            start=site["start"],
+            end=site["end"],
+            three_prime=site["three_prime"],
+            annealed=site["annealed"],
+            mismatches=tuple(
+                (one["from_three_prime"], one["primer"], one["template"])
+                for one in site["mismatches"]
+            ),
+            penalty=site["penalty"],
+            tm=site.get("melting_temperature"),
+        )
+        for site in answer["sites"]
+    ]
 
 
 def products(
@@ -337,36 +268,25 @@ def products(
     complement whole: both 5' tails are in it, and so is every base either primer
     mismatched, since there the product is copied from the primer.
     """
-    template = template.upper().replace("U", "T")
-    length = len(template)
-    made: list[Product] = []
-    for ahead in (s for s in sites if s.strand == "forward"):
-        for back in (s for s in sites if s.strand == "reverse"):
-            # The template between the two primers' 3' ends, the ends themselves left to
-            # the primers: the product has the primer's own bases there, mismatches and all.
-            between = _distance(ahead.three_prime, back.three_prime, length, circular)
-            if between is None or between < 2:
-                continue
-            middle_from = ahead.three_prime % length  # the base after the forward 3' end
-            middle = "".join(template[(middle_from + i) % length] for i in range(between - 2))
-            bases = ahead.bases + middle + reverse_complement(back.bases)
-            if len(bases) > longest:
-                continue
-            start = (ahead.three_prime - ahead.annealed) % length + 1
-            end = (back.three_prime + back.annealed - 2) % length + 1
-            made.append(
-                Product(
-                    bases=bases,
-                    forward=ahead,
-                    reverse=back,
-                    template_start=start,
-                    template_end=end,
-                )
-            )
-            if len(made) > MOST_PRODUCTS:
-                raise Refused(
-                    f"The primers make more than {MOST_PRODUCTS} products on this template. "
-                    "Allow fewer mismatches, or a longer 3' match."
-                )
-    made.sort(key=lambda one: (len(one.bases), one.template_start))
-    return made
+    answer = molecular.call(
+        "iki_pcr_products",
+        {
+            "template": template,
+            "circular": circular,
+            "sites": [_sent(site) for site in sites],
+            "bases": [site.bases for site in sites],
+            "longest": longest,
+        },
+    )
+    if "error" in answer:
+        raise Refused(answer["error"])
+    return [
+        Product(
+            bases=product["bases"],
+            forward=sites[product["forward"]],
+            reverse=sites[product["reverse"]],
+            template_start=product["template_start"],
+            template_end=product["template_end"],
+        )
+        for product in answer["products"]
+    ]

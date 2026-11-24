@@ -181,8 +181,10 @@ When a source or toolchain update changes the output, review the SHA-256 values
 and update the affected pins. The portable and native guard pins are in
 `server/iki_wasm.wasm.sha256`, `server/iki_wasm.amd64.cwasm.sha256`, and
 `server/iki_wasm.arm64.cwasm.sha256`. The other portable modules are pinned in
-`plugins/plasmid/data/dna-annotation.wasm.sha256` and
-`plugins/dna/data/oligo-measurement.sha256`. To build an image from the verified
+`plugins/plasmid/data/dna-annotation.wasm.sha256`,
+`plugins/dna/data/oligo-measurement.sha256`,
+`plugins/plasmid/data/plasmid-tools.wasm.sha256` and
+`plugins/dna/data/oligo-checks.wasm.sha256`. To build an image from the verified
 payload on either architecture, pass
 `--build-context server-wasm-artifacts=build/server-wasm` to the image build.
 

@@ -14,7 +14,12 @@ PINS = {
     "iki_wasm.wasm": "server/iki_wasm.wasm.sha256",
     "dna-annotation.wasm": "plugins/plasmid/data/dna-annotation.wasm.sha256",
     "oligo-measurement.wasm": "plugins/dna/data/oligo-measurement.sha256",
+    "plasmid-tools.wasm": "plugins/plasmid/data/plasmid-tools.wasm.sha256",
+    "oligo-checks.wasm": "plugins/dna/data/oligo-checks.wasm.sha256",
 }
+#: The plugin modules of ADR 0200 and 0201 pin themselves as sha256sum writes it,
+#: `<digest>  <name>`; the others hold the bare digest.
+NAMED = {"plasmid-tools.wasm", "oligo-checks.wasm"}
 TARGETS = {"amd64": ("x86_64", 62), "arm64": ("aarch64", 183)}
 
 
@@ -33,8 +38,9 @@ def payload(tmp_path: Path) -> tuple[Path, Path]:
         data = name.encode()
         (artifact / name).write_bytes(data)
         marker = source / pin
-        marker.parent.mkdir(parents=True)
-        marker.write_text(hashlib.sha256(data).hexdigest() + "\n")
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(data).hexdigest()
+        marker.write_text(f"{digest}  {name}\n" if name in NAMED else digest + "\n")
     (artifact / "rust-standard-library.html").write_text("Synthetic notice")
     wasm_hash = (source / PINS["iki_wasm.wasm"]).read_text().strip()
     for arch, (cpu, machine) in TARGETS.items():
@@ -109,7 +115,7 @@ def test_verification_names_the_bad_module_and_both_digests(
     # A hash provided by the artifact itself cannot override the tracked pin.
     actual = hashlib.sha256(changed).hexdigest()
     (artifact / (name + ".sha256")).write_text(actual + "\n")
-    expected = (script.parents[1] / PINS[name]).read_text().strip()
+    expected = (script.parents[1] / PINS[name]).read_text().split()[0]
     result = verified(payload)
     assert result.returncode != 0
     assert name in result.stderr and expected in result.stderr and actual in result.stderr
@@ -181,3 +187,40 @@ def test_the_arm64_pin_cannot_bless_a_module_for_the_wrong_cpu(payload: tuple[Pa
     result = verified(payload)
     assert result.returncode != 0
     assert "aarch64" in result.stderr and str(arm / "iki_wasm.cwasm") in result.stderr
+
+
+@pytest.mark.parametrize("name", sorted(NAMED))
+def test_a_named_pin_must_name_its_own_module(payload: tuple[Path, Path], name: str) -> None:
+    """A pin copied from another module's file is refused even when the bytes match it."""
+    script, _ = payload
+    pin = script.parents[1] / PINS[name]
+    digest = pin.read_text().split()[0]
+    other = next(iter(NAMED - {name}))
+    pin.write_text(f"{digest}  {other}\n")
+    result = verified(payload)
+    assert result.returncode != 0
+    assert f"names {other}, not {name}" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "written",
+    [
+        "{digest} {name}",  # one space: not the format sha256sum writes
+        "{digest}  {name}  extra",
+        "{short}  {name}",
+        "{upper}  {name}",
+    ],
+)
+def test_a_malformed_named_pin_is_refused(payload: tuple[Path, Path], written: str) -> None:
+    script, _ = payload
+    pin = script.parents[1] / PINS["oligo-checks.wasm"]
+    digest = pin.read_text().split()[0]
+    pin.write_text(
+        written.format(
+            digest=digest, name="oligo-checks.wasm", short=digest[:63], upper=digest.upper()
+        )
+        + "\n"
+    )
+    result = verified(payload)
+    assert result.returncode != 0
+    assert "oligo-checks.wasm" in result.stderr
