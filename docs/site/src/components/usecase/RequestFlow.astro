@@ -1,6 +1,6 @@
 ---
 // The core facility example's flow: the requesting project's lane and the core's, with the
-// states and roles this example lab chose. Drawn in the page's colours, in both themes.
+// request's states and the lab roles that set them. Drawn in the page's colours, in both themes.
 ---
 
 <figure class="flow">
@@ -8,9 +8,9 @@
     <title id="request-flow-title">This lab's request flow</title>
     <desc id="request-flow-desc">
       The requesting project writes a request and sends its tubes. At the core the request is
-      Submitted, then Accepted or Declined by a coordinator, In progress with an analyst, a result
-      is returned for each tube by a reviewer, and the reviewer sets Delivered. The requesting
-      project can withdraw the request while it's open, and sees each result as it's returned.
+      Submitted, then Accepted or Declined by a coordinator, In progress with an analyst, a reviewer
+      delivers a result for each tube, and then sets the request to Delivered. The requesting
+      project can withdraw the request while it's open, and sees each result as it's delivered.
     </desc>
     <text class="lane" x="66" y="20">
       Requesting project
@@ -41,7 +41,7 @@
       Sees each result
     </text>
     <text class="note" x="68" y="321">
-      as it's returned
+      as it's delivered
     </text>
 
     <rect class="state" x="158" y="44" width="196" height="48" rx="6"></rect>
@@ -73,7 +73,7 @@
       A result for each tube
     </text>
     <text class="note" x="256" y="321">
-      returned by a Reviewer
+      delivered by a Reviewer
     </text>
 
     <rect class="state" x="158" y="364" width="196" height="48" rx="6"></rect>
@@ -99,7 +99,7 @@
 
     <rect class="key-state" x="6" y="446" width="14" height="12" rx="3"></rect>
     <text class="key" x="26" y="456">
-      A state this lab chose; roles are this lab's too
+      A state of the request, and the lab role that sets it
     </text>
   </svg>
 </figure>
