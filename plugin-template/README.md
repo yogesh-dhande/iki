@@ -44,6 +44,17 @@ The manifest format is in Iki's
 `yaml-language-server` comments (VS Code with the YAML extension, JetBrains)
 complete and check it as you type.
 
+## Work with a coding agent
+
+Copy the whole template, including hidden directories. It includes three
+skills that Codex and Claude Code can discover from the plugin repository.
+With another agent, point it to the relevant `SKILL.md`. Keep the skill
+directory intact so the agent can run its scripts.
+
+- [`iki-write-plugin`](.agents/skills/iki-write-plugin/SKILL.md) starts a plugin and generates its migration.
+- [`iki-test-plugin`](.agents/skills/iki-test-plugin/SKILL.md) checks action fixtures, migrations and the lab workflow.
+- [`iki-upgrade-plugin`](.agents/skills/iki-upgrade-plugin/SKILL.md) preflights a versioned change and verifies the upgrade.
+
 ## Make it yours
 
 1. Install the `iki` CLI at the version your deployments run:
