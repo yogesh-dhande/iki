@@ -125,7 +125,7 @@ describe("a project's record of a registry entry", () => {
       "In the Main registry. These values are the entry’s: every project with PRT-000001 has the same ones.",
     );
     // Its trail counts its entry's revisions too: its tab and its details say so.
-    const tabs = screen.getByRole("navigation", { name: "Record" });
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
     const trailTab = within(tabs).getByRole("link", {
       name: /^Audit trail,\s*5\s*revisions: 2 of this record, 3 of its entry$/,
     });
@@ -182,7 +182,7 @@ describe("a project's record of a registry entry", () => {
   it("keeps its project on every tab", async () => {
     onRecord();
     await renderApp("/entities/PRT-000001/?project=kinase-atlas");
-    const tabs = screen.getByRole("navigation", { name: "Record" });
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
     expect(within(tabs).getByRole("link", { name: /^Audit trail/ })).toHaveAttribute(
       "href",
       "/entities/PRT-000001/audit/?project=kinase-atlas",

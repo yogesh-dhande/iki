@@ -733,7 +733,7 @@ describe("a project's Requests tab", () => {
     searching({ queued: true, rows: [request({}, { ...SENT, yours: ["service"] })] });
     const { router, user } = await renderApp("/projects/protein-core/requests/");
     // Its own tab: the current one, as Entities isn't.
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(await within(tabs).findByRole("link", { name: "Requests" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -835,7 +835,7 @@ describe("a project's Requests tab", () => {
     await waitFor(() => {
       expect(calls("POST", "/api/v1/entities/search").length).toBeGreaterThan(1);
     });
-    const tabs = screen.getByRole("navigation", { name: "Project" });
+    const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).queryByRole("link", { name: "Requests" })).toBeNull();
     expect(screen.queryByRole("region", { name: "Requests" })).toBeNull();
   });

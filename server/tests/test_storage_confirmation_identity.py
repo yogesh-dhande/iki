@@ -4,17 +4,20 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, problem
 from org_world import World, build_world
-from test_storage import TUBE, box, contents, moved, moves, tube
+from test_storage import TUBE, box, contents, made, moved, moves
+from test_storage_scan_preview import preview
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import registry
+from iki_server.entities.models import Entity
 from iki_server.storage.models import Event
 
 pytestmark = pytest.mark.django_db
 
 VENDOR = "SHARED-VENDOR-42"
+RETAIN_TUBE = "acme/protein.RetainTube"
 
 
 @dataclass
@@ -29,8 +32,7 @@ class Tubes:
     link: str
 
 
-@pytest.fixture
-def tubes() -> Tubes:
+def shared_tubes(first_type: str) -> Tubes:
     world = build_world()
     provider = Api(world.browser("team_member"))
     project = provider.post("/projects", {"team": str(world.team.pk), "name": "Supplier"})
@@ -41,7 +43,7 @@ def tubes() -> Tubes:
     )
     assert grant.status_code == 200, grant.content
     api = Api(world.browser("editor"))
-    first = tube(api, world.project, VENDOR)
+    first = made(api, world.project, first_type, {"barcode": VENDOR})
     other = provider.post(
         "/entities",
         {"type": TUBE, "project": project.json()["id"], "values": {"barcode": VENDOR}},
@@ -61,6 +63,11 @@ def tubes() -> Tubes:
         box(api, world.project, "Box B"),
         link,
     )
+
+
+@pytest.fixture
+def tubes() -> Tubes:
+    return shared_tubes(TUBE)
 
 
 def require_move_proof(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,6 +97,96 @@ def history(api: Api, record: dict[str, Any]) -> list[dict[str, Any]]:
     assert answer.status_code == 200, answer.content
     events: list[dict[str, Any]] = answer.json()["items"]
     return events
+
+
+def test_a_retain_tube_requires_its_own_scan_to_move() -> None:
+    tubes = shared_tubes(RETAIN_TUBE)
+    api, first, second = tubes.api, tubes.first, tubes.second
+    types = {t["name"]: t for t in api.get("/entity-types").json()}
+    assert types[RETAIN_TUBE]["storage"]["confirm"] == ["draw", "move"]
+    assert types[RETAIN_TUBE]["amount"]["unit"] == "uL"
+    assert types[TUBE]["storage"]["confirm"] == ["draw"]
+    label = api.post(
+        "/storage/labels",
+        {"records": [first["id"]], "size": "cryo", "format": "print", "preview": True},
+    )
+    assert label.status_code == 200, label.content
+    printed_code = label.json()["labels"][0]["code"]
+    moved(
+        api,
+        (first, tubes.source, "A1"),
+        (second, tubes.source, "A2"),
+        confirmations={first["id"]: printed_code},
+    )
+    assert history(api, first)[0]["confirmed"] == printed_code
+    item = (first, tubes.destination, "A1")
+    before = writes()
+    for proof in ({}, {first["id"]: VENDOR}, {first["id"]: link_proof(second)}):
+        refused = moves(api, item, confirmations=proof)
+        assert refused.status_code == 422, refused.content
+    assert writes() == before
+    assert contents(api, tubes.source) == {"A1": first["hrid"], "A2": second["hrid"]}
+    assert contents(api, tubes.destination) == {}
+
+    proof_of_first = {first["id"]: {"mode": "iki_id", "code": first["hrid"]}}
+    operation = moved(api, item, confirmations=proof_of_first)["operation"]
+    assert contents(api, tubes.source) == {"A2": second["hrid"]}
+    assert contents(api, tubes.destination) == {"A1": first["hrid"]}
+    assert history(api, first)[0]["confirmed"] == first["hrid"]
+    event = AuditEvent.objects.get(action="storage.moved", data__operation=operation)
+    assert event.target_id == first["id"] and event.data["confirmed"] == first["hrid"]
+
+
+@pytest.mark.parametrize("check_in", [False, True], ids=["move", "check-in"])
+def test_confirming_a_selection_rechecks_every_source_box(check_in: bool) -> None:
+    tubes = shared_tubes(RETAIN_TUBE)
+    api, target, peer = tubes.api, tubes.first, tubes.second
+    other = made(api, tubes.world.project, TUBE, {"barcode": "OTHER-TUBE"})
+    ids = [target["id"], other["id"]]
+    moved(
+        api,
+        (target, tubes.source, "A1"),
+        (other, tubes.destination, "A1"),
+        confirmations={target["id"]: link_proof(target)},
+    )
+    if check_in:
+        checked_out = api.post("/storage/check-out", {"records": ids})
+        assert checked_out.status_code == 200, checked_out.content
+        endpoint = "/storage/check-in"
+        items = [{"record": record_id} for record_id in ids]
+    else:
+        endpoint = "/storage/moves"
+        items = [
+            {"record": target["id"], "to": tubes.source["id"], "position": "B1"},
+            {"record": other["id"], "to": tubes.destination["id"], "position": "B1"},
+        ]
+    selection = {"scope": "confirmation", "records": ids}
+    initial = preview(api, **selection, code=VENDOR)
+    assert initial["status"] == "one" and [c["id"] for c in initial["candidates"]] == [target["id"]]
+    moved(api, (peer, tubes.destination, "A2"))
+    changed = preview(api, **selection, code=VENDOR)
+    assert changed["status"] == "ambiguous"
+    assert {c["id"] for c in changed["candidates"]} == {target["id"], peer["id"]}
+
+    paths = [f"/entities/{record_id}/location" for record_id in ids]
+    locations = [api.get(path).json() for path in paths]
+    before = writes()
+    command = {"items": items, "reason": "Return the selected tubes"}
+    refused = api.post(endpoint, {**command, "confirmations": {target["id"]: VENDOR}})
+    assert refused.status_code == 422, refused.content
+    assert writes() == before and [api.get(path).json() for path in paths] == locations
+
+    code = link_proof(target)
+    accepted = api.post(endpoint, {**command, "confirmations": {target["id"]: code}})
+    assert accepted.status_code == 200, accepted.content
+    for record, proof in ((target, code), (other, "")):
+        event = history(api, record)[0]
+        assert (event["operation"], event["confirmed"]) == (accepted.json()["operation"], proof)
+    for path in paths:
+        location = api.get(path).json()
+        assert location["custodian"] is None and location["position"] == (
+            "A1" if check_in else "B1"
+        )
 
 
 @pytest.mark.parametrize("concealed", [False, True], ids=["readable", "concealed"])
@@ -293,3 +390,30 @@ def test_an_unplaced_tube_must_be_identified_within_the_readable_inventory(
     moved(api, item, confirmations={first["id"]: code})
     assert contents(api, tubes.destination) == {"A1": first["hrid"]}
     assert history(api, first)[0]["confirmed"] == code
+
+
+def test_typing_an_unavailable_or_absent_iki_id_gets_the_same_refusal(tubes: Tubes) -> None:
+    api, selected, private = tubes.api, tubes.first, tubes.second
+    removed = tubes.partner.delete(tubes.link)
+    assert removed.status_code == 204, removed.content
+    assert api.get(f"/entities/{private['id']}").status_code == 404
+    missing = "TUB-999999"
+    assert not Entity.objects.filter(hrid=missing).exists()
+
+    body = {"scope": "confirmation", "record": selected["id"], "mode": "iki_id"}
+    path = "/storage/scan/resolve"
+    problems = []
+    for typed in (private["hrid"], missing):
+        refusal = problem(api.post(path, {**body, "code": typed}), 409, "scan_unavailable")
+        assert refusal["detail"] == (
+            "This scan can’t identify a tube here. "
+            "Use its printed Iki ID or ask an authorized reviewer."
+        )
+        assert "candidates" not in refusal
+        problems.append({key: value for key, value in refusal.items() if key != "request_id"})
+    assert problems[0] == problems[1]
+
+    accepted = api.post(path, {**body, "code": selected["hrid"]})
+    assert accepted.status_code == 200, accepted.content
+    assert accepted.json()["status"] == "one"
+    assert [candidate["id"] for candidate in accepted.json()["candidates"]] == [selected["id"]]

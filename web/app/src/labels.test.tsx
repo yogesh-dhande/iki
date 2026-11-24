@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { queryClient } from "./api";
 import { codeSvg, LabelDialog, LabelFace, svgSource } from "./labels";
 import type { LabelSize, PreparedLabel } from "./storage";
-import { answer, calls } from "./test-server";
+import { answer, calls, problem } from "./test-server";
 
 const STANDARD: LabelSize = {
   key: "standard",
@@ -32,7 +32,8 @@ const TUBE: PreparedLabel = {
   hrid: "TUBE-000012",
   title: "Lysate 3",
   line: "LOT-000002 · 2026-11-20",
-  code: "LB-0042",
+  code: "IKI:000000000000700080000000000000A1",
+  vendor_code: null,
 };
 
 describe("codes", () => {
@@ -55,24 +56,59 @@ describe("codes", () => {
 });
 
 describe("a label", () => {
-  it("has its HRID, title, line and code, a 2D code, and a Code 128 where there's room", async () => {
+  it("has its unique Iki code and its HRID, title and line, and no vendor barcode unasked", async () => {
     const { container } = render(<LabelFace label={TUBE} size={STANDARD} symbology="datamatrix" />);
     const face = screen.getByRole("img", { name: "Label for TUBE-000012" });
     expect(face.className).toContain("label-standard");
     expect(within(face).getByText("TUBE-000012")).toBeTruthy();
     expect(within(face).getByText("Lysate 3")).toBeTruthy();
     expect(within(face).getByText("LOT-000002 · 2026-11-20")).toBeTruthy();
-    expect(within(face).getByText("LB-0042")).toBeTruthy();
+    // The code it carries is for scanners: the HRID is what a person reads.
+    expect(within(face).queryByText(TUBE.code)).toBeNull();
+    await waitFor(() => {
+      expect(container.querySelectorAll("img[data-symbol=iki]")).toHaveLength(1);
+    });
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+  });
+
+  it("adds the vendor’s Code 128 apart from the Iki code, and names it, when asked for", async () => {
+    const { container } = render(
+      <LabelFace
+        label={{ ...TUBE, vendor_code: "LB-0042" }}
+        size={STANDARD}
+        symbology="datamatrix"
+      />,
+    );
+    const face = screen.getByRole("img", {
+      name: "Label for TUBE-000012, with vendor barcode LB-0042",
+    });
     await waitFor(() => {
       expect(container.querySelectorAll("img")).toHaveLength(2);
     });
+    const bar = container.querySelector(".label-bar");
+    expect(bar?.querySelector("img[data-symbol=vendor]")).not.toBeNull();
+    expect(within(face).getByText("Vendor LB-0042")).toBeTruthy();
   });
 
-  it("has only its 2D code on a cryo tube's, too narrow for a Code 128", async () => {
-    const { container } = render(<LabelFace label={TUBE} size={CRYO} symbology="qr" />);
+  it("prints the whole of a long HRID on a cryo tube’s, with only its 2D code", async () => {
+    const long = { ...TUBE, hrid: "CRYOPRESERVED-ALIQUOT-0000012345" };
+    const { container } = render(<LabelFace label={long} size={CRYO} symbology="qr" />);
+    expect(screen.getByText(long.hrid)).toBeTruthy();
     await waitFor(() => {
       expect(container.querySelectorAll("img")).toHaveLength(1);
     });
+  });
+
+  it("draws the Iki code as a square 24 × 24 DataMatrix", async () => {
+    const side = (svg: string) => {
+      const box = /viewBox="0 0 (\d+) (\d+)"/.exec(svg);
+      expect(box?.[1]).toBe(box?.[2]);
+      return Number(box?.[1]);
+    };
+    // Fixed at 24 × 24, whatever it holds: a single character would fit 10 × 10.
+    const iki = side(await codeSvg("datamatrix", TUBE.code));
+    expect(side(await codeSvg("datamatrix", "A"))).toBe(iki);
+    expect(iki % 24).toBe(0);
   });
 });
 
@@ -127,6 +163,68 @@ describe("the label dialog", () => {
       preview: false,
     });
     expect(made).toHaveBeenCalled();
+  });
+
+  it("previews a cryo tube’s label as it would print, where a vendor barcode has no room", async () => {
+    answerLabels();
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LabelDialog records={[{ id: TUBE.id, hrid: TUBE.hrid }]} onClose={() => undefined} />
+      </QueryClientProvider>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    const vendor = await within(dialog).findByRole("checkbox", {
+      name: "Also print the vendor barcode (Code 128)",
+    });
+    expect(vendor).toBeEnabled();
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Size" }), "cryo");
+    expect(vendor).toBeDisabled();
+    expect(vendor).not.toBeChecked();
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/storage/labels").at(-1)?.body).toMatchObject({
+        size: "cryo",
+        symbology: "datamatrix",
+        preview: true,
+      });
+    });
+    expect(calls("POST", "/api/v1/storage/labels").at(-1)?.body).not.toHaveProperty(
+      "include_vendor_code",
+    );
+  });
+
+  it("says why, and prints nothing, when the server can’t fit the vendor barcode", async () => {
+    answerLabels();
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <LabelDialog records={[{ id: TUBE.id, hrid: TUBE.hrid }]} onClose={() => undefined} />
+      </QueryClientProvider>,
+    );
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("img", { name: "Label for TUBE-000012" });
+    const why =
+      "TUBE-000012: There is no vendor barcode on this record. Turn it off to print the Iki ID.";
+    answer(
+      "POST /api/v1/storage/labels",
+      problem(422, "validation_failed", "Some fields are invalid.", [
+        { pointer: "#/records/0", detail: why },
+      ]),
+    );
+    await user.click(
+      within(dialog).getByRole("checkbox", { name: "Also print the vendor barcode (Code 128)" }),
+    );
+    expect(await within(dialog).findByText(why)).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("These labels can’t be printed as chosen:"),
+    ).toBeInTheDocument();
+    expect(calls("POST", "/api/v1/storage/labels").at(-1)?.body).toMatchObject({
+      include_vendor_code: true,
+      preview: true,
+    });
+    for (const name of ["Print", "Download ZPL"]) {
+      expect(within(dialog).getByRole("button", { name })).toHaveAttribute("aria-disabled", "true");
+    }
   });
 
   it("prints only the labels, a copy of each as many times as asked", async () => {

@@ -59,7 +59,9 @@ and handle navigation. Modified clicks retain native browser behavior.
 
 Import `@ikisci/ui/tokens.css` for the light and dark palettes, type scale, control
 heights, spacing dimensions and focus treatment. The theme follows
-`prefers-color-scheme`. For example, set a panel's background to `var(--surface)`
+`prefers-color-scheme`. Set `data-theme="light"` or `data-theme="dark"` on the
+document’s `<html>` element to choose a theme explicitly. Remove the attribute to
+follow the device again. For example, set a panel's background to `var(--surface)`
 and its text to `var(--text)`. Import `@ikisci/ui/fonts.css` to load the self-hosted
 Inter variable font and apply `font-family: var(--font)`. The release includes the
 font's OFL text alongside its WOFF2 files. [Tokens and Inter story](stories/tokens.html)

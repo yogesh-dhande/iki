@@ -14,8 +14,11 @@ from test_browser import AXE, RUN_AXE, WCAG_22_AA, browser, playwright  # noqa: 
 
 pytestmark = pytest.mark.built_web_app
 PACKAGES = Path(__file__).resolve().parents[2] / "web" / "packages"
+# The rendering engines have their own readiness, interaction and accessibility tests.
+ENGINE_STORIES = {"science/chemical-depiction", "science/structure-viewer"}
 STORIES = sorted(
-    f"{path.parents[1].name}/{path.stem}" for path in PACKAGES.glob("*/stories/*.html")
+    {f"{path.parents[1].name}/{path.stem}" for path in PACKAGES.glob("*/stories/*.html")}
+    - ENGINE_STORIES
 )
 
 
@@ -95,6 +98,52 @@ def test_standalone_story(
             page.get_by_role("button", name="Guides").press("Enter")
             page.get_by_role("link", name="Importing data").click()
             expect(page.get_by_role("status")).to_have_text("Selected #import")
+        elif component == "oligo-chemistry":
+            page.get_by_text("Each position", exact=True).press("Enter")
+            expect(page.get_by_role("rowheader", name="12", exact=True)).to_be_visible()
+        elif component == "oligo-duplex":
+            expect(page.get_by_text("sense 1–12, antisense 1–12")).to_be_visible()
+            page.get_by_text("Strand details", exact=True).press("Enter")
+            expect(page.get_by_text("sense 1–12, antisense 1–12")).to_be_hidden()
+        elif component == "complex-composition":
+            page.get_by_text("Its 3 bonds", exact=True).press("Enter")
+            expect(page.get_by_text("Insulin B chain, copy 1, residue 19")).to_be_visible()
+        elif component == "sequence-viewer":
+            page.get_by_role("button", name="Show Segment").click()
+            expect(page.get_by_text("Showing Segment", exact=True)).to_be_visible()
+            expect(page.get_by_role("list", name="Tracks")).to_contain_text("Example score")
+        elif component == "plasmid-map":
+            page.get_by_role("button", name="Linear").press("Enter")
+            expect(page.get_by_role("status")).to_have_text("Showing the linear view")
+            expect(page.get_by_role("table", name="Parts found along it")).to_contain_text(
+                "350–400, 1–30"
+            )
+        elif component == "plasmid-thumbnail":
+            page.get_by_role("button", name="Open the example map").press("Enter")
+            expect(page.get_by_role("status")).to_have_text("Opened the example map")
+        elif component == "alignment-viewer":
+            grid = page.get_by_role("application", name="Alignment of Synthetic reads")
+            grid.press("n")
+            expect(page.locator(".alignment-at")).to_contain_text("reference, column 4")
+            page.get_by_role("checkbox", name="Select Sample A").check()
+            expect(page.locator("output")).to_have_text("Selected: a")
+        elif component == "virtual-gel":
+            chart = page.get_by_role("img", name="Virtual gel band pattern")
+            expect(chart).to_be_visible()
+            mark = chart.get_by_text("1.517 kb", exact=True).bounding_box()
+            band = chart.get_by_title("NEB 100 bp DNA Ladder · 1,517 bp").bounding_box()
+            assert mark is not None and band is not None
+            assert abs(mark["y"] + mark["height"] / 2 - band["y"] - band["height"] / 2) <= 1
+            page.get_by_text("Band details", exact=True).press("Enter")
+            details = page.get_by_role("table", name="Gel band sizes and masses")
+            # NEB reports a combined 500/517 bp band for N3231 and a 10,002 bp
+            # band for N3232. https://www.neb.com/products/n3231-100-bp-dna-ladder
+            # https://www.neb.com/products/n3232-1-kb-dna-ladder
+            expect(details.get_by_role("cell", name="500 / 517", exact=True)).to_be_visible()
+            page.get_by_role("combobox", name="DNA ladder").select_option("neb-1-kb")
+            page.get_by_role("combobox", name="Agarose (%)").select_option("2")
+            expect(page.get_by_text("2% agarose", exact=True)).to_be_visible()
+            expect(details.get_by_role("cell", name="10,002", exact=True)).to_be_visible()
         elif component == "tokens":
             expect(page.get_by_role("heading", name="Design tokens")).to_be_visible()
             assert page.evaluate(
@@ -108,17 +157,19 @@ def test_standalone_story(
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
         page.add_script_tag(path=AXE)
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+        override = "dark" if theme == "light" else "light"
+        page.evaluate("(theme) => document.documentElement.dataset.theme = theme", override)
+        expect(page.locator("body")).to_have_css(
+            "background-color",
+            "rgb(20, 21, 23)" if override == "dark" else "rgb(255, 255, 255)",
+        )
+        if component in {"alignment-viewer", "plasmid-thumbnail", "sequence-viewer"}:
+            expect(page.locator("button.button:enabled").first).to_have_css(
+                "color", "rgb(232, 233, 235)" if override == "dark" else "rgb(29, 31, 33)"
+            )
+            assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert not errors, errors
         assert all(url.startswith(f"{gallery_url}/") for url in requests), requests
-        if component in {
-            "booking-calendar",
-            "button",
-            "tokens",
-            "plasmid-map",
-            "box-map",
-            "sequence-input",
-            "quantity-input",
-        }:
-            assert not any(url.endswith(".wasm") for url in requests), requests
+        assert not any(url.endswith(".wasm") for url in requests), requests
     finally:
         context.close()

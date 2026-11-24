@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Virtual gel</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/virtual-gel.css" />
+    <style>
+      body {
+        color: var(--text);
+        background: var(--bg);
+        margin: 1rem;
+        font-family: var(--font);
+      }
+      main {
+        max-width: 40rem;
+        margin-inline: auto;
+      }
+      label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-block: 0 1rem;
+        margin-inline-end: 0.75rem;
+      }
+      select {
+        font: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Virtual gel</h1>
+      <label>
+        DNA ladder
+        <select id="ladder"></select>
+      </label>
+      <label>
+        Agarose (%)
+        <select id="agarose">
+          <option>0.7</option>
+          <option selected>1.5</option>
+          <option>2</option>
+          <option>3</option>
+        </select>
+      </label>
+      <iki-virtual-gel></iki-virtual-gel>
+    </main>
+    <script type="module">
+      import { GEL_LADDERS } from "../dist/virtual-gel.js";
+      const gel = document.querySelector("iki-virtual-gel");
+      const ladder = document.querySelector("#ladder");
+      const agarose = document.querySelector("#agarose");
+      for (const [id, { label }] of Object.entries(GEL_LADDERS)) {
+        ladder.add(new Option(label, id));
+      }
+      ladder.value = "neb-100-bp";
+      function render() {
+        gel.data = {
+          agarosePercent: Number(agarose.value),
+          lanes: [
+            { ladder: ladder.value },
+            {
+              label: "Synthetic sample A",
+              fragments: [{ sizeBp: 1600 }, { sizeBp: 500 }, { sizeBp: 500 }],
+            },
+            {
+              label: "Synthetic sample B",
+              fragments: [{ sizeBp: 1350 }, { sizeBp: 700 }, { sizeBp: 550 }],
+            },
+          ],
+        };
+      }
+      ladder.addEventListener("change", render);
+      agarose.addEventListener("change", render);
+      render();
+    </script>
+  </body>
+</html>

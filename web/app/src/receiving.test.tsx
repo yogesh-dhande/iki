@@ -247,7 +247,7 @@ it("keeps another person’s first outcome when theirs arrived first", async () 
       "TUB-000001 was already checked by Ada Lovelace: missing. Theirs is kept; change it if it’s wrong.",
     ),
   ).toBeVisible();
-  expect(calls("PATCH").map((c) => c.body)).toEqual([{ outcome: "matched", note: "", reason: "" }]);
+  expect(calls("PATCH").map((c) => c.body)).toEqual([{ outcome: "matched" }]);
   expect(line("TUB-000001").getByRole("button", { name: "Missing" })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -315,40 +315,37 @@ it("clears an outcome only with a reason", async () => {
   await user.click(dialog.getByRole("button", { name: "Clear it" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(calls("PATCH").map((c) => c.body)).toEqual([
-    { outcome: null, note: "Cold", line_revision: 1, reason: "Wrong tube" },
+    // The saved note isn't sent: left out, it stays.
+    { outcome: null, line_revision: 1, reason: "Wrong tube" },
   ]);
 });
 
 it("shows who changed a line first, keeps the reason, and sends again only when asked", async () => {
   const first = tube(1, { outcome: "matched", checked_by: ME });
   const { user } = await openReceipt(receipt(2, [first]));
-  answer(`PATCH ${api}/lines/${first.id}`, problem(409, "conflict", "This receipt line changed."));
+  // The server names the line that changed, at its version now.
+  answer(
+    `PATCH ${api}/lines/${first.id}`,
+    problem(409, "conflict", "This receipt line changed.", undefined, {
+      affected_lines: [{ line_id: first.id, line_revision: 2 }],
+    }),
+  );
   const theirs = {
     ...first,
     outcome: "rejected" as const,
     note: "Thawed",
     line_revision: 2,
     checked_by: ADA,
+    checked_at: "2026-01-12T09:30:00Z",
   };
   answer(`GET ${api}`, receipt(3, [theirs]));
-  answer(
-    `GET ${api}/history`,
-    page([
-      event({
-        line_id: first.id,
-        before: { outcome: "matched", note: "" },
-        after: { outcome: "rejected", note: "Thawed" },
-        revision: 3,
-        reason: "It had thawed",
-      }),
-    ]),
-  );
   await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
   const dialog = await why(user, "Not in the box after all", "Save the change");
   const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
   expect(alert.closest("[role=alert]")).toHaveTextContent(
-    "TUB-000001: Outcome changed by Ada Lovelace, 12 Jan 2026, 09:30 UTC: Rejected · note “Thawed” (“It had thawed”).",
+    "TUB-000001: Now rejected · note “Thawed”, checked by Ada Lovelace, 12 Jan 2026, 09:30 UTC.",
   );
+  expect(calls("GET", `${api}/history`)).toHaveLength(0);
   expect(dialog.getByText("Rejected")).toBeVisible();
   expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
     "Not in the box after all",
@@ -362,8 +359,43 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   await user.click(dialog.getByRole("button", { name: "Save the change" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(calls("PATCH").map((c) => c.body)).toEqual([
-    { outcome: "missing", note: "", line_revision: 1, reason: "Not in the box after all" },
-    { outcome: "missing", note: "Thawed", line_revision: 2, reason: "Not in the box after all" },
+    { outcome: "missing", line_revision: 1, reason: "Not in the box after all" },
+    { outcome: "missing", line_revision: 2, reason: "Not in the box after all" },
+  ]);
+});
+
+it("saves a first note on a checked line in one step, and asks why only to change a saved one", async () => {
+  const first = tube(1, {
+    outcome: "matched",
+    checked_by: ME,
+    checked_at: "2026-01-12T09:05:00Z",
+  });
+  const { user } = await openReceipt(receipt(2, [first]));
+  const note = line("TUB-000001").getByRole("textbox", { name: /^Note on/ });
+  await user.type(note, "Label smudged");
+  answer(`PATCH ${api}/lines/${first.id}`, {
+    found: "recorded",
+    line: first.id,
+    receipt: receipt(3, [{ ...first, note: "Label smudged", line_revision: 2 }]),
+  });
+  await user.click(line("TUB-000001").getByRole("button", { name: "Save note" }));
+  await waitFor(() => {
+    expect(calls("PATCH")).toHaveLength(1);
+  });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  // Clearing what was saved is a correction: it asks why, and sends null.
+  await user.clear(note);
+  await user.click(line("TUB-000001").getByRole("button", { name: "Save note" }));
+  answer(`PATCH ${api}/lines/${first.id}`, {
+    found: "recorded",
+    line: first.id,
+    receipt: receipt(4, [{ ...first, line_revision: 3 }]),
+  });
+  await why(user, "It was the next tube’s", "Save the change");
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(calls("PATCH").map((c) => c.body)).toEqual([
+    { outcome: "matched", note: "Label smudged", line_revision: 1 },
+    { outcome: "matched", note: null, line_revision: 2, reason: "It was the next tube’s" },
   ]);
 });
 
@@ -425,13 +457,8 @@ it("asks why only when handover text that was recorded changes", async () => {
     expect(calls("PATCH", api)).toHaveLength(2);
   });
   expect(calls("PATCH", api).map((c) => c.body)).toEqual([
-    { plan_revision: 1, handed_over_by: "Courier, waybill 1Z9", note: "", reason: "" },
-    {
-      plan_revision: 2,
-      handed_over_by: "Courier, waybill 1Z8",
-      note: "",
-      reason: "Misread the waybill",
-    },
+    { plan_revision: 1, handed_over_by: "Courier, waybill 1Z9" },
+    { plan_revision: 2, handed_over_by: "Courier, waybill 1Z8", reason: "Misread the waybill" },
   ]);
 });
 
@@ -473,4 +500,164 @@ it("removes an extra and cancels a receipt only with a reason", async () => {
     plan_revision: 3,
     reason: "Sent to the wrong core",
   });
+});
+
+// --- Which tube a scan identifies -------------------------------------------------------------
+
+const CORE = { id: "00000000-0000-7000-8000-0000000000c1", name: "Protein Core" };
+const LAB = { id: "00000000-0000-7000-8000-0000000000c2", name: "Kinase screen" };
+
+function candidate(number: number, project: typeof CORE, position: string) {
+  const serial = String(number).padStart(6, "0");
+  return {
+    id: `tube-${serial}`,
+    hrid: `TUB-${serial}`,
+    title: `Lysate ${String(number)}`,
+    type: "acme/lims.Tube",
+    owner_project: project,
+    box: { id: "box-1", hrid: "BOX-000003", title: "Incoming" },
+    position,
+  };
+}
+
+it("sends what the scanner sent, untrimmed, and again with the tube chosen for it", async () => {
+  const first = tube(1, { code: "SHARED" });
+  const second = tube(2, { code: "SHARED" });
+  const { user } = await openReceipt(receipt(1, [first, second]));
+  answer(`POST ${api}/scan`, (call: { body: unknown }) => {
+    const body = call.body as { choice?: string };
+    if (!body.choice)
+      return problem(
+        409,
+        "scan_ambiguous",
+        "More than one readable record matches this scan. Choose the intended record.",
+        undefined,
+        { candidates: [candidate(1, CORE, "A1"), candidate(2, LAB, "A2")] },
+      );
+    return {
+      found: "matched",
+      line: second.id,
+      receipt: receipt(2, [first, { ...second, outcome: "matched", checked_by: ME }]),
+    };
+  });
+  // A scanner's code, with the spaces it sent around it.
+  await user.type(scanBox(), "  SHARED {Enter}");
+  const chooser = await screen.findByRole("region", {
+    name: "“SHARED” matches more than one tube",
+  });
+  const choices = within(chooser).getAllByRole("button", { name: /^TUB-/ });
+  expect(choices.map((c) => c.textContent)).toEqual([
+    "TUB-000001 Lysate 1Protein CoreBOX-000003 Incoming, A1",
+    "TUB-000002 Lysate 2Kinase screenBOX-000003 Incoming, A2",
+  ]);
+  // Nothing was recorded, and nothing is said to be.
+  expect(line("TUB-000002").getByRole("button", { name: "Matched" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  await user.click(within(chooser).getByRole("button", { name: /^TUB-000002/ }));
+  expect(await screen.findByText("TUB-000002: matched.")).toBeVisible();
+  expect(calls("POST", `${api}/scan`).map((c) => c.body)).toEqual([
+    { code: "  SHARED " },
+    { code: "  SHARED ", choice: second.entity },
+  ]);
+  expect(screen.queryByRole("region", { name: /matches more than one/ })).toBeNull();
+});
+
+it("says only that a scan can’t identify a tube, and takes its printed Iki ID", async () => {
+  const first = tube(1);
+  const { user } = await openReceipt(receipt(1, [first]));
+  const refused =
+    "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+  answer(`POST ${api}/scan`, (call: { body: unknown }) => {
+    const body = call.body as { mode?: string };
+    if (body.mode !== "iki_id") return problem(409, "scan_unavailable", refused);
+    return {
+      found: "matched",
+      line: first.id,
+      receipt: receipt(2, [{ ...first, outcome: "matched", checked_by: ME }]),
+    };
+  });
+  await user.type(scanBox(), "RC000001{Enter}");
+  expect(await screen.findByText(refused)).toBeVisible();
+  expect(screen.queryByText(/more than one/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /^TUB-/ })).toBeNull();
+  const typed = screen.getByRole("textbox", { name: "Iki ID" });
+  await user.type(typed, "TUB-000001{Enter}");
+  expect(await screen.findByText("TUB-000001: matched.")).toBeVisible();
+  expect(calls("POST", `${api}/scan`).at(-1)?.body).toEqual({
+    code: "TUB-000001",
+    mode: "iki_id",
+  });
+  expect(screen.queryByText(refused)).toBeNull();
+});
+
+it("says a typed Iki ID none has, or one you can’t read has, in the same words", async () => {
+  const { user } = await openReceipt(receipt(1, [tube(1)]));
+  answer(
+    `POST ${api}/scan`,
+    problem(
+      409,
+      "scan_unavailable",
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.",
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Type its printed Iki ID instead" }));
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000099{Enter}");
+  expect(
+    await screen.findByText(
+      "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/This scan can’t identify/)).toBeNull();
+});
+
+it("says why an extra several tubes’ label matches isn’t linked to any of them", async () => {
+  const first = tube(1);
+  const extra = tube(9, { entity: null, ref: null, code: "VENDOR-7", expected: false });
+  const { user } = await openReceipt(receipt(1, [first]));
+  answer(`POST ${api}/scan`, {
+    found: "ambiguous_extra",
+    line: extra.id,
+    receipt: receipt(2, [first, { ...extra, outcome: "extra", checked_by: ME }]),
+  });
+  await user.type(scanBox(), "VENDOR-7{Enter}");
+  expect(
+    await screen.findByText(
+      "VENDOR-7 wasn’t expected: added as extra, not linked to a record, because more than one tube you can read has this label. Say what it is in its note.",
+    ),
+  ).toBeVisible();
+});
+
+it("shows the scanner’s exact text in the history, and how it identified the tube", async () => {
+  const first = tube(1, { outcome: "matched", checked_by: ME });
+  const { user } = await openReceipt(receipt(2, [first]));
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        line_id: first.id,
+        actor: ME,
+        before: { outcome: null, note: "", code: "RC000001" },
+        after: {
+          outcome: "matched",
+          note: "",
+          code: "RC000001",
+          scan: { code: " RC000001 ", identity_basis: "vendor", scope: "receipt", chosen: true },
+        },
+      }),
+    ]),
+  );
+  await user.click(line("TUB-000001").getByRole("button", { name: "History of TUB-000001" }));
+  const history = within(
+    await screen.findByRole("list", { name: "History of TUB-000001, newest first" }),
+  );
+  const [recorded] = history.getAllByRole("listitem");
+  expect(recorded).toHaveTextContent(
+    "Scanned RC000001 · identified by its vendor barcode on this checklist · chosen by the receiver",
+  );
+  // Exactly as sent: its spaces too.
+  expect(recorded?.querySelector(".scan-raw")?.textContent).toBe(" RC000001 ");
+  // Its evidence isn't said again as a field.
+  expect(recorded).not.toHaveTextContent("scan {");
 });

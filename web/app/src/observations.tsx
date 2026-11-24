@@ -13,7 +13,9 @@ import { personName } from "./entities";
 import { UtcTime } from "./pages/revision-text";
 import {
   historyQuery,
+  IDENTITY_BASES,
   OUTCOMES,
+  RECEIPT_BASES,
   REASON_MAX,
   RESOLUTIONS,
   type ObservationEvent,
@@ -67,6 +69,8 @@ const UNSAID = new Set([
   "input_unknown",
   "finding",
   "expected",
+  // A receipt scan's evidence, said on a line of its own.
+  "scan",
 ]);
 
 /**
@@ -93,7 +97,9 @@ export function factText(kind: ObservationEvent["kind"], snapshot: Snapshot): st
   }
   // A receipt line's code is its name, said beside it.
   if (kind === "outcome") delete rest["code"];
-  for (const [key, value] of Object.entries(rest)) {
+  // What was recorded, then the note on it, whatever order the snapshot keeps.
+  const entries = Object.entries(rest).sort(([a], [b]) => +(a === "note") - +(b === "note"));
+  for (const [key, value] of entries) {
     if (value === undefined || UNSAID.has(key) || key.endsWith("_id")) continue;
     switch (key) {
       case "outcome":
@@ -130,6 +136,10 @@ export function factText(kind: ObservationEvent["kind"], snapshot: Snapshot): st
       case "removed":
         if (value === true) parts.push("removed from the checklist");
         break;
+      case "identity_basis":
+        if (typeof value === "string" && Object.hasOwn(IDENTITY_BASES, value))
+          parts.push(`identified ${IDENTITY_BASES[value as keyof typeof IDENTITY_BASES]}`);
+        break;
       default:
         if (value !== null && value !== "")
           parts.push(`${key.replaceAll("_", " ")} ${text(value)}`);
@@ -149,12 +159,58 @@ export function eventTitle(event: Pick<ObservationEvent, "kind" | "before" | "af
   if (before?.["removed"] === true && after?.["removed"] !== true)
     return "Restored to the checklist";
   if (!before) return `${name} recorded`;
-  if (!after) return `${name} cleared`;
+  // A count's scan goes only when its position is scanned again.
+  if (!after) return kind === "scan" ? "Scan replaced" : `${name} cleared`;
   if (kind === "outcome" && before["outcome"] != null && after["outcome"] == null)
     return "Outcome cleared";
+  // An expected tube's first check.
+  if (kind === "outcome" && before["outcome"] == null && after["outcome"] != null)
+    return "Outcome recorded";
   if (kind === "scan" && before["observed"] === true && after["observed"] === false)
     return "Scan replaced";
+  // An expected tube's first scan.
+  if (kind === "scan" && before["observed"] === false && after["observed"] === true)
+    return "Scan recorded";
   return `${name} changed`;
+}
+
+/** A receipt scan's evidence, as the server keeps it with the observation. */
+interface ScanEvidence {
+  code: string;
+  identity_basis?: string;
+  scope?: string;
+  chosen?: boolean;
+}
+
+function evidenceOf(snapshot: Snapshot): ScanEvidence | null {
+  const scan = snapshot?.["scan"];
+  if (!scan || typeof scan !== "object") return null;
+  const found = scan as Record<string, unknown>;
+  return typeof found["code"] === "string" ? (found as unknown as ScanEvidence) : null;
+}
+
+/**
+ * What a scan read, exactly as the scanner sent it, and how it identified the tube: “Scanned
+ * “RC001” · its vendor barcode · on this checklist”. Only what the server returns is said;
+ * a manual or earlier observation has none.
+ */
+function ScanFacts({ scan, earlier = false }: { scan: ScanEvidence; earlier?: boolean }) {
+  const basis = scan.identity_basis ? RECEIPT_BASES[scan.identity_basis] : undefined;
+  const where =
+    scan.scope === "receipt"
+      ? "on this checklist"
+      : scan.scope === "inventory"
+        ? "among the records you can read"
+        : undefined;
+  return (
+    <p className="observation-scan">
+      {earlier ? "Its earlier scan read " : "Scanned "}
+      <code className="scan-raw">{scan.code}</code>
+      {basis ? ` · ${basis}` : null}
+      {where ? ` ${where}` : null}
+      {scan.chosen ? " · chosen by the receiver" : null}
+    </p>
+  );
 }
 
 /** Before and after, or just what was recorded. */
@@ -171,6 +227,14 @@ function Change({ event }: { event: ObservationEvent }) {
       <span className="diff-after">{event.after ? after : "nothing"}</span>
     </p>
   );
+}
+
+/** The scan an observation records, or that its correction replaced. */
+function evidence(event: ObservationEvent): ReactNode {
+  const after = evidenceOf(event.after);
+  if (after) return <ScanFacts scan={after} />;
+  const before = evidenceOf(event.before);
+  return before ? <ScanFacts scan={before} earlier /> : null;
 }
 
 // --- History ------------------------------------------------------------------------------------
@@ -216,6 +280,7 @@ export function ObservationHistory({
                     {about ? <span className="storage-code"> · {about}</span> : null}
                   </p>
                   <Change event={event} />
+                  {evidence(event)}
                   <p className="trail-meta">
                     <UtcTime value={event.created_at} /> · {personName(event.actor)}
                   </p>
@@ -316,17 +381,45 @@ export function HistoryDisclosure({
 
 // --- Someone else changed it first --------------------------------------------------------------
 
+/** One thing that changed: which line, or the handover, and how it reads now. */
+export interface StaleItem {
+  key: string;
+  /** Which line it was, when it was one. */
+  about?: string | undefined;
+  /** What's recorded now, or what was done: a sentence without its full stop. */
+  body: ReactNode;
+}
+
+/** History events as changes: what was done, by whom and when, and why. */
+export function eventItems(
+  changes: readonly ObservationEvent[],
+  names: ReadonlyMap<string, string>,
+): StaleItem[] {
+  return changes.map((event) => ({
+    key: event.id,
+    about: event.line_id ? names.get(event.line_id) : undefined,
+    body: (
+      <>
+        {eventTitle(event)
+          .toLowerCase()
+          .replace(/^./, (c) => c.toUpperCase())}{" "}
+        by {personName(event.actor)}, <UtcTime value={event.created_at} />
+        {event.kind === "status" ? "" : `: ${factText(event.kind, event.after)}`}
+        {event.reason ? ` (“${event.reason}”)` : ""}
+      </>
+    ),
+  }));
+}
+
 /**
- * What changed since the person looked, and by whom: said once, as an alert, when their
- * change was refused because it no longer matched what's recorded.
+ * What changed since the person looked: said once, as an alert, when their change was
+ * refused because it no longer matched what's recorded.
  */
 export function StaleNote({
   changes,
-  names,
   what = "This",
 }: {
-  changes: readonly ObservationEvent[];
-  names: ReadonlyMap<string, string>;
+  changes: readonly StaleItem[];
   /** What changed, in a sentence: “RC001”, “The checklist”. */
   what?: string;
 }) {
@@ -338,20 +431,12 @@ export function StaleNote({
       </p>
       {changes.length ? (
         <ul className="stale-changes">
-          {changes.map((event) => {
-            const about = event.line_id ? names.get(event.line_id) : undefined;
-            return (
-              <li key={event.id}>
-                {about ? <strong className="storage-code">{about}: </strong> : null}
-                {eventTitle(event)
-                  .toLowerCase()
-                  .replace(/^./, (c) => c.toUpperCase())}{" "}
-                by {personName(event.actor)}, <UtcTime value={event.created_at} />
-                {event.kind === "status" ? "" : `: ${factText(event.kind, event.after)}`}
-                {event.reason ? ` (“${event.reason}”)` : ""}.
-              </li>
-            );
-          })}
+          {changes.map((item) => (
+            <li key={item.key}>
+              {item.about ? <strong className="storage-code">{item.about}: </strong> : null}
+              {item.body}.
+            </li>
+          ))}
         </ul>
       ) : null}
       <p>If your change still applies, save it again.</p>

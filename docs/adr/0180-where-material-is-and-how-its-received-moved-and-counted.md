@@ -150,7 +150,9 @@ and use its revision. One command can record changes to several observations
 under the same operation ID.
 
 The history uses a stable line ID that survives a retraction. A reader can
-inspect it on open and closed receipts and counts. Access follows the parent,
+inspect it on open and closed receipts and counts. The stored snapshots use
+user IDs for the people who checked, scanned or resolved a line. The history
+response supplies each event's author for display. Access follows the parent,
 and a linked code is visible only while its record is readable. Existing rows
 can supply known values for the first recorded change. An unknown earlier actor,
 time or scan stays unknown.
@@ -197,11 +199,16 @@ reviews a damaged line and finds the wrong tube was checked can send
 ```
 
 The line becomes unchecked. Its earlier observation, note, actor and time
-remain available at `GET /api/v1/receipts/{id}/history`. A first check can
-include its note. Once a line has an outcome, adding, replacing or clearing
-its note needs both the line revision and a reason. This includes adding a
-condition note after scanning an extra. Removing an extra uses its line
-revision and reason in the DELETE body. The line keeps its ID in `removed_lines`. Scanning that code
+remain available at `GET /api/v1/receipts/{id}/history`. Omitting `note` from
+the PATCH preserves the saved text, including on an outcome change. Supplying
+`null`, an empty string or whitespace clears it. A receiver can add the first
+condition note with a check, or send the current line revision to add it after
+a scan. Neither needs a correction reason. Replacing or clearing saved text
+requires both the line revision and a nonblank reason. Omitting the reason
+or sending null, empty text or whitespace counts as giving no reason.
+
+Removing an extra uses its line revision and reason in the DELETE body.
+The line keeps its ID in `removed_lines`. Scanning that code
 again reports `found: "removed"`. To restore it, the receiver sends that
 line's revision and a reason to
 `POST /api/v1/receipts/{id}/lines/{line}/restore`.
@@ -209,8 +216,11 @@ line's revision and a reason to
 The handover, completion and cancellation concern the whole receipt.
 Each takes the `plan_revision` of the complete receipt the receiver saw.
 Cancellation also records a reason, the cancelling actor and the closing
-time. A stale line or receipt revision returns HTTP 409. The receiver can
-read the current evidence before deciding whether to change it.
+time. A stale line or receipt revision returns HTTP 409 with `affected_lines`.
+A line conflict identifies that line and its current revision. A receipt conflict
+lists each line changed since the reviewed revision, including removed extras.
+A change to the handoff alone returns an empty list. The receiver can read the
+current evidence before deciding whether to change it.
 
 **Completing it is one change.** Every expected line must have an outcome:
 "mark the rest missing" is a choice someone makes. Matched and damaged lines
@@ -341,6 +351,17 @@ and their source. When the vendor label could confirm more than one tube,
 the operator scans the unique symbol or explicitly enters the tube's Iki
 ID. The movement retains the confirmation used for the write.
 
+For Move and check-in, one scan can identify a tube across the whole selection.
+Send `POST /api/v1/storage/scan/resolve` with `scope: "confirmation"`, the scanned
+`code` and up to 500 selected record UUIDs or HRIDs in `records`. Omit `record`
+for this form. The resolver checks all selected source boxes. When a selected
+tube has no source box, it checks the readable inventory. A unique result
+identifies the selected tube by UUID. Readable collisions return candidates.
+Move and check-in repeat the check against the entire selection under their
+storage locks, so a duplicate that arrived since the scan prevents the write.
+A concealed source or occupant requires independent Iki identity, and an
+unavailable typed ID returns the same neutral refusal as an unknown one.
+
 ### A container's amount, and what a draw went into
 
 **A tube's volume is its amount.** A container type keeps how much it holds
@@ -393,8 +414,14 @@ inside a file, or a changed observation on any affected line, refuse the whole f
 Each saved decision is bound to the exact scan, including the scan at the expected
 slot that established a missing finding. Saving, clearing or replacing a decision
 requires that line's revision. Changing or clearing an existing decision requires
-a correction reason separate from its supporting note. A new observation makes a
-decision based on the old scan stale, even when both observations agree. The count
+a correction reason separate from its supporting note. Adding a first note to a
+current decision needs no reason. A note-only edit preserves the original
+resolver and decision time. Its event identifies the person who edited the note.
+Omitting the note preserves it on a resolution edit. Clearing the entire decision
+removes its attached note from the current line and retains it in history.
+
+A new observation makes a decision based on the old scan stale, even when both
+observations agree. The count
 history retains the original observation, decision and note, their actors and times,
 and the evidence that replaced them. Earlier counts keep the facts that survived;
 an open decision with no surviving evidence identifier requires a fresh scan before
@@ -440,7 +467,8 @@ Tube of a sample and a lot, kept in µL, following both.
   check-out and receipt says who, when and why.
 - Where a record is isn't in its revisions or a bundle's records, as its
   amount isn't; its location history is where that is. A bundle doesn't
-  carry places yet, nor does an import or an action run's `creates`.
+  carry places yet. An inline run create can receive a fresh lot with its opening
+  amount and storage placement when its action declares `receive_into` (ADR 0190).
 - A record's place isn't a search condition or a grid column yet: the
   storage pages and its record's page are where it's found.
 - A receipt doesn't change a request's own status, which is the service's:

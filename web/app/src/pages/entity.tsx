@@ -9,10 +9,11 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { lazy, Suspense, useId, useState } from "react";
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "../api";
+import { lineageOf } from "../components";
 import {
   apiRef,
   ENTITIES,
@@ -63,6 +64,8 @@ import { UtcTime, Via } from "./revision-text";
 import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
 
 export { EntityTabs } from "./entity-header";
+
+const EntityGel = lazy(() => import("./entity-gel"));
 
 /** What the page after a move shows: the records it changed to refer to the new entry. */
 interface MovedState {
@@ -1303,6 +1306,12 @@ export function EntityOverview() {
   const asked = sides ? own.filter((f) => !isServiceField(sides, f.name)) : own;
   const served = sides ? own.filter((f) => isServiceField(sides, f.name)) : [];
   const map = useMiniMap(entity, type);
+  const lineage = lineageOf(entity.type, types);
+  const gel = lineage.includes("iki/plasmid.Assembly")
+    ? "assembly"
+    : lineage.includes("iki/plasmid.Plasmid")
+      ? "plasmid"
+      : null;
   return (
     <>
       <EntityTabs entity={entity} type={type} />
@@ -1357,6 +1366,11 @@ export function EntityOverview() {
                 map={map}
               />
             </section>
+          ) : null}
+          {gel ? (
+            <Suspense fallback={<Loading label="Loading virtual gel…" />}>
+              <EntityGel key={entity.id} entity={entity} kind={gel} />
+            </Suspense>
           ) : null}
           <section className="card record-section" aria-labelledby="values-title">
             <div className="section-head">

@@ -3,6 +3,7 @@
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from django.db.models import Q
 from django.http import HttpRequest
 from ninja import Field, Router, Schema
 
@@ -12,6 +13,7 @@ from iki_server.api.entities import _find
 from iki_server.api.problems import Problem
 from iki_server.api.storage import _container, _records
 from iki_server.entities import access
+from iki_server.entities.models import Entity
 from iki_server.storage import scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.grids import NotAPosition
@@ -19,6 +21,7 @@ from iki_server.storage.models import Place
 
 router = Router(tags=["storage"])
 ScanRef = Annotated[str, Field(min_length=1, max_length=64)]
+MAX_CONFIRMATION_SELECTION = 500
 
 
 class ScanResolveIn(Schema):
@@ -35,9 +38,12 @@ class ScanResolveIn(Schema):
         None,
         min_length=1,
         max_length=storage.MAX_MOVES,
-        description="All records participating in this confirmation, including the target.",
+        description=(
+            "Selected record UUIDs or HRIDs. Omit record to identify a tube across the "
+            f"selection (up to {MAX_CONFIRMATION_SELECTION}). With record, include the target."
+        ),
     )
-    mode: Literal["label", "iki_id"] = "label"
+    mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
     choice: UUID | None = Field(None, description="A readable candidate chosen for navigation.")
 
 
@@ -103,18 +109,46 @@ def _in_box(me: User, scan: ScanResolveIn) -> dict[str, Any]:
     return index.describe(match)
 
 
+def _selection(me: User, refs: list[str]) -> list[Entity]:
+    """Resolve the entire physical selection with one read, including mixed UUIDs and HRIDs."""
+    ids: set[UUID] = set()
+    hrids: set[str] = set()
+    for ref in refs:
+        try:
+            ids.add(UUID(ref))
+        except ValueError:
+            hrids.add(ref.upper())
+    records = list(access.visible(me).filter(Q(pk__in=ids) | Q(hrid__in=hrids)).only("id", "hrid"))
+    names = [record.hrid for record in records if record.hrid in hrids]
+    # Every input must name exactly one readable record. A missing, concealed or
+    # non-unique reference gets the same response, without identifying the reference.
+    if not ids <= {record.pk for record in records} or sorted(names) != sorted(hrids):
+        raise scan_identity.ScanRefused()
+    return records
+
+
 def _confirmation(me: User, scan: ScanResolveIn) -> dict[str, Any]:
-    if scan.record is None:
-        raise _invalid_choice("record", "Choose the record being confirmed.")
-    target = _find(me, scan.record)
-    records = _records(me, scan.records) if scan.records is not None else [target]
-    if all(record.pk != target.pk for record in records):
-        raise _invalid_choice("records", "Include the record being confirmed in this selection.")
     if scan.choice is not None:
         raise scan_identity.ScanRefused()
+    if scan.record is None:
+        if scan.records is None:
+            raise _invalid_choice("records", "Choose the records being confirmed.")
+        if len(scan.records) > MAX_CONFIRMATION_SELECTION:
+            raise _invalid_choice(
+                "records", f"Choose at most {MAX_CONFIRMATION_SELECTION} records."
+            )
+        records = _selection(me, scan.records)
+        target = None
+    else:
+        target = _find(me, scan.record)
+        records = _records(me, scan.records) if scan.records is not None else [target]
+        if all(record.pk != target.pk for record in records):
+            raise _invalid_choice(
+                "records", "Include the record being confirmed in this selection."
+            )
     scope = storage.ConfirmationScope(me, records, [scan.code])
-    match = scope.resolve(target, scan.code, mode=scan.mode)
-    if match.record is not None and match.record.pk != target.pk:
+    match = scope.resolve(scan.code, mode=scan.mode)
+    if target is not None and match.record is not None and match.record.pk != target.pk:
         raise scan_identity.ScanRefused()
     return scope.index.describe(match)
 

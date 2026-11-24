@@ -337,40 +337,34 @@ class Confirmation:
 
 
 class ConfirmationScope:
-    """A placed record's source contents and the selection. Unplaced items use the
-    caller's readable inventory since there is no physical box to narrow the scan."""
+    """The selection and all its source boxes. A tube without a known source
+    requires checking the caller's whole readable inventory."""
 
     def __init__(self, user: User, records: Sequence[Entity], codes: Sequence[str]) -> None:
-        selected = {r.pk for r in records}
-        self.sources = dict(
-            Place.objects.filter(pk__in=selected, container__isnull=False).values_list(
-                "pk", "container_id"
+        self.selected = {record.pk for record in records}
+        sources = list(
+            Place.objects.filter(pk__in=self.selected, container__isnull=False).values_list(
+                "container_id", flat=True
             )
         )
-        members: dict[UUID, set[UUID]] = {}
-        for record_id, box in Place.objects.filter(
-            container_id__in=set(self.sources.values())
-        ).values_list("pk", "container_id"):
-            members.setdefault(box, set()).add(record_id)
-        self.members = {box: occupants | selected for box, occupants in members.items()}
-        ids = selected.union(members, *members.values())
-        self.index = scan_identity.ScanIndex(user, codes, scope_ids=ids)
-        self.concealed = {
-            box
-            for box, occupants in members.items()
-            if box not in self.index.readable_ids or not occupants <= self.index.readable_ids
-        }
+        boxes = set(sources)
+        occupants = Place.objects.filter(container_id__in=boxes).values_list("pk", flat=True)
+        members = self.selected.union(occupants)
+        scope_ids = boxes | members
+        self.index = scan_identity.ScanIndex(user, codes, scope_ids=scope_ids)
+        self.candidates = members if len(sources) == len(self.selected) else None
+        self.selection_readable = self.selected <= self.index.readable_ids
+        self.has_concealed = not scope_ids <= self.index.readable_ids
 
-    def resolve(
-        self, record: Entity, code: str, *, mode: scan_identity.ScanMode = "label"
-    ) -> scan_identity.Match:
-        box = self.sources.get(record.pk)
-        return self.index.resolve(
-            code,
-            mode=mode,
-            candidates=self.members.get(box) if box is not None else None,
-            has_concealed=box in self.concealed,
+    def resolve(self, code: str, *, mode: scan_identity.ScanMode = "label") -> scan_identity.Match:
+        if not self.selection_readable:
+            raise scan_identity.ScanRefused()
+        match = self.index.resolve(
+            code, mode=mode, candidates=self.candidates, has_concealed=self.has_concealed
         )
+        if match.candidates and not any(record.pk in self.selected for record in match.candidates):
+            raise scan_identity.ScanRefused()
+        return match
 
 
 @dataclass
@@ -555,8 +549,8 @@ def _confirmed(
     checking: Sequence[Entity],
     confirmations: Mapping[Any, str | Confirmation],
 ) -> tuple[dict[UUID, str], dict[UUID, str]]:
-    """Verify required physical evidence once against all selected records and each
-    record's source box. Only the accepted proof is written to its movement event."""
+    """Verify required physical evidence once against the selection and all its
+    source boxes. Only the accepted proof is written to its movement event."""
     errors: dict[UUID, str] = {}
     submitted: list[tuple[Entity, Confirmation]] = []
     for record in checking:
@@ -576,7 +570,7 @@ def _confirmed(
         scope = ConfirmationScope(user, selected, [proof.code for _, proof in submitted])
         for record, proof in submitted:
             try:
-                match = scope.resolve(record, proof.code, mode=proof.mode)
+                match = scope.resolve(proof.code, mode=proof.mode)
             except scan_identity.ScanRefused:
                 match = None
             if match is not None and match.status == "one" and match.record == record:

@@ -40,22 +40,26 @@ export const STORAGE = ["storage"] as const;
 
 export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/places")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
 });
 
 export function containerQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "container", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function locationQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "location", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -63,13 +67,14 @@ export function locationEventsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...STORAGE, "events", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/location/events", {
           params: {
             path: { ref },
             query: { limit: 20, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -82,10 +87,11 @@ export type CheckedOut = Schemas["CheckedOutOut"];
 export function checkedOutQuery(custodian?: string) {
   return queryOptions({
     queryKey: [...STORAGE, "checked-out", custodian ?? "all"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/checked-out", {
           params: { query: custodian ? { custodian } : {} },
+          signal,
         }),
       ),
   });
@@ -94,10 +100,11 @@ export function checkedOutQuery(custodian?: string) {
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
           params: { path: { ref } },
+          signal,
         }),
       ),
   });
@@ -105,25 +112,28 @@ export function reconciliationsQuery(ref: string) {
 
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/labels")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/labels", { signal })),
   staleTime: Infinity,
 });
 
 export function receiptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function reconciliationQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliation", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/reconciliations/{reconciliation_id}", {
           params: { path: { reconciliation_id: id } },
+          signal,
         }),
       ),
   });
@@ -132,13 +142,16 @@ export function reconciliationQuery(id: string) {
 export function receiptQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipt", id],
-    queryFn: async () => readReceipt(id),
+    queryFn: async ({ signal }) => readReceipt(id, signal),
   });
 }
 
-export async function readReceipt(id: string): Promise<Receipt> {
+export async function readReceipt(id: string, signal?: AbortSignal): Promise<Receipt> {
   return unwrap(
-    await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
+    await iki.GET("/api/v1/receipts/{receipt_id}", {
+      params: { path: { receipt_id: id } },
+      ...(signal ? { signal } : {}),
+    }),
   );
 }
 
@@ -151,16 +164,20 @@ async function historyPage(
   parent: Observed,
   id: string,
   query: { line_id?: string; cursor?: string; limit?: number },
+  signal?: AbortSignal,
 ) {
+  const cancel = signal ? { signal } : {};
   return parent === "receipts"
     ? unwrap(
         await iki.GET("/api/v1/receipts/{receipt_id}/history", {
           params: { path: { receipt_id: id }, query },
+          ...cancel,
         }),
       )
     : unwrap(
         await iki.GET("/api/v1/reconciliations/{reconciliation_id}/history", {
           params: { path: { reconciliation_id: id }, query },
+          ...cancel,
         }),
       );
 }
@@ -175,12 +192,17 @@ export function historyQuery(parent: Observed, id: string, line?: string) {
   return infiniteQueryOptions({
     queryKey: [...historyKey(parent, id), line ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
-      historyPage(parent, id, {
-        limit: 20,
-        ...(line ? { line_id: line } : {}),
-        ...(pageParam ? { cursor: pageParam } : {}),
-      }),
+    queryFn: async ({ pageParam, signal }) =>
+      historyPage(
+        parent,
+        id,
+        {
+          limit: 20,
+          ...(line ? { line_id: line } : {}),
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        signal,
+      ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
   });
 }
@@ -190,8 +212,9 @@ export async function changesSince(
   parent: Observed,
   id: string,
   revision: number,
+  signal?: AbortSignal,
 ): Promise<ObservationEvent[]> {
-  const latest = await historyPage(parent, id, { limit: 50 });
+  const latest = await historyPage(parent, id, { limit: 50 }, signal);
   return latest.items.filter((e) => e.revision > revision);
 }
 
@@ -206,12 +229,20 @@ export interface Correction {
   reason: string;
 }
 
-/** A scan: no version, so two people scanning different tubes don't wait on each other. */
-export async function scanReceipt(receipt: string, code: string): Promise<ReceiptScan> {
+/**
+ * A scan: no version, so two people scanning different tubes don't wait on each other.
+ * `code` is what the scanner sent, as it sent it: the history keeps it exactly. A choice
+ * names the tube the receiver picked for it, and the server checks the pair again.
+ */
+export async function scanReceipt(
+  receipt: string,
+  code: string,
+  how: { mode?: ScanMode; choice?: string } = {},
+): Promise<ReceiptScan> {
   return unwrap(
     await iki.POST("/api/v1/receipts/{receipt_id}/scan", {
       params: { path: { receipt_id: receipt } },
-      body: { code },
+      body: { code, ...how },
     }),
   );
 }
@@ -298,10 +329,9 @@ export async function completeReceipt(
 
 export type Reviewed = Schemas["ReviewedCountLine"];
 
-/** The lines a refused count change names: the ones to review, at their versions now. */
+/** The lines a refused count or receipt change names: the ones to review, at their versions now. */
 export function affectedLines(problem: Problem | undefined): Reviewed[] | null {
-  const lines = (problem as (Problem & { affected_lines?: unknown }) | undefined)?.affected_lines;
-  return Array.isArray(lines) ? (lines as Reviewed[]) : null;
+  return problem?.affected_lines ?? null;
 }
 
 /**
@@ -346,6 +376,98 @@ export async function cancelCount(
 export async function scanFor(code: string): Promise<ScanMatch[]> {
   return unwrap(await iki.GET("/api/v1/storage/scan", { params: { query: { code } } })).items;
 }
+
+// --- Which tube a scan identifies ---------------------------------------------------------------
+
+export type ScanMode = Schemas["ScanMode"];
+export type ScanCandidate = Schemas["ScanCandidateOut"];
+export type ScanResolved = Schemas["ScanResolveOut"];
+/** What confirms a record is the one in hand: a scanned label, or its printed Iki ID typed. */
+export type Proof = string | Schemas["IkiIdConfirmationIn"];
+
+/**
+ * What Iki says when a scan can't be used here: a tube the person can't read is involved,
+ * whether or not it matched. It says nothing about how many matched, or which.
+ */
+export const SCAN_REFUSED =
+  "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+
+/**
+ * What Iki says when a typed Iki ID can't be used: none matched, or one the person can't
+ * read did. The same words either way, so it never says whether an Iki ID exists.
+ */
+export const IKI_ID_REFUSED =
+  "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.";
+
+/** The unique code an Iki label carries: “IKI:” and the record's UUID, in 32 hex digits. */
+export function ikiCode(id: string): string {
+  return `IKI:${id.replaceAll("-", "").toUpperCase()}`;
+}
+
+/** An Iki ID typed from a tube's label: matched only against Iki IDs, not vendor barcodes. */
+export function ikiId(hrid: string): Schemas["IkiIdConfirmationIn"] {
+  return { code: hrid.trim(), mode: "iki_id" };
+}
+
+/** What a scan identifies where it's used: one record, several to choose from, or none. */
+export async function resolveScan(scan: Schemas["ScanResolveIn"]): Promise<ScanResolved> {
+  return unwrap(await iki.POST("/api/v1/storage/scan/resolve", { body: scan }));
+}
+
+/** Why a scan wasn't used: it can't identify a tube here, or it matches several readable. */
+export type ScanRefusal =
+  { kind: "refused" } | { kind: "ambiguous"; candidates: ScanCandidate[]; index: number | null };
+
+/**
+ * A refusal about the scan itself, apart from a conflict with what someone else recorded:
+ * those name `affected_lines`, and mean the person reviews what's recorded now.
+ */
+export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
+  if (!problem) return null;
+  if (problem.code === "scan_unavailable") return { kind: "refused" };
+  if (problem.code === "scan_ambiguous") {
+    const candidates = problem.candidates ?? [];
+    // Without its candidates, a choice can't be offered: it's said as a refusal.
+    return candidates.length
+      ? { kind: "ambiguous", candidates, index: problem.index ?? null }
+      : { kind: "refused" };
+  }
+  return null;
+}
+
+/** Whether a 409 is about the scan, not about a newer version of what's recorded. */
+export function isScanConflict(problem: Problem | undefined): boolean {
+  return problem?.code === "scan_unavailable" || problem?.code === "scan_ambiguous";
+}
+
+/** Where a candidate is: “BOX-000014 Kinase retains, A2”, or that it isn't in a box. */
+export function candidatePlace(c: ScanCandidate): string {
+  if (!c.box) return c.position ? `At ${c.position}` : "Not in a box you can open";
+  const box =
+    c.box.title && c.box.title !== c.box.hrid ? `${c.box.hrid} ${c.box.title}` : c.box.hrid;
+  return c.position ? `${box}, ${c.position}` : box;
+}
+
+/** How a count's scan identified its tube. */
+export const IDENTITY_BASES: Record<Schemas["IdentityBasis"], string> = {
+  record_link: "by its Iki label or record link",
+  iki_id: "by its Iki ID, typed",
+  position: "by its label at its recorded position",
+  choice: "by the tube chosen for its label",
+  label: "by its label",
+};
+
+/** How a receipt's scan identified its tube, as its history keeps it. */
+export const RECEIPT_BASES: Record<string, string> = {
+  record_code: "identified by its Iki label",
+  record_link: "identified by an Iki record link",
+  iki_id: "identified by its Iki ID, typed",
+  vendor: "identified by its vendor barcode",
+  hrid: "identified by its Iki ID",
+  hrid_and_vendor: "identified by its Iki ID and vendor barcode",
+  unmatched: "matched no record",
+  ambiguous: "left unlinked: more than one readable record has this label",
+};
 
 // --- Positions ----------------------------------------------------------------------------------
 

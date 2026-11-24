@@ -292,7 +292,7 @@ function EntitiesPanel({
   };
   const found = useQuery({
     queryKey: [...ENTITIES, "app", app.id, panel.id, body],
-    queryFn: async () => unwrap(await searchEntities(body)),
+    queryFn: async ({ signal }) => unwrap(await searchEntities(body, signal)),
     retry: false,
     enabled: !entities.where || where !== undefined,
   });

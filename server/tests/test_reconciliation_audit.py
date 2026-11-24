@@ -6,7 +6,7 @@ from org_world import build_world
 from test_storage import box, contents, moved, tube
 
 from iki_server.audit.models import AuditEvent
-from iki_server.storage.models import Event
+from iki_server.storage.models import Event, ObservationEvent
 
 
 @pytest.mark.django_db
@@ -61,6 +61,15 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
     revision = reviewed.json()["plan_revision"]
     done = api.post(f"{path}/complete", {"missing_rest": True, "plan_revision": revision})
     assert done.status_code == 200, done.content
+    recorded = ObservationEvent.objects.filter(reconciliation_id=started.json()["id"])
+    operator = str(world.users["editor"].pk)
+    assert set(recorded.filter(kind="scan").values_list("after__scanned_by", flat=True)) == {
+        operator
+    }
+    # Includes both the explicitly reviewed decisions and the one marked missing on completion.
+    assert set(recorded.filter(kind="resolution").values_list("after__resolved_by", flat=True)) == {
+        operator
+    }
     assert contents(api, container) == {
         "A1": other["hrid"],
         "A2": swapped["hrid"],

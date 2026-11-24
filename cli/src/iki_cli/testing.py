@@ -161,7 +161,9 @@ def run_test(args: argparse.Namespace, out: TextIO | None = None) -> int:
             return 1
         with tempfile.TemporaryDirectory(prefix="iki-test-code-") as staging:
             code = directory
-            if any(test.action.name == "annotate_dna_sequence" for test in tests):
+            if plugin.name == "iki/dna" or any(
+                test.action.name == "annotate_dna_sequence" for test in tests
+            ):
                 try:
                     code = prepared_source(plugin.name, directory, Path(staging) / "plugin")
                 except ValueError as error:

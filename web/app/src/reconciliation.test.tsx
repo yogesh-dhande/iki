@@ -175,8 +175,9 @@ it.each(["matched", "no_longer_found"] as const)(
     await waitFor(() => expect(complete()).not.toHaveAttribute("aria-disabled", "true"));
     expect(row.queryByRole("button", { name: "Clear previous decision" })).not.toBeInTheDocument();
     expect(calls("PATCH", endpoint).map((call) => call.body)).toEqual([
-      { line_revision: 1, resolution: null, note: "", reason: "The tube was rescanned" },
-      { line_revision: 1, resolution: null, note: "", reason: "The tube was rescanned" },
+      // Clearing a decision clears its note: none is sent.
+      { line_revision: 1, resolution: null, reason: "The tube was rescanned" },
+      { line_revision: 1, resolution: null, reason: "The tube was rescanned" },
     ]);
   },
 );
@@ -232,11 +233,12 @@ it("requires review after a newer count arrives and an older resolution response
   );
   const row = decision("TUB-000001");
   await user.type(row.getByRole("textbox", { name: /Note/ }), "Checked A2");
+  // The decision stands: its first note is added in one step, with no reason.
   await user.click(row.getByRole("button", { name: "Resolve" }));
-  await giveReason(user, "Adding what I checked", "Save the decision");
   await waitFor(() => {
     expect(calls("PATCH", endpoint)).toHaveLength(1);
   });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
   // A colleague scanned the tube in A3 instead and separately approved that move.
   const newer = inventory(3, { ...moved, found: "A3", line_revision: 3 }, unchecked);
@@ -263,7 +265,6 @@ it("requires review after a newer count arrives and an older resolution response
     line_revision: 1,
     resolution: "moved",
     note: "Checked A2",
-    reason: "Adding what I checked",
   });
 });
 
@@ -300,7 +301,7 @@ it("shows what changed, and who changed it, when a first decision is refused as 
   );
   expect(changed.getByText("Recorded at A4, found at A3.")).toBeVisible();
   expect(calls("PATCH", endpoint).map((call) => call.body)).toEqual([
-    { line_revision: 1, resolution: "moved", note: "Verified at A2", reason: "" },
+    { line_revision: 1, resolution: "moved", note: "Verified at A2" },
   ]);
   expect(calls("POST", `${api}/complete`)).toHaveLength(0);
 });
@@ -338,7 +339,8 @@ it("requires a new decision for a moved tube even when moving is still a legal c
   expect(calls("PATCH", endpoint).at(-1)?.body).toEqual({
     line_revision: 1,
     resolution: "moved",
-    note: "",
+    // The stale decision's note isn't carried over to the new one.
+    note: null,
     reason: "It was rescanned in A3",
   });
   expect(complete()).not.toHaveAttribute("aria-disabled", "true");
@@ -398,6 +400,7 @@ it("sends a fresh scan in one step, and the same scan again as reviewed evidence
       line_id: "line-000001",
       position: "A1",
       code: "LAB-000001",
+      identity_basis: "label",
       scanned_by: ADA,
       scanned_at: "2026-01-12T09:10:00Z",
     },
@@ -421,11 +424,10 @@ it("sends a fresh scan in one step, and the same scan again as reviewed evidence
   });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(calls("POST", `${api}/scans`).map((call) => call.body)).toEqual([
-    { scans: [{ position: "A2", code: "LAB-000002" }], reason: "" },
+    { scans: [{ position: "A2", code: "LAB-000002" }] },
     {
       scans: [{ position: "A1", code: "LAB-000001" }],
       reviewed_lines: [{ line_id: matched.id, line_revision: 1 }],
-      reason: "",
     },
   ]);
 });
@@ -602,4 +604,94 @@ it("lists confirmed move and placement destinations and blocks completion during
   const remaining = finish.getByRole("list", { name: "Planned destinations" });
   expect(within(remaining).getAllByRole("listitem")).toHaveLength(1);
   expect(remaining).toHaveTextContent("TUB-000002 → BOX-000001, A2");
+});
+
+it("asks which tube a shared label is, apart from a conflict with what someone recorded", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const second = tube(2, { expected: "A2", finding: "unchecked" });
+  const { user } = await openInventory(first, second);
+  const candidates = [first, second].map((line, i) => ({
+    id: line.entity ?? "",
+    hrid: line.ref?.hrid ?? "",
+    title: line.ref?.title ?? "",
+    type: "acme/lims.Tube",
+    owner_project: { id: `project-${String(i)}`, name: i ? "Supplier" : "Kinase screen" },
+    box: { id: "box", hrid: "BOX-000001", title: "Retains" },
+    position: line.expected,
+  }));
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { choice?: string }[] };
+    if (!body.scans[0]?.choice)
+      return problem(
+        409,
+        "scan_ambiguous",
+        "More than one readable record matches this scan. Choose the intended record.",
+        undefined,
+        { candidates, index: 0 },
+      );
+    return inventory(2, { ...first, found: "A4", finding: "wrong_slot" }, second);
+  });
+  await user.click(screen.getByRole("gridcell", { name: /^A4,/ }));
+  await user.type(screen.getByRole("textbox", { name: "What’s in A4" }), "VENDOR-9{Enter}");
+  const chooser = await screen.findByRole("region", {
+    name: "“VENDOR-9” matches more than one tube",
+  });
+  // Not a stale count: nothing is read again, and no reason is asked for.
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(screen.queryByText(/changed while you were/)).toBeNull();
+  expect(calls("GET", api)).toHaveLength(1);
+  await user.click(within(chooser).getByRole("button", { name: /^TUB-000001/ }));
+  await waitFor(() => {
+    expect(calls("POST", `${api}/scans`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/scans`).map((c) => c.body)).toEqual([
+    { scans: [{ position: "A4", code: "VENDOR-9" }] },
+    { scans: [{ position: "A4", code: "VENDOR-9", choice: first.entity }] },
+  ]);
+});
+
+it("says only that a count scan can’t identify a tube, and takes a typed Iki ID", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const { user } = await openInventory(first);
+  const refused =
+    "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+  answer(`POST ${api}/scans`, (call: { body: unknown }) => {
+    const body = call.body as { scans: { mode?: string }[] };
+    if (body.scans[0]?.mode !== "iki_id") return problem(409, "scan_unavailable", refused);
+    return inventory(2, { ...first, found: "A1", finding: "matched" });
+  });
+  await user.click(screen.getByRole("gridcell", { name: /^A1,/ }));
+  await user.type(screen.getByRole("textbox", { name: "What’s in A1" }), "VENDOR-9{Enter}");
+  expect(await screen.findByText(refused)).toBeVisible();
+  expect(screen.queryByText(/more than one/)).toBeNull();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000001{Enter}");
+  await waitFor(() => {
+    expect(calls("POST", `${api}/scans`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/scans`).at(-1)?.body).toEqual({
+    scans: [{ position: "A1", code: "TUB-000001", mode: "iki_id" }],
+  });
+});
+
+it("says a typed Iki ID none has, or one you can’t read has, in the same words", async () => {
+  const first = tube(1, { expected: "A1", finding: "unchecked" });
+  const { user } = await openInventory(first);
+  answer(
+    `POST ${api}/scans`,
+    problem(
+      409,
+      "scan_unavailable",
+      "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.",
+    ),
+  );
+  await user.click(screen.getByRole("gridcell", { name: /^A1,/ }));
+  await user.click(screen.getByRole("button", { name: "Type its printed Iki ID instead" }));
+  await user.type(screen.getByRole("textbox", { name: "Iki ID" }), "TUB-000099{Enter}");
+  expect(
+    await screen.findByText(
+      "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.",
+    ),
+  ).toBeVisible();
+  expect(screen.queryByText(/This scan can’t identify/)).toBeNull();
 });
