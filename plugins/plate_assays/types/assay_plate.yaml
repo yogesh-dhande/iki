@@ -14,7 +14,7 @@ fields:
     type: file
     media_types: [text/csv, text/plain, application/vnd.ms-excel]
     max_size: 1MiB
-    description: A single BMG MARS raw absorbance block exported as CSV in OD with a decimal point.
+    description: One CSV matrix of BMG MARS endpoint absorbance (OD) or normalized activity (%).
   request:
     type: ref
     to: iki/example_lims.AnalysisRequest

@@ -1,4 +1,4 @@
-# Importing a MARS endpoint plate
+# Importing an endpoint plate
 
 Use a 96- or 384-well plate and export a single raw absorbance endpoint in
 BMG LABTECH MARS. In MicroPlate View, select the raw channel and the **OD**
@@ -22,6 +22,10 @@ readings and readings without assignments. Resolve the issues before commit.
 The signal is dimensionless absorbance, displayed as AU. The original
 reading and channel stay with the measurement for review.
 [IUPAC definition of absorbance](https://doi.org/10.1351/goldbook.A00028).
+
+## Normalized activity
+
+For deposited percent activity, place `Normalized activity (%)` alone on line one, then the numbered column headings and the labelled plate rows. Each populated cell contains the signed percentage as deposited. Individual well records store it as **Normalized activity (%)**. The fitter retains this unit. [Tox21 example and source](curve-example.md).
 
 ## Example files
 
