@@ -31,6 +31,9 @@ and library revision. The deployment chooses Research sign-off or Regulated QC
 submission, independent review and QA release. Each transition signs the
 summary, and a correction returns signed findings for review.
 
+Work on whole-plasmid verification by long reads and amplicon/CRISPR-edit
+outcomes follows in a separate slice.
+
 ## Consequences
 
 A reviewer can trace quality statistics to the files, library and sample and
