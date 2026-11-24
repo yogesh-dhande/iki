@@ -1,0 +1,3 @@
+biopython==1.88
+# Keep Biopython's transitive dependency aligned with the workspace lock.
+numpy==2.5.4

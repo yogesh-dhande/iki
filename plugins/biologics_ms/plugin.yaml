@@ -1,0 +1,27 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/biologics_ms
+version: 0.1.0
+title: Biologics mass spectrometry
+description: Check deconvoluted mass and peptide maps against registered antibodies, ADCs and their lots.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/antibody:
+    types: { Antibody: ">=2" }
+  iki/protein:
+    types: { Protein: ">=1" }
+  iki/conjugate:
+    types: { Conjugate: ">=1" }
+  iki/lots:
+    types: { BiologicLot: ">=1", ProteinLot: ">=1", ConjugateLot: ">=1" }
+settings:
+  review_flow:
+    type: enum
+    label: Mass spectrometry review
+    values: [research, regulated_qc]
+    default: research
+roles:
+  analyst: { label: Mass spectrometry analyst }
+  reviewer: { label: Mass spectrometry reviewer }
+  qa: { label: Mass spectrometry QA }

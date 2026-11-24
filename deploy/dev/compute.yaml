@@ -26,6 +26,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/biologics_ms.characterization
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/small_molecule.chemistry-tools
 templates: [{ template: backend-small }]
 ---
