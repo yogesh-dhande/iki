@@ -1025,7 +1025,8 @@ export interface paths {
          *     (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
          *     its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
          *     in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
-         *     last changed, its revision and its UUID.
+         *     last changed, its revision and its UUID: each page is read at one moment, so a row's
+         *     values are those of that revision, whatever's edited while it's read.
          *
          *     It's written a page at a time as it's read, so a large result starts at once. Each
          *     page may run for 15 seconds; one that runs out ends the file with a row saying so. No
