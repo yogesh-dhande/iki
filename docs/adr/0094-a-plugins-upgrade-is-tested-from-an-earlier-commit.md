@@ -35,6 +35,12 @@ server given by `--database` (or `$IKI_TEST_DATABASE_URL`), it then:
 
 The database is dropped at the end, passed or not.
 
+When the earlier commit contains Iki's source and generated core app,
+the earlier build uses those core manifests, models and migrations.
+This lets the probe test a plugin whose field has moved into a core type
+since the earlier commit. Builds from standalone plugin repositories use
+the core bundled with the installed Iki CLI.
+
 **By default its samples come from the earlier commit.** They are the input
 entities of the action tests in `tests/` at that commit (ADR 0093),
 which its authors wrote to be valid then. Nobody keeps a second set of

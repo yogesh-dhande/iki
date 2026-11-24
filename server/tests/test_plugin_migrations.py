@@ -1811,6 +1811,51 @@ def test_deploying_an_older_build_reverses_what_it_lacks(
     assert "notes" in columns(database, "acme__lab_sample")
 
 
+def test_rollback_reads_a_replacement_state_without_reversing_its_retained_tables(
+    lab: Path, database: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    v1 = build_to(lab.parent, "v1", "lab")
+    migrations = lab / "migrations"
+    original = (migrations / "0001_initial.py").read_text()
+    replacement = original.replace(
+        "    initial = True",
+        '    initial = True\n    replaces = [("acme__lab", "0001_initial")]',
+    )
+    replacement, renamed = re.subn(
+        r"\('old', (models\.\w+Field)\(",
+        r"('legacy_old', \1(db_column='old', ",
+        replacement,
+    )
+    assert renamed == 2
+    (migrations / "0001_replacement.py").write_text(replacement)
+    (migrations / "0002_remove_legacy.py").write_text(
+        "from django.db import migrations\n\n"
+        "class Migration(migrations.Migration):\n"
+        '    dependencies = [("acme__lab", "0001_initial")]\n'
+        "    operations = [\n"
+        '        migrations.RemoveField("sample", "legacy_old"),\n'
+        '        migrations.RemoveField("sample_history", "legacy_old"),\n'
+        "    ]\n"
+    )
+    write_sample(lab, ("  old: { type: string }\n", ""), ("schema_version: 1", "schema_version: 2"))
+    (lab / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
+    v2 = build_to(lab.parent, "v2", "lab")
+
+    deployed(v1, database)
+    orm(v1, database, SAMPLE_ROW.replace("NOTES", ""))
+    for _ in range(2):
+        deployed(v2, database)
+        assert "0001_replacement" in applied(database, "acme__lab")
+        assert "old" not in columns(database, "acme__lab_sample")
+
+        out = deployed(v1, database)
+        assert "Reversed acme/lab 0002_remove_legacy (rolled back)" in out
+        assert applied(database, "acme__lab") == ["0001_initial"]
+        assert "old" in columns(database, "acme__lab_sample")
+        assert query(database, "SELECT name FROM acme__lab_sample") == [("S1",)]
+
+
 def test_a_rollback_that_would_lose_data_changes_nothing(
     two_builds: tuple[Path, Path], database: str
 ) -> None:

@@ -479,6 +479,22 @@ def _roll_back(
     executor = MigrationExecutor(connection, _settle)
     executor.loader = _WithCopies(copies, connection)
     code = MigrationLoader(connection)
+    # When the older build still has every original migration, the replacement's row
+    # is only an applied marker. Reverse its successors against its migration state.
+    retained = {
+        key: migration.replaces
+        for key, migration in executor.loader.replacements.items()
+        if key in copies
+        and key in executor.loader.graph.nodes
+        and all(
+            original in applied and original in code.graph.nodes for original in migration.replaces
+        )
+    }
+    effective: dict[Key, Key] = {
+        original: replacement
+        for replacement, originals in retained.items()
+        for original in originals
+    }
     targets = []
     for app in sorted({k[0] for k in to_reverse}):
         target = _last_applied(code, app, applied)
@@ -487,7 +503,7 @@ def _roll_back(
                 f"Can't roll back {_plugin(app)}: none of this build's migrations for it have "
                 "run here."
             )
-        targets.append(target)
+        targets.append(effective.get(target, target))
     plan = executor.migration_plan(targets)
     not_atomic = [(m.app_label, m.name) for m, _ in plan if not m.atomic]
     if not_atomic:
@@ -498,7 +514,7 @@ def _roll_back(
         )
     unexpected = [(m.app_label, m.name) for m, backwards in plan if not backwards]
     reversing = [(m.app_label, m.name) for m, backwards in plan if backwards]
-    if unexpected or set(reversing) - set(to_reverse):
+    if unexpected or set(reversing) - (set(to_reverse) - retained.keys()):
         raise DeployError(f"Rolling back would also change {_names(unexpected or reversing)}.")
     blockers = _data_loss(executor, plan)
     if blockers:
@@ -510,6 +526,8 @@ def _roll_back(
         )
     _unguard(executor, plan)
     executor.migrate(targets, plan=plan)
+    for marker in sorted(retained):
+        executor.recorder.record_unapplied(*marker)
     return reversing
 
 
