@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from sitegen import calls, check, examples
+from sitegen import calls, check, examples, plugins
 from sitegen.repo import DIST, GENERATED, ORIGIN, REPOSITORY
 
 
@@ -21,7 +21,7 @@ def main(argv: list[str]) -> int:
     checking.add_argument("--frames", default="/viewers/", help="Viewers' frames, by path")
     given = parser.parse_args(argv)
     if given.command == "generate":
-        for path in [*examples.write(), calls.write()]:
+        for path in [*examples.write(), calls.write(), plugins.write()]:
             sys.stdout.write(f"Wrote {path.relative_to(GENERATED)}\n")
         return 0
     site = check.Site(given.dist, given.origin, given.repository, given.frames)

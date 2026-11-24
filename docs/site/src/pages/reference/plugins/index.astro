@@ -1,0 +1,101 @@
+---
+// The Plugins reference's overview: every plugin in Iki's repository, the core plugin's
+// first, each with what it keeps and does.
+import Doc from "../../../layouts/Doc.astro";
+import { render } from "../../../lib/markdown.ts";
+import { pluginHref, plugins } from "../../../lib/plugins.ts";
+import { PAGES } from "../../../lib/site.ts";
+
+const all = plugins();
+const [core, ...others] = all;
+const types = all.reduce((count, plugin) => count + plugin.types.length, 0);
+const actions = all.reduce((count, plugin) => count + plugin.actions.length, 0);
+const firstLine = (text: string) => text.split(/(?<=\.)\s/)[0] ?? text;
+---
+
+<Doc
+  title="Plugins"
+  description="Every plugin in Iki's repository: its record types, their fields, and its actions."
+  section="Reference"
+  audience="build"
+  measure={900}
+>
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / Plugins
+  </nav>
+  <h1 class="doc-title">Plugins</h1>
+  <div class="prose intro">
+    <p>
+      The plugins in Iki's repository, read from their manifests: {all.length} plugins, {types}{" "}
+      record types and {actions} actions. Each page lists a plugin's lab roles, its record types
+      with their fields, the fields it adds to other plugins' types, and its actions with their
+      inputs and parameters.
+    </p>
+    <p>
+      What each key of a manifest means is in the <a href={PAGES.spec}>plugin spec</a>.
+    </p>
+  </div>
+  {core && (
+    <section aria-labelledby="core-h" class="group">
+      <h2 id="core-h">In every deployment</h2>
+      <ul class="plugins">
+        <li>
+          <a href={pluginHref(core)}>{core.title}</a>
+          <code>{core.name}</code>
+          <span set:html={render(firstLine(core.description), { inline: true })} />
+        </li>
+      </ul>
+    </section>
+  )}
+  <section aria-labelledby="installed-h" class="group">
+    <h2 id="installed-h">Installed by a deployment</h2>
+    <ul class="plugins">
+      {others.map((plugin) => (
+        <li>
+          <a href={pluginHref(plugin)}>{plugin.title}</a>
+          <code>{plugin.name}</code>
+          <span set:html={render(firstLine(plugin.description), { inline: true })} />
+        </li>
+      ))}
+    </ul>
+  </section>
+</Doc>
+
+<style>
+  .intro {
+    margin-top: 16px;
+    max-width: 720px;
+  }
+  .group {
+    margin-top: 36px;
+  }
+  .group h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+  }
+  .plugins {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .plugins li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .plugins a {
+    min-width: 180px;
+    font-weight: 600;
+  }
+  .plugins code {
+    min-width: 200px;
+    font-size: 12px;
+  }
+</style>

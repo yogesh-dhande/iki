@@ -1,0 +1,180 @@
+---
+// A record type's or an extension's fields: each one a place to link to
+// (`#Sample.status`), with what it holds, the records it refers to, and its states.
+import { render } from "../../lib/markdown.ts";
+import { fieldRows, typeHref, type Field, type Plugin } from "../../lib/plugins.ts";
+import { PAGES } from "../../lib/site.ts";
+
+interface Props {
+  owner: string;
+  fields: Field[];
+  caption: string;
+  all: Plugin[];
+}
+const { owner, fields, caption, all } = Astro.props;
+const rows = fieldRows(owner, fields);
+const typeLink = `${PAGES.spec}field/#by-type`;
+---
+
+<div class="table" tabindex="0" role="region" aria-label={caption}>
+  <table>
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Field</th>
+        <th scope="col">Type</th>
+        <th scope="col">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      {rows.map(({ id, depth, field }) => (
+        <tr id={id} class:list={[`depth-${Math.min(depth, 3)}`]}>
+          <td class="name">
+            <a href={`#${id}`} class="key" title={id}>
+              <code>{field.key}</code>
+            </a>
+            <span class="label">{field.label}</span>
+          </td>
+          <td class="type">
+            <a href={typeLink}>
+              <code>{field.items ? `list of ${field.items}` : field.type}</code>
+            </a>
+            {field.unit && (
+              <span class="detail">
+                in <code>{field.unit}</code>
+              </span>
+            )}
+            {field.to && (
+              <span class="detail">
+                to{" "}
+                {field.to.map((target, index) => {
+                  const href = typeHref(all, target);
+                  return (
+                    <>
+                      {index > 0 && ", "}
+                      {href ? (
+                        <a href={href}>
+                          <code>{target}</code>
+                        </a>
+                      ) : (
+                        <code>{target}</code>
+                      )}
+                    </>
+                  );
+                })}
+              </span>
+            )}
+          </td>
+          <td class="description">
+            {field.description && <Fragment set:html={render(field.description)} />}
+            {(field.flags.length > 0 || field.registry) && (
+              <p class="notes">
+                {[...field.flags, ...(field.registry ? [`registry ${field.registry}`] : [])].join(
+                  ", ",
+                )}
+              </p>
+            )}
+            {field.values && (
+              <p class="notes">
+                One of{" "}
+                {field.values.map((value, index) => (
+                  <>
+                    {index > 0 && ", "}
+                    <code>{value}</code>
+                  </>
+                ))}
+              </p>
+            )}
+            {field.states && (
+              <ul class="states">
+                {field.states.map((state) => (
+                  <li>
+                    <code>{state.name}</code> {state.label}
+                    {state.name === field.initial && ", where records start"}
+                    {state.locks && ", locks the record"}
+                    {state.description && <span class="muted"> {state.description}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  table {
+    min-width: 620px;
+  }
+  td {
+    vertical-align: top;
+  }
+  .name {
+    white-space: nowrap;
+  }
+  .label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: normal;
+  }
+  .type {
+    min-width: 130px;
+    max-width: 220px;
+    overflow-wrap: anywhere;
+  }
+  .detail {
+    display: block;
+    font-size: 12px;
+  }
+  .key {
+    text-decoration: none;
+  }
+  .key:hover code {
+    text-decoration: underline;
+  }
+  .name code {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .type code,
+  .notes code,
+  .states code {
+    font-size: 12px;
+  }
+  .depth-1 .name {
+    padding-left: 30px;
+  }
+  .depth-2 .name {
+    padding-left: 48px;
+  }
+  .depth-3 .name {
+    padding-left: 66px;
+  }
+  .depth-1 .key::before,
+  .depth-2 .key::before,
+  .depth-3 .key::before {
+    /* Drawn, not read out: a screen reader says the field's name alone. */
+    content: "└ " / "";
+    color: var(--muted);
+  }
+  tr:target {
+    background: var(--accent-soft);
+  }
+  .description :global(p) {
+    margin: 0 0 6px;
+  }
+  .description :global(p:last-child) {
+    margin: 0;
+  }
+  .notes {
+    font-size: 13px;
+  }
+  .states {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    font-size: 13px;
+  }
+</style>
