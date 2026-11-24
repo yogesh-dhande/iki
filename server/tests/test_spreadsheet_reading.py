@@ -403,10 +403,28 @@ def test_a_saved_mapping_maps_a_sheet_whose_columns_moved() -> None:
         {"header": "Conc. (ug/mL)", "field": "concentration", "unit": "ug/mL"},
     ]
     headers = ["conc. (ug/mL)", "Label", "Extra"]
-    assert mapping.matches([c["header"] for c in saved], headers) == 1.0
-    assert mapping.from_saved(saved, headers) == [
+    fields = {"label": Field("label", "string"), "concentration": CONCENTRATION}
+    match = mapping.from_saved(saved, headers, fields)
+    assert match.score == 1.0
+    assert match.columns == [
         Column(0, "concentration", unit="ug/mL"),
         Column(1, "label"),
         Column(2),
     ]
-    assert mapping.matches(["Label", "Lot"], headers) == 0.5
+    assert mapping.from_saved(saved, ["Label", "Lot"], fields).score == 0.5
+
+
+def test_saved_input_units_are_checked_for_quantity_lists_and_headerless_units() -> None:
+    field = Field("readings", "list", items=CONCENTRATION)
+    saved = [{"header": "Readings", "field": "readings", "unit": "µg/mL"}]
+    for header in ("Readings", "Readings [ug/mL]"):
+        match = mapping.from_saved(saved, [header], {"readings": field})
+        assert match.score == 1.0
+        assert cells.convert(field, match.columns[0], "5;9") == [
+            {"value": 5, "unit": "ug/mL"},
+            {"value": 9, "unit": "ug/mL"},
+        ]
+    for header in ("Readings [mg/mL]", "Readings [s]", "Readings [unknown]"):
+        match = mapping.from_saved(saved, [header], {"readings": field})
+        assert match.score == 0
+        assert header in match.conflicts[0]

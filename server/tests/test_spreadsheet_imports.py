@@ -719,6 +719,44 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     assert api.delete(f"/spreadsheet-mappings/{listed[0]['id']}").status_code == 204
 
 
+@pytest.mark.parametrize("explicit_unit", [False, True])
+def test_saved_concentration_mapping_respects_the_new_sheet_unit(
+    world: World, explicit_unit: bool
+) -> None:
+    original = started(world, b"Label,Conc. (mg/mL)\nS-1,2\n", name="first.csv")
+    if explicit_unit:
+        original = change(
+            world,
+            original,
+            {
+                "columns": [
+                    {"index": 0, "field": "label"},
+                    {"index": 1, "field": "concentration", "unit": "mg/mL"},
+                ]
+            },
+        ).json()
+    saved = api_as(world).post(
+        f"/spreadsheet-imports/{original['id']}/mappings",
+        {"name": "Concentrations"},
+        headers=seen(original),
+    )
+    assert saved.status_code == 201, saved.content
+    current = api_as(world).get(f"/spreadsheet-imports/{original['id']}").json()
+    assert committed(world, previewed(world, current))["state"] == "imported"
+    assert values(records(world)["S-1"])["concentration"] == 2
+    imported = started(world, b"Label,Conc. (ug/mL)\nS-2,1250\n", name="second.csv")
+    done = committed(world, previewed(world, imported))
+    assert done["state"] == "imported", done
+    assert values(records(world)["S-2"])["concentration"] == pytest.approx(1.25)
+    assert imported["mapping"] is None
+    assert imported["mappings"][0]["match"] == 0.5
+
+    another = started(world, b"Label,Conc. (ug/mL)\nS-3,500\n", name="third.csv")
+    refused = change(world, another, {"mapping": saved.json()["id"]})
+    assert refused.status_code == 422, refused.content
+    assert b"ug/mL" in refused.content and b"mg/mL" in refused.content
+
+
 def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     owner, colleague = api_as(world), api_as(world, "via_team")
     original = started(world, b"Label,Purity (%)\nS-1,95\n", name="first.csv")
