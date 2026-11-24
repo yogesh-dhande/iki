@@ -5,7 +5,7 @@
 #   - its actions pass their tests in tests/, run by the iki-worker release
 #     of the same version;
 #   - on a pull request, its migrations upgrade the base commit's test
-#     entities, keep their history, and roll back (ADR 0094).
+#     entities, keep their history, and roll back.
 name: CI
 
 on:

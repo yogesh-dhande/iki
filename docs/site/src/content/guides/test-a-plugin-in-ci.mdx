@@ -1,0 +1,268 @@
+---
+title: Validate and test a plugin in CI on GitHub
+description: Run a plugin's validation, migration check, action tests and upgrade test on every change, on your machine and in the plugin template's GitHub Actions workflow.
+audience: build
+order: 20
+reference:
+  - { label: Plugin manifest, href: /reference/plugin-spec/plugin/ }
+  - { label: Action test, href: /reference/plugin-spec/action-test/ }
+  - { label: The iki CLI, href: /reference/cli/ }
+---
+
+A plugin is checked the way a deployment's build will check it, on every change:
+
+1. its manifests are valid against the plugins it depends on (`iki plugin validate`);
+2. its committed migrations match its manifests (`iki plugin makemigrations --check`);
+3. its actions pass their tests in `tests/` (`iki plugin test`);
+4. on a pull request, its migrations upgrade the records of the base commit's tests, keep their
+   history and roll back (`iki plugin test --upgrade-from`).
+
+The plugin template's workflow runs all four on GitHub Actions. The same commands run on your
+machine.
+
+## Install the CLI and the worker
+
+Install the `iki` CLI at the version your deployments run, and the `iki-worker` of the same
+release, which runs each action's command for its tests. Each Iki release has a worker for
+`x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `aarch64-apple-darwin` and
+`x86_64-apple-darwin`. On a Linux machine with an Intel or AMD processor:
+
+```sh
+uv tool install iki-cli==0.1.0
+gh release download v0.1.0 --repo yogesh-dhande/iki \
+  --pattern "iki-worker-0.1.0-x86_64-unknown-linux-musl.tar.gz"
+gh attestation verify iki-worker-0.1.0-x86_64-unknown-linux-musl.tar.gz --repo yogesh-dhande/iki \
+  --signer-workflow yogesh-dhande/iki/.github/workflows/release.yml
+tar -xzf iki-worker-0.1.0-x86_64-unknown-linux-musl.tar.gz
+export IKI_WORKER=$PWD/iki-worker-0.1.0-x86_64-unknown-linux-musl/iki-worker
+```
+
+`iki plugin test` finds the worker in `--worker`, then `$IKI_WORKER`, then `iki-worker` on the
+`PATH`. An action's command runs on this machine, so install what its environment needs too: the
+template's commands need Python 3.
+
+Each check takes the directories of the plugins this one depends on with `--with`, once for each,
+including the ones they depend on. The template depends on `iki/dna`, so check out Iki's
+repository beside it at the commit your deployment's lockfile pins.
+
+## Run the checks on your machine
+
+From the plugin's directory, with Iki's repository at `../iki`:
+
+```console
+$ iki plugin validate . --with ../iki/plugins/dna
+✓ acme/example 0.1.0 is valid: 1 entity type, 1 extension, 1 setting, 3 actions, 2 environments, 1 workflow, 1 trigger, 1 component.
+$ iki plugin makemigrations . --with ../iki/plugins/dna --check --no-input
+No changes detected in app 'acme__example'
+$ iki plugin test . --with ../iki/plugins/dna
+Running 2 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.4s)
+  ok      tidied  (0.2s)
+2 passed in 0.6s.
+```
+
+Each exits with 0 when its check passes and 1 when it doesn't. `validate` exits with 2 for a
+mistake in the command itself. The upgrade test needs a PostgreSQL server: see
+[Upgrade a plugin without losing history](/guides/upgrade-a-plugin/#test-the-upgrade-from-the-deployed-commit).
+
+## What a failing check prints
+
+`iki plugin validate` gives each problem's file, line and column, the line itself, a hint and the
+problem's code. Here a new field's unit is written `hr`:
+
+```console
+$ iki plugin validate . --with ../iki/plugins/dna
+types/sample.yaml:19:37: error: `hr` isn't a UCUM unit. [unknown-unit]
+ 19 |   held_for: { type: quantity, unit: hr, min: 0 }
+    |                                     ^
+  hint: UCUM writes hours as `h`.
+
+1 error in ..
+```
+
+With `--format github`, each problem is a GitHub Actions annotation, which the pull request shows
+on the line of its diff:
+
+```console
+$ iki plugin validate . --with ../iki/plugins/dna --format github
+::error file=types/sample.yaml,line=19,col=37,title=unknown-unit::`hr` isn't a UCUM unit.%0AUCUM writes hours as `h`.
+1 error in ..
+```
+
+`--format json` gives the same problems for other tools, and `--strict` fails on warnings too. The
+codes are listed in [Write a plugin](/guides/write-a-plugin/#problem-codes).
+
+`iki plugin makemigrations --check` fails when a manifest changed and no migration has the change
+yet. It says what the missing migration would do, and writes nothing:
+
+```console
+$ iki plugin makemigrations . --with ../iki/plugins/dna --check --no-input
+Migrations for 'acme__example':
+  migrations/0002_sample_concentration_sample_history_concentration.py
+    + Add field concentration to sample
+    + Add field concentration to sample_history
+    + Create constraint acme__example_sample__concentration__finite on model sample
+    + Create constraint acme__example_sample__concentration__min on model sample
+```
+
+Run it without `--check` to write the migration, review it, and commit it with the change.
+
+`iki plugin test` names each test that failed, its file, and each value that differed from its
+`expect`: see [Test actions with fixtures](/guides/write-a-plugin/action-tests/#run-them).
+
+## The workflow
+
+The template's `.github/workflows/ci.yml`:
+
+```yaml
+# Checks every change to the plugin, as a deployment's build will:
+#   - its manifests are valid against the plugins it depends on;
+#   - its committed migrations match its manifests (run `iki plugin
+#     makemigrations .` and commit what it writes if not);
+#   - its actions pass their tests in tests/, run by the iki-worker release
+#     of the same version;
+#   - on a pull request, its migrations upgrade the base commit's test
+#     entities, keep their history, and roll back.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Every job starts with no token permissions and asks only for what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The Iki your deployments run: a plugin is checked and built by the same version.
+  IKI_VERSION: "0.1.0"
+  # The commit of yogesh-dhande/iki whose first-party plugins (here, dna) this one is
+  # checked against: the one your deployment's lockfile pins.
+  IKI_PLUGINS_SHA: "0000000000000000000000000000000000000000"
+  UV_VERSION: "0.13.7"
+
+jobs:
+  check:
+    name: Validate and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      # A scratch server for the upgrade test: each run makes its own database and drops it.
+      postgres:
+        image: postgres:18.6-trixie@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+        env:
+          POSTGRES_PASSWORD: ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The upgrade test builds the plugin at the pull request's base commit.
+          fetch-depth: 0
+      - name: Check out the plugins it depends on
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yogesh-dhande/iki
+          ref: ${{ env.IKI_PLUGINS_SHA }}
+          path: .deps/iki
+          sparse-checkout: plugins/dna
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install the iki CLI
+        run: uv tool install "iki-cli==${IKI_VERSION}"
+      - name: Validate
+        run: iki plugin validate . --with .deps/iki/plugins/dna
+      - name: Migrations match the manifests
+        run: iki plugin makemigrations . --with .deps/iki/plugins/dna --check --no-input
+      - name: Action and upgrade tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          IKI_TEST_DATABASE_URL: postgres://postgres:ci-only@localhost:5432/postgres
+        run: |
+          name="iki-worker-${IKI_VERSION}-x86_64-unknown-linux-musl"
+          gh release download "v${IKI_VERSION}" --repo yogesh-dhande/iki \
+            --pattern "$name.tar.gz" --dir "$RUNNER_TEMP"
+          # Built and attested by Iki's release workflow, or it isn't run.
+          gh attestation verify "$RUNNER_TEMP/$name.tar.gz" --repo yogesh-dhande/iki \
+            --signer-workflow yogesh-dhande/iki/.github/workflows/release.yml
+          tar -xzf "$RUNNER_TEMP/$name.tar.gz" -C "$RUNNER_TEMP"
+          upgrade=()
+          if [ -n "$BASE" ]; then upgrade=(--upgrade-from "$BASE"); fi
+          iki plugin test . --with .deps/iki/plugins/dna --worker "$RUNNER_TEMP/$name/iki-worker" \
+            "${upgrade[@]}"
+```
+
+## What each step does
+
+The workflow runs on each pull request, on each push to `main`, and when started by hand. A newer
+push to the same pull request cancels its run. Its one job, **Validate and test**, has a read-only
+token and 20 minutes.
+
+- **The PostgreSQL service** is a scratch server for the upgrade test, which makes its own database
+  on it and drops it at the end. The image is pinned by digest.
+- **Checkout** fetches the plugin with its whole history (`fetch-depth: 0`), so the upgrade test
+  can build the plugin at the pull request's base commit. It keeps no credentials.
+- **Check out the plugins it depends on** fetches only `plugins/dna` from Iki's repository, at
+  `IKI_PLUGINS_SHA`.
+- **setup-uv** installs uv, at `UV_VERSION`.
+- **Install the iki CLI** installs `iki-cli` at `IKI_VERSION`.
+- **Validate** runs `iki plugin validate` against the dependency.
+- **Migrations match the manifests** runs `iki plugin makemigrations --check --no-input`, which
+  fails if a migration is missing and asks nothing.
+- **Action and upgrade tests** downloads the `iki-worker` of `IKI_VERSION` from Iki's release,
+  checks with `gh attestation verify` that Iki's release workflow built it, and runs
+  `iki plugin test` with it. On a pull request it adds `--upgrade-from` the base commit, with the
+  service's database in `IKI_TEST_DATABASE_URL`. On a push to `main` there's no base commit, and
+  only the action tests run.
+
+Every action is pinned to a commit, and the job asks only for `contents: read`.
+
+## Set it up for your plugin
+
+1. Set `IKI_VERSION` to the Iki release your deployments run, and `IKI_PLUGINS_SHA` to the commit
+   of Iki's repository that their lockfile pins.
+2. List the plugins yours depends on. For each of Iki's plugins, add its directory to
+   `sparse-checkout` and a `--with .deps/iki/plugins/<name>` to each command. For another
+   repository's plugin, add a checkout step of its own, at the commit the lockfile pins. A plugin
+   with no dependencies needs neither the step nor `--with`.
+3. Add `--format github` to the **Validate** step to see problems on the pull request's diff.
+4. If the plugin has Python tests of its own, add a step that runs pytest.
+5. In the repository's settings, require the **Validate and test** check before a pull request
+   merges, so every change a deployment pins has passed it.
+
+A deployment's build checks the plugin again, with every other plugin the deployment installs and
+the deployment's settings for it: see
+[Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/#what-the-build-checks).
+
+## Checks for a coding agent
+
+The template's `.agents/skills/iki-test-plugin/SKILL.md` gives Codex and Claude Code the same
+checks, as one script that runs `validate`, `makemigrations --check --no-input` and `test` with
+the same arguments:
+
+```sh
+#!/bin/sh
+# Run the checks shared by first-party and standalone plugins.
+set -eu
+
+iki plugin validate "$@"
+iki plugin makemigrations "$@" --check --no-input
+iki plugin test "$@"
+```
+
+```sh
+sh .agents/skills/iki-test-plugin/scripts/check-plugin.sh . --with ../iki/plugins/dna
+```
