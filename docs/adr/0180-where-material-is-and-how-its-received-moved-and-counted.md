@@ -133,6 +133,30 @@ moves it to another position, in the same change. Handing it to someone else
 while it's out is a movement of its own. A person's checked-out records are
 on their storage page.
 
+### How a receiving or counting observation is recorded
+
+The receipt or count line holds its current state. Its append-only observation
+history records what a person saw, who recorded it and when. A correction points
+to the preceding event for that line and kind of observation. It records both
+values and the operator’s reason for changing the earlier observation. The
+condition note and the correction reason have separate meanings.
+
+As with a movement, one transaction verifies the reviewed state, appends the
+event, advances the current row and writes an audit entry referring to the same
+event and operation. A first observation can proceed independently of observations
+on other lines. A correction must identify the affected line and the version
+reviewed. Handoff changes, cancellation and completion apply to the whole plan
+and use its revision. One command can record changes to several observations
+under the same operation ID.
+
+The history uses a stable line ID that survives a retraction. A reader can
+inspect it on open and closed receipts and counts. The stored snapshots use
+user IDs for the people who checked, scanned or resolved a line. The history
+response supplies each event's author for display. Access follows the parent,
+and a linked code is visible only while its record is readable. Existing rows
+can supply known values for the first recorded change. An unknown earlier actor,
+time or scan stays unknown.
+
 ### Receiving is a request's receipt
 
 **A request type says which of what it sends is received.** `request:
@@ -153,6 +177,51 @@ note; a damaged, rejected or extra line needs one. The receipt names who
 handed it over (a courier and a waybill, or a person) and a note, such as
 its temperature on arrival.
 
+**A receiver can record a fresh observation while a colleague checks another
+tube.** A scan takes just the code. A first manual check can send its outcome
+and condition note without a revision. If someone already checked the line,
+the unversioned check returns `found: "again"` and leaves their observation
+intact. A scan or check returns `{found, line, receipt}`, identifying the
+action's result, the line and the receipt as it now stands. Each line carries
+its own `line_revision`. Changes to other lines leave that revision valid.
+
+A condition `note` says what the receiver saw. A correction `reason` says why
+they changed an observation already recorded. For example, an editor who
+reviews a damaged line and finds the wrong tube was checked can send
+`PATCH /api/v1/receipts/{id}/lines/{line}` with the line revision just read.
+
+```json
+{
+  "line_revision": 2,
+  "outcome": null,
+  "reason": "The damaged package belonged to the next delivery."
+}
+```
+
+The line becomes unchecked. Its earlier observation, note, actor and time
+remain available at `GET /api/v1/receipts/{id}/history`. Omitting `note` from
+the PATCH preserves the saved text, including on an outcome change. Supplying
+`null`, an empty string or whitespace clears it. A receiver can add the first
+condition note with a check, or send the current line revision to add it after
+a scan. Neither needs a correction reason. Replacing or clearing saved text
+requires both the line revision and a nonblank reason. Omitting the reason
+or sending null, empty text or whitespace counts as giving no reason.
+
+Removing an extra uses its line revision and reason in the DELETE body.
+The line keeps its ID in `removed_lines`. Scanning that code
+again reports `found: "removed"`. To restore it, the receiver sends that
+line's revision and a reason to
+`POST /api/v1/receipts/{id}/lines/{line}/restore`.
+
+The handover, completion and cancellation concern the whole receipt.
+Each takes the `plan_revision` of the complete receipt the receiver saw.
+Cancellation also records a reason, the cancelling actor and the closing
+time. A stale line or receipt revision returns HTTP 409 with `affected_lines`.
+A line conflict identifies that line and its current revision. A receipt conflict
+lists each line changed since the reviewed revision, including removed extras.
+A change to the handoff alone returns an empty list. The receiver can read the
+current evidence before deciding whether to change it.
+
 **Completing it is one change.** Every expected line must have an outcome:
 "mark the rest missing" is a choice someone makes. Matched and damaged lines
 are received: each record's custody passes to the receiver (`received`), and
@@ -171,23 +240,74 @@ note. It's a notification kind of its own, which nobody turns off.
 
 ### Labels and scanning
 
-**What's scanned is a record's code: its barcode, or its HRID.** A type's
-`storage.barcode` names a unique string field holding a code already on the
-tube, such as a vendor's 2D code on a pre-barcoded tube; a record without
-one is labelled and scanned by its HRID. `GET /storage/scan?code=` finds the
-records a code names, among those the caller can read: by HRID, by a
-storable type's barcode, or by an Iki link to a record.
+**A vendor code identifies a record within its owning project and the field
+that defines the code.** A service can receive tubes from several projects
+and a box can hold several types. Two records in the same box can therefore
+have identical vendor labels. A typed Iki ID is looked up only as an HRID.
+An Iki machine symbol encodes `IKI:` followed by the record UUID's 32
+uppercase hexadecimal digits, without hyphens. This compact payload lets a
+reader identify the record without knowing a deployment's hostname.
+Existing Iki record links still identify the record. Any scan beginning
+with `IKI:`, in any letter case, is reserved for Iki identity. A malformed
+payload or an unavailable record is refused. Entry and import reject a
+vendor code using this prefix, including when a client sends it through
+the API or SDK.
 
-**A label is printed from Iki, and each print is recorded.** A label has the
-record's code as a DataMatrix or QR code and as Code 128, its HRID, its
-title, and the type's `storage.label` line. Iki lays labels out for common
-sizes (a cryo tube label of 32.5 × 12.7 mm, 50.8 × 25.4 mm, and a box label
-of 76.2 × 25.4 mm), for the browser to print to a label printer's driver, or
-as ZPL for Zebra printers at 203 or 300 dpi, using the printer's own barcode
-commands. The smallest has no room for a Code 128 a scanner reads, so it has
-the 2D code alone. Each label prepared is an audit event, `entity.labelled`,
-on the record: its size, format and copies. The browser draws barcodes with
-bwip-js (MIT).
+Receiving, counting, box-map selection and movement confirmation use one
+resolver. It checks the scope of the operation and the identity represented
+by the input. On a positional count, a matching readable occupant at the
+scanned position supplies evidence of that label at that slot. If two
+physical tubes bearing identical vendor labels are swapped, a vendor scan
+alone cannot distinguish them. An independent Iki label can. An explicit
+observation of a different identifiable tube at that position records what
+the operator found.
+An observation recorded before identity evidence existed has `identity_basis: null`
+and cannot establish a unique identity.
+
+When a label identifies several readable candidates, a choice shows their
+owning projects and their recorded positions where those are readable. A
+concealed occupant is never listed. A scan at its slot gets the same
+neutral refusal whatever vendor code was supplied. An ambiguous scan
+cannot mark a receipt line or a movement confirmation. If a receipt scan
+misses the checklist and the vendor code has several readable matches, the
+receiver can record an unlinked extra. The receipt explains why it has no
+record link.
+
+The receipt's observation history keeps the text the scanner actually sent
+alongside the resolved record. The event says whether the operator used a
+compact Iki symbol, a record URL, an explicit Iki ID, a vendor label or
+an HRID. It records the scope and any deliberate selection. If the input
+matched both HRID and vendor code, history preserves both. An unlinked
+extra records whether the label had no match or several. Manual and older
+observations have no scanner input to report. Readers who lose access to
+a linked tube cannot read its scanned text from the receipt's history.
+
+**Every Iki label carries the record's unique symbol and the human-readable
+HRID.** A configured vendor code can also be printed as an additional
+symbol for instruments. The preview and the print request check that the
+requested symbols, their quiet zones and the HRID fit the selected stock.
+An option that does not fit is refused before a print audit is written.
+
+| Stock                    | Unique symbol (default)   | Alternative | Additional vendor symbol     |
+| ------------------------ | ------------------------- | ----------- | ---------------------------- |
+| Cryo, 32.5 × 12.7 mm     | Square ECC200 Data Matrix | QR, level Q | None                         |
+| Standard, 50.8 × 25.4 mm | Square ECC200 Data Matrix | QR, level Q | Optional Code 128 if it fits |
+| Box, 76.2 × 25.4 mm      | Square ECC200 Data Matrix | QR, level Q | Optional Code 128 if it fits |
+
+The engineering minimum is **0.25 mm per module**, with a whole number of
+printer dots per module. Reserve 24 × 24 modules for the Data Matrix plus
+a one-module quiet zone on each side. On cryo stock this gives three dots
+at 203 dpi (0.375 mm) or five at 300 dpi (0.423 mm). QR uses a four-module
+quiet zone on each side. It fits the same compact payload on cryo stock at
+two dots (0.250 mm) or three dots (0.254 mm), respectively. Keeping the
+larger pitch is why cryo defaults to Data Matrix. [GS1 verification guidance](https://ref.gs1.org/guidelines/barcode-verification/2D/)
+
+The browser draws codes with bwip-js. ZPL uses the printer's native
+barcode commands. Checking symbol bounds, integer-dot pitch and
+software decoding is **layout validation, not scanner qualification**.
+Qualification exercises printed stock with the bench reader. Each
+prepared label records its format, size and copies in an
+`entity.labelled` audit event.
 
 **Scanning works with what labs have.** A USB or Bluetooth scanner types the
 code and a final Enter or Tab as a keyboard does. On Iki's storage, receiving
@@ -195,19 +315,43 @@ and counting pages, typing in an editable field belongs to that field. With
 focus elsewhere, at least four characters form a scan if the gaps between
 them, including the final Enter or Tab, are at most 50 ms, with one gap
 allowed up to 250 ms. This accommodates a brief scheduling or rendering
-stall while excluding a person's steadily slower typing. Two consecutive
-characters within 50 ms identify a possible scan. From then until its
-terminator, a longer pause or a second stall rejects the whole code. Iki
-consumes the terminator either way so it cannot activate the focused
-control. For an unreadable scan the scan box asks the person to try again
-or type the code. On a tablet, the camera reads codes where
-the browser has `BarcodeDetector`; elsewhere, Iki says so and offers the
-code typed.
+stall while excluding a person's steadily slower typing. The gap budget
+applies from the first character. A gap longer than 250 ms or a second
+gap over 50 ms invalidates the whole sequence through its terminator.
+Otherwise a stalled label such as `XRC001` could be accepted as `RC001`.
 
-**A type can require a scan before a draw or a move.** `storage.confirm:
-[draw, move]`: the code scanned is sent with the change, Iki checks it names
-the record, and the movement keeps it. A mismatch is refused before anything
-changes: the tube in someone's hand isn't the one they chose.
+Two consecutive characters within 50 ms identify a possible scan. Once that
+happens, Iki consumes Enter or Tab even when an earlier gap invalidated the
+code. When the timing broke before that fast pair, the scan box explains
+that a key arrived before the rest of the scan and asks for a rescan.
+There is no idle timeout that starts a new code. With focus outside
+editable controls, a stray character followed by a scanner burst can cost
+one retry even minutes later. This prevents the suffix of a label from
+matching a different tube. Enter or Tab ends the attempt. Typing in an
+editable control, composing text, or using a Ctrl, Alt or Meta shortcut
+also clears the listener’s buffer. Steadily slow typing keeps its ordinary
+keyboard behavior.
+
+On a tablet, the camera reads codes where the browser has `BarcodeDetector`.
+Elsewhere, Iki offers the typed code.
+
+**A type can require a scan before a draw or a move.** The
+`storage.confirm` setting names the operations that require proof. The
+server checks the scanned identity in the context of the selected records
+and their source. When the vendor label could confirm more than one tube,
+the operator scans the unique symbol or explicitly enters the tube's Iki
+ID. The movement retains the confirmation used for the write.
+
+For Move and check-in, one scan can identify a tube across the whole selection.
+Send `POST /api/v1/storage/scan/resolve` with `scope: "confirmation"`, the scanned
+`code` and up to 500 selected record UUIDs or HRIDs in `records`. Omit `record`
+for this form. The resolver checks all selected source boxes. When a selected
+tube has no source box, it checks the readable inventory. A unique result
+identifies the selected tube by UUID. Readable collisions return candidates.
+Move and check-in repeat the check against the entire selection under their
+storage locks, so a duplicate that arrived since the scan prevents the write.
+A concealed source or occupant requires independent Iki identity, and an
+unavailable typed ID returns the same neutral refusal as an unknown one.
 
 ### A container's amount, and what a draw went into
 
@@ -250,13 +394,43 @@ position it refers to. A changed observation requires the operator to review
 the affected decision. The completion screen shows each tube and its planned
 destination. A move or placement requires a positive scan at that exact slot.
 
-Each edit advances the count's revision. Saving or clearing a line decision
-and completing the count each require the revision the operator reviewed.
-The server checks it under the same lock that protects the count. Completion
-also verifies each saved decision against its current observation. Another operator can save
-a valid replacement while the first has the form open. The first operator
-must review that revision and enter a fresh approval before completing.
-Completing it applies
+Scanning a fresh slot and tube needs no precondition. Operators can scan independent
+positions at the same time. An operator replacing a prior scan must review each
+affected line and give a correction reason. An explicitly empty position counts as
+an observation. A repeat observation of the same tube or empty slot needs the
+reviewed line version and records a fresh observation without a correction reason.
+A rack file supplies all affected line versions together. Conflicting assignments
+inside a file, or a changed observation on any affected line, refuse the whole file.
+
+Each saved decision is bound to the exact scan, including the scan at the expected
+slot that established a missing finding. Saving, clearing or replacing a decision
+requires that line's revision. Changing or clearing an existing decision requires
+a correction reason separate from its supporting note. Adding a first note to a
+current decision needs no reason. A note-only edit preserves the original
+resolver and decision time. Its event identifies the person who edited the note.
+Omitting the note preserves it on a resolution edit. Clearing the entire decision
+removes its attached note from the current line and retains it in history.
+
+A new observation makes a decision based on the old scan stale, even when both
+observations agree. The count
+history retains the original observation, decision and note, their actors and times,
+and the evidence that replaced them. Earlier counts keep the facts that survived;
+an open decision with no surviving evidence identifier requires a fresh scan before
+it can be confirmed.
+
+On a count line, `observation` identifies the physical scan supporting its current
+finding. `reviewed_observation` identifies the scan supporting its saved decision.
+Both contain the event ID, the physical line ID, the scanned position and code, and
+the operator and time. For a missing tube the physical line is the empty slot or
+the different tube scanned there. To see that scan in history, filter by its
+`line_id` and find its event ID. The missing tube's own line history contains its
+decisions. A null scan means there is no recorded scan event, a null code within
+a scan means the slot was observed empty, and a hidden linked tube's code is
+redacted to an empty string.
+
+Completing or cancelling the whole count requires the parent revision the operator
+reviewed. Cancellation records its operator, time and reason. The count closes
+with its observations intact. Completing it applies
 every resolution as one change, which its movements share as their
 operation, and is refused if anything moved in or out of the container since
 it started. Each movement records its scan position or why the item was
@@ -284,7 +458,8 @@ Tube of a sample and a lot, kept in µL, following both.
   check-out and receipt says who, when and why.
 - Where a record is isn't in its revisions or a bundle's records, as its
   amount isn't; its location history is where that is. A bundle doesn't
-  carry places yet, nor does an import or an action run's `creates`.
+  carry places yet. An inline run create can receive a fresh lot with its opening
+  amount and storage placement when its action declares `receive_into` (ADR 0190).
 - A record's place isn't a search condition or a grid column yet: the
   storage pages and its record's page are where it's found.
 - A receipt doesn't change a request's own status, which is the service's:

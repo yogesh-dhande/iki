@@ -314,6 +314,7 @@ class LegalHold(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     released_at = models.DateTimeField(null=True, blank=True)
+    release_reason = models.TextField(max_length=2000, blank=True, default="")
 
     class Meta:
         db_table = "iki_legal_hold"

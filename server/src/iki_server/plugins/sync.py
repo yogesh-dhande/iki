@@ -131,7 +131,9 @@ def sync(analyst_role: str | None = None) -> Report:
             cursor.execute(statement)
             report.comments += 1
         report.unique = unique.install(
-            cursor, unique.columns((model, fields) for _, model, fields, _ in _tables())
+            cursor,
+            unique.columns((model, fields) for _, model, fields, _ in _tables()),
+            _barcode_types(),
         )
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
@@ -152,6 +154,18 @@ def sync(analyst_role: str | None = None) -> Report:
             report.analyst = analyst_role
         baseline.keep()
     return report
+
+
+def _barcode_types() -> dict[str, list[str]]:
+    """The concrete types that designate each physical column as their vendor barcode."""
+    out: dict[str, list[str]] = {}
+    for type_name, entity_type in registry.types().items():
+        if entity_type.abstract or type_name == naming.ENTITY:
+            continue
+        form = shape(type_name)
+        if name := form.vendor_barcode:
+            out.setdefault(unique.key(form.part_of(name).model, name), []).append(type_name)
+    return out
 
 
 def describe(report: Report) -> list[str]:

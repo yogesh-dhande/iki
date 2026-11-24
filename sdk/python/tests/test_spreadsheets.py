@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fake_iki import FakeIki, config, isolated, store_with
+from fake_iki import FakeIki, config, isolated, problem, store_with
 
 import iki
 from iki.client import Client
@@ -30,6 +30,7 @@ def client(fake: FakeIki, config: Path) -> Client:
 def imported(state: str, **extra: Any) -> dict[str, Any]:
     return {
         "id": IMPORT,
+        "revision": 2,
         "state": state,
         "error": "",
         "file": {"id": "f1", "name": "manifest.xlsx"},
@@ -47,18 +48,24 @@ def test_a_sheet_is_imported_once_its_read_mapped_and_checked(
     fake: FakeIki, client: Client
 ) -> None:
     fake.on("POST", f"/api/v1/projects/{PROJECT}/spreadsheet-imports", imported("reading"))
-    fake.on("PATCH", BASE, imported("mapping"))
-    fake.on("POST", f"{BASE}/preview", imported("previewing"))
-    fake.on("POST", f"{BASE}/commit", imported("committing"))
-    done = imported("imported", run={"hrid": "RUN-000009", "status": "succeeded"})
-    fake.on("GET", BASE, imported("mapping"), imported("previewed", preview=counts(create=3)), done)
+    fake.on("PATCH", BASE, imported("mapping", revision=3))
+    fake.on("POST", f"{BASE}/preview", imported("previewing", revision=3))
+    fake.on("POST", f"{BASE}/commit", imported("committing", revision=3))
+    done = imported("imported", revision=3, run={"hrid": "RUN-000009", "status": "succeeded"})
+    fake.on(
+        "GET",
+        BASE,
+        imported("mapping"),
+        imported("previewed", revision=3, preview=counts(create=3)),
+        done,
+    )
 
     found = client.spreadsheets.start(
         file="f1", type="acme/protein.Sample", project=PROJECT, timeout=60
     )
     assert found["state"] == "mapping"
-    client.spreadsheets.change(found, locale={"decimal": "comma", "dates": "day_first"})
-    checked = client.spreadsheets.preview(found)
+    changed = client.spreadsheets.change(found, locale={"decimal": "comma", "dates": "day_first"})
+    checked = client.spreadsheets.preview(changed)
     assert checked["preview"] is not None and checked["preview"]["counts"]["create"] == 3
     ended = client.spreadsheets.commit(checked, reason="Batch 12")
     assert ended["run"] is not None and ended["run"]["hrid"] == "RUN-000009"
@@ -68,6 +75,22 @@ def test_a_sheet_is_imported_once_its_read_mapped_and_checked(
     }
     assert fake.body("PATCH", BASE) == {"locale": {"decimal": "comma", "dates": "day_first"}}
     assert fake.body("POST", f"{BASE}/commit") == {"skip_problems": False, "reason": "Batch 12"}
+    # Each step is made from the import as the one before it returned it.
+    assert fake.sent("PATCH", BASE)[0].headers["If-Match"] == '"2"'
+    assert fake.sent("POST", f"{BASE}/preview")[0].headers["If-Match"] == '"3"'
+    assert fake.sent("POST", f"{BASE}/commit")[0].headers["If-Match"] == '"3"'
+
+
+def test_a_step_from_a_revision_it_has_moved_on_from_raises(fake: FakeIki, client: Client) -> None:
+    fake.on("PATCH", BASE, problem(412, "It changed since you read it.", "stale"))
+    fake.on("POST", f"{BASE}/mappings", {"id": "m1", "name": "Core"})
+    with pytest.raises(iki.Conflict):
+        client.spreadsheets.change(imported("mapping"), header_row=3)
+    # An import named by its ID alone needs the revision it was read at.
+    with pytest.raises(iki.IkiError, match="its revision"):
+        client.spreadsheets.preview(IMPORT)
+    client.spreadsheets.save_mapping(IMPORT, "Core", revision=5)
+    assert fake.sent("POST", f"{BASE}/mappings")[0].headers["If-Match"] == '"5"'
 
 
 def test_rows_with_problems_stop_an_import_and_say_where(
@@ -100,7 +123,7 @@ def test_a_run_that_didnt_write_it_raises_with_its_rows(fake: FakeIki, client: C
     )
     fake.on("GET", BASE, failed)
     with pytest.raises(iki.ImportFailed, match="row 3") as raised:
-        client.spreadsheets.commit(IMPORT, skip_problems=True)
+        client.spreadsheets.commit(IMPORT, revision=2, skip_problems=True)
     assert raised.value.imported["state"] == "failed"
     assert fake.body("POST", f"{BASE}/commit")["skip_problems"] is True
 
@@ -109,4 +132,4 @@ def test_waiting_longer_than_allowed_raises(fake: FakeIki, client: Client) -> No
     fake.on("POST", f"{BASE}/preview", imported("previewing"))
     fake.on("GET", BASE, imported("previewing"))
     with pytest.raises(iki.TimedOut, match="still previewing"):
-        client.spreadsheets.preview(IMPORT, timeout=0)
+        client.spreadsheets.preview(IMPORT, revision=2, timeout=0)

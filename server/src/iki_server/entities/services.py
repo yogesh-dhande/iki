@@ -52,6 +52,7 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
+from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
     assignments,
@@ -72,13 +73,13 @@ from iki_server.entities.values import (
     Invalid,
     Part,
     Refs,
+    RowProblems,
     Shape,
     history_value,
     problems_of,
     read_value,
     row_columns,
     shape,
-    to_db,
     to_history,
 )
 from iki_server.entities.values import is_list_table as _is_list
@@ -669,6 +670,56 @@ def _unique_values() -> Iterator[None]:
         ) from None
 
 
+def _observation_ids(
+    form: Shape,
+    f: Field,
+    rows: Any,  # noqa: ANN401 - stored field value
+    current: Sequence[dict[str, Any]] | None = None,
+) -> Any:  # noqa: ANN401 - stored values
+    """Assign IDs to new Experiment observations and keep the IDs of retained rows."""
+    if (
+        rows is None
+        or f.name != "observations"
+        or form.part_of(f.name).name != "iki/experiments.Experiment"
+        or f.items is None
+        or "observation_id" not in f.items.fields
+    ):
+        return rows
+
+    name = "observation_id"
+    existing = {row[name]: row for row in current or ()}
+    used: set[str] = set()
+    for index, row in enumerate(rows):
+        row_id = row[name]
+        if row_id is None:
+            continue
+        if row_id in used:
+            raise RowProblems({f"{index}/{name}": ["names the same observation twice."]})
+        if current is not None and row_id not in existing:
+            raise RowProblems({f"{index}/{name}": ["isn't a current observation on this record."]})
+        used.add(row_id)
+
+    def content(row: dict[str, Any]) -> tuple[Any, Any]:
+        return row["observed_at"], row["note"]
+
+    # Older clients can keep an unchanged list as it is. For a changed list, incomplete
+    # requests can preserve a unique content match, but cannot identify identical rows.
+    if not used and current is not None and list(map(content, rows)) == list(map(content, current)):
+        return list(current)
+    matches: dict[tuple[Any, Any], list[str]] = defaultdict(list)
+    if not used:
+        for row_id, row in existing.items():
+            matches[content(row)].append(row_id)
+    for index, row in enumerate(rows):
+        if row[name] is not None:
+            continue
+        candidates = matches[content(row)]
+        if len(candidates) > 1:
+            raise RowProblems({f"{index}/{name}": ["is required to identify this duplicate."]})
+        row[name] = candidates.pop() if candidates else str(uuid7())
+    return rows
+
+
 def prepare(
     user: User,
     type_name: str,
@@ -721,7 +772,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = to_db(f, value, refs)
+                given[name] = _observation_ids(form, f, form.field_value(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -730,9 +781,16 @@ def prepare(
         if f.type == "state" and not f.removed:
             given[name] = f.initial  # Where new records start (ADR 0125).
         elif name not in values and f.has_default and not f.computed:
-            given[name] = to_db(f, f.default, refs)
+            try:
+                given[name] = form.field_value(f, f.default, refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    if not errors:
+        from iki_server.amounts import stock
+
+        errors = stock.check_item(type_name, project, given)
     if not errors:
         errors = requests.check_result(project, type_name, given)
     if not errors:
@@ -883,7 +941,7 @@ def update(
             current = rows.value(part, f)
             if name in identifying:
                 try:
-                    converted = to_db(f, value, refs)
+                    converted = form.field_value(f, value, refs)
                 except ValueError as error:
                     errors.update(problems_of(name, error))
                     continue
@@ -903,7 +961,9 @@ def update(
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
                 with using.namer.keeping(_named_in(f, current)):
-                    converted = to_db(f, value, using)
+                    converted = _observation_ids(
+                        form, f, form.field_value(f, value, using), current
+                    )
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue

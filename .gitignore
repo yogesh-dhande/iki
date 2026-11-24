@@ -35,7 +35,7 @@ target/
 server/src/iki_server/web/static/app/
 server/src/iki_server/web/static/viewers/
 # iki-wasm, built for the web app and the server by scripts/build-wasm.sh, and by the
-# images: only ever built, never committed, wherever a copy is left.
+# images. The DNA plugin's offline measurement is added to its archive at build time.
 web/app/wasm/
 *.wasm
 spec/src/iki_spec/rust-standard-library.html

@@ -121,6 +121,9 @@ class ParamOut(FieldOut):
 
 
 class CreatesOut(Schema):
+    receive_into: str | None = Field(
+        None, description="The required input container for a fresh stock receipt."
+    )
     type: str
     cardinality: Literal["one", "many"]
     derived_from: list[str]
@@ -263,7 +266,12 @@ def _action_out(action: Action) -> dict[str, Any]:
         ],
         "params_schema": schema.for_params(action.label or action.name, dict(action.params)),
         "creates": [
-            {"type": c.type, "cardinality": c.cardinality, "derived_from": list(c.derived_from)}
+            {
+                "type": c.type,
+                "cardinality": c.cardinality,
+                "derived_from": list(c.derived_from),
+                "receive_into": c.receive_into,
+            }
             for c in action.creates
         ],
         "updates": [{"input": u.input, "fields": list(u.fields)} for u in action.updates],
@@ -1636,7 +1644,9 @@ def _decide(me: User, approval: RunApproval) -> None:
 
 
 class DeclineIn(Schema):
-    note: str = Field("", max_length=2000, description="Why, for the record and for the agent.")
+    note: str = Field(
+        "", max_length=2000, description="Required. Why, for the record and for the agent."
+    )
 
 
 @router.get(
@@ -1675,6 +1685,8 @@ def decline_runs(request: HttpRequest, approval_id: UUID, payload: DeclineIn) ->
     _decide(me, found)
     try:
         approvals.decline(me, found, note=payload.note)
+    except Invalid as error:
+        raise invalid_problem(error) from None
     except PermissionDenied:
         raise Problem(403) from None
     return _approvals_out(me, {found.pk})[found.pk]

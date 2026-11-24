@@ -151,9 +151,19 @@ def test_approving_queues_them_for_a_worker(world: World) -> None:
 def test_declining_ends_them_unstarted(world: World) -> None:
     (run,) = as_agent(world)
     assert run.approval is not None
-    decided = api_as(world).post(
-        f"/run-approvals/{run.approval.pk}/decline", {"note": " Not today "}
+    approver = api_as(world)
+    ref = f"/run-approvals/{run.approval.pk}"
+    for payload in ({}, {"note": ""}, {"note": "   "}):
+        refused = problem(approver.post(f"{ref}/decline", payload), 422, "validation_failed")
+        assert refused["errors"][0]["pointer"] == "#/note"
+        assert approver.get(ref).json()["state"] == "pending"
+        assert Job.objects.get(run=run).state == JobState.AWAITING_APPROVAL
+    assert not AuditEvent.objects.filter(action="run.declined").exists()
+
+    problem(
+        api_as(world, "runner").post(f"{ref}/decline", {"note": "Not my run"}), 403, "forbidden"
     )
+    decided = approver.post(f"{ref}/decline", {"note": " Not today "})
     assert decided.status_code == 200, decided.content
     assert (decided.json()["state"], decided.json()["note"]) == ("declined", "Not today")
     body = request_of(api_as(world), run)
@@ -163,6 +173,7 @@ def test_declining_ends_them_unstarted(world: World) -> None:
     assert Job.objects.get(run=run).state == JobState.CANCELLED
     event = AuditEvent.objects.get(action="run.declined")
     assert event.data == {"runs": [run.hrid], "note": "Not today"}
+    assert event.actor_id == world.users["editor"].pk
     problem(api_as(world).post(f"/run-approvals/{run.approval.pk}/approve"), 409, "refused")
 
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" class="viewer-story">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/viewer-theme.css" />
+    <title>Structure viewer</title>
+  </head>
+  <body>
+    <h1>Crambin</h1>
+    <p>The first ten residues from <a href="https://www.rcsb.org/structure/1CRN">PDB 1CRN</a>.</p>
+    <label>Structure file <input type="file" accept=".pdb,.cif,.mmcif" /></label>
+    <iki-structure-viewer></iki-structure-viewer>
+    <script type="module">
+      import "../dist/structure-viewer.js";
+      const viewer = document.querySelector("iki-structure-viewer");
+      const example = await fetch("./crambin.pdb");
+      viewer.data = {
+        structures: [{ label: "Crambin", format: "pdb", structure: await example.text() }],
+      };
+      document.querySelector("input").addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (file)
+          viewer.data = {
+            structures: [
+              {
+                label: file.name,
+                format: /\.pdb$/i.test(file.name) ? "pdb" : "mmcif",
+                structure: await file.arrayBuffer(),
+              },
+            ],
+          };
+      });
+    </script>
+  </body>
+</html>

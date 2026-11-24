@@ -2895,6 +2895,72 @@ hrid: { prefix: EXPT }
     )
 
 
+def test_stock_catalogue_checks_and_roundtrips_its_project_fields(tmp_path: Path) -> None:
+    catalogue = (
+        TYPE
+        + """
+stock_catalogue:
+  name: name
+  unit: unit
+  threshold: threshold
+  notify: [qa]
+  lots: { type: Lot, item: item, number: serial, expiry: expires_on }
+  orders: { type: Order, item: item, reference: reference, ordered: ordered, received: received }
+fields:
+  name: { type: string, required: true }
+  unit: { type: enum, values: [mg], required: true, immutable: true }
+  threshold: { type: float, required: true, min: 0 }
+"""
+    )
+    item = "  item: { type: ref, to: Assay, immutable: true, required: true }"
+    lot = (
+        TYPE.replace("Assay", "Lot").replace("ASY", "LOT")
+        + """
+amount: { unit: mg, material: item }
+fields:
+  serial: { type: string }
+  expires_on: { type: date }
+"""
+        + item
+    )
+    order = (
+        TYPE.replace("Assay", "Order").replace("ASY", "ORD")
+        + """
+fields:
+  reference: { type: string }
+  ordered: { type: int, required: true, immutable: true, min: 1 }
+  received: { type: int, computed: true, min: 0 }
+"""
+        + item
+    )
+    files = {"types/item.yaml": catalogue, "types/lot.yaml": lot, "types/order.yaml": order}
+    result = make(tmp_path, files, ROLES)
+    assert codes(result) == [], result.problems
+    assert result.plugin is not None
+    loaded = plugin_from_dict(plugin_to_dict(result.plugin))
+    assert loaded == result.plugin
+    cfg = loaded.types["acme/lab.Assay"].stock_catalogue
+    assert cfg is not None and cfg.lots.type == "acme/lab.Lot" and cfg.notify == ("acme/lab.qa",)
+    for before, after, expected in [
+        ("threshold: threshold", "threshold: serial", "stock-catalogue-field"),
+        ("required: true, immutable: true", "required: true", "stock-catalogue-unit"),
+        ("min: 0", "min: -1", "stock-catalogue-threshold"),
+        ("values: [mg]", "values: [mL]", "stock-catalogue-lot"),
+    ]:
+        assert expected in codes(
+            make(tmp_path, {**files, "types/item.yaml": catalogue.replace(before, after)}, ROLES)
+        )
+
+
+def test_a_type_can_keep_its_amount_in_whole_units(tmp_path: Path) -> None:
+    result = make(tmp_path, TYPE + 'amount: { unit: "1", whole_units: true }\n')
+    assert not result.problems
+    assert result.plugin is not None
+    built = plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin))))
+    amount = built.types["acme/lab.Assay"].amount
+    assert amount is not None and amount.whole_units
+
+
 def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
     """ADR 0139: kept in a unit that adds up, drawn by its concentration, split into
     aliquots of another type, and held in a state."""

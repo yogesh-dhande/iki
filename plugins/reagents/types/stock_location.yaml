@@ -1,0 +1,15 @@
+apiVersion: iki/v1
+kind: EntityType
+name: StockLocation
+label: Stock location
+schema_version: 1
+hrid: { prefix: SLC }
+description: A shelf or rack of receipt lots. Rows and columns define its labelled storage positions.
+storage:
+  holds: [StockLot]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+fields:
+  name: { type: string, required: true, max_length: 160, indexed: true }
+  rows: { type: int, required: true, immutable: true, min: 1, max: 26, default: 1 }
+  columns: { type: int, required: true, immutable: true, min: 1, max: 48, default: 12 }
+display: { title: "{{ name }}" }

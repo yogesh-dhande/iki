@@ -156,10 +156,11 @@ function writeCookie(name: string, value: string): void {
 export const savedViewsQuery = queryOptions({
   queryKey: ["saved-searches", "mine"],
   meta: { background: true },
-  queryFn: async () =>
+  queryFn: async ({ signal }) =>
     unwrap(
       await iki.GET("/api/v1/saved-searches", {
         params: { query: { mine: true, limit: SPEC.projects.shown } },
+        signal,
       }),
     ),
 });

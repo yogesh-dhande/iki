@@ -390,6 +390,9 @@ pub struct RunOutputCreate {
     pub key: Option<String>,
     /// Its fields' values. A ref field (or an item of a list of refs) may be `{"$create": "<key>"}`: the entity an earlier create with that key made or reused.
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// For a create that declares receive_into: the starting amount and location within the input container. Only fresh inline creates can receive material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt: Option<RunOutputCreateReceipt>,
     /// Fields of `values`, its registry entry's, that only fill an entry registered already where it has none: one it has is kept and the create goes ahead, where a fact that differs is otherwise refused. For what sources spell otherwise, such as an organism's scientific name from an old file (ADR 0140). Not in a `creates_file`'s lines.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fills: Option<Vec<String>>,
@@ -401,6 +404,26 @@ pub struct RunOutputCreate {
     /// Which of the action's `software` made it, by name, when the action lists more than one and the run chose. Leave it out to mean all of them (ADR 0106).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub made_with: Option<Vec<String>>,
+}
+
+/// For a create that declares receive_into: the starting amount and location within the input container. Only fresh inline creates can receive material.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputCreateReceipt {
+    pub amount: RunOutputCreateReceiptAmount,
+    pub reason: String,
+    /// The grid position, such as A1. Omit to use the next free position or place into an ungridded container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<String>,
+    /// For a type requiring a move scan, the code scanned from the new record.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunOutputCreateReceiptAmount {
+    /// A positive decimal amount. Use a string to preserve its exact precision.
+    pub value: serde_json::Value,
+    pub unit: String,
 }
 
 /// What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.

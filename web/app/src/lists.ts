@@ -20,10 +20,11 @@ export type TypeCount = Schemas["TypeCountOut"];
 export function countsQuery(projectId?: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "counts", projectId ?? null],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/counts", {
           params: { query: projectId ? { project: projectId } : {} },
+          signal,
         }),
       ),
     staleTime: 30_000,
@@ -52,7 +53,7 @@ export function countOf(
  * those shared with projects they read. */
 export const everySavedSearchQuery = queryOptions({
   queryKey: [...SAVED_SEARCHES, "everywhere"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/saved-searches")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/saved-searches", { signal })),
 });
 
 /** The projects whose records the reader can read, by name: what a list's Project filter

@@ -18,6 +18,7 @@ from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 
 MAX_MATTER = 200
+MAX_RELEASE_REASON = 2000
 
 
 def on() -> QuerySet[LegalHold]:
@@ -59,9 +60,16 @@ def place(by: User, project: Project, matter: str, note: str = "") -> LegalHold:
     return hold
 
 
-def release(by: User, hold: LegalHold) -> LegalHold:
-    """Releases the hold. The project's data can be deleted again once no other hold is on."""
+def release(by: User, hold: LegalHold, *, reason: str) -> LegalHold:
+    """Releases the hold with a reason. Its project may be deleted when no other hold is on."""
     permissions.require(by, Action.ORG_MANAGE)
+    reason = reason.strip()
+    if not reason:
+        raise Refused("Say why the legal hold is being released.", field="reason")
+    if len(reason) > MAX_RELEASE_REASON:
+        raise Refused(
+            f"Keep the release reason to {MAX_RELEASE_REASON} characters.", field="reason"
+        )
     with transaction.atomic():
         hold = (
             LegalHold.objects.select_for_update(of=("self",))
@@ -72,12 +80,13 @@ def release(by: User, hold: LegalHold) -> LegalHold:
             return hold
         hold.released_at = timezone.now()
         hold.released_by = by
-        hold.save(update_fields=["released_at", "released_by"])
+        hold.release_reason = reason
+        hold.save(update_fields=["released_at", "released_by", "release_reason"])
         audit.record(
             "legal_hold.released",
             actor=by,
             target=hold,
             project=hold.project,
-            data={"matter": hold.matter},
+            data={"matter": hold.matter, "reason": reason},
         )
     return hold
