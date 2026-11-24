@@ -25,6 +25,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema
 from ninja.responses import Status
@@ -165,6 +166,9 @@ class SpreadsheetCommitIn(Schema):
 class SavedMappingIn(Schema):
     name: str = Field(min_length=1, max_length=100)
     replace: UUID | None = Field(None, description="A saved mapping to change, rather than add.")
+    target_revision: int | None = Field(
+        None, ge=1, strict=True, description="The reviewed saved template revision, with replace."
+    )
 
 
 class WorkbookRef(Schema):
@@ -215,6 +219,7 @@ class FieldTargetOut(Schema):
 
 class SavedMappingOut(Schema):
     id: UUID
+    revision: int
     name: str
     type: str
     headers: list[str]
@@ -234,6 +239,10 @@ class SavedMappingMatch(Schema):
     id: UUID
     name: str
     match: float = Field(description="The share of its headers the sheet has.")
+
+
+class AvailableMapping(SavedMappingMatch):
+    revision: int
 
 
 class AppliedMappingOut(Schema):
@@ -278,8 +287,8 @@ class SheetProblemOut(Schema):
 class SpreadsheetImportOut(Schema):
     id: UUID
     revision: int = Field(
-        description="One more with each change to what it imports. Send it back as If-Match "
-        "to change, preview, commit or save its mapping."
+        description="Advances for each change to what it imports and each new preview. "
+        "Send it as If-Match to change, preview, commit or save its mapping."
     )
     project: UUID = Field(alias="project_id")
     type: str
@@ -311,7 +320,7 @@ class SpreadsheetImportOut(Schema):
     applied_mapping: AppliedMappingOut | None = Field(
         None, description="The exact mapping confirmed at commit, kept on the import."
     )
-    mappings: list[SavedMappingMatch] = Field(
+    mappings: list[AvailableMapping] = Field(
         description="The project's saved mappings for the type, best matched first."
     )
     warnings: list[str]
@@ -344,7 +353,7 @@ class PreviewRowParams(PageParams):
 def _find(me: User, import_id: UUID) -> SpreadsheetImport:
     found = (
         services.visible(me)
-        .select_related("file__blob", "requested_by", "project", "run", "mapping")
+        .select_related("file__blob", "requested_by", "project", "run")
         .filter(pk=import_id)
         .first()
     )
@@ -474,14 +483,16 @@ def _out(me: User, imported: SpreadsheetImport) -> dict[str, Any]:
         ((mapping.matches(s.headers, headers), s) for s in saved),
         key=lambda m: (-m[0], m[1].name),
     )
-    suggested = [{"id": s.pk, "name": s.name, "match": score} for score, s in scored]
+    suggested = [
+        {"id": s.pk, "revision": s.revision, "name": s.name, "match": score} for score, s in scored
+    ]
     state = services.state_of(imported)
     pinned = imported.applied_mapping
     if pinned is not None or imported.state in (ImportState.COMMITTING, ImportState.COMMITTED):
         # A legacy record's current template can no longer prove what it used.
         shown_mapping = pinned["template"] if pinned is not None else None
     else:
-        shown_mapping = next((m for m in suggested if m["id"] == imported.mapping_id), None)
+        shown_mapping = imported.mapping_source
     mine = imported.requested_by_id == me.pk and can(me, Action.PROJECT_EDIT, imported.project)
     run = imported.run
     run_out = None
@@ -597,7 +608,7 @@ def list_imports(
         services.visible(me)
         .filter(project=target)
         .exclude(state=ImportState.DISCARDED)
-        .select_related("file__blob", "requested_by", "project", "run", "mapping")
+        .select_related("file__blob", "requested_by", "project", "run")
     )
     out = page(found, params, newest_first=True)
     out["items"] = [_out(me, i) for i in out["items"]]
@@ -649,8 +660,9 @@ def change_import(
         mapping=given.get("mapping"),
         locale=given.get("locale"),
     )
-    _call(lambda: services.change(me, found, choice, expected_revision=expected))
-    return _one(me, _find(me, import_id), response)
+    with transaction.atomic():
+        changed = _call(lambda: services.change(me, found, choice, expected_revision=expected))
+        return _one(me, changed, response)
 
 
 @router.post(
@@ -666,12 +678,13 @@ def preview_import(
 ) -> Status[Any]:
     """Checks every row as importing would write it, a chunk at a time: what's wrong with
     each, by its column, and the records each would duplicate. Send the revision you read
-    (If-Match): it's what's checked. Poll it until it's ``previewed``."""
+    (If-Match). Each preview starts a new revision. Poll until that revision is previewed."""
     me = caller(request)
     found = _writable(me, import_id)
     expected = _expected(if_match)
-    _call(lambda: services.preview(me, found, expected_revision=expected))
-    return Status(202, _one(me, _find(me, import_id), response))
+    with transaction.atomic():
+        started = _call(lambda: services.preview(me, found, expected_revision=expected))
+        return Status(202, _one(me, started, response))
 
 
 @router.get(
@@ -680,14 +693,26 @@ def preview_import(
     summary="What a preview found, row by row",
 )
 def import_rows(
-    request: HttpRequest, import_id: UUID, params: Query[PreviewRowParams]
+    request: HttpRequest,
+    import_id: UUID,
+    params: Query[PreviewRowParams],
+    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
-    """In the sheet's order; ``outcome`` narrows them to those with problems, say."""
+    """Read its rows in sheet order. Send the preview's If-Match on each page to read
+    that revision; a superseded preview returns 412. ``outcome`` filters its rows."""
     me = caller(request)
     found = _find(me, import_id)
+    expected = _expected(if_match) if if_match is not None else None
+    if expected is not None:
+        _call(lambda: services.check_revision(found, expected))
     rows = services.outcome_rows(found, params.outcome)
     out = page_by(rows, params, by=("row",))
     out["items"] = [_row_out(r) for r in out["items"]]
+    if expected is not None:
+        # The preview worker skips locked drafts. Recheck the monotone revision
+        # after reading this round rather than blocking its worker to read a page.
+        found.refresh_from_db(fields=["revision"])
+        _call(lambda: services.check_revision(found, expected))
     return out
 
 
@@ -762,25 +787,25 @@ def save_mapping(
 ) -> Status[Any]:
     """Keeps how its columns map, by their headers, for the project's next sheet of the same
     kind: one from the same instrument or vendor maps itself. Send the revision you read
-    (If-Match): its mapping is what's kept."""
+    (If-Match): its mapping is what's kept. To replace a template send its ID and reviewed
+    target_revision. A stale template returns 409; a stale import returns 412."""
     me = caller(request)
     found = _writable(me, import_id)
     expected = _expected(if_match)
-    replace = None
-    if payload.replace is not None:
-        replace = SavedMapping.objects.filter(
-            pk=payload.replace, project=found.project_id, type=found.type
-        ).first()
-        if replace is None:
-            raise Problem(404, "No such saved mapping for this type in the project.")
-    saved = _call(
-        lambda: services.save_mapping(
-            me, found, payload.name, expected_revision=expected, replace=replace
+    try:
+        saved = _call(
+            lambda: services.save_mapping(
+                me,
+                found,
+                payload.name,
+                expected_revision=expected,
+                replace=payload.replace,
+                target_revision=payload.target_revision,
+            )
         )
-    )
-    return Status(
-        201, SavedMapping.objects.select_related("created_by", "updated_by").get(pk=saved.pk)
-    )
+    except SavedMapping.DoesNotExist:
+        raise Problem(404, "No such saved mapping for this type in the project.") from None
+    return Status(201, saved)
 
 
 @router.get(
@@ -808,5 +833,8 @@ def delete_mapping(request: HttpRequest, mapping_id: UUID) -> Status[None]:
     if saved is None or not can(me, Action.PROJECT_READ, saved.project):
         raise Problem(404, "No such saved mapping.")
     project(me, saved.project_id, Action.PROJECT_EDIT)
-    _call(lambda: services.delete_mapping(me, saved))
+    try:
+        _call(lambda: services.delete_mapping(me, saved))
+    except SavedMapping.DoesNotExist:
+        raise Problem(404, "No such saved mapping.") from None
     return Status(204, None)

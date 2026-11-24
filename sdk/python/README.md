@@ -331,18 +331,33 @@ sheet = iki.spreadsheets.preview(sheet)
 sheet["preview"]["counts"]  # rows to create, register, add, reuse, merge, or fix
 for row in iki.spreadsheets.rows(sheet, outcome=["problem"]):
     print(row["row"], row["problems"])
-iki.spreadsheets.save_mapping(sheet, "Core facility manifest")
-iki.spreadsheets.commit(sheet, reason="Batch 12")
+imported = iki.spreadsheets.commit(sheet, reason="Batch 12")
+template = iki.spreadsheets.save_mapping(imported, "Core facility manifest")
 ```
 
-Each step is made from the import as the step before returned it: pass that
-along, as above, or give `revision=`. If it changed since (in another session),
-the step raises `iki.Conflict` and changes nothing.
+Pass the import returned by each step to the next one. Every new preview gets
+its own import revision, even if the sheet and mapping stayed the same. Reading
+rows with `rows(sheet)` keeps every page on that preview. If someone changes it
+before you finish reviewing or committing it, the SDK raises `iki.Conflict`.
+Read the current import, review its preview and decide whether to commit it.
 
-Importing requires project Editor access and the `write` scope. The REST API
-is the same steps: `POST /projects/{id}/spreadsheet-imports`, `PATCH` and
-`POST …/preview` on `/spreadsheet-imports/{id}`, `GET …/rows`, then
-`POST …/commit`.
+To replace a saved template, pass both the import you reviewed and the template
+you intend to replace. For example, after reviewing the entries returned by
+`iki.spreadsheets.mappings(project)`, call
+`iki.spreadsheets.save_mapping(sheet, template["name"], replace=template)`.
+The server checks the import revision and the template revision together.
+Saving a mapping on an open import can change its recorded mapping source.
+Read that import again before previewing it.
+
+Importing requires project Editor access and the `write` scope. In the REST
+API, start with `POST /projects/{id}/spreadsheet-imports`, then send `PATCH`
+and `POST …/preview` on `/spreadsheet-imports/{id}` with the import's
+`If-Match` precondition. Use the new ETag returned by the preview for
+`GET …/rows` and `POST …/commit`. To replace a template, send the source
+import's ETag in `If-Match` on `POST …/mappings` and include `name`,
+`replace` (the template ID) and `target_revision` in the body. HTTP 412
+identifies a changed import. HTTP 409 with `stale_template` identifies a
+changed template. Both refusals leave the saved mapping untouched.
 
 ## Errors
 
