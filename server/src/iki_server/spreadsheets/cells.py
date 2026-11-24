@@ -40,7 +40,9 @@ __all__ = [
     "Locale",
     "Reference",
     "convert",
+    "header_unit_label",
     "not_mappable",
+    "ucum",
     "unit_in",
     "unit_problem",
 ]
@@ -234,13 +236,18 @@ def not_mappable(f: Field, service: bool = False) -> str | None:
     return None
 
 
+def header_unit_label(text: str) -> str | None:
+    """The bracketed input unit on a quantity column, including an unfamiliar spelling."""
+    found = re.search(r"[(\[]\s*([^()\[\]]+?)\s*[)\]]\s*$", text)
+    return ucum(found.group(1)) if found else None
+
+
 def unit_in(text: str) -> str | None:
     """The UCUM unit a header names, in brackets, as ``Concentration (ug/mL)`` or
     ``Tm [°C]`` do, if it names one."""
-    found = re.search(r"[(\[]\s*([^()\[\]]{1,30}?)\s*[)\]]\s*$", text)
-    if found is None:
+    code = header_unit_label(text)
+    if code is None:
         return None
-    code = _ucum(found.group(1))
     try:
         units.parse(code)
     except units.UnitError:
@@ -252,7 +259,7 @@ def unit_problem(f: Field, unit: str) -> str | None:
     """Why a quantity's cells in ``unit`` can't be ``f``'s, or None if they convert."""
     assert f.unit is not None  # noqa: S101 - quantities have units
     try:
-        units.convert(1.0, _ucum(unit), f.unit)
+        units.convert(1.0, ucum(unit), f.unit)
     except units.UnitError as error:
         hint = f" {error.hint}" if error.hint else ""
         return f"{error.message}{hint}"
@@ -415,11 +422,11 @@ def shown(number: float | int | None) -> str:
 
 def _quantity(f: Field, column: Column, value: Cell) -> dict[str, Any]:
     assert f.unit is not None  # noqa: S101 - quantities have units
-    unit = _ucum(column.unit) if column.unit else f.unit
+    unit = ucum(column.unit) if column.unit else f.unit
     if isinstance(value, str):
         found = _QUANTITY.fullmatch(value)
         if found is not None and found.group("unit"):
-            unit = _ucum(found.group("unit"))
+            unit = ucum(found.group("unit"))
             number = _parse_number(column, found.group("number"))
         else:
             number = _number(column, value)
@@ -566,7 +573,7 @@ def is_id(text: str) -> bool:
     return True
 
 
-def _ucum(text: str) -> str:
+def ucum(text: str) -> str:
     cleaned = text.strip().replace("µ", "u").replace("μ", "u")
     return _SPELLINGS.get(cleaned, cleaned)
 

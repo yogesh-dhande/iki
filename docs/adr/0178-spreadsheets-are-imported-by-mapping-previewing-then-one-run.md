@@ -192,6 +192,11 @@ columns are; others are offered, best matched first. Mappings are the
 project's because a project's instruments and vendors are; one a team wants
 everywhere is saved in each project, as views are.
 
+For a quantity column, a unit in the new header must agree with the template's
+input unit, including an input unit supplied by the field default. A conflict
+excludes the template from automatic reuse. Selecting it explicitly identifies
+the conflicting column and units so the person can review the sheet's mapping.
+
 Replacing a saved mapping names two revisions. The import revision identifies
 the source sheet and column choices the person reviewed. The saved mapping's
 revision identifies the template they agreed to replace. The save checks

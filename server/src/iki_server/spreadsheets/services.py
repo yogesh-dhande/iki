@@ -285,25 +285,19 @@ def _suggested(imported: SpreadsheetImport) -> list[Column]:
     """The columns to start with: a saved mapping of the project's whose every header the
     sheet has (the best, if several), else those the headers name."""
     headers = headers_of(imported)
-    best: SavedMapping | None = None
-    for saved in SavedMapping.objects.filter(project=imported.project_id, type=imported.type):
-        if mapping.matches(saved.headers, headers) == 1.0 and (
-            best is None or len(saved.headers) > len(best.headers)
-        ):
-            best = saved
-    if best is not None:
-        _remember_mapping(imported, best)
-        imported.locale = Locale.of(best.locale).as_json()
-        return mapping.from_saved(best.columns, headers)
+    fields = shape(imported.type).fields()
+    saved_mappings = SavedMapping.objects.filter(project=imported.project_id, type=imported.type)
+    for saved in sorted(saved_mappings, key=lambda s: len(s.columns), reverse=True):
+        match = mapping.from_saved(saved.columns, headers, fields)
+        if match.score == 1.0:
+            _remember_mapping(imported, saved, match.score)
+            imported.locale = Locale.of(saved.locale).as_json()
+            return match.columns
     return mapping.suggest(imported.type, headers)
 
 
-def _remember_mapping(imported: SpreadsheetImport, saved: SavedMapping) -> None:
-    imported.mapping_source = {
-        "id": str(saved.pk),
-        "name": saved.name,
-        "match": mapping.matches(saved.headers, headers_of(imported)),
-    }
+def _remember_mapping(imported: SpreadsheetImport, saved: SavedMapping, score: float) -> None:
+    imported.mapping_source = {"id": str(saved.pk), "name": saved.name, "match": score}
 
 
 def sheet_of(imported: SpreadsheetImport) -> dict[str, Any]:
@@ -393,11 +387,15 @@ def change(
             if saved is None:
                 errors["mapping"] = ["isn't a mapping saved for this type in the project."]
             else:
-                _remember_mapping(imported, saved)
-                imported.locale = Locale.of(saved.locale).as_json()
-                imported.columns = [
-                    c.as_json() for c in mapping.from_saved(saved.columns, headers_of(imported))
-                ]
+                match = mapping.from_saved(
+                    saved.columns, headers_of(imported), shape(imported.type).fields()
+                )
+                if match.conflicts:
+                    errors["mapping"] = match.conflicts
+                else:
+                    _remember_mapping(imported, saved, match.score)
+                    imported.locale = Locale.of(saved.locale).as_json()
+                    imported.columns = [c.as_json() for c in match.columns]
         elif choice.columns is not None:
             width = int(sheet.get("columns") or 0)
             wrong = mapping.check(imported.type, choice.columns, width)
@@ -614,7 +612,7 @@ def save_mapping(
             ImportState.COMMITTED,
         ):
             previous = imported.mapping_source
-            _remember_mapping(imported, saved)
+            _remember_mapping(imported, saved, 1.0)
             if previous != imported.mapping_source:
                 imported.revision += 1
                 imported.save(update_fields=["mapping_source", "revision"])

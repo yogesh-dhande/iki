@@ -24,7 +24,6 @@ __all__ = [
     "from_saved",
     "headers_of",
     "key",
-    "matches",
     "saved_columns",
     "suggest",
     "targets",
@@ -124,12 +123,11 @@ def _abbreviated(wanted: Mapping[str, Target], header: str) -> Target | None:
 
 
 def _header_unit(f: Field, header: str) -> str | None:
-    if f.type != "quantity":
+    item = f.items if f.type == "list" and f.items is not None else f
+    if item.type != "quantity":
         return None
-    named = cells.unit_in(header)
-    if named is None or named == f.unit or cells.unit_problem(f, named) is not None:
-        return None
-    return named
+    named = cells.header_unit_label(header)
+    return None if named == item.unit else named
 
 
 def columns_from_json(data: Iterable[Mapping[str, Any]]) -> list[Column]:
@@ -281,29 +279,45 @@ def saved_columns(
     return out
 
 
-def from_saved(saved: Sequence[Mapping[str, Any]], headers: Sequence[str]) -> list[Column]:
-    """A saved mapping's columns for a sheet with these headers: each by its header,
-    compared as :func:`key` compares them; the sheet's other columns are left unmapped."""
+@dataclass(frozen=True)
+class TemplateMatch:
+    columns: list[Column]
+    score: float
+    conflicts: list[str]
+
+
+def from_saved(
+    saved: Sequence[Mapping[str, Any]], headers: Sequence[str], fields: Mapping[str, Field]
+) -> TemplateMatch:
+    """Place saved field choices by name and effective input unit, once per column."""
     by_key: dict[str, list[int]] = {}
     for index, header in enumerate(headers):
         by_key.setdefault(key(header), []).append(index)
     placed: dict[int, Column] = {}
+    conflicts: list[str] = []
     for kept in saved:
-        free = [i for i in by_key.get(key(str(kept.get("header", ""))), []) if i not in placed]
-        if not free:
+        free = [i for i in by_key.get(key(str(kept["header"])), []) if i not in placed]
+        field = fields.get(str(kept["field"]))
+        if not free or field is None:
             continue
-        options = {k: v for k, v in kept.items() if k != "header"}
-        placed[free[0]] = columns_from_json([{"index": free[0], **options}])[0]
-    return [placed.get(i, Column(i)) for i in range(len(headers))]
-
-
-def matches(saved_headers: Sequence[str], headers: Sequence[str]) -> float:
-    """How well a saved mapping's headers match a sheet's: the share of its headers the
-    sheet has, 1 for all of them."""
-    if not saved_headers:
-        return 0.0
-    have = {key(h) for h in headers}
-    return sum(1 for h in saved_headers if key(h) in have) / len(saved_headers)
+        item = field.items if field.type == "list" and field.items is not None else field
+        if item.type == "quantity":
+            assert item.unit is not None  # noqa: S101 - quantities have units
+            effective = cells.ucum(kept.get("unit") or item.unit)
+            compatible = [
+                i for i in free if cells.header_unit_label(headers[i]) in (None, effective)
+            ]
+            if not compatible:
+                conflicts.append(
+                    f"Column {letter(free[0])}, “{headers[free[0]]}”, differs from the saved "
+                    f"input unit {effective}. Review the column mapping for this sheet."
+                )
+                continue
+            free = compatible
+        index = free[0]
+        placed[index] = columns_from_json([{**kept, "index": index}])[0]
+    columns = [placed.get(i, Column(i)) for i in range(len(headers))]
+    return TemplateMatch(columns, len(placed) / len(saved) if saved else 0.0, conflicts)
 
 
 def is_type(name: str) -> bool:
