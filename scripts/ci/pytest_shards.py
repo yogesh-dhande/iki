@@ -3,7 +3,8 @@
 CI splits the suite into kinds by the setup a test needs, and each kind into shards that
 run as jobs side by side:
 
-- ``browser``: marked ``built_web_app`` or ``browser``. They need Playwright browsers.
+- ``browser``: use the Playwright or browser fixture, or declare browser assets with
+  ``built_web_app`` or ``browser``.
 - ``worker``: marked ``worker_e2e``. They run iki-worker, which cargo builds.
 - ``plain``: everything else, which needs Python, Postgres, Docker and iki-wasm (which
   every shard builds: saves evaluate plugins' rules with it).
@@ -64,14 +65,19 @@ class Shard:
         return shard
 
 
-def kind_of(markers: Iterable[str]) -> str:
-    """The kind of a test with these markers: the setup its shard needs."""
+def kind_of(markers: Iterable[str], fixtures: Iterable[str] = ()) -> str:
+    """The setup a test needs, including through an indirect or aliased fixture."""
     names = set(markers)
-    if names & {"built_web_app", "browser"}:
+    if names & {"built_web_app", "browser"} or {"browser", "playwright"}.intersection(fixtures):
         return "browser"
     if "worker_e2e" in names:
         return "worker"
     return "plain"
+
+
+def item_kind(item: pytest.Item) -> str:
+    fixtures = item.fixturenames if isinstance(item, pytest.Function) else ()
+    return kind_of((m.name for m in item.iter_markers()), fixtures)
 
 
 def file_of(nodeid: str) -> str:
@@ -155,7 +161,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
     shard = config.stash.get(_SHARD_KEY, None)
     if shard is None:
         return
-    kinds = {item.nodeid: kind_of(m.name for m in item.iter_markers()) for item in items}
+    kinds = {item.nodeid: item_kind(item) for item in items}
     python = python_version()
     durations = recorded_durations(DURATIONS, python, shard.kind)
     shards = assign(kinds, shard.kind, shard.count, durations)

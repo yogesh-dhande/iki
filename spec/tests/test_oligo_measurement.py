@@ -8,7 +8,7 @@ from Bio.SeqUtils import MeltingTemp
 
 from iki_spec import wasm
 
-pytestmark = pytest.mark.skipif(not wasm.WASM.exists(), reason="needs iki-wasm built")
+pytestmark = pytest.mark.wasm
 
 
 @pytest.mark.parametrize(

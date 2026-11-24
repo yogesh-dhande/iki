@@ -5,16 +5,25 @@ SHELL := /bin/bash
 
 PNPM ?= pnpm
 
+ifneq ($(filter check check-python,$(MAKECMDGOALS)),)
+ifeq ($(IKI_SKIP_BROWSER_TESTS),1)
+$(error IKI_SKIP_BROWSER_TESTS=1 is refused by the full gate. For a partial local run use IKI_SKIP_BROWSER_TESTS=1 uv run pytest)
+endif
+endif
+
 .PHONY: help
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: setup
-setup: ## Install all toolchains' dependencies from the lockfiles
+setup: test-browsers ## Install all toolchains' dependencies from the lockfiles
 	uv sync --locked
 	$(PNPM) install --frozen-lockfile
 	cd worker && cargo fetch --locked
-	uv run playwright install chromium firefox webkit
+
+.PHONY: test-browsers
+test-browsers: ## Install the browser revisions required by the locked Playwright
+	uv run --locked playwright install chromium firefox webkit
 
 .PHONY: hooks
 hooks: ## Install the pre-commit hook for this clone and its worktrees
@@ -88,18 +97,20 @@ check-infra: ## OpenTofu: fmt, validate and tests (mocked providers) for the AWS
 #: Tests run in parallel: workers take a file's tests in runs, and idle ones take over the rest.
 PYTEST_PARALLEL ?= -n auto --dist worksteal
 
+.PHONY: test-wasm
+test-wasm: ## Build the shared WASM and the plugin modules declared in this checkout
+	scripts/build-wasm.sh
+	uv run --locked python scripts/ci/check_test_prerequisites.py wasm
+
 .PHONY: check-python
-check-python: ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
-	# The plugin actions' modules, which their tests call; no .wasm is committed, and
-	# each build checks itself against the tracked digest (ADR 0200).
-	scripts/build-plasmid-tools-wasm.sh
-	scripts/build-oligo-checks-wasm.sh
+check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports on Python 3.12 and pytest
+	uv run --locked python scripts/ci/check_test_prerequisites.py web
 	scripts/check-imports-py312 --all
 	uv run ruff check
 	uv run ruff format --check
 	uv run mypy
-	scripts/build-dna-annotation-wasm.sh
-	uv run pytest $(PYTEST_PARALLEL)
+	@# A surrounding VM gate can collect traces for the whole command in its own directory.
+	IKI_GATE=1 $(if $(IKI_BROWSER_ARTIFACTS),,scripts/ci/with-browser-traces.sh) uv run pytest $(PYTEST_PARALLEL)
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations
@@ -134,8 +145,8 @@ check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generat
 	$(PNPM) build
 
 .PHONY: web
-web: ## Build the web app into the server's static files (server/src/iki_server/web/static/app)
-	$(PNPM) --filter @ikisci/app build
+web: ## Build the server's web app and the standalone package stories
+	$(PNPM) --filter @ikisci/app --filter @ikisci/science --filter @ikisci/ui build
 
 .PHONY: web-dev
 web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (needs the dev cluster)
