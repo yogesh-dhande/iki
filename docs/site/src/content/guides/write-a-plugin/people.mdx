@@ -1,0 +1,77 @@
+---
+title: Name people in records
+description: Fields that name the people who do a record's work, assign it to them while it's in their states, and sort their work by a due date.
+audience: build
+order: 60
+reference:
+  - { label: "Field: role", href: /reference/plugin-spec/field/#role }
+  - { label: "Field: assignment", href: /reference/plugin-spec/field/#assignment }
+  - { label: "Entity type: due", href: /reference/plugin-spec/entity-type/#due }
+---
+
+A field can name people: `type: person` names one, and a list with `items: { type: person }`
+several, each once. Only someone who could do the work can be named: an active person, not a
+service account, who can read the record's project, holding the field's lab role there if it has
+one. The API takes a person's ID or email address and gives back their ID, with their name in the
+record's `people`.
+
+The LIMS example's sample names its analyst, its reviewer and its QA, each assigned it in turn:
+
+```yaml
+fields:
+  due_on:
+    type: date
+    label: Due
+    description: When its results are due, which My work sorts by.
+  analyst:
+    type: person
+    role: analyst
+    assignment: { field: status, states: [received, in_testing, retesting] }
+    description: Who tests it. Received samples nobody has are open to analysts.
+  reviewer:
+    type: person
+    role: reviewer
+    assignment: { field: status, states: [in_review] }
+  qa:
+    type: person
+    label: QA
+    role: qa
+    assignment: { field: status, states: [approved] }
+due: due_on
+```
+
+## Who can be named
+
+- [`role`](/reference/plugin-spec/field/#role) names a [lab role](/guides/write-a-plugin/#lab-roles),
+  the plugin's own or a dependency's (`unknown-role`). Only people who hold it in the record's
+  project can be named.
+- People are each project's: a person field can't be a registry entry's (`person-in-registry`).
+- Someone who leaves the project, loses the role or is deactivated stays named, as the history
+  must say. The record needs reassigning, and the project's Admins are told.
+- A list of people can be bounded like any list:
+  `witnesses: { type: list, items: { type: person }, max_items: 5 }`.
+
+## Assigning the record
+
+An [`assignment`](/reference/plugin-spec/field/#assignment) field assigns the record to whomever it
+names: it's on their My work, and they're told it's ready for them.
+
+- `assignment: true` counts in every state.
+- `assignment: { field: status, states: [...] }` counts only while that
+  [state field](/guides/write-a-plugin/states/) is in one of those states, so a reviewer has a
+  sample only while its status is In review. Its
+  [`field`](/reference/plugin-spec/field/#assignment.field) is one of the type's state fields
+  (`assignment-without-states`) and its [`states`](/reference/plugin-spec/field/#assignment.states)
+  are that field's (`unknown-state`). A type without state fields uses `assignment: true`.
+- Only a field naming people can be an assignment (`assignment-not-people`).
+- A state that locks a record locks whom it names too, so name whoever has it next before it gets
+  there: the LIMS example names a sample's QA before it's approved.
+- A record whose assignment field is empty, or names someone who can't be named, is open to
+  whoever holds the field's lab role, and one of them can take it. A lab role is how a record goes
+  to a group, such as a lab's QA; the field names the one person who answers for it.
+
+## Sorting work by a due date
+
+[`due`](/reference/plugin-spec/entity-type/#due) names the type's `date` or `datetime` field that
+My work sorts by (`unknown-field`, `due-not-a-date`). It isn't a registry entry's
+(`due-in-registry`).
