@@ -68,8 +68,8 @@ plugins:
 A site that can't reach github.com still names Iki's repository in its lockfile, and fetches Iki's
 own plugins from its mirrors of it, which its admin names: `plugins.mirrors` in the deployment's
 Helm values, and `iki deploy build --mirror`. A plugin from a mirror must be at the commit the
-lockfile pins, with a tree Iki's repository has had, as
-[`first_party_trees.json`](repo:spec/src/iki_spec/first_party_trees.json) lists them.
+lockfile pins, with a tree Iki's repository has had, as the `iki` CLI's
+`first_party_trees.json` lists them.
 
 ## Say which machines run actions
 
@@ -129,7 +129,7 @@ machines start, and so which tier it serves:
 and a job runs on a template only if it fits.
 [`limits.max_concurrent`](/reference/plugin-spec/compute-template/#limits.max_concurrent) caps how
 many run at once. Running on a Slurm cluster has a guide of its own,
-[Running Iki's jobs on a Slurm cluster](repo:docs/slurm.md).
+[Run actions on a Slurm cluster](/guides/run-actions-on-slurm/).
 
 ### How Iki picks a template
 
@@ -416,4 +416,4 @@ bundle.json.sig    # the source deployment's Ed25519 signature of bundle.json
 
 [`bundle.json`](/reference/plugin-spec/bundle/) has its own schema, which also describes each
 member's lines. `iki bundle verify` checks a bundle's signature, every member and every
-signature in it against the keys you trust ([the CLI](repo:cli/README.md)).
+signature in it against the keys you trust.
