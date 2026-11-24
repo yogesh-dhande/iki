@@ -134,10 +134,21 @@ function point(at, length, radius) {
 function spanOf(feature, length) {
 	return stretchLength(feature.start, feature.end, length);
 }
+/** Whether a strand has a direction to draw: not `none`, nor `mixed`. */
+function directed(strand) {
+	return strand !== "none" && strand !== "mixed";
+}
+/** A strand in words: as a table writes it, and as a sentence does. */
+function strandWord(strand) {
+	return strand === "reverse" ? "reverse" : strand === "none" ? "neither" : strand === "mixed" ? "both" : "forward";
+}
+function onStrand(strand) {
+	return strand === "none" ? "on neither strand" : strand === "mixed" ? "on both strands" : `on the ${strandWord(strand)} strand`;
+}
 /** An arc from base `from` for `span` bases, as an SVG path, with an arrowhead at the end
 * it runs to. */
 function arc(from, span, length, radius, strand) {
-	const head = Math.min(span / 2, 14 * length / (2 * Math.PI * radius));
+	const head = directed(strand) ? Math.min(span / 2, 14 * length / (2 * Math.PI * radius)) : 0;
 	const forward = strand !== "reverse";
 	const bodyFrom = forward ? from : from + head;
 	const bodySpan = span - head;
@@ -148,7 +159,8 @@ function arc(from, span, length, radius, strand) {
 	const [tx, ty] = point(forward ? from + span : from, length, radius);
 	const [bx, by] = point(forward ? from + bodySpan : from + head, length, radius - 5);
 	const [cx, cy] = point(forward ? from + bodySpan : from + head, length, radius + 5);
-	return [body, `M ${bx.toFixed(2)} ${by.toFixed(2)} L ${tx.toFixed(2)} ${ty.toFixed(2)} L ${cx.toFixed(2)} ${cy.toFixed(2)} Z`];
+	const head3 = `M ${bx.toFixed(2)} ${by.toFixed(2)} L ${tx.toFixed(2)} ${ty.toFixed(2)} L ${cx.toFixed(2)} ${cy.toFixed(2)} Z`;
+	return [body, head ? head3 : ""];
 }
 /** Ticks every 500, 1,000, 2,000 bases and so on: the first step that gives at most ten
 * of them. */
@@ -507,7 +519,7 @@ function lineDrawing(length, layers, circular, coverage, differences = []) {
 			const lane = index * LANES + laneFor(forward ? above : below, covers);
 			const y = forward ? spine - 20 - lane * LANE : spine + 34 + lane * LANE;
 			const colour = layer.colour ? colourOf(layer.colour) : colourOf(item.qualifiers?.role);
-			const tipped = forward ? pieces.length - 1 : 0;
+			const tipped = !directed(item.strand) ? -1 : forward ? pieces.length - 1 : 0;
 			pieces.forEach(([from, to], i) => {
 				for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
 					drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
@@ -542,7 +554,7 @@ function table(features, length, own = false) {
 		const where = feature.end >= feature.start ? `${feature.start.toLocaleString("en")}–${feature.end.toLocaleString("en")}` : `${feature.start.toLocaleString("en")}–${length.toLocaleString("en")}, 1–${feature.end.toLocaleString("en")}`;
 		const swatch = element("span", { className: "swatch" });
 		swatch.style.background = colourOf(feature.qualifiers?.role);
-		return element("tr", {}, element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name), element("td", { className: "where" }, where), element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`), element("td", {}, feature.strand === "reverse" ? "reverse" : "forward"), element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type), ...own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]);
+		return element("tr", {}, element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name), element("td", { className: "where" }, where), element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`), element("td", {}, strandWord(feature.strand)), element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type), ...own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]);
 	});
 	return element("table", {}, element("caption", {}, own ? "Its features" : "Parts found along it"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, own ? "Feature" : "Part"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Length"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "What it is"), ...own ? [] : [element("th", { scope: "col" }, "Matched")])), element("tbody", {}, ...rows));
 }
@@ -673,7 +685,7 @@ function describe(length, layers, circular, view) {
 }
 /** Each of the three layers in words: what it holds and where each of them lies. */
 function eachOf(items, how) {
-	return items.map((i) => `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand`).join("; ");
+	return items.map((i) => `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} ${onStrand(i.strand)}`).join("; ");
 }
 function describeParts(items, own = false) {
 	if (own) {
@@ -870,7 +882,7 @@ var PlasmidMap = class extends HTMLElement {
 			this.toggle(key);
 		}));
 		const shown = layers.filter((layer) => layer.shown && (layer.items.length || layer.key === "coverage"));
-		children.push(element("p", {}, describe(length, layers, circular, this.#view)), element("div", { className: "map" }, picture, ...shown.map((layer) => element("div", {
+		children.push(element("p", {}, describe(length, layers, circular, this.#view)), ...(data.notes ?? []).map((note) => element("p", { className: "note" }, note)), element("div", { className: "map" }, picture, ...shown.map((layer) => element("div", {
 			className: "tables",
 			tabindex: "0",
 			role: "region",
@@ -917,6 +929,18 @@ const VERDICT = {
 function list(value) {
 	return Array.isArray(value) ? value : [];
 }
+const UNPLACED = {
+	unaligned: "align nowhere on the plasmid",
+	repeated: "repeat bases already placed on the plasmid, such as a second lap of it"
+};
+/** The consensus's stretches that aren't placed on the plasmid once, in words: why the
+* result differs even where no single difference is listed. */
+function unplacedNotes(values) {
+	const total = Number(values.consensus_length);
+	return list(values.unplaced).map((stretch) => {
+		return `The consensus's ${stretch.start === stretch.end ? `base ${stretch.start.toLocaleString("en")}` : `bases ${stretch.start.toLocaleString("en")} to ${stretch.end.toLocaleString("en")}`}${Number.isFinite(total) ? ` of its ${total.toLocaleString("en")}` : ""} ${UNPLACED[stretch.why] ?? "aren't placed once"}.`;
+	});
+}
 /** A whole-plasmid alignment drawn on its plasmid's map: the depth of reads round the
 * circle, each difference from the record, and the features they were placed in, as the
 * comparison recorded them. */
@@ -949,6 +973,7 @@ var WholePlasmidMap = class extends PlasmidMap {
 				source: values.method
 			} : void 0,
 			differences: { items: list(values.differences) },
+			notes: unplacedNotes(values),
 			emptyMessage: VERDICT[values.agreement] ?? "Nothing was compared."
 		};
 	}

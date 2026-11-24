@@ -28,13 +28,16 @@ comparison finds the consensus whatever its rotation or strand.
 
 A **Whole-plasmid alignment** (WPA) records whether the consensus
 **matches** the record, **differs** from it, or is **incomplete**:
-nothing differs, but some bases aren't called.
+nothing differs, but some bases aren't called. A consensus with more
+sequence than the plasmid, or with some of it twice over, differs: those
+bases are listed as not placed once.
 
-Each difference is named in HGVS, with the plasmid's features it falls in
+Each difference is named in HGVS, with the plasmid's features that hold it
 and the run of one base it lies in. For reads it also records the reads
-that agree with it on each strand. A one-base deletion in a long
-homopolymer, supported by only part of the reads, is the typical nanopore
-error.
+across it and those with its whole allele, each read once however many
+times it passes, on each strand. A one-base deletion in a long homopolymer
+is a candidate nanopore error, to be weighed by its support: the reads
+alone can't settle it.
 
 The **Map** tab shows the depth of reads round the plasmid, the stretches
 under the minimum depth, and a mark at each difference, with the same

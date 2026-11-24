@@ -48,17 +48,27 @@ Two actions make the alignment:
   - It aligns each read with minimap2 (Li 2018, `-x map-ont` or
     `map-hifi`) to the plasmid sequence doubled, so a read across the
     origin aligns in one piece.
-  - It moves each read's indels to their 3'-most position (Tan et al.
-    2015), so a deletion in a homopolymer counts at one position.
-  - It calls the majority base, or majority insertion, at each position
-    that has at least the minimum depth of reads. A position with fewer
-    reads is N.
+  - It moves each read's indels to their 3'-most position, the end HGVS's
+    3' rule names a change at, so a deletion in a homopolymer counts at
+    one position. (VCF normalizes to the other end: Tan et al. 2015.)
+  - It counts each read once at each position, however many times it
+    passes it: most reads are longer than the plasmid, and their passes
+    are one molecule's evidence. A read's passes vote among themselves
+    first; a read whose passes tie is one of the reads there but votes
+    for no allele.
+  - It calls the base, or insertion, more than half of the reads have, at
+    each position with at least the minimum depth of reads. A position
+    with fewer reads, or no majority, is N. Where most reads insert
+    something but two sets of inserted bases tie, the insertion is N.
   - It then polishes: it aligns the reads to the consensus again and calls
     again until the consensus stops changing, in at most four rounds of
     alignment. This is
     the approach of racon (Vaser et al. 2017), without its code.
-  - For each difference it records the depth of reads, the reads that
-    agree with it, and how many agree on each strand.
+  - For each difference it records the reads across it and those that
+    have its whole allele, each read once, and how many on each strand. A
+    read has the allele where its own bases there are closer to the
+    consensus's than to the record's, in edit distance. A change of
+    several bases is then supported only by reads that have all of it.
 - **Verify a plasmid from a service's consensus** takes the one FASTA
   sequence a service assembled. It refuses a file holding more than one
   sequence, and a sequence that isn't DNA in IUPAC codes.
@@ -75,17 +85,28 @@ name each difference in HGVS (den Dunnen et al. 2016):
 
 Each difference also records:
 
-- the features of the plasmid it falls in, from the sequence's own features
-  and the plasmid's annotation, kept on the result as they were when
-  compared
+- the features of the plasmid that hold all of it, from the sequence's own
+  features and the plasmid's annotation, kept on the result as they were
+  when compared, with their strands. A join holds only its parts' bases,
+  not the gaps between them.
 - the length of the run of one base it lies in, so a reviewer can see
-  which differences look like nanopore errors
+  which differences are candidate nanopore errors. The reads alone can't
+  settle such a difference: that takes the reviewer, or another result
+  for the same prep.
 
 A base that the record's IUPAC code allows, and an N in the consensus, are
-not differences. The result's agreement is one of three values:
+not differences. Every base of the consensus must be placed on the record
+once. Bases that align nowhere, such as more sequence than the plasmid
+has, and bases placed where earlier ones already were, such as a second
+lap of the circle, are recorded as unplaced. The consensus file then keeps
+the consensus as it was, not cut to the record's frame.
 
-- **matches**: every base is called and agrees with the record
-- **differs**: at least one difference
+The result's agreement is one of three values:
+
+- **matches**: every base is called and agrees with the record, and the
+  whole consensus is placed once
+- **differs**: at least one difference, or some of the consensus isn't
+  placed once
 - **incomplete**: nothing differs, but some bases aren't called
 
 The result also records:
@@ -147,6 +168,9 @@ and checksums, and the run's own copies of the consensus and tables.
   _Bioinformatics_ 2018;34:3094–3100. doi:10.1093/bioinformatics/bty191
 - Tan A, Abecasis GR, Kang HM. Unified representation of genetic variants.
   _Bioinformatics_ 2015;31:2202–2204. doi:10.1093/bioinformatics/btv112
+  (VCF's left normalization, the opposite end to HGVS's)
+- HGVS. General recommendations: the 3' rule.
+  https://hgvs-nomenclature.org/stable/recommendations/general/
 - Vaser R, Sović I, Nagarajan N, Šikić M. Fast and accurate de novo genome
   assembly from long uncorrected reads. _Genome Res_ 2017;27:737–746.
   doi:10.1101/gr.214270.116

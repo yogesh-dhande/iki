@@ -11,6 +11,25 @@ function list(value) {
   return Array.isArray(value) ? value : [];
 }
 
+const UNPLACED = {
+  unaligned: "align nowhere on the plasmid",
+  repeated: "repeat bases already placed on the plasmid, such as a second lap of it",
+};
+
+/** The consensus's stretches that aren't placed on the plasmid once, in words: why the
+ * result differs even where no single difference is listed. */
+function unplacedNotes(values) {
+  const total = Number(values.consensus_length);
+  return list(values.unplaced).map((stretch) => {
+    const where =
+      stretch.start === stretch.end
+        ? `base ${stretch.start.toLocaleString("en")}`
+        : `bases ${stretch.start.toLocaleString("en")} to ${stretch.end.toLocaleString("en")}`;
+    const of = Number.isFinite(total) ? ` of its ${total.toLocaleString("en")}` : "";
+    return `The consensus's ${where}${of} ${UNPLACED[stretch.why] ?? "aren't placed once"}.`;
+  });
+}
+
 /** A whole-plasmid alignment drawn on its plasmid's map: the depth of reads round the
  * circle, each difference from the record, and the features they were placed in, as the
  * comparison recorded them. */
@@ -48,6 +67,7 @@ class WholePlasmidMap extends PlasmidMap {
             }
           : undefined,
       differences: { items: list(values.differences) },
+      notes: unplacedNotes(values),
       emptyMessage: VERDICT[values.agreement] ?? "Nothing was compared.",
     };
   }
