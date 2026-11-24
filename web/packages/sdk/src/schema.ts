@@ -4436,8 +4436,12 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.
-         *     Changing the flow selects the result type for future fits. Existing results keep their flow.
+         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         *     If what applying does changed since the preview, as when another Admin removed a grant or
+         *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
+         *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
+         *     changes nothing. Changing the flow selects the result type for future fits. Existing
+         *     results keep their flow.
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -17452,6 +17456,43 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StarterApplyIn */
+        StarterApplyIn: {
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Plan
+             * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
+             */
+            plan: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The assay service project. Requires its Admin role.
+             */
+            project: string;
+            /**
+             * Requester Project
+             * Format: uuid
+             * @description A different project in which the caller can create the example request.
+             */
+            requester_project: string;
+            /**
+             * Role Assignments
+             * @description Each qualified lab role and the service project membership IDs receiving it.
+             */
+            role_assignments: {
+                [key: string]: string[];
+            };
+            /**
+             * Version
+             * @description Installed starter version shown at setup.
+             */
+            version: string;
+        };
         /** StarterFlowOut */
         StarterFlowOut: {
             /**
@@ -17573,6 +17614,11 @@ export interface components {
             grants_to_add: {
                 [key: string]: string[];
             };
+            /**
+             * Plan
+             * @description Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.
+             */
+            plan: string;
             /**
              * Project
              * Format: uuid
@@ -25846,7 +25892,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StarterSetupIn"];
+                "application/json": components["schemas"]["StarterApplyIn"];
             };
         };
         responses: {

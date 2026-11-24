@@ -26364,6 +26364,65 @@
         "title": "StartedOut",
         "type": "object"
       },
+      "StarterApplyIn": {
+        "additionalProperties": false,
+        "properties": {
+          "flow": {
+            "enum": [
+              "research",
+              "regulated_qc"
+            ],
+            "title": "Flow",
+            "type": "string"
+          },
+          "plan": {
+            "description": "The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Plan",
+            "type": "string"
+          },
+          "project": {
+            "description": "The assay service project. Requires its Admin role.",
+            "format": "uuid",
+            "title": "Project",
+            "type": "string"
+          },
+          "requester_project": {
+            "description": "A different project in which the caller can create the example request.",
+            "format": "uuid",
+            "title": "Requester Project",
+            "type": "string"
+          },
+          "role_assignments": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "title": "Role Assignments",
+            "type": "object"
+          },
+          "version": {
+            "description": "Installed starter version shown at setup.",
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "project",
+          "requester_project",
+          "flow",
+          "role_assignments",
+          "plan"
+        ],
+        "title": "StarterApplyIn",
+        "type": "object"
+      },
       "StarterFlowOut": {
         "properties": {
           "id": {
@@ -26591,6 +26650,11 @@
             "title": "Grants To Add",
             "type": "object"
           },
+          "plan": {
+            "description": "Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.",
+            "title": "Plan",
+            "type": "string"
+          },
           "project": {
             "format": "uuid",
             "title": "Project",
@@ -26636,7 +26700,8 @@
           "role_assignments",
           "grants_to_add",
           "examples_to_create",
-          "examples"
+          "examples",
+          "plan"
         ],
         "title": "StarterSetupOut",
         "type": "object"
@@ -45986,7 +46051,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.\nChanging the flow selects the result type for future fits. Existing results keep their flow.",
+        "description": "Apply the plan a preview returned: create the examples and grant the chosen roles.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -46003,7 +46068,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StarterSetupIn"
+                "$ref": "#/components/schemas/StarterApplyIn"
               }
             }
           },

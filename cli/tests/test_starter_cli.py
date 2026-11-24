@@ -6,7 +6,7 @@ from uuid import UUID
 
 import pytest
 
-from iki import Client, Forbidden
+from iki import Client, Conflict, Forbidden
 from iki_cli.main import main
 
 PROJECT = str(UUID(int=1))
@@ -15,6 +15,7 @@ FIRST = str(UUID(int=3))
 SECOND = str(UUID(int=4))
 REVIEWER = "iki/plate_assays.reviewer"
 RESULT = "iki/plate_assays.RequestedResearchAssayResult"
+PLAN = "3f" * 32
 STARTER = {
     "id": "dose-response",
     "version": "1.0.0",
@@ -65,15 +66,18 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    payload = {
+    setup = {
         "version": "1.0.0",
         "project": PROJECT,
         "requester_project": REQUESTER,
         "flow": flow,
         "role_assignments": {REVIEWER: [FIRST, SECOND]},
     }
+    # Applying sends the plan its preview printed: what was reviewed.
+    payload = {**setup, "plan": PLAN} if command == "apply" else setup
     response = {
-        **payload,
+        **setup,
+        "plan": PLAN,
         "starter": "dose-response",
         "result_type": RESULT,
         "changed": changed,
@@ -107,6 +111,7 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
         f"{REVIEWER}={SECOND}",
         "--url",
         "https://other.example",
+        *(["--plan", PLAN] if command == "apply" else []),
     ]
     assert main(args) == 0
     out = capsys.readouterr().out
@@ -128,8 +133,77 @@ def test_preview_and_apply_send_the_selected_version_scope_flow_and_members(
     if command == "preview":
         assert "Create example request" in out
         assert f"Grant {REVIEWER} to {SECOND}" in out
+        assert f"Plan              {PLAN}" in out
     assert main([*args, "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == response
+
+
+def test_apply_needs_the_reviewed_plan(capsys: pytest.CaptureFixture[str]) -> None:
+    base = [
+        "starter",
+        "apply",
+        "dose-response",
+        "--version",
+        "1.0.0",
+        "--flow",
+        "research",
+        "--project",
+        PROJECT,
+        "--requester-project",
+        REQUESTER,
+    ]
+    for extra in ([], ["--plan", "latest"]):
+        with pytest.raises(SystemExit) as exc:
+            main([*base, *extra])
+        assert exc.value.code == 2
+    assert "--plan" in capsys.readouterr().err
+
+
+def test_a_changed_plan_applies_nothing_and_shows_what_applying_does_now(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    now = {
+        "starter": "dose-response",
+        "version": "1.0.0",
+        "project": PROJECT,
+        "requester_project": REQUESTER,
+        "flow": "research",
+        "result_type": RESULT,
+        "changed": True,
+        "role_assignments": {REVIEWER: [FIRST]},
+        "grants_to_add": {REVIEWER: [FIRST]},
+        "examples_to_create": [],
+        "examples": {},
+        "plan": "4a" * 32,
+    }
+
+    def changed(*args: Any, **kwargs: Any) -> None:
+        detail = "What applying does changed since it was previewed."
+        problem = {"status": 409, "code": "starter_plan_changed", "detail": detail, "plan": now}
+        raise Conflict(409, detail, code="starter_plan_changed", problem=problem)
+
+    monkeypatch.setattr(Client, "request", changed)
+    args = [
+        "starter",
+        "apply",
+        "dose-response",
+        "--version",
+        "1.0.0",
+        "--flow",
+        "research",
+        "--project",
+        PROJECT,
+        "--requester-project",
+        REQUESTER,
+        "--role",
+        f"{REVIEWER}={FIRST}",
+        "--plan",
+        PLAN,
+    ]
+    assert main(args) == 2
+    err = capsys.readouterr().err
+    assert "changed since it was previewed" in err
+    assert f"Grant {REVIEWER} to {FIRST}" in err and f"Plan              {'4a' * 32}" in err
 
 
 def test_role_assignment_needs_a_membership_uuid(capsys: pytest.CaptureFixture[str]) -> None:

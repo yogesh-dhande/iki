@@ -9,6 +9,7 @@ from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api import common
+from iki_server.api.problems import Problem
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.setup import starters
@@ -67,6 +68,15 @@ class StarterSetupIn(Schema):
     )
 
 
+class StarterApplyIn(StarterSetupIn):
+    plan: str = Field(
+        pattern="^[0-9a-f]{64}$",
+        description="The `plan` its preview returned: what you reviewed. If what applying does "
+        "has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` "
+        "it would apply now).",
+    )
+
+
 class StarterSetupOut(Schema):
     starter: str
     version: str
@@ -86,6 +96,10 @@ class StarterSetupOut(Schema):
     )
     examples: dict[str, UUID] = Field(
         description="IDs of example records already present at preview or available after setup."
+    )
+    plan: str = Field(
+        description="Identifies this plan: what the setup was, and every change applying makes. "
+        "Send it to apply what was reviewed."
     )
 
 
@@ -125,17 +139,27 @@ def preview_starter(request: HttpRequest, starter: str, payload: StarterSetupIn)
 @router.post(
     "/starters/{starter}/apply", response=StarterSetupOut, summary="Apply a starter to a project"
 )
-def apply_starter(request: HttpRequest, starter: str, payload: StarterSetupIn) -> dict[str, Any]:
-    """Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.
-    Changing the flow selects the result type for future fits. Existing results keep their flow."""
+def apply_starter(request: HttpRequest, starter: str, payload: StarterApplyIn) -> dict[str, Any]:
+    """Apply the plan a preview returned: create the examples and grant the chosen roles.
+    If what applying does changed since the preview, as when another Admin removed a grant or
+    applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
+    what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
+    changes nothing. Changing the flow selects the result type for future fits. Existing
+    results keep their flow."""
     me = common.caller(request)
     service, requester = _projects(me, payload)
-    return starters.apply(
-        service,
-        starter,
-        payload.version,
-        payload.flow,
-        payload.role_assignments,
-        requester_project=requester,
-        by=me,
-    )
+    try:
+        return starters.apply(
+            service,
+            starter,
+            payload.version,
+            payload.flow,
+            payload.role_assignments,
+            requester_project=requester,
+            by=me,
+            plan=payload.plan,
+        )
+    except starters.PlanChanged as changed:
+        raise Problem(
+            409, str(changed), code="starter_plan_changed", extensions={"plan": changed.plan}
+        ) from None

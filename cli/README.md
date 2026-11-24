@@ -20,7 +20,10 @@ iki starter preview dose-response --version 1.0.0 --flow regulated_qc \
   --role "iki/plate_assays.qa=$QA"
 ```
 
-Run `iki starter apply` with the same arguments to apply that setup. All three
+The preview ends with its plan. Run `iki starter apply` with the same arguments and
+`--plan` set to it to apply what you reviewed. If what applying does has changed since,
+because another Admin changed a grant or applied it first, nothing is applied: the
+command prints what applying does now, and its new plan, to review. All three
 commands use the SDK's sign-in, or `IKI_URL` and `IKI_TOKEN`. Use `--url` to select
 a deployment and `--json` to print the complete API response.
 
