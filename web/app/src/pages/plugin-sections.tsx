@@ -12,13 +12,17 @@ import type { Project } from "../api";
 import { usePlaceEntities } from "../component-entities";
 import { componentsQuery, sectionsFor, type Section } from "../components";
 import { typesQuery, type EntityType } from "../entities";
+import { useSettled } from "../settling";
 import { PluginPlace } from "./plugin-place";
 
 type Kind = "project.page" | "person.home";
 
 export function PluginSections({ kind, project }: { kind: Kind; project?: Project }) {
-  const components = useQuery(componentsQuery).data;
-  const types = useQuery(typesQuery).data;
+  const read = { components: useQuery(componentsQuery), types: useQuery(typesQuery) };
+  // Its sections are found once these are in: each then waits on its own search.
+  useSettled(Object.values(read).every((q) => !q.isLoading));
+  const components = read.components.data;
+  const types = read.types.data;
   if (!components || !types) return null;
   return sectionsFor(kind, components).map((section) => (
     <PluginSection
@@ -46,6 +50,7 @@ function PluginSection({
   const place =
     kind === "project.page" && project ? { project: project.id } : { home: true as const };
   const data = usePlaceEntities(section.component, place);
+  useSettled(data.settled);
   const { items, refinement } = data.entities;
   // Nothing to show until it's found something; once it's been narrowed, it stays.
   if (!data.settled) return null;

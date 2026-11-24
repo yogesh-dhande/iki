@@ -29,6 +29,7 @@ import {
   useRequestSides,
   type Intake as IntakeSettings,
 } from "../requests";
+import { useSettled } from "../settling";
 import {
   Badge,
   Button,
@@ -239,17 +240,38 @@ function IntakeForm({
   );
 }
 
-/** On the project's page, for a project that takes requests, was sent some, or sent its own:
- * what it takes, its latest requests with their status, and its queue. */
-export function ProjectRequests({ project }: { project: Project }) {
+/** What the Requests card reads: the project's sides, the types, and its latest requests. */
+function useProjectRequests(project: Project) {
   const sides = useRequestSides(project);
-  const types = useQuery(typesQuery).data;
+  const read = useQuery(typesQuery);
   const any = sides.received || sides.sent;
   const latest = useQuery({
     ...latestRequestsQuery(project.id, { received: sides.received, sent: sides.sent }),
     enabled: sides.ready && any,
   });
-  if (!any) return null;
+  // Without the types, it can't tell, and isn't drawn.
+  const known = sides.ready || read.isError;
+  return {
+    sides,
+    types: read.data,
+    any,
+    latest,
+    known,
+    listed: known && (!any || !latest.isLoading),
+  };
+}
+
+/** On the project's page, for a project that takes requests, was sent some, or sent its own:
+ * what it takes, its queue, and its latest requests with their status. */
+export function ProjectRequests({ project }: { project: Project }) {
+  const { sides, types, any, latest, known } = useProjectRequests(project);
+  // What decides whether it's there, what it takes in its types' words, and its shortcuts.
+  // It's the summary's last card: drawn late, it comes below all the rest.
+  useSettled(known);
+  // Its latest requests, the slowest read (a search after those), aren't waited for: they
+  // come after its shortcuts, at its foot, growing the page below everything that can be
+  // pressed (the foot of the page waits for them).
+  if (!sides.ready || !any) return null;
   return (
     <Box
       id="requests-title"
@@ -262,27 +284,6 @@ export function ProjectRequests({ project }: { project: Project }) {
     >
       {sides.intake?.types.length ? (
         <p className="box-body">{takesWhat(project, sides.intake, types)}</p>
-      ) : null}
-      {latest.isError ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
-      {latest.data?.length ? (
-        <ul className="changes" aria-label="Latest requests">
-          {latest.data.map((request) => (
-            <li key={request.id} className="change change-plain">
-              <span className="change-what">
-                <Link
-                  className="hrid"
-                  to="/entities/$ref/"
-                  params={{ ref: request.hrid }}
-                  search={recordSearch(request)}
-                >
-                  {request.hrid}
-                </Link>
-                {request.title !== request.hrid ? ` ${request.title}` : ""}
-              </span>
-              <RequestStatus request={request} type={types?.find((t) => t.name === request.type)} />
-            </li>
-          ))}
-        </ul>
       ) : null}
       {sides.received || (project.can.manage && !project.archived) ? (
         <p className="box-body">
@@ -304,8 +305,37 @@ export function ProjectRequests({ project }: { project: Project }) {
           ) : null}
         </p>
       ) : null}
+      {latest.isError ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
+      {latest.isLoading ? <Loading label="Finding its latest requests…" /> : null}
+      {latest.data?.length ? (
+        <ul className="changes" aria-label="Latest requests">
+          {latest.data.map((request) => (
+            <li key={request.id} className="change change-plain">
+              <span className="change-what">
+                <Link
+                  className="hrid"
+                  to="/entities/$ref/"
+                  params={{ ref: request.hrid }}
+                  search={recordSearch(request)}
+                >
+                  {request.hrid}
+                </Link>
+                {request.title !== request.hrid ? ` ${request.title}` : ""}
+              </span>
+              <RequestStatus request={request} type={types?.find((t) => t.name === request.type)} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </Box>
   );
+}
+
+/** At the foot of the Overview: holds it till the Requests card above it is drawn as it'll
+ * stay, with its latest requests, on a phone, where the card comes before it. */
+export function RequestsSettled({ project }: { project: Project }) {
+  useSettled(useProjectRequests(project).listed);
+  return null;
 }
 
 /** A request's status: its type's first state field, or that it isn't sent yet. */

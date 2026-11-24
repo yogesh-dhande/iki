@@ -494,6 +494,28 @@ describe("a project's dashboard", () => {
     ).toHaveAttribute("href", "/entities/APP-000001/");
   });
 
+  it("answering late, comes at the foot of the page, below what's drawn", async () => {
+    onProject({ my_role: "viewer", can: { ...KINASE.can, edit: false, manage: false } });
+    let release = (): void => undefined;
+    const held = new Promise<void>((done) => {
+      release = done;
+    });
+    answer(`GET ${DASHBOARD}`, async () => {
+      await held;
+      return { app: CHOSEN, set_by: null, set_at: null };
+    });
+    answer("GET /api/v1/entities/APP-000001", app([NOTE]));
+    await renderApp("/projects/kinase-atlas/");
+    // The rest is drawn once the budget's spent, without it.
+    const changes = await screen.findByRole("region", { name: "Recent changes" });
+    expect(screen.queryByRole("region", { name: "Plasmid QC" })).toBeNull();
+    release();
+    // It comes after them, so it moves none of them.
+    const shown = await screen.findByRole("region", { name: "Plasmid QC" });
+    expect(await within(shown).findByText("Welcome to the atlas.")).toBeInTheDocument();
+    expect(changes.compareDocumentPosition(shown) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("is offered to Admins when there's none, and to no one else", async () => {
     onProject();
     answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
