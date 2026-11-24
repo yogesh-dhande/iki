@@ -6368,6 +6368,53 @@
         "title": "EntrySupersededOut",
         "type": "object"
       },
+      "EnvironmentImageOut": {
+        "properties": {
+          "binding": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ImageBindingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The binding the installed version matches. Without one, the environment's container and VM runs are unavailable."
+          },
+          "environment": {
+            "description": "The qualified plugin environment.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "installed_version": {
+            "description": "The installed plugin version.",
+            "title": "Installed Version",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "plugin": {
+            "title": "Plugin",
+            "type": "string"
+          },
+          "plugin_title": {
+            "title": "Plugin Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "label",
+          "plugin",
+          "plugin_title",
+          "installed_version",
+          "binding"
+        ],
+        "title": "EnvironmentImageOut",
+        "type": "object"
+      },
       "EnvironmentVolumesOut": {
         "properties": {
           "environment": {
@@ -9734,32 +9781,10 @@
       },
       "ImageBindingOut": {
         "properties": {
-          "active": {
-            "description": "Whether this binding applies to the installed environment.",
-            "title": "Active",
-            "type": "boolean"
-          },
-          "environment": {
-            "description": "The qualified plugin environment.",
-            "title": "Environment",
-            "type": "string"
-          },
           "image": {
             "description": "The deployment-supplied image pinned by digest.",
             "title": "Image",
             "type": "string"
-          },
-          "installed_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The installed plugin version, if any.",
-            "title": "Installed Version"
           },
           "plugin_version": {
             "description": "The plugin release range the image applies to.",
@@ -9780,14 +9805,37 @@
           }
         },
         "required": [
-          "environment",
           "plugin_version",
           "image",
-          "pull_secret",
-          "installed_version",
-          "active"
+          "pull_secret"
         ],
         "title": "ImageBindingOut",
+        "type": "object"
+      },
+      "ImageBindingsOut": {
+        "properties": {
+          "environments": {
+            "description": "Each installed environment that needs a deployment-supplied image.",
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentImageOut"
+            },
+            "title": "Environments",
+            "type": "array"
+          },
+          "unused": {
+            "description": "Bindings in compute.yaml that no installed environment uses.",
+            "items": {
+              "$ref": "#/components/schemas/UnusedImageBindingOut"
+            },
+            "title": "Unused",
+            "type": "array"
+          }
+        },
+        "required": [
+          "environments",
+          "unused"
+        ],
+        "title": "ImageBindingsOut",
         "type": "object"
       },
       "ImportCounts": {
@@ -28464,6 +28512,70 @@
         "title": "UnitOption",
         "type": "object"
       },
+      "UnusedImageBindingOut": {
+        "properties": {
+          "environment": {
+            "description": "The qualified plugin environment it names.",
+            "title": "Environment",
+            "type": "string"
+          },
+          "image": {
+            "description": "The deployment-supplied image pinned by digest.",
+            "title": "Image",
+            "type": "string"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The installed version of the environment's plugin, if it's installed.",
+            "title": "Installed Version"
+          },
+          "plugin_version": {
+            "description": "The plugin release range the image applies to.",
+            "title": "Plugin Version",
+            "type": "string"
+          },
+          "pull_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name of a Kubernetes pull Secret, if set.",
+            "title": "Pull Secret"
+          },
+          "reason": {
+            "description": "Why no run uses it: the installed release is outside its range; no installed plugin has the environment; the environment doesn't ask for an image; or another binding matches the same release too.",
+            "enum": [
+              "other_release",
+              "not_installed",
+              "not_requested",
+              "overlapping"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_version",
+          "image",
+          "pull_secret",
+          "environment",
+          "installed_version",
+          "reason"
+        ],
+        "title": "UnusedImageBindingOut",
+        "type": "object"
+      },
       "UpdatesOut": {
         "properties": {
           "fields": {
@@ -32454,7 +32566,7 @@
     },
     "/api/v1/compute/image-bindings": {
       "get": {
-        "description": "List the image pins configured in compute.yaml for this deployment.",
+        "description": "Each installed environment that needs an image from this deployment, and the binding\nin compute.yaml its plugin's installed version matches; and the bindings that none\nmatches, so stale pins show. Pull Secrets are named; their values stay in the cluster.",
         "operationId": "iki_server_api_compute_list_image_bindings",
         "parameters": [],
         "responses": {
@@ -32462,11 +32574,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ImageBindingOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ImageBindingsOut"
                 }
               }
             },

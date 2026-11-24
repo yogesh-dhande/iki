@@ -373,6 +373,9 @@ describe("a project's Files", () => {
     );
     expect(screen.getByText("as given when it was added")).toBeInTheDocument();
     expect(screen.getByText("Uploaded")).toBeInTheDocument();
+    // Its Copy button says "Copy" once, as a screen reader reads it.
+    expect(screen.getByRole("button", { name: "Copy the SHA-256" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Copy Copy/ })).not.toBeInTheDocument();
     const records = await screen.findByRole("table", { name: "Records that hold 1abc.pdb" });
     expect(within(records).getByRole("link", { name: "ABL1 structure" })).toHaveAttribute(
       "href",

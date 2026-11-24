@@ -184,7 +184,7 @@ export function FilePage() {
         </dd>
         <dt>SHA-256</dt>
         <dd>
-          <CopyValue value={file.sha256} label="Copy the SHA-256" />
+          <CopyValue value={file.sha256} label="the SHA-256" />
         </dd>
         <dt>Acquired</dt>
         <dd>

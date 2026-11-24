@@ -41,7 +41,8 @@ from iki_server.runs.models import (
     Worker,
 )
 from iki_server.runs.queue import HELD
-from iki_spec.compute import Template
+from iki_spec import releases
+from iki_spec.compute import ImageBinding, Template
 
 router = Router(tags=["compute"])
 
@@ -104,47 +105,115 @@ def compute_overview(request: HttpRequest) -> dict[str, Any]:
 
 
 class ImageBindingOut(Schema):
-    environment: str = Field(description="The qualified plugin environment.")
     plugin_version: str = Field(description="The plugin release range the image applies to.")
     image: str = Field(description="The deployment-supplied image pinned by digest.")
     pull_secret: str | None = Field(description="The name of a Kubernetes pull Secret, if set.")
-    installed_version: str | None = Field(description="The installed plugin version, if any.")
-    active: bool = Field(description="Whether this binding applies to the installed environment.")
+
+
+class EnvironmentImageOut(Schema):
+    environment: str = Field(description="The qualified plugin environment.")
+    label: str
+    plugin: str
+    plugin_title: str
+    installed_version: str = Field(description="The installed plugin version.")
+    binding: ImageBindingOut | None = Field(
+        description="The binding the installed version matches. Without one, the "
+        "environment's container and VM runs are unavailable."
+    )
+
+
+#: Why no run uses an image binding.
+UnusedReason = Literal["other_release", "not_installed", "not_requested", "overlapping"]
+
+
+class UnusedImageBindingOut(ImageBindingOut):
+    environment: str = Field(description="The qualified plugin environment it names.")
+    installed_version: str | None = Field(
+        description="The installed version of the environment's plugin, if it's installed."
+    )
+    reason: UnusedReason = Field(
+        description="Why no run uses it: the installed release is outside its range; no "
+        "installed plugin has the environment; the environment doesn't ask for an image; or "
+        "another binding matches the same release too."
+    )
+
+
+class ImageBindingsOut(Schema):
+    environments: list[EnvironmentImageOut] = Field(
+        description="Each installed environment that needs a deployment-supplied image."
+    )
+    unused: list[UnusedImageBindingOut] = Field(
+        description="Bindings in compute.yaml that no installed environment uses."
+    )
 
 
 @router.get(
     "/compute/image-bindings",
-    response=list[ImageBindingOut],
+    response=ImageBindingsOut,
     summary="Deployment-supplied environment images",
 )
-def list_image_bindings(request: HttpRequest) -> list[ImageBindingOut]:
-    """List the image pins configured in compute.yaml for this deployment."""
+def list_image_bindings(request: HttpRequest) -> ImageBindingsOut:
+    """Each installed environment that needs an image from this deployment, and the binding
+    in compute.yaml its plugin's installed version matches; and the bindings that none
+    matches, so stale pins show. Pull Secrets are named; their values stay in the cluster."""
     require(caller(request), Action.COMPUTE_MANAGE)
     deployment = catalog.compute()
     plugins = registry.plugins()
-    found = []
+    environments = []
+    used: set[ImageBinding] = set()
+    for plugin_name, plugin in sorted(plugins.items()):
+        for name, environment in sorted(plugin.environments.items()):
+            if not environment.customer_image_required:
+                continue
+            qualified = f"{plugin_name}.{name}"
+            binding = deployment.image_binding(qualified, plugin.version)
+            if binding is not None:
+                used.add(binding)
+            environments.append(
+                EnvironmentImageOut(
+                    environment=qualified,
+                    label=environment.label or name,
+                    plugin=plugin_name,
+                    plugin_title=plugin.title or plugin_name,
+                    installed_version=plugin.version,
+                    binding=_image_binding_out(binding) if binding else None,
+                )
+            )
+    unused = []
     for binding in sorted(
         deployment.image_bindings, key=lambda binding: (binding.environment, binding.plugin_version)
     ):
-        plugin_name, _, environment_name = binding.environment.partition(".")
-        plugin = plugins.get(plugin_name)
-        environment = plugin.environments.get(environment_name) if plugin else None
-        found.append(
-            ImageBindingOut(
+        if binding in used:
+            continue
+        owner_name, _, named = binding.environment.partition(".")
+        owner = plugins.get(owner_name)
+        wants = owner.environments.get(named) if owner is not None else None
+        reason: UnusedReason
+        if owner is None or wants is None:
+            reason = "not_installed"
+        elif not wants.customer_image_required:
+            reason = "not_requested"
+        elif releases.fits(binding.plugin_version, version=owner.version):
+            reason = "overlapping"
+        else:
+            reason = "other_release"
+        unused.append(
+            UnusedImageBindingOut(
                 environment=binding.environment,
+                installed_version=owner.version if owner is not None else None,
+                reason=reason,
                 plugin_version=binding.plugin_version,
                 image=binding.image,
                 pull_secret=binding.pull_secret,
-                installed_version=plugin.version if plugin else None,
-                active=bool(
-                    plugin
-                    and environment
-                    and environment.customer_image_required
-                    and deployment.image_binding(binding.environment, plugin.version) == binding
-                ),
             )
         )
-    return found
+    return ImageBindingsOut(environments=environments, unused=unused)
+
+
+def _image_binding_out(binding: ImageBinding) -> ImageBindingOut:
+    return ImageBindingOut(
+        plugin_version=binding.plugin_version, image=binding.image, pull_secret=binding.pull_secret
+    )
 
 
 Label = Annotated[str, Field(min_length=1, max_length=50)]
