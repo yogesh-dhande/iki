@@ -39,6 +39,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
+from uuid import UUID
 
 import requests
 import urllib3.util.connection
@@ -2617,6 +2618,16 @@ def bench_material(
     ok(f"labels for {box['hrid']} and {tubes[0]['hrid']} came as ZPL with DataMatrix codes")
 
 
+def read_completed_receipt(alice: requests.Session, receipt_id: str) -> dict[str, Any]:
+    got = api_call(alice, "GET", f"/receipts/{receipt_id}")
+    if got.status_code != 200:
+        fail(f"reading receipt {receipt_id} answered HTTP {got.status_code}: {got.text[:300]}")
+    receipt: dict[str, Any] = got.json()
+    if receipt["status"] != "completed":
+        fail(f"receipt {receipt_id} has status {receipt['status']}")
+    return receipt
+
+
 def receive_at_core(
     alice: requests.Session,
     project: dict[str, Any],
@@ -2676,12 +2687,16 @@ def receive_at_core(
     )
     if described.status_code != 200:
         fail(f"recording the handover answered {described.status_code}: {described.text[:300]}")
+    incoming_code = "IKI:" + UUID(incoming["id"]).hex.upper()
     done = api_call(
         alice,
         "POST",
         f"{at}/complete",
         {
-            "put_away": [{"line": lines[c], "to": incoming["id"]} for c in (first, second)],
+            "put_away": [
+                {"line": lines[first], "to": incoming_code, "position": "A1"},
+                {"line": lines[second], "to": incoming_code, "position": "A2"},
+            ],
             "plan_revision": described.json()["plan_revision"],
         },
     )
@@ -2689,9 +2704,20 @@ def receive_at_core(
         fail(
             f"completing {request['hrid']}'s receipt answered {done.status_code}: {done.text[:300]}"
         )
-    outcomes = done.json()["outcomes"]
+    received = read_completed_receipt(alice, receipt["id"])
+    outcomes = received["outcomes"]
     if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
         fail(f"{request['hrid']}'s receipt counted {outcomes}")
+    placed = {
+        line["entity"]: (line["outcome"], line["put_away"]["id"], line["put_away"]["position"])
+        for line in received["lines"]
+        if line["put_away"] and not line["received_unplaced"]
+    }
+    if len(received["lines"]) != 2 or placed != {
+        tubes[0]["id"]: ("matched", incoming["id"], "A1"),
+        tubes[1]["id"]: ("damaged", incoming["id"], "A2"),
+    }:
+        fail(f"{request['hrid']}'s receipt has the wrong tube placements: {received['lines']}")
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
     if [(c["id"], c["position"]) for c in contents] != [
         (tubes[0]["id"], "A1"),
@@ -3646,15 +3672,25 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
         done = api_call(
-            alice, "POST", f"{at}/complete", {"plan_revision": custody.json()["plan_revision"]}
+            alice,
+            "POST",
+            f"{at}/complete",
+            {
+                "plan_revision": custody.json()["plan_revision"],
+                "keep_in_custody": [scanned.json()["line"]],
+            },
         )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
-    if len(completed) != 1 or [
-        (line["entity"], line["outcome"]) for line in completed[0]["lines"]
-    ] != [(tube_id, "matched")]:
-        fail(f"the receipt did not account for the starter tube: {completed}")
+    if len(completed) != 1:
+        fail(f"the starter request has {len(completed)} completed receipts")
+    received = read_completed_receipt(alice, completed[0]["id"])
+    if [
+        (line["entity"], line["outcome"], line["received_unplaced"], line["put_away"])
+        for line in received["lines"]
+    ] != [(tube_id, "matched", True, None)]:
+        fail(f"the starter tube was not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(

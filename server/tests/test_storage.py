@@ -378,6 +378,7 @@ def receive(lab: Lab, ask: Any, put: dict[str, tuple[Any, str | None]]) -> Any:
             "put_away": [
                 {"line": by_entity[k], "to": c["id"], "position": p} for k, (c, p) in put.items()
             ],
+            "keep_in_custody": [line for entity, line in by_entity.items() if entity not in put],
         },
     )
     assert done.status_code == 200, done.content

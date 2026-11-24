@@ -38,6 +38,7 @@ function tube(number: number, changes: Partial<ReceiptLine> = {}): ReceiptLine {
     checked_by: null,
     checked_at: null,
     put_away: null,
+    received_unplaced: false,
     ...changes,
   };
 }
