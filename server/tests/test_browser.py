@@ -782,6 +782,9 @@ def test_a_server_pages_header_is_the_apps(
         assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
         assert shown_at["x"] + shown_at["width"] <= 390
     if path == "/teams/structural-biology/":
+        # The desktop sidebar still covers the left edge while it slides away on resize.
+        page.locator("#sidebar").wait_for(state="hidden")
+        page.evaluate(NEXT_FRAMES)
         about = page.get_by_role("button", name="About Structural Biology")
         about.click()
         toggletip = page.get_by_role("dialog", name="About Structural Biology")
@@ -850,6 +853,26 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
 
 
 NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+
+
+def test_a_plugin_preflight_form_can_recover_if_its_module_doesnt_load(open_as: Any) -> None:
+    page: Page = open_as("org_admin", "/admin/sign-in/")
+    chunk = frontend.manifest()["src/plugin-preflight.tsx"]["file"]
+    module_url = urllib.parse.urljoin(page.url, f"/static/app/{chunk}")
+    page.route(module_url, lambda route: route.abort())
+    page.get_by_role("navigation", name="Admin").get_by_role("link", name="Plugins").click()
+
+    preflight = page.get_by_role("region", name="Schema preflight")
+    alert = preflight.get_by_role("alert")
+    alert.get_by_text("The preflight form couldn’t load.").wait_for()
+    assert preflight.get_by_text("iki plugin preflight", exact=True).is_visible()
+    assert page.page_errors(filter="since-navigation") == []
+
+    page.unroute(module_url)
+    alert.get_by_role("button", name="Reload the page").click()
+    preflight.get_by_role("button", name="Run preflight").wait_for()
+    assert alert.is_hidden()
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -945,6 +968,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     # A server page, in the same frame, and from it the app's.
     admin.get_by_role("link", name="Plugins").click()
     page.get_by_role("heading", name="Plugins", level=1).wait_for()
+    # The server draws the heading before the preflight form's module has loaded.
+    page.get_by_role("button", name="Run preflight").wait_for()
     admin = page.get_by_role("navigation", name="Admin")
     assert admin.get_by_role("link", name="Plugins").get_attribute("aria-current") == "page"
     assert page.get_by_role("navigation", name="Main").count() == 0
@@ -966,6 +991,10 @@ def test_the_admin_area_has_a_frame_of_its_own(
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
+            # The empty Workers list wraps to a second line at this width.
+            page.get_by_role("region", name="Workers", exact=True).get_by_text(
+                "No workers have registered yet."
+            ).wait_for()
         admin = page.get_by_role("navigation", name="Admin")
         admin.wait_for(state="hidden")
         menu = page.get_by_role("button", name="Menu", exact=True)
@@ -2843,13 +2872,18 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     assert (gc, tm) == (62.5, 64.2)
     readout = page.get_by_text(re.compile("^Bases 1–24 selected"))
     readout.wait_for()
-    assert readout.text_content() == f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C"
+    assert readout.text_content() == (
+        f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C (50 mM Na⁺)"
+    )
     assert_clean(page)
     page.get_by_role("button", name="Copy", exact=True).click()
     page.get_by_role("status").filter(has_text="Copied 24 bases.").wait_for()
     page.get_by_role("button", name="Copy reverse complement").click()
     page.get_by_role("status").filter(has_text="reverse complement").wait_for()
-    assert page.evaluate("window.__copied") == [first, sequences.reverse_complement(first)]
+    # Spelled out rather than taken from the plugin: what is under test is the button, and
+    # a reverse complement the test computed the same way the page does would prove nothing.
+    backwards = first.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    assert page.evaluate("window.__copied") == [first, backwards]
 
     # By keyboard: the whole of it, whose GC content is what compute_composition records.
     rows.focus()

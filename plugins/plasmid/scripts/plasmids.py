@@ -19,6 +19,7 @@ from typing import Any
 
 import cloning
 import library
+import molecular
 import orfs as orf_finder
 import priming
 
@@ -313,6 +314,25 @@ NO_PRODUCT: dict[str, Any] = {
 }
 
 
+def _primer_dimer(pair: list[dict[str, str]]) -> float | None:
+    """The free energy of the most stable duplex the two primers form with each other, or
+    None where either has a base the parameters say nothing about (ADR 0201).
+
+    A pair is checked whatever the template does, since a primer dimer is amplified in
+    place of the template and so does not depend on it: a reaction that gives no product,
+    or several, is told about its dimer just the same.
+    """
+    answer = molecular.call(
+        "iki_check_oligos",
+        {"oligos": pair, "pairs": [[pair[0]["hrid"], pair[1]["hrid"]]]},
+    )
+    if "error" in answer:
+        raise molecular.ModuleError(f"The primer pair's checks were refused: {answer['error']}")
+    (pair,) = answer["pairs"]
+    dimer = pair["dimer"]
+    return None if dimer is None else round(dimer["free_energy"], 2)
+
+
 def _site_for(sites: list[priming.Site], primer: dict[str, Any], strand: str) -> list[priming.Site]:
     return [s for s in sites if s.hrid == primer["hrid"] and s.strand == strand]
 
@@ -352,15 +372,18 @@ def simulate_pcr(run: dict[str, Any]) -> dict[str, Any]:
                 else f", or none is within {longest:,} bp."
             )
         )
+    # Whatever the template does, the two primers can pair with each other, so the dimer
+    # is reported for a reaction that gives no product and for one that gives several.
+    dimer = _primer_dimer(pair)
     print(
         f"{pcr['hrid']}: {pair[0]['hrid']} and {pair[1]['hrid']} on {template['hrid']} "
         f"({len(bases)} bp, {'circular' if circular else 'linear'}) amplify {len(made)} "
         f"molecule{'' if len(made) == 1 else 's'}"
     )
     if len(made) > 1:
-        return _several(pcr, made)
+        return _several(pcr, made, dimer)
     product = made[0]
-    return _one_product(pcr, template, product, len(made))
+    return _one_product(pcr, template, product, len(made), dimer)
 
 
 def _refuse_unless_both_bind(
@@ -393,7 +416,9 @@ def _refuse_unless_both_bind(
         )
 
 
-def _several(pcr: dict[str, Any], made: list[priming.Product]) -> dict[str, Any]:
+def _several(
+    pcr: dict[str, Any], made: list[priming.Product], dimer: float | None
+) -> dict[str, Any]:
     """Several products, so none is registered: the reaction doesn't say which it means,
     and a band on a gel settles it."""
     lengths = ", ".join(f"{len(one.bases):,} bp" for one in made)
@@ -408,7 +433,11 @@ def _several(pcr: dict[str, Any], made: list[priming.Product]) -> dict[str, Any]
             "pcr": [
                 {
                     "entity": pcr["id"],
-                    "values": {**NO_PRODUCT, "products_found": len(made)},
+                    "values": {
+                        **NO_PRODUCT,
+                        "products_found": len(made),
+                        "primer_dimer_free_energy": dimer,
+                    },
                 }
             ]
         },
@@ -428,7 +457,11 @@ def _several(pcr: dict[str, Any], made: list[priming.Product]) -> dict[str, Any]
 
 
 def _one_product(
-    pcr: dict[str, Any], template: dict[str, Any], product: priming.Product, count: int
+    pcr: dict[str, Any],
+    template: dict[str, Any],
+    product: priming.Product,
+    count: int,
+    dimer: float | None,
 ) -> dict[str, Any]:
     name = values_of(pcr).get("name") or pcr["hrid"]
     across = product.template_end < product.template_start
@@ -470,6 +503,7 @@ def _one_product(
                         "product_length": product.length,
                         "forward_melting_temperature": ahead.tm,
                         "reverse_melting_temperature": back.tm,
+                        "primer_dimer_free_energy": dimer,
                         "tm_method": priming.CONDITIONS_TEXT,
                         "products_found": count,
                     },

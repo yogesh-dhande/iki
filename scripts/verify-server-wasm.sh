@@ -30,6 +30,17 @@ verify() {
   required_file "$pin"
   required_file "$file"
   expected=$(cat "$pin")
+  # A plugin module's pin is written as sha256sum writes it, `<digest>  <name>`: then the
+  # name must be this module's, and the digest is checked as a bare pin is.
+  case "$expected" in
+    *" "*)
+      if [ "${expected#*  }" != "$name" ]; then
+        printf 'The SHA-256 pin in %s names %s, not %s\n' "$pin" "${expected#*  }" "$name" >&2
+        exit 1
+      fi
+      expected=${expected%%  *}
+      ;;
+  esac
   case "$expected" in
     *[!0-9a-f]*)
       printf 'Invalid SHA-256 pin for %s in %s\n' "$name" "$pin" >&2
@@ -56,6 +67,9 @@ verify() {
 verify iki_wasm.wasm server/iki_wasm.wasm.sha256
 verify dna-annotation.wasm plugins/plasmid/data/dna-annotation.wasm.sha256
 verify oligo-measurement.wasm plugins/dna/data/oligo-measurement.sha256
+# The modules first-party plugins' actions call (ADR 0200, ADR 0201).
+verify plasmid-tools.wasm plugins/plasmid/data/plasmid-tools.wasm.sha256
+verify oligo-checks.wasm plugins/dna/data/oligo-checks.wasm.sha256
 required_file "$artifact/rust-standard-library.html"
 if [ "$check_native" = true ]; then
   python3 "$root/scripts/verify-server-aot.py" "$artifact"

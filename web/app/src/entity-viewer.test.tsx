@@ -388,7 +388,7 @@ describe("the sequence viewer's strands and selection", () => {
     bases.focus();
     // pUC19c's first 24 bases: the plugin's gc_content gives 62.5, and its Tm 64.2 °C.
     for (let i = 0; i < 24; i++) await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
-    expect(at).toHaveTextContent("Bases 1–24 selected: 24 bp · GC 62.5% · Tm 64.2 °C");
+    expect(at).toHaveTextContent("Bases 1–24 selected: 24 bp · GC 62.5% · Tm 64.2 °C (50 mM Na⁺)");
     await user.keyboard("{ArrowRight}");
     expect(at).toHaveTextContent("Caret before base 25: A, paired with T.");
     await user.keyboard("{Control>}a{/Control}");
@@ -431,10 +431,10 @@ describe("the sequence viewer's strands and selection", () => {
     if (!bar) throw new Error("No feature bar");
     await user.pointer({ keys: "[MouseLeft]", target: bar });
     const at = document.querySelector(".sequence-at");
-    // The last six of pUC19c and its first four, TTCGTCTCGC: the DNA plugin's gc_content
-    // and melting_temperature give 60.0 and 29.1 °C.
+    // The last six of pUC19c and its first four, TTCGTCTCGC: 60% GC, and 29.1 °C in
+    // sodium alone, which is what the readout beside a selection quotes (ADR 0201).
     expect(at).toHaveTextContent(
-      "Bases 2,681–4, across the origin, selected: 10 bp · GC 60% · Tm 29.1 °C",
+      "Bases 2,681–4, across the origin, selected: 10 bp · GC 60% · Tm 29.1 °C (50 mM Na⁺)",
     );
     expect(screen.getByRole("application", { name: "Bases of pUC19c" })).toHaveFocus();
   });

@@ -3547,6 +3547,14 @@ export interface paths {
          *     expected slot records a positional match. An ambiguous label elsewhere returns 409
          *     with the readable candidates and the zero-based scan index. A selected candidate
          *     is rechecked against the original label when the rack is submitted again.
+         *
+         *     Identical unregistered labels read at different positions in the same rack can represent
+         *     separate tubes. If a reading could be a move of an earlier unregistered observation,
+         *     409 `count_unregistered_choice` identifies the scan's zero-based `index`, its
+         *     `position`, and the prior `observations` by line ID, revision and position. Submit
+         *     `unregistered: {"action":"additional"}` to record another tube, or
+         *     `{"action":"move","line_id":...}` to move that line with its reviewed revision and a reason.
+         *     Any prior observation displaced at the destination must also be reviewed.
          */
         post: operations["iki_server_api_storage_scan_positions"];
         delete?: never;
@@ -5531,6 +5539,14 @@ export interface components {
              * @description Whether this deployment has set it. Its value is never shown.
              */
             set: boolean;
+        };
+        /** AdditionalUnregisteredIn */
+        AdditionalUnregisteredIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "additional";
         };
         /** AdjustIn */
         AdjustIn: {
@@ -11020,6 +11036,20 @@ export interface components {
             to_choice?: string | null;
             to_mode?: components["schemas"]["ScanMode"];
         };
+        /** MoveUnregisteredIn */
+        MoveUnregisteredIn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            action: "move";
+            /**
+             * Line Id
+             * Format: uuid
+             * @description The prior unregistered observation the operator saw move.
+             */
+            line_id: string;
+        };
         /** MovedOut */
         MovedOut: {
             /** @description For a type with an amount (ADR 0139), how much there is of it: changed only through `/entities/{ref}/amount`. None if none is recorded. */
@@ -15367,6 +15397,11 @@ export interface components {
             mode?: components["schemas"]["ScanMode"];
             /** Position */
             position: string;
+            /**
+             * Unregistered
+             * @description An additional unregistered tube, or a move of a named prior observation.
+             */
+            unregistered?: (components["schemas"]["AdditionalUnregisteredIn"] | components["schemas"]["MoveUnregisteredIn"]) | null;
         };
         /** ScanMatchOut */
         ScanMatchOut: {

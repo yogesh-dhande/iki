@@ -50,8 +50,12 @@ export interface Problem {
   }[];
   /** Readable alternatives when a scan needs an explicit choice (`scan_ambiguous`). */
   candidates?: Schemas["ScanCandidateOut"][];
-  /** Zero-based position of that scan in a submitted rack. */
+  /** Zero-based index of the scan that needs a choice in a submitted rack. */
   index?: number;
+  /** Destination slot when an unregistered tube may be an earlier observation. */
+  position?: string;
+  /** Previous slots offered by a `count_unregistered_choice` response. */
+  observations?: { line_id: string; line_revision: number; position: string }[];
   /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
   guard?: string;
   /** On a storage observation conflict, the affected lines and their current revisions. */

@@ -224,6 +224,13 @@ jobs:
         run: scripts/build-wasm.sh
       - name: Build the packaged DNA annotation module
         run: scripts/build-dna-annotation-wasm.sh
+      # The plasmid plugin's actions call this module, and no .wasm is committed, so the
+      # tests that run those actions build it here. It checks itself against the tracked
+      # digest as it goes (ADR 0200).
+      - name: Build the plugins' modules
+        run: |
+          scripts/build-plasmid-tools-wasm.sh
+          scripts/build-oligo-checks-wasm.sh
       - name: Build iki-worker
         if: matrix.kind == 'worker'
         working-directory: worker
@@ -278,6 +285,15 @@ jobs:
           name: python-shard-${{ matrix.python }}-${{ matrix.kind }}-${{ matrix.shard }}
           path: ${{ runner.temp }}/shard/
           if-no-files-found: error
+          retention-days: 7
+      - name: Upload click stability reports
+        if: ${{ !cancelled() && matrix.kind == 'browser' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: click-stability-${{ matrix.python }}-${{ matrix.shard }}
+          path: .pytest_cache/click-stability/*.json
+          include-hidden-files: true
+          if-no-files-found: warn
           retention-days: 7
 
   python-summary:
@@ -403,6 +419,10 @@ jobs:
         run: cargo test --locked --all-targets
       - name: Check the packaged DNA annotation module
         run: ../scripts/build-dna-annotation-wasm.sh --check
+      - name: Check the packaged primer and digest module
+        run: ../scripts/build-plasmid-tools-wasm.sh --check
+      - name: Check the packaged primer-checks module
+        run: ../scripts/build-oligo-checks-wasm.sh --check
 
   server-wasm:
     name: Build server Wasm
@@ -508,6 +528,12 @@ jobs:
           workspaces: worker
       - name: Build iki-wasm
         run: scripts/build-wasm.sh
+      # `iki deploy build` puts each plugin's module in its bundle, taking it from
+      # iki-spec, which this builds it into; no .wasm is committed (ADR 0200).
+      - name: Build the plugins' modules
+        run: |
+          scripts/build-plasmid-tools-wasm.sh
+          scripts/build-oligo-checks-wasm.sh
       - name: Build the worker image, and a deployment's on top of it
         run: scripts/ci/worker-image.sh iki-worker:ci
       - name: Install Grype and Syft (pinned, checksum verified)

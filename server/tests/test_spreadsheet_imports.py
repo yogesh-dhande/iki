@@ -972,7 +972,9 @@ def test_reserved_vendor_code_is_a_field_problem_before_a_tube_is_imported(world
     assert len(problems) == 1 and problems[0]["row"] == 3
     assert any(p["field"] == "barcode" and "IKI:" in p["detail"] for p in problems[0]["problems"])
     assert checked["preview"]["counts"]["create"] == 1
-    refused = api_as(world).post(f"/spreadsheet-imports/{uploaded['id']}/commit", {})
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{uploaded['id']}/commit", {}, headers=seen(checked)
+    )
     assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
     assert not records(world, TUBE, "barcode")
     done = committed(world, checked, skip_problems=True, reason="Import the valid supplier row")

@@ -1,4 +1,4 @@
-"""iki-spec's build backend: uv_build's, with iki-wasm built first.
+"""iki-spec's build backend: uv_build's, with the WebAssembly modules built first.
 
 iki-spec checks plugins' rules and guards (ADR 0127) with iki-wasm, the module browsers run,
 which ``scripts/build-wasm.sh`` builds from the worker's crates into ``src/iki_spec``. A
@@ -7,6 +7,13 @@ checkout, building a wheel or a source distribution runs that script first, ever
 a stale module can't ship; from a source distribution, which carries the module, a wheel
 is built only if it's there. An editable install, for development, needs neither: its
 checks say to run the script when they find no module.
+
+A first-party plugin may carry a module of its own too -- the plasmid plugin's molecular
+module, which places primers and cuts DNA (ADR 0200). None of them is tracked in git:
+git holds the Rust and each module's SHA-256 digest, and a build makes the bytes. So the
+same build runs their scripts, each of which checks what it built against the tracked
+digest, and a checkout that cannot build them says so rather than shipping a plugin whose
+actions have no module to call.
 """
 
 from __future__ import annotations
@@ -18,13 +25,18 @@ from typing import Any
 
 #: Where the module goes, in the project's source.
 WASM = Path("src", "iki_spec", "iki_wasm.wasm")
+#: A first-party plugin's own module, built from the same crates and checked against the
+#: digest git tracks beside it. Each is a script in ``scripts/``.
+PLUGIN_MODULES = ("build-plasmid-tools-wasm.sh", "build-oligo-checks-wasm.sh")
 
 
 def ensure_wasm(project: Path) -> Path:
     """Builds iki-wasm into ``project`` from the checkout it's in, or, outside one (a source
     distribution), checks it's there. Raises :class:`RuntimeError` saying what to do."""
-    script = project.parent / "scripts" / "build-wasm.sh"
-    if script.is_file() and (project.parent / "worker").is_dir():
+    scripts = project.parent / "scripts"
+    in_a_checkout = (project.parent / "worker").is_dir()
+    script = scripts / "build-wasm.sh"
+    if script.is_file() and in_a_checkout:
         subprocess.run([str(script)], check=True)  # noqa: S603 - the checkout's own script
     wasm = project / WASM
     if not wasm.is_file() or wasm.stat().st_size == 0:
@@ -39,6 +51,13 @@ def ensure_wasm(project: Path) -> Path:
     notice = wasm.with_name("rust-standard-library.html")
     if not notice.is_file() or notice.stat().st_size == 0:
         raise RuntimeError("iki-spec needs rust-standard-library.html alongside its Rust modules.")
+    if in_a_checkout:
+        for name in PLUGIN_MODULES:
+            module = scripts / name
+            if module.is_file():
+                # Each checks its own bytes against the digest git tracks, so a module
+                # that no longer matches its Rust fails the build rather than shipping.
+                subprocess.run([str(module)], check=True)  # noqa: S603 - the checkout's own script
     return wasm
 
 
