@@ -1,0 +1,566 @@
+---
+title: Python SDK and MCP server
+description: The ikisci Python package for notebooks and scripts, its sign-in, every part of its client and the errors it raises, and Iki's MCP server for AI agents, with its tools and how an agent connects.
+order: 40
+---
+
+`ikisci` is Iki's Python package: search and read records, change them on the record, run actions
+and wait for them, and turn what you find into pandas DataFrames. Iki's MCP server gives an AI
+agent the same through the Model Context Protocol. Both call the [REST API](/reference/api/) as the
+person who signed in, and everything they do is recorded as done by that person, through the SDK
+or through MCP.
+
+The examples use the example LIMS plugin's samples, in a project with the slug `qc-lab`.
+
+## Install it
+
+```console
+$ pip install 'ikisci[pandas]'
+```
+
+Leave out `[pandas]` if you don't need DataFrames. It needs Python 3.12 or later.
+
+```python
+import iki
+
+iki.login("https://iki.example.org")
+
+samples = iki.entities.search("iki/example_lims.Sample", project="qc-lab")
+table = samples.to_pandas()  # one row per record, a column per field
+```
+
+## Sign in as yourself
+
+`iki.login(url)` signs in with OAuth's device flow, as the CLI does:
+
+```pycon
+>>> iki.login("https://iki.example.org")
+To sign in to Iki, open https://iki.example.org/oauth/device/ and enter the code 4K9Q0TB7
+Signed in to https://iki.example.org as Priya Natarajan, allowed: read write run. Kept in your system keychain.
+```
+
+It opens the page in your browser when it can (`open_browser=False` stops it). You sign in to Iki
+there with your organization's single sign-on, so the SDK never sees your password, and choose
+what to allow, in every project or the ones you pick:
+
+| Scope   | What it allows                                                     |
+| ------- | ------------------------------------------------------------------ |
+| `read`  | See your projects and teams, and read their data.                  |
+| `write` | Create and change records, and projects' settings and members.     |
+| `run`   | Run actions, on the compute tiers your project roles allow.        |
+| `apps`  | Build and change apps and views.                                   |
+| `admin` | Administer the organization as you can: people, teams and service accounts. |
+| `webhooks` | Manage webhooks.                                                |
+
+`iki.login()` asks for `read`, `write` and `run` unless you pass `scopes=`. A sign-in can do what
+both its scopes and your roles allow: a `write` sign-in held by a project's Viewer still only
+reads there.
+
+The sign-in is kept in your system's keychain (macOS Keychain, Windows Credential Manager, or the
+Secret Service on Linux), or, where there's none, in `~/.config/iki/credentials.json`, which only
+you can read. Its access tokens last an hour and are renewed as needed. `iki.logout()` ends it, and
+so does ending it in Iki, under **Authorized apps**.
+
+## Sign in a script or pipeline
+
+Set `IKI_URL` and `IKI_TOKEN`, such as a service account's token, and nothing is stored:
+
+```console
+$ export IKI_URL=https://iki.example.org IKI_TOKEN=…
+$ python nightly_import.py
+```
+
+For more than one deployment, make a client for each. A client also takes a token directly:
+
+```python
+staging = iki.Client("https://iki-staging.example.org")
+staging.entities.search("iki/example_lims.Sample").first()
+
+ci = iki.Client("https://iki.example.org", token=token)
+```
+
+`iki.entities`, `iki.types`, `iki.projects`, `iki.actions`, `iki.runs`, `iki.files`,
+`iki.spreadsheets` and `iki.signatures` use the default client: your sign-in, or `IKI_URL` and
+`IKI_TOKEN`. The other parts, `entries`, `work`, `notifications` and `costs`, are on a client:
+`iki.client().work`, or `staging.work`. `client.request("GET", "/entity-types")` calls any API
+path the SDK doesn't wrap.
+
+An AI agent using the SDK can say which model it is, with `iki.Client(agent_model="claude-opus-5-5")`
+or `IKI_AGENT_MODEL`. What it changes then records that, as the agent's own word, beside the
+person and the app it signed in as.
+
+The SDK reaches Iki only over HTTPS (plain HTTP only on this machine), with the system's trusted
+certificates, so it works behind proxies that inspect TLS.
+
+## Records
+
+`iki.entities` reads and changes records, by their ID or their HRID, such as `SAM-000231`.
+
+### Search and read
+
+```python
+found = iki.entities.search(
+    "iki/example_lims.Sample",  # with its subtypes; exact_type=True for only this type
+    project="qc-lab",  # its slug or ID
+    q="stability",  # text
+    where={
+        "all": [
+            {"field": "status", "op": "eq", "value": "in_review"},
+            {"field": "purity", "op": "lt", "value": 98},
+        ]
+    },
+    sort="-created_at",  # newest first
+)
+for sample in found:  # fetched a page at a time
+    print(sample["hrid"], sample["values"]["purity"])
+
+found.first()  # the first, or None
+found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
+
+sample = iki.entities.get("SAM-000231")
+# By a unique field, such as the ID a LIMS gives its record: one per project at most.
+[sample] = iki.entities.lookup("iki/example_lims.Sample", "lims_id", "S-0042", project="qc-lab")
+```
+
+`search` also takes `collection=` (a collection's records), `run=` (what a run made), and
+`archived=` (`False` by default, `True` for only archived records, `None` for both).
+
+A condition is `{"field": …, "op": …, "value": …}`, and conditions combine with
+`{"all": [...]}`, `{"any": [...]}` and `{"not": ...}`:
+
+| `op`                                  | Matches                                                         |
+| ------------------------------------- | --------------------------------------------------------------- |
+| `eq`, `ne`, `in`                      | Equal to the value, not equal, or one of a list.                |
+| `lt`, `lte`, `gt`, `gte`              | Less or greater than a number, date or time.                    |
+| `contains`, `starts_with`, `matches`  | Text containing the value, starting with it, or matching a regular expression. |
+| `has`                                 | A list holding the value.                                       |
+| `is_set`                              | A field with a value (`true`) or without one (`false`).         |
+| `of`                                  | With `downstream` or `upstream`: derived from the record, or what it was derived from. |
+| `motif`                               | A sequence holding the IUPAC pattern.                           |
+
+Some fields search what Iki keeps beside a record's values: `state` its states, `held` the rules
+holding it for review, `breaks` the rules it breaks, saved before they applied. `{{ me }}` stands
+for whoever searches:
+
+```python
+held = {"field": "held", "op": "eq", "value": "purity_in_specification"}
+mine = {"field": "analyst", "op": "eq", "value": "{{ me }}"}
+for sample in iki.entities.search("iki/example_lims.Sample", where={"all": [held, mine]}):
+    print(sample["hrid"], [(h["label"], h["reason"]) for h in sample["holds"]])
+```
+
+A search also downloads as CSV, the columns the grid shows, from
+[`GET /entities/search.csv`](/reference/api/get-entities-search-csv/), with the same search as
+parameters and `where` as JSON. Each download is in the audit log, and no cell is one a spreadsheet
+would run as a formula.
+
+### Create, change and archive
+
+```python
+made = iki.entities.create(
+    "iki/example_lims.Sample",
+    {"lims_id": "S-0042", "volume": {"value": 1.5, "unit": "mL"}},
+    project="qc-lab",
+    reason="Received with the stability batch",
+)
+
+# A change names the revision you read. If the record changed since,
+# iki.Conflict is raised and nothing changes: read it again, then decide.
+sample = iki.entities.get("SAM-000231")
+iki.entities.update(
+    "SAM-000231", {"notes": "Cloudy on thawing"}, revision=sample["revision"], reason="Seen at receipt"
+)
+iki.entities.archive("SAM-000231", revision=7, reason="Duplicate of SAM-000229")
+iki.entities.restore("SAM-000231", revision=8, reason="Not a duplicate: different donor")
+```
+
+A value that breaks a rule which holds records for review is refused unless you say why in
+`hold_reason=`: then it's saved, and the record is held until someone reviews the hold. A record
+of a type with an amount takes `amount=`, how much there is, such as `(1.5, "mL")`.
+
+### States and corrections
+
+A state field is set on its own, to a state your lab roles may set. `sample["can"]["states"]`
+says which, and why not for the others:
+
+```python
+iki.entities.set_state(
+    "SAM-000231", "status", "in_testing", revision=sample["revision"], reason="Rerun on column B"
+)
+
+# A locked record may allow a correction: the same update returns it for review, and its
+# history keeps the return and the edit, each with the reason.
+if sample["can"]["correct"]:
+    iki.entities.update(
+        "SAM-000231",
+        {"purity": 97.3},
+        revision=sample["revision"],
+        reason="Transcription error: the chromatography report gives 97.3%",
+    )
+
+# A hold a rule placed, reviewed by someone with the rule's lab role.
+hold = sample["holds"][0]
+iki.entities.review_hold(
+    "SAM-000231", hold["id"], revision=sample["revision"],
+    review_version=hold["review_version"], reason="Within the method's uncertainty",
+)
+```
+
+A state that needs electronic signatures can't be set here: only a person signing in again in
+Iki's web app sets it. [States, locks and signatures](/concepts/states-locks-and-signatures/) and
+[Corrections](/concepts/corrections/) say how these work.
+
+### People in records
+
+Fields can name people, by ID or email address:
+
+```python
+client = iki.client()
+iki.entities.update("SAM-000231", {"reviewer": "tomas.herrera@example.org"}, revision=9)
+for item in client.work.mine(type="iki/example_lims.Sample"):  # yours now, soonest due first
+    print(item["entity"]["hrid"], item["fields"], item["due"])
+for item in client.work.open():  # nobody's yet, and open to your lab roles
+    record = item["entity"]
+    iki.entities.take(record["hrid"], item["fields"][0], revision=record["revision"])
+
+# Many at once, each its own revision. What can't change is skipped, with why.
+bos = {"field": "analyst", "op": "eq", "value": "bo.lindqvist@example.org"}
+late = list(iki.entities.search("iki/example_lims.Sample", where=bos))
+iki.entities.assign(late, "analyst", "priya.natarajan@example.org", reason="Bo is away")["skipped"]
+```
+
+`assign` takes `op="add"` or `op="remove"` for a field that names several people, and `None` to
+empty it.
+
+### History, signatures and where a record came from
+
+```python
+iki.entities.history("SAM-000231")  # each revision: who changed what, when, through what and why
+iki.entities.revision("SAM-000231", 6)  # its values at revision 6
+iki.entities.provenance("SAM-000231")  # where each value came from
+iki.entities.origins("SAM-000231")  # the database record or file a run imported it from
+
+# Its electronic signatures, each as people read it, checked again.
+for signature in iki.signatures.list("SAM-000231", verify=True)["items"]:
+    print(signature["manifestation"], signature["verification"]["valid"])
+iki.signatures.verify(signature["id"])  # one, checked now
+
+# What it was derived from, and what was derived from it, through references, runs, files,
+# aliquots, transfers and draws: nearest first, each with the path that reached it.
+for item in iki.entities.upstream("SAM-000231"):
+    print(item["depth"], item["entity"]["hrid"], [step["kind"] for step in item["path"]])
+impact = iki.entities.downstream("RMG-000031", type="iki/example_lims.Sample")
+impact.to_pandas()  # hrid, title, type, project, depth, archived, path
+impact.summary()["total"]  # "hidden" counts what you can't read
+iki.entities.downstream_csv("RMG-000031")  # everything at once, as the CSV has it
+iki.entities.graph("SAM-000231", up=2, down=1)  # a few steps each way, to draw
+```
+
+`upstream` and `downstream` take `depth=`, `edges=` (`reference`, `run`, `file`, `aliquot`,
+`transfer`, `used`), `type=`, `project=` and `archived=`.
+
+### Amounts
+
+For a type with an amount, such as a lot or a tube:
+
+```python
+iki.entities.amount("RMG-000031")  # how much there is, and what holds it
+iki.entities.draw("RMG-000031", (12.1, "g"), reason="1 M Tris buffer")
+iki.entities.draw("TUB-000014", (50, "uL"), confirm="TUB-000014", used_in="EXP-000003")
+iki.entities.transfer("RMG-000031", "RMG-000035", (100, "g"), reason="Pooled")
+iki.entities.adjust("RMG-000031", (985000, "mg"), reason="Recount on 21 Nov 2026")
+iki.entities.split("SAM-000231", 3, (20, "uL"), values=[{"label": f"S-1.{n}"} for n in (1, 2, 3)])
+iki.entities.movements("RMG-000031")  # its ledger, newest first
+```
+
+An amount is `(value, unit)` in a UCUM unit, or `{"value": …, "unit": …}`, in the amount's own unit
+or one that converts to it. `draw` takes `purpose="qa_sampling"` for testing, which needs a lab
+role the type names, and `confirm=`, the scanned label of what's drawn from.
+
+### Registry entries
+
+`client.entries` reads a registry's entries, and for its registrars changes them:
+
+```python
+client.entries.get("TAX-000001")  # with the records of it in projects you can read
+client.entries.add_to("TAX-000001", "qc-lab", reason="Donor samples in the stability study")
+client.entries.curate("TAX-000001", {"rank": "species"}, revision=3, reason="As NCBI Taxonomy gives it")
+client.entries.supersede("TAX-000014", replacement="TAX-000001", reason="Registered twice")
+iki.entities.move("SAM-000231", reason="Its entry was superseded")  # to the replacement
+```
+
+[Registries and project records](/concepts/registries-and-project-records/) says how they work.
+
+### Requests between projects
+
+```python
+core = iki.projects.services("qc-lab", type="iki/example_lims.AnalysisRequest")[0]
+asked = iki.entities.create(
+    "iki/example_lims.AnalysisRequest", {"title": "Lot 12", "samples": ["SAM-000231"]}, project="qc-lab"
+)
+iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
+iki.entities.request(asked["hrid"])["results"]  # what the core released back
+```
+
+### Notifications
+
+```python
+for n in client.notifications.list(unread=True):
+    print(n["title"], [r["hrid"] for r in n["records"]])
+client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})  # or "email", "off"
+client.notifications.watch("SAM-000231")  # or mode="muted", or "default"
+```
+
+## Runs
+
+```python
+iki.actions.list(takes=["iki/stability.Study"])  # what can run on stability studies
+iki.actions.get("iki/example_lims.import_from_lims")  # its inputs, params and tier
+
+run = iki.run(
+    "iki/example_lims.import_from_lims",
+    project="qc-lab",
+    reason="Catch up after the LIMS was down",
+)
+run = iki.wait(run)  # raises iki.RunFailed if it fails
+print(run["effects"])  # what it created or changed
+
+studies = iki.entities.search("iki/stability.Study", project="qc-lab")
+runs = iki.run_each(  # one run for each, all or none
+    "iki/stability.schedule_pulls", list(studies), each="study", project="qc-lab"
+)
+iki.wait(runs, timeout=3600)  # iki.TimedOut after an hour
+
+iki.runs.log(run)  # what it printed
+iki.runs.attempts(run)  # where each attempt ran and how it ended
+iki.runs.artifacts(run)  # files it kept
+iki.runs.download_artifact(run, "report.txt", ".")
+iki.runs.list(project="qc-lab", status="failed").to_pandas()
+iki.runs.cancel("RUN-000045", reason="Started on the wrong study")
+iki.runs.reproduce("RUN-000045", reason="Audit")  # the same commit, params and inputs
+```
+
+`iki.runs.start` and `start_each` also take `reuse=False` (run again rather than reuse an identical
+run's results), `add_to_project=True` (share inputs from other projects into it) and `labels=`.
+
+An action that sends data to an outside API says what it sends and where. Starting it needs your
+agreement, as `consent`, and the API's approval for the project by an Org Admin:
+
+```python
+try:
+    run = iki.run("iki/example_models.predict_structure", project="qc-lab", inputs={"protein": "PRT-000123"})
+except iki.ConsentRequired as refused:
+    for statement in refused.statements:
+        print(statement["statement"])  # what it sends, and to whom
+    run = iki.run(
+        "iki/example_models.predict_structure",
+        project="qc-lab",
+        inputs={"protein": "PRT-000123"},
+        consent=refused.apis,
+    )
+except iki.NotApproved as refused:
+    print(refused.detail, refused.approvers)  # who can approve it, in Iki's web app
+
+for call in iki.runs.api_calls(run):  # the model and version that answered, and hashes
+    print(call["model"], call["version"], call["response_sha256"])
+```
+
+What runs cost: `iki.projects.costs("qc-lab", by="action")`, and across the organization
+`client.costs.summary(by="project")`, `client.costs.budgets()` and `client.costs.records()`.
+
+## Files
+
+```python
+report = iki.files.upload("hplc-sam-000231.pdf", project="qc-lab", media_type="application/pdf")
+iki.entities.update("QCD-000004", {"report": report["id"]}, revision=2)  # a file field takes its ID
+
+deliverable = iki.entities.get("QCD-000004")
+for file_id, file in deliverable["files"].items():
+    iki.files.download(file_id, ".")  # checked against the SHA-256 Iki recorded
+```
+
+`upload` computes the file's SHA-256, sends its parts straight to object storage, and waits for
+Iki to check the stored bytes, then returns the file's ID, name, size, media type and SHA-256. It
+takes a path or an open binary stream (give it `name=` if the stream has none), `acquired=` for
+when the data was acquired, and `timeout=`. It needs project Editor access and the `write` scope.
+
+## Spreadsheet imports
+
+```python
+imported = iki.spreadsheets.import_sheet(
+    "manifest.xlsx",
+    type="iki/example_lims.Sample",
+    project="qc-lab",
+    locale={"decimal": "comma", "dates": "day_first"},
+    reason="Batch 12 from the core facility",
+)
+samples = iki.entities.search("iki/example_lims.Sample", run=imported["run"]["hrid"])
+```
+
+Iki maps the sheet's columns to the type's fields by their headers, or by a mapping the project
+saved, checks every row as it would be written, then writes them all in one run, or none. Each
+record's origin names the workbook, sheet and row. Iki never guesses how a sheet writes numbers and
+dates: until `locale` says, a cell such as `1,234` or `03/04/2026` is a problem. Rows with problems
+raise `iki.ImportFailed`, whose `problems` give each one's row, column and what's wrong;
+`skip_problems=True` imports the rest.
+
+To look before importing, a step at a time:
+
+```python
+sheet = iki.spreadsheets.start("manifest.xlsx", type="iki/example_lims.Sample", project="qc-lab")
+sheet["columns"]  # each column's header, the field Iki suggests, and a few of its cells
+sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "lims_id"}])
+sheet = iki.spreadsheets.preview(sheet)
+sheet["preview"]["counts"]  # rows to create, register, add, reuse, merge or fix
+for row in iki.spreadsheets.rows(sheet, outcome=["problem"]):
+    print(row["row"], row["problems"])
+imported = iki.spreadsheets.commit(sheet, reason="Batch 12")
+iki.spreadsheets.save_mapping(imported, "Core facility manifest")
+```
+
+Pass each step's answer to the next. Each preview is a new revision of the import: if someone
+changes it before you commit, `iki.Conflict` is raised, and you read it and review it again.
+`save_mapping(..., replace=template)` replaces a saved mapping, checked against the revision you
+reviewed.
+
+## Errors
+
+When Iki refuses something, the SDK raises an `iki.ApiError` that says why, with a `code` for
+programs, `errors` for invalid input, field by field, and a `request_id` to quote to your
+administrator. Requests Iki asks you to slow down for are sent again after waiting as long as it
+says.
+
+| Exception              | When                                                                   |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `iki.Invalid`          | What you sent isn't valid (422): `errors` says what.                   |
+| `iki.NotFound`         | There's no such thing, or you can't see it (404).                      |
+| `iki.Forbidden`        | Your role, or your sign-in's scopes, don't allow it (403).             |
+| `iki.Conflict`         | It can't be done now, or it changed since your revision (409, 412).    |
+| `iki.ConsentRequired`  | A run sends data to an outside API, and you didn't agree to it.        |
+| `iki.NotApproved`      | That outside API isn't approved for the project.                      |
+| `iki.RateLimited`      | Too many requests, even after waiting as Iki asked (429).              |
+| `iki.NotSignedIn`      | No sign-in, or it has expired: run `iki.login()`.                      |
+| `iki.SignInFailed`     | Signing in didn't finish: the code expired, or you declined.           |
+| `iki.RunFailed`        | A run you waited for didn't succeed.                                   |
+| `iki.ImportFailed`     | A spreadsheet import wasn't written.                                   |
+| `iki.TimedOut`         | The wait ended while the run or file check went on.                    |
+
+All of them are `iki.IkiError`s.
+
+## Types
+
+Answers are the API's JSON, as dicts and lists. `iki.schema` has a `TypedDict` for each, generated
+from Iki's OpenAPI description, so editors complete keys and type checkers check them:
+
+```python
+from iki.schema import EntityOut, RunOut
+```
+
+## MCP server
+
+Each deployment serves MCP, over Streamable HTTP, at `/mcp`: `https://iki.example.org/mcp`. An
+agent's tools are thin layers over the REST API, so an agent can do what the person who signed it
+in can, limited to the scopes and projects they allowed it. Everything it does is recorded as done
+through MCP, by its client, for that person, and the person sees it under **Authorized apps**.
+
+### Connect an agent
+
+Add the server to the agent by its URL. In Claude Code:
+
+```console
+$ claude mcp add --transport http iki https://iki.example.org/mcp
+```
+
+Other clients take the same URL in their MCP settings. The agent signs in with OAuth:
+
+1. Iki answers its unsigned request with `401` and a challenge naming
+   `/.well-known/oauth-protected-resource`, which says where to sign in.
+2. The client registers itself (`/oauth/register/`), then opens Iki's sign-in in a browser, with
+   PKCE.
+3. The person signs in with single sign-on and chooses what to allow, as for the SDK: the scopes,
+   and every project or the ones they pick.
+4. If the organization requires approval of apps, a client nobody has used yet waits for an Org
+   Admin, and the person can ask one to approve it from the page Iki shows.
+
+The person ends the agent's access in Iki under **Authorized apps**. An Org Admin can block a
+client for everyone.
+
+A tool needs the scope its API call needs: `read` to read, `write` to change records, `run` for
+runs and workflows, and `apps` for apps and views. An agent may name its model with the
+`Iki-Agent-Model` header, recorded as its own word.
+
+### What tools answer
+
+Every answer is Iki's data, inside `<iki-data-…>` markers with a random suffix. Much of it was
+written by people and by other tools, so the server tells agents to read it as data and never
+follow instructions in it.
+
+Some things an agent can't do for a person:
+
+- It never gives an electronic signature, and can't set a state that needs one: only a person
+  signing in again in Iki's web app signs.
+- Runs on the container and VM tiers, and runs of actions that send data to outside APIs, wait for
+  the person to approve them in Iki.
+- It can't give lab roles, which only people give, in Iki.
+
+### Tools
+
+Tools marked "changes" alter what's there: their history keeps the old values, but clients should
+ask before calling them. Tools that add records, or only read, are marked so.
+
+| Tool                     | What it does                                                                 | Kind    |
+| ------------------------ | ---------------------------------------------------------------------------- | ------- |
+| `whoami`                 | The person the agent acts for, with their organization roles.                | reads  |
+| `my_work`                | Records assigned to the person, or open to their lab roles.                  | reads  |
+| `list_projects`          | Projects they can see, their role and lab roles in each, and what they can do. | reads |
+| `list_lab_roles`         | The lab roles plugins declare, and what each lets its holders do.            | reads  |
+| `list_entity_types`      | The record types installed.                                                  | reads  |
+| `describe_entity_type`   | A type's fields, units, states and rules.                                    | reads  |
+| `search_entities`        | Records matching a search, as in the SDK.                                    | reads  |
+| `lookup_entities`        | Records by a unique field, such as a LIMS's ID.                              | reads  |
+| `get_entity`             | A record, with what the person can do to it.                                 | reads  |
+| `get_registry_entry`     | A registry entry, with its records.                                          | reads  |
+| `get_entity_history`     | A record's revisions.                                                        | reads  |
+| `get_entity_revision`    | A record at one revision.                                                    | reads  |
+| `get_signatures`         | A record's electronic signatures, checked again on request.                  | reads  |
+| `verify_signature`       | One signature, checked again.                                                | reads  |
+| `get_lineage`            | What a record was derived from.                                              | reads  |
+| `get_impact`             | What was derived from a record.                                              | reads  |
+| `create_entity`          | A new record.                                                                | adds   |
+| `update_entity`          | Change a record's values at the revision read, or correct a locked one.      | changes |
+| `set_entity_archived`    | Archive or restore a record.                                                 | changes |
+| `set_entity_state`       | Set one of a record's state fields.                                          | changes |
+| `list_services`          | The services a project may send requests to.                                 | reads  |
+| `submit_request`         | Send a request to a service.                                                 | changes |
+| `get_request`            | A request's two sides.                                                       | reads  |
+| `get_amount_movements`   | An amount's ledger.                                                          | reads  |
+| `draw_amount`            | Record that some of an amount was used.                                      | changes |
+| `transfer_amount`        | Move some of an amount into another record.                                  | changes |
+| `adjust_amount`          | Set an amount to what it was found to be.                                    | changes |
+| `split_into_aliquots`    | Split a record into aliquots.                                                | adds   |
+| `describe_apps`          | How to write an app.                                                         | reads  |
+| `check_app`              | Check an app's spec.                                                         | reads  |
+| `read_helm`              | Parse a HELM string.                                                         | reads  |
+| `create_app`             | A new app.                                                                   | adds   |
+| `create_view`            | Save a view of records in Iki's viewers.                                     | adds   |
+| `preview_app`            | A draft of an app, for the person to look at for a day, saving nothing.      | adds   |
+| `set_project_dashboard`  | Set a project's dashboard to an app.                                         | changes |
+| `list_actions`           | Actions, or those that take records of given types.                          | reads  |
+| `describe_action`        | An action's inputs, params and tier.                                         | reads  |
+| `list_runs`              | Runs, by project, action and status.                                         | reads  |
+| `get_run`                | A run.                                                                       | reads  |
+| `get_run_log`            | What a run's attempt printed.                                                | reads  |
+| `run_action`             | Queue a run.                                                                 | adds   |
+| `run_batch`              | Queue a run for each of several records.                                     | adds   |
+| `get_batch`              | A batch of runs.                                                             | reads  |
+| `cancel_run`             | Cancel a run.                                                                | changes |
+| `reproduce_run`          | Run again exactly as a run did.                                              | adds   |
+| `list_workflows`         | Workflows installed.                                                         | reads  |
+| `describe_workflow`      | A workflow's steps, inputs and params.                                       | reads  |
+| `run_workflow`           | Start a workflow.                                                            | adds   |
+| `list_workflow_runs`     | Workflow runs.                                                               | reads  |
+| `get_workflow_run`       | A workflow run and its steps.                                                | reads  |
+| `cancel_workflow_run`    | Cancel a workflow run.                                                       | changes |
+| `rerun_workflow_run`     | Run a workflow again from its failed steps.                                  | adds   |
+
+Each tool's own description, and its parameters, are what the server lists to the agent.
