@@ -76,6 +76,11 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
+environment: iki/sequencing_analysis.analysis-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
 environment: iki/experiments.experiment-tools
 templates: [{ template: backend-small }]
 ---

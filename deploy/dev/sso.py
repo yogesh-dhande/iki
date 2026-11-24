@@ -1731,6 +1731,7 @@ def lims() -> None:
     dose_response_starters(alice, project)
     qc_release(alice, project)
     sequencing(alice, project)
+    sequencing_analysis(alice, project)
 
 
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1802,6 +1803,62 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
         if signature["status"] != "signed" or not signature["set"]:
             fail(f"signing {summary['hrid']} gave {signature}")
     ok(f"{reads['hrid']}: signed quality summary for four public yeast read pairs")
+
+
+def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Import raw counts from one sample of a public yeast count matrix."""
+    prefix = "iki/sequencing_analysis."
+    library_type = "iki/sequencing.SequencingLibrary"
+    name = "GEO GSE176296 WTJ.1 excerpt"
+    libraries = matching_records(alice, project, library_type, "name", name)
+    if libraries:
+        library = libraries[0]
+    else:
+        sample = created(alice, project, "acme/example.Sample", {"name": name, "kind": "other"})
+        library = created(
+            alice,
+            project,
+            library_type,
+            {"name": name, "sample": sample["id"], "strategy": "RNA-Seq"},
+        )
+    seen = matching_records(
+        alice, project, prefix + "SequencingAnalysisResult", "library", library["id"]
+    )
+    if seen:
+        result = record(alice, seen[0]["id"])
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/sequencing_analysis/tests/data/GSE176296-counts.tsv"
+        )
+        report = upload(
+            alice, project, fixture.name, fixture.read_bytes(), "text/tab-separated-values"
+        )
+        imported = launch(
+            alice,
+            project,
+            prefix + "import_result",
+            {"library": library["id"]},
+            {
+                "format": "counts",
+                "report": report,
+                "tool": "featureCounts",
+                "tool_version": "Reported in GEO GSE176296",
+                "reference": "sacCer3",
+                "column": "WTJ.1",
+            },
+        )
+        effect = next(
+            e for e in imported["effects"] if e["type"] == prefix + "SequencingAnalysisResult"
+        )
+        result = record(alice, effect["entity"])
+    summary = result["values"]["summary"]
+    if summary["selector"] != "WTJ.1" or summary["metrics"] != {
+        "Genes": 4,
+        "Total raw count": 1097,
+    }:
+        fail(f"{result['hrid']} did not retain the selected sample and four gene counts")
+    ok(f"{result['hrid']}: four public GEO gene counts linked to one library")
 
 
 def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:

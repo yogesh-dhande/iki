@@ -111,6 +111,7 @@ FIRST_PARTY = frozenset(
         "iki/reagents",
         "iki/qc_release",
         "iki/sequencing",
+        "iki/sequencing_analysis",
         "iki/stability",
         "iki/equipment",
         "iki/example_lims",
