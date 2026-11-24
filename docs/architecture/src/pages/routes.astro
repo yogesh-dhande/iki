@@ -1,0 +1,33 @@
+---
+// Every route, from the OpenAPI documents `make client` and `make protocol` write, each
+// traced to the function serving it through its operationId.
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Routes from "../components/Routes.astro";
+import { routes } from "../lib/openapi.ts";
+
+const api = routes("api");
+const tags = [...new Set(api.map((r) => r.tag))].sort();
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+const toc = [{ id: "worker", label: "Worker API" }, ...tags.map((t) => ({ id: `tag-${slug(t)}`, label: t }))];
+---
+
+<Layout toc={toc}>
+  <p>
+    {api.length} public operations from <Path p="web/packages/sdk/openapi.json" />, and the worker
+    API's from <Path p="worker/crates/iki-protocol/worker-openapi.json" />, grouped by tag. "Served
+    by" is the function the operationId names, checked to exist. The async long polls and SSE
+    streams (<code>/worker/v1/lease</code>, <code>…/watch</code>, <code>/api/v1/events</code>) are
+    plain Django views in <Path p="server/src/iki_server/urls.py" />, outside these documents.
+  </p>
+  <h2 id="worker">Worker API, /worker/v1</h2>
+  <Routes doc="worker" />
+  {
+    tags.map((t) => (
+      <>
+        <h2 id={`tag-${slug(t)}`}>{t}</h2>
+        <Routes tags={[t]} />
+      </>
+    ))
+  }
+</Layout>

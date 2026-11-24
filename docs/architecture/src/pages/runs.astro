@@ -1,0 +1,540 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Inferred from "../components/Inferred.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Routes from "../components/Routes.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+import { textChoices } from "../lib/source.ts";
+
+const M = "server/src/iki_server/runs/models.py";
+const SV = "server/src/iki_server/runs/services.py";
+const Q = "server/src/iki_server/runs/queue.py";
+const R = "server/src/iki_server/runs/results.py";
+const J = "worker/crates/iki-worker/src/job.rs";
+const runStates = textChoices(M, "RunStatus");
+const jobStates = textChoices(M, "JobState");
+
+const boxes = [
+  { id: "manifest", x: 20, y: 40, w: 150, h: 60, label: "Action manifest", sub: "a plugin's actions/*.yaml" },
+  { id: "launch", x: 200, y: 40, w: 150, h: 60, label: "Launch", sub: "everything checked first", strong: true },
+  { id: "queued", x: 380, y: 40, w: 150, h: 60, label: "Run and Job", sub: "queued in Postgres" },
+  { id: "lease", x: 560, y: 40, w: 150, h: 60, label: "Lease", sub: "a fenced token" },
+  { id: "worker", x: 740, y: 40, w: 150, h: 60, label: "Worker", sub: "runs the command" },
+  { id: "reuse", x: 200, y: 180, w: 150, h: 60, label: "Reuse", sub: "same key, earlier results" },
+  { id: "approval", x: 380, y: 180, w: 150, h: 60, label: "Approval", sub: "an agent's costly run" },
+  { id: "provisioner", x: 560, y: 180, w: 150, h: 60, label: "Provisioner", sub: "starts pods, VMs" },
+  { id: "outputs", x: 740, y: 180, w: 150, h: 60, label: "Outputs", sub: "uploaded; complete" },
+  { id: "records", x: 380, y: 310, w: 150, h: 60, label: "Records", sub: "revisions, effects, lineage" },
+  { id: "results", x: 560, y: 310, w: 150, h: 60, label: "Results", sub: "checked, all or nothing", strong: true },
+];
+const edges = [
+  { from: "manifest", to: "launch" },
+  { from: "launch", to: "queued" },
+  { from: "queued", to: "lease" },
+  { from: "lease", to: "worker" },
+  { from: "launch", to: "reuse", label: "deterministic", dashed: true },
+  { from: "launch", to: "approval", label: "if unattended", dashed: true },
+  { from: "approval", to: "queued", label: "approved" },
+  { from: "queued", to: "provisioner", label: "container, vm", dashed: true },
+  { from: "provisioner", to: "worker", label: "starts one" },
+  { from: "worker", to: "outputs" },
+  { from: "outputs", to: "results", label: "POST complete" },
+  { from: "results", to: "records" },
+  { from: "reuse", to: "records", label: "reused effects", dashed: true },
+  { from: "worker", to: "queued", label: "retry: a new Job", dashed: true, via: [[815, 16], [455, 16]] as [number, number][] },
+];
+
+const H = {
+  short: "What a run is",
+  how: "From launch to written results",
+  example: "Finding an antibody chain's liabilities",
+  rules: "States, retries, reuse, images, network and quotas",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "protocol", label: "One job between worker, server and storage" },
+  { id: "tiers", label: "Compute tiers" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A run is one request to run a plugin's action on some records. Everything that could make it
+      fail for a reason other than its own work is checked before it's queued. It's then one <code
+        >ActionRun</code
+      > however many attempts it takes; each attempt is a <code>Job</code> that a worker leases over
+      HTTPS with a token only it holds. The worker runs exactly the plugin code the run was launched
+      with, and its outputs are checked against what the action declared, then written all at once,
+      as revisions that name the run. A deterministic run with the same inputs as an earlier one
+      reuses that one's results instead of running.
+    </p>
+    <ul>
+      <li>A run records what was asked; jobs are its attempts (<Adr n="0042" />).</li>
+      <li>Workers pull, under fenced leases (<Adr n="0043" />).</li>
+      <li>Results are checked, then written all or nothing (<Adr n="0044" />).</li>
+      <li>Identical deterministic runs reuse results; any run can be reproduced exactly (<Adr n="0057" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The launch writes the run and its first job in one transaction and wakes the workers of that
+      tier with <code>pg_notify</code>. Container- and vm-tier jobs also wake the provisioner, which
+      starts a machine whose worker then leases the job. The worker reports state through heartbeats,
+      uploads its files straight to object storage, and posts its output. The server checks the
+      output and writes it, or ends the attempt; a retryable ending queues a new job.
+    </p>
+    <Diagram id="runlife" title="A run's life" width={910} height={390} boxes={boxes} edges={edges}>
+      <div slot="manifest">
+        <p>
+          An <code>Action</code> declares inputs, params, effects (what it creates and updates), where
+          it runs (<code>runs_on</code>: tier and environment), its command, network hosts, secrets,
+          and whether it's deterministic, batchable or checkpointable. Everything an environment
+          installs is pinned: images by digest, pip with hashes, conda by lockfile (<Adr n="0040" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/actions.py" sym="def read_action(" />, <Path p="spec/src/iki_spec/model.py" sym="class Action" /></p>
+      </div>
+      <div slot="launch">
+        <p>
+          In order: the tier permission and whether the action can run here; labels, inputs and
+          params; included references; that every input is in the run's project; outside APIs
+          approved. Then, in one transaction: the reuse key and any run to reuse; budgets; consent;
+          approval; the quota; the run (<Adr n={[42, 45, 66, 71]} />).
+        </p>
+        <p><Path p={SV} sym="def launch(" />, <Path p={SV} sym="def may_launch(" />, <Path p={SV} sym="def _made(" /></p>
+      </div>
+      <div slot="queued">
+        <p>
+          The <code>ActionRun</code> pins the plugin's version and commit, the action as installed,
+          params, settings, setup builds, a customer image if bound, and a seed. Its inputs are
+          <code>RunInput</code> rows at each record's revision. One <code>Job</code> is queued and
+          <code>pg_notify</code> wakes its tier.
+        </p>
+        <p><Path p={SV} sym="def _queue(" />, <Path p={M} sym="class ActionRun(" />, <Path p={M} sym="class Job(" />, <Path p={Q} sym="def notify(" /></p>
+      </div>
+      <div slot="lease">
+        <p>
+          A worker's lease picks one job that fits its resources, tier, code and scope, ranked by how
+          many jobs each project already holds, then priority and age; <code>SELECT … FOR UPDATE SKIP
+          LOCKED</code> takes it. The job gets a new <code>lease_token</code> and a 60-second expiry
+          (<Adr n={[43, 108]} />).
+        </p>
+        <p><Path p={Q} sym="def lease(" />, <Path p={Q} sym="def _shortlist(" />, <Path p={Q} sym="LEASE_TTL = timedelta(seconds=60)" /></p>
+      </div>
+      <div slot="worker">
+        <p>
+          Stages the input in a private directory, runs the command in its own process group, and
+          stops it (SIGTERM, then SIGKILL after 10 s) on cancel, timeout or a lost lease. Secrets and
+          the lease token are masked in its logs (<Adr n={[46, 47, 156]} />).
+        </p>
+        <p><Path p={J} sym="pub fn run(" />, <Path p={J} sym="fn supervise(" />, <Path p={J} sym="pub const STOP_GRACE" /></p>
+      </div>
+      <div slot="reuse">
+        <p>
+          A deterministic action from a pinned commit gets a reuse key. If a run with the same key
+          succeeded in a project the person can read, the new run ends succeeded at once, naming it,
+          and the records it made are linked in (<Adr n="0057" />).
+        </p>
+        <p><Path p="server/src/iki_server/runs/reuse.py" sym="def key(" />, <Path p="server/src/iki_server/runs/reuse.py" sym="def find(" /></p>
+      </div>
+      <div slot="approval">
+        <p>
+          A run from MCP or a trigger, on the container or vm tier or calling priced outside APIs,
+          waits for the person to approve it; a token-authenticated caller can't approve, and the
+          ask expires after 7 days (<Adr n={[13, 50]} />).
+        </p>
+        <p><Path p="server/src/iki_server/runs/approvals.py" sym="def needed(" /></p>
+      </div>
+      <div slot="provisioner">
+        <p>
+          For a queued container- or vm-tier job no free machine can take, starts a pod or a cloud
+          machine whose worker registers with a one-use launch token and leases it. Warm pods are
+          kept for persistent templates (<Adr n={[61, 62, 74]} />).
+        </p>
+        <p><Path p="server/src/iki_server/runs/provisioner.py" sym="def tick(" />, <Path p="server/src/iki_server/runs/launches.py" /></p>
+      </div>
+      <div slot="outputs">
+        <p>
+          Files go to object storage by signed multipart URLs, then the worker posts <code
+            >output.json</code
+          > to <code>complete</code>, or posts <code>fail</code> with a reason. Artifacts and
+          checkpoints upload the same way (<Adr n={[68, 69]} />).
+        </p>
+        <p><Path p={J} sym="fn upload_results(" />, <Path p={J} sym="fn outcome(" /></p>
+      </div>
+      <div slot="results">
+        <p>
+          The output is kept as a <code>RunOutput</code>, checked against the run's own copy of the
+          action (only declared effects, valid values), then written in one transaction as the
+          launcher, with <code>via="run"</code>. An invalid output fails the run, or rejects it if
+          the plugin changed meanwhile; neither is retried (<Adr n="0044" />).
+        </p>
+        <p><Path p={Q} sym="def complete(" />, <Path p={R} sym="def checked(" />, <Path p={R} sym="def write(" /></p>
+      </div>
+      <div slot="records">
+        <p>
+          Each record touched gets a <code>RunEffect</code> (created, updated or reused, and the
+          revision made); each new record gets <code>Lineage</code> to its inputs at their revisions.
+          The revision's <code>via</code> is <code>run</code>, so field provenance leads to the run (<Adr
+            n={[35, 106]}
+          />).
+        </p>
+        <p><Path p={M} sym="class RunEffect(" />, <Path p={M} sym="class Lineage(" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="protocol">One job between worker, server and storage</h3>
+    <p>
+      The calls between a worker, the server and object storage for one job. Paths are constants in
+      the generated protocol crate; the worker API's full route list is <a
+        href="/routes/#worker">generated</a
+      >.
+    </p>
+    <Sequence
+      id="wire"
+      title="One job between worker, server and storage"
+      width={900}
+      actors={[
+        { id: "cmd", label: "Command", sub: "the action's process" },
+        { id: "worker", label: "iki-worker" },
+        { id: "server", label: "Server", sub: "/worker/v1" },
+        { id: "storage", label: "Object storage" },
+      ]}
+      steps={[
+        { phase: "Before any job" },
+        { id: "register", from: "worker", to: "server", label: "POST register (or PUT me): capacity, plugin code" },
+        { id: "plugins", from: "worker", to: "server", label: "GET plugins/{name}/{sha}, if it fetches code" },
+        { phase: "One job" },
+        { id: "lease", from: "worker", to: "server", label: "POST lease?wait=20" },
+        { id: "input", from: "server", to: "worker", label: "200 run-input/v1 with lease_token, or 204", dashed: true },
+        { id: "beat", from: "worker", to: "server", label: "heartbeat every 20 s; watch; logs" },
+        { id: "files", from: "worker", to: "server", label: "POST jobs/{id}/files/{file}: a signed URL" },
+        { id: "get", from: "worker", to: "storage", label: "GET the bytes; check size and SHA-256" },
+        { id: "spawn", from: "worker", to: "cmd", label: "run, with IKI_INPUT, IKI_OUTPUT, IKI_SEED" },
+        { id: "out", from: "cmd", to: "worker", label: "output.json, files in IKI_OUT_DIR", dashed: true },
+        { id: "up", from: "worker", to: "server", label: "POST uploads: part URLs" },
+        { id: "put", from: "worker", to: "storage", label: "PUT each part" },
+        { id: "complete", from: "worker", to: "server", label: "POST complete {lease_token, output}" },
+        { id: "status", from: "server", to: "worker", label: "run_status: succeeded, failed, rejected…", dashed: true },
+      ]}
+    >
+      <div slot="register">
+        <p>Registration tokens are <code>iki_wreg_…</code> (an admin's) or <code>iki_wlch_…</code> (a provisioned machine's launch); the answer is the worker's own token. A worker states the plugin code it has, so the server leases it only runs launched with that code (<Adr n={[43, 47]} />).</p>
+        <p><Path p="server/src/iki_server/api/worker.py" sym="def register(" />, <Path p="server/src/iki_server/runs/workers.py" /></p>
+      </div>
+      <div slot="plugins">
+        <p>Workers on people's machines and container pods fetch the plugin bundle by commit and check its SHA-256, then build its environment with uv or micromamba (<Adr n="0059" />).</p>
+        <p><Path p="server/src/iki_server/api/worker.py" sym="def download_plugin(" />, <Path p="worker/crates/iki-worker/src/bundles.rs" /></p>
+      </div>
+      <div slot="lease">
+        <p>An async long poll: the server waits up to 30 s for a job; this worker asks for 20.</p>
+        <p><Path p="worker/crates/iki-worker/src/worker.rs" sym="const LEASE_WAIT" />, <Path p="server/src/iki_server/api/worker.py" /></p>
+      </div>
+      <div slot="input">
+        <p>The payload names each input at its revision with its values, the plugin's name and commit, params, settings, files, proxy and secrets, and the job's timeout and resources. Secret values are stripped before the worker writes <code>input.json</code> (<Adr n="0054" />).</p>
+        <p><Path p={Q} sym="def payload(" /></p>
+      </div>
+      <div slot="beat">
+        <p>Each report carries the <code>lease_token</code>; a stale one gets 409 <code>stale_lease</code>, so a worker that was cut off can't overwrite its replacement. States move only forward: leased, staging, pending (Slurm), running, uploading.</p>
+        <p><Path p={Q} sym="def heartbeat(" />, <Path p={Q} sym="def _holds(" /></p>
+      </div>
+      <div slot="files">
+        <p>Only files in the job's own <code>input_files</code> list can be fetched, by URLs good for five minutes (<Adr n="0066" />).</p>
+        <p><Path p="server/src/iki_server/api/worker.py" sym="def download(" /></p>
+      </div>
+      <div slot="get">
+        <p>The worker fetches straight from storage with no Iki credentials, and checks what it got.</p>
+        <p><Path p="worker/crates/iki-worker/src/files.rs" /></p>
+      </div>
+      <div slot="spawn">
+        <p>Network goes through the egress proxy, with the job's ID and lease token as the proxy's credentials (<Adr n="0053" />).</p>
+        <p><Path p={J} sym={'"IKI_SEED"'} />, <Path p={Q} sym="def _proxy(" /></p>
+      </div>
+      <div slot="out">
+        <p>A creates file (JSON Lines) can carry millions of records; the server stages it in chunks and writes it in one transaction (<Adr n="0056" />).</p>
+        <p><Path p="server/src/iki_server/runs/imports.py" /></p>
+      </div>
+      <div slot="up">
+        <p>Uploads land as content-addressed blobs like any other upload (<Adr n="0036" />).</p>
+        <p><Path p="server/src/iki_server/api/worker.py" sym="def start_upload(" /></p>
+      </div>
+      <div slot="put"><p>Multipart, straight to the bucket.</p></div>
+      <div slot="complete">
+        <p>A failing command posts <code>fail</code> with <code>failed</code>, <code>timed_out</code>, <code>interrupted</code> or <code>cancelled</code> instead.</p>
+        <p><Path p="server/src/iki_server/api/worker.py" sym="def complete(" />, <Path p={Q} sym="def complete(" /></p>
+      </div>
+      <div slot="status">
+        <p><code>running</code> means a bulk import is still committing; <code>parked</code> means the run waits on an outside API's job (<Adr n="0130" />).</p>
+      </div>
+    </Sequence>
+
+    <h3 id="tiers">Compute tiers</h3>
+    <p>
+      Every tier runs the same worker binary. What differs is who starts the machine and how long it
+      lives. Each deployment's <code>compute.yaml</code> holds its templates, which environments bind
+      to them, image bindings and API prices, reviewed in its config repository and checked offline (<Adr
+        n="0041"
+      />, <Path p="spec/src/iki_spec/compute.py" sym="def load_compute(" />, example <Path
+        p="deploy/dev/compute.yaml"
+      />).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tier</th><th>Machines come from</th><th>Code</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>backend</code></td><td>The chart's worker Deployment: baked, signed images, one credential per pod.</td><td><Path p="deploy/helm/iki/templates/worker-deployment.yaml" /></td><td><Adr n="0048" /></td></tr>
+          <tr><td><code>container</code></td><td>The provisioner: a Kubernetes Job per run (<code>k8s_job</code>), or warm pods that take one job after another (<code>k8s_deployment</code>).</td><td><Path p="server/src/iki_server/runs/kubernetes.py" sym="def job_manifest(" /></td><td><Adr n={[61, 62]} /></td></tr>
+          <tr><td><code>container</code> on Slurm</td><td>A worker on a login node submits with <code>sbatch</code> where the server placed the job; masks the log on the compute node.</td><td><Path p="server/src/iki_server/runs/slurm.py" sym="def place(" /></td><td><Adr n={[133, 156, 167]} /></td></tr>
+          <tr><td><code>vm</code></td><td>The provisioner: an EC2 or Compute Engine instance per run, running <code>iki-worker host</code>; volumes from snapshots.</td><td><Path p="server/src/iki_server/runs/ec2_fleet.py" />, <Path p="server/src/iki_server/runs/gce_fleet.py" /></td><td><Adr n={[74, 76, 109, 160]} /></td></tr>
+          <tr><td><code>self_hosted</code></td><td>A team's own machines, registered by a Compute admin; lease only their teams' projects' runs, by labels.</td><td><Path p="server/src/iki_server/runs/workers.py" /></td><td><Adr n="0112" /></td></tr>
+          <tr><td><code>server</code></td><td>Iki's own task runner, for core actions such as a spreadsheet import.</td><td><Path p={M} sym="SERVER_TIER" /></td><td><Adr n="0178" /></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>The whole action, as the plugin has it today:</p>
+    <Excerpt file="plugins/antibody/actions/find_liabilities.yaml" start="^inputs:" rest note="from inputs: on" />
+    <p>And the environment it names, which runs on the backend and self-hosted tiers:</p>
+    <Excerpt file="plugins/antibody/environments/antibody-tools.yaml" start="^tiers:" rest note="from tiers: on" />
+    <p>What each line makes Iki do:</p>
+    <ul>
+      <li>
+        <code>effects.updates</code> on <code>protein</code>: the result may change only those three
+        fields of that input. Anything else in the output fails the run as <code>invalid_output</code>
+        (<Path p={R} sym="def checked(" />).
+      </li>
+      <li>
+        <code>schema: "&gt;=2"</code>: the input must be a <code>Protein</code> at schema version 2
+        or later. If the plugin's type changes under a queued run so its results no longer fit,
+        the run is <code>rejected</code>, not written (<Adr n="0044" />).
+      </li>
+      <li>
+        <code>deterministic: true</code>: the reuse key is the SHA-256 of the action, the plugin's
+        commit, params, settings and each input's id, revision, type and schema version. The same
+        chain at the same revision, asked again, reuses this run (<Path
+          p="server/src/iki_server/runs/reuse.py"
+          sym="def key("
+        />).
+      </li>
+      <li>
+        <code>batchable: 500</code>: runs launched together share a batch, and at lease time up to
+        499 more queued jobs of that batch with the same code, image, tier and environment are packed
+        into the leased one (<Adr n="0055" />, <Path p={Q} sym="def _pack(" />).
+      </li>
+      <li>
+        No <code>network</code>: the command reaches no host. No <code>retries</code>: on the
+        defaults, a run whose worker was lost or interrupted is retried up to twice, 10 seconds
+        apart, times the attempt (<Path p="spec/src/iki_spec/actions.py" sym="retry_max=" />, <Path
+          p={Q}
+          sym="RETRY_BACKOFF = timedelta(seconds=10)"
+        />).
+      </li>
+      <li>
+        <code>timeout: 10m</code>: the worker stops the command at ten minutes; the server ends a job
+        five minutes past its timeout if the worker doesn't (<Path p={Q} sym="TIMEOUT_GRACE" />).
+      </li>
+    </ul>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Run and job states" open>
+        <p>Read from <Path p={M} sym="class RunStatus" /> and <Path p={M} sym="class JobState" />:</p>
+        <div class="pair">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Run</th><th>Note in the code</th></tr></thead>
+              <tbody>{runStates.map((s) => <tr><td><code>{s.value}</code></td><td>{s.note}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Job</th><th>Note in the code</th></tr></thead>
+              <tbody>{jobStates.map((s) => <tr><td><code>{s.value}</code></td><td>{s.note}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </div>
+      </Rule>
+      <Rule title="Retries are new jobs">
+        <p>
+          When an attempt ends with a reason in the run's <code>retry_on</code> and attempts remain,
+          a new <code>Job</code> is queued with the next attempt number, after a back-off. Otherwise
+          the reason decides the run's end: a lost worker, an interruption, an unavailable machine
+          or an unplaceable job ends it failed; losing permission ends it rejected; a detached
+          plugin ends it cancelled. A housekeeping pass ends expired leases as interrupted (<Path
+            p={Q}
+            sym="def _end_attempt("
+          />, <Path p={Q} sym="def recover_expired(" />).
+        </p>
+      </Rule>
+      <Rule title="A worker runs only the code the run was launched with">
+        <p>
+          The lease matches the job to workers that have the plugin at the run's commit and have
+          built its environment; the worker checks again before it starts. Each attempt records the
+          environment build's digest (<Adr n="0047" />, <Path p={Q} sym="def _runnable(" />, <Path
+            p="worker/crates/iki-worker/src/plugins.rs"
+            sym="pub fn for_run("
+          />).
+        </p>
+      </Rule>
+      <Rule title="A run reads only what's in its project">
+        <p>
+          Every input, and everything its included references name, must be in the run's project;
+          otherwise the launch is refused with 409 <code>inputs_outside_project</code>, unless the
+          caller asks to link them in first, which is audited. Reproduction refuses if an input has
+          since left (<Adr n={[66, 105]} />, <Path p={SV} sym="def outside_project(" />).
+        </p>
+      </Rule>
+      <Rule title="Results are written all or nothing">
+        <p>
+          A run's new records can refer to one another by key within one output (<Adr n="0064" />).
+          A creates file is checked in resumable chunks of 10,000 lines, staged with COPY, then
+          written in one <code>INSERT … SELECT</code> (<Adr n="0056" />). Nothing a run writes is
+          partly there.
+        </p>
+      </Rule>
+      <Rule title="Reuse and exact reproduction">
+        <p>
+          The reuse key covers the action, the plugin commit, params (a file by its content's
+          SHA-256), settings, each input's identity and revision, included references, the customer
+          image's digest when there is one, and the setup builds of its volumes. The seed never
+          counts. Local plugin code (no commit) is never reused (<Path
+            p="server/src/iki_server/runs/reuse.py"
+            sym="def with_volumes("
+          />).
+        </p>
+        <p>
+          <code>POST /api/v1/runs/{"{ref}"}/reproduce</code> queues a copy with the same spec,
+          params, settings, inputs, inclusions and seed, refusing if the plugin commit, image or a
+          pinned volume build differs; its output is compared, not written (<Path
+            p={SV}
+            sym="def reproduce("
+          />, <Path p="server/src/iki_server/runs/reuse.py" sym="def compare(" />).
+        </p>
+      </Rule>
+      <Rule title="Customer images (ADR 0209)">
+        <p>
+          Some licensed tools may only run from an image the customer supplies. An environment says
+          <code>customer_image_required: true</code>; the deployment's <code>compute.yaml</code> adds
+          an <code>EnvironmentImageBinding</code> (environment, plugin version range, image by
+          digest, optional pull secret). Exactly one binding may match, or the action is unavailable
+          and the admin is told why (<Adr n="0209" />).
+        </p>
+        <p>
+          The run pins the bound image when it's queued; only a worker launched for that image and
+          pull secret may lease it; the digest counts in the reuse key; reproduction needs the same
+          image (<Path p="spec/src/iki_spec/compute.py" sym="class ImageBinding" />, <Path
+            p="server/src/iki_server/runs/catalog.py"
+            sym="def customer_image_for("
+          />, <Path p="server/src/iki_server/runs/migrations/0049_deployment_images.py" />).
+        </p>
+        <p>
+          No first-party plugin or deployment config uses <code>customer_image_required</code> yet;
+          the code paths are exercised by tests only.
+        </p>
+      </Rule>
+      <Rule title="Network, secrets and outside APIs">
+        <p>
+          A run's command gets <code>HTTPS_PROXY</code> naming its job and lease token; the proxy
+          allows only the action's declared hosts and keeps what each attempt reached (<Adr
+            n="0053"
+          />). A host can come from a setting, so one plugin serves each lab's own LIMS (<Adr
+            n="0083"
+          />). Secrets come from the deployment's secret manager at each lease, by name (<Adr
+            n="0054"
+          />). An action that can't run without a setting is unavailable until it's set (<Adr
+            n="0169"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Quotas, budgets and cost">
+        <p>
+          Compute admins cap running and queued runs per organization, team or project and tier (<Adr
+            n="0045"
+          />, <Path p="server/src/iki_server/runs/quotas.py" sym="def check_queued(" />). Budgets
+          warn and can refuse costly launches (<Adr n="0071" />, <Path
+            p="server/src/iki_server/runs/budgets.py"
+            sym="def check_launch("
+          />). Templates carry a price, and each run shows what it cost (<Adr n="0070" />, <Path
+            p="server/src/iki_server/runs/costs.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Checkpoints and artifacts">
+        <p>
+          A checkpointable action's directory is uploaded every ten minutes and on retryable
+          endings; the next attempt is leased only once its checkpoint has been checked (<Adr
+            n="0069"
+          />, <Path p="server/src/iki_server/runs/checkpoints.py" />). Files matching <code
+            >artifacts.keep</code
+          > are kept for a while, success or failure (<Adr n="0068" />).
+        </p>
+      </Rule>
+      <Rule title="Workflows and triggers">
+        <p>
+          A workflow is a DAG of ordinary runs, and a trigger launches an action when records
+          change or on a schedule; both go through the same <code>launch</code> (<Adr
+            n={[11, 79, 80, 81]}
+          />). <Inferred why="Read from launch()'s workflow parameters; trigger launches weren't traced."
+            >Neither has a separate execution path.</Inferred
+          >
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>Public routes for runs</h3>
+    <Routes tags={["runs"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p="server/src/iki_server/runs" /></li>
+          <li><Path p="server/src/iki_server/api/runs.py" /></li>
+          <li><Path p="server/src/iki_server/api/worker.py" /></li>
+          <li><Path p="worker/crates/iki-worker/src" /></li>
+          <li><Path p="worker/crates/iki-protocol/src/generated.rs" /></li>
+          <li><Path p="spec/src/iki_spec/actions.py" /></li>
+          <li><Path p="spec/src/iki_spec/compute.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0040" title /></li>
+          <li><Adr n="0042" title /></li>
+          <li><Adr n="0043" title /></li>
+          <li><Adr n="0044" title /></li>
+          <li><Adr n="0046" title /></li>
+          <li><Adr n="0047" title /></li>
+          <li><Adr n="0057" title /></li>
+          <li><Adr n="0108" title /></li>
+          <li><Adr n="0209" title /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Where the ADRs and code differ</h3>
+        <ul>
+          <li><Adr n="0042" /> caps a batch at 100 runs; <Adr n="0055" /> and the code (<code>MAX_BATCH = 1000</code>) say 1000.</li>
+          <li><Adr n="0050" /> holds only MCP runs for approval; the code also holds triggers' and priced outside-API runs.</li>
+          <li><Adr n="0108" /> names an index <code>iki_job_queued_by_project</code>; the code's is <code>iki_job_queued_by_labels</code>, since <Adr n="0112" /> added labels.</li>
+          <li><Adr n="0009" />'s "client" tier is <code>self_hosted</code> in the code (<Adr n="0112" />).</li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

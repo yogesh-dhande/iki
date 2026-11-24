@@ -1,0 +1,406 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Inferred from "../components/Inferred.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+import Tree from "../components/Tree.astro";
+import { firstPartyPlugins, manifestKinds } from "../lib/manifests.ts";
+
+const P = "cli/src/iki_cli/plugin.py";
+const D = "server/src/iki_server/plugins/deploy.py";
+const kinds = manifestKinds();
+const firstParty = firstPartyPlugins();
+
+const boxes = [
+  { id: "repo", x: 20, y: 40, w: 150, h: 60, label: "Plugin repository", sub: "YAML, scripts, tests" },
+  { id: "validate", x: 200, y: 40, w: 150, h: 60, label: "Validate", sub: "schemas, then semantics" },
+  { id: "migrations", x: 380, y: 40, w: 150, h: 60, label: "Migrations", sub: "iki plugin makemigrations" },
+  { id: "tests", x: 560, y: 40, w: 150, h: 60, label: "Tests", sub: "actions, upgrade" },
+  { id: "pin", x: 740, y: 40, w: 150, h: 60, label: "Pinned", sub: "plugins.lock.yaml" },
+  { id: "wasm", x: 200, y: 170, w: 150, h: 60, label: "CEL via iki-wasm", sub: "rules type-checked" },
+  { id: "preflight", x: 560, y: 170, w: 150, h: 60, label: "Preflight", sub: "against live records" },
+  { id: "build", x: 740, y: 170, w: 150, h: 60, label: "Deployment build", sub: "apps + image", strong: true },
+  { id: "migrate", x: 740, y: 300, w: 150, h: 60, label: "Migrate", sub: "one transaction", strong: true },
+  { id: "sync", x: 560, y: 300, w: 150, h: 60, label: "sync_plugins", sub: "triggers, views, grants" },
+  { id: "running", x: 380, y: 300, w: 150, h: 60, label: "Running", sub: "types, actions, UI" },
+  { id: "detach", x: 200, y: 300, w: 150, h: 60, label: "Detach, purge", sub: "kept, frozen; tombstones" },
+];
+const edges = [
+  { from: "repo", to: "validate" },
+  { from: "validate", to: "migrations" },
+  { from: "migrations", to: "tests" },
+  { from: "tests", to: "pin" },
+  { from: "validate", to: "wasm", label: "rules", dashed: true },
+  { from: "pin", to: "build", label: "iki deploy build" },
+  { from: "build", to: "preflight", dashed: true },
+  { from: "build", to: "migrate", label: "migrate Job" },
+  { from: "migrate", to: "sync" },
+  { from: "sync", to: "running" },
+  { from: "running", to: "detach", dashed: true },
+];
+
+const H = {
+  short: "What a plugin is",
+  how: "From a plugin repository to a running deployment",
+  example: "The lots plugin, file by file",
+  rules: "Kinds, builds, migrations, versions, Wasm and components",
+  ref: "Commands and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "deploy", label: "A deploy, step by step" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin is a git directory of YAML manifests and the scripts its actions run. It's checked
+      against the iki/v1 spec, its migrations are written when it's authored and reviewed like code,
+      and its actions are tested by running fixtures through the real worker. A deployment pins each
+      plugin to a commit in its lockfile; <code>iki deploy build</code> compiles them all into
+      Django apps inside the deployment's own image. On deploy, one database transaction applies
+      every plugin's migrations together with the triggers and grants that guard their tables.
+    </p>
+    <ul>
+      <li>Plugins are deploy-time and trusted; there's no marketplace (<Adr n="0006" />).</li>
+      <li>Declarations are data, behaviour is code: only actions run code, on workers (<Adr n="0032" />).</li>
+      <li>Migrations keep history: nothing is ever dropped silently (<Adr n="0033" />).</li>
+      <li>Each deployment pins plugins in a lockfile and builds its own image (<Adr n="0034" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The top row happens in the plugin's own repository and CI; the rest happens in a deployment's
+      config repository and cluster. The plugin template's CI runs the first steps (<Path
+        p="plugin-template/.github/workflows/ci.yml"
+      />); the config template's runs the build (<Path
+        p="deploy/config-template/.github/workflows/build.yml"
+      />).
+    </p>
+    <Diagram id="pluginlife" title="A plugin's life" width={910} height={380} boxes={boxes} edges={edges}>
+      <div slot="repo">
+        <p>
+          <code>plugin.yaml</code> at the root, and each other kind of manifest in its own directory
+          (<a href="/core-types/#kinds">the kinds</a>). Plugins are named <code
+            >namespace/name</code
+          >; <code>iki</code> is Iki's own (<Adr n="0113" />). A lab starts from the template (<Adr
+            n="0039"
+          />).
+        </p>
+        <p><Path p="plugin-template" />, <Path p="spec/src/iki_spec/naming.py" /></p>
+      </div>
+      <div slot="validate">
+        <p>
+          Stage one checks each document against its JSON Schema and rewrites errors as plain
+          sentences. Stage two checks what no schema can: references across files and the <code
+            >--with</code
+          > plugins, identities, states and guards, table-name lengths, settings, rules, actions,
+          workflows, triggers, components (<Adr n="0032" />). YAML is read strictly as 1.2.
+        </p>
+        <p><Path p={P} sym="def run_validate(" />, <Path p="spec/src/iki_spec/validate.py" sym="def load_plugin(" />, <Path p="spec/src/iki_spec/yamlsource.py" /></p>
+      </div>
+      <div slot="migrations">
+        <p>
+          Built into a temporary directory and run through Django's makemigrations against the dummy
+          backend, with Iki's history rules on top: a deleted field or type is refused, renames
+          carry to history, unit changes convert stored values, new history tables are append-only
+          (<Adr n="0033" />).
+        </p>
+        <p><Path p={P} sym="def run_makemigrations(" />, <Path p="server/src/iki_server/plugins/makemigrations.py" />, <Path p="server/src/iki_server/plugins/operations.py" /></p>
+      </div>
+      <div slot="tests">
+        <p>
+          <code>ActionTest</code> documents in <code>tests/</code> run through <code
+            >iki-worker run --local</code
+          > with the input the server would build, then the output is checked (<Adr n="0093" />).
+          <code>--upgrade-from REF</code> migrates a scratch database from an earlier commit and back,
+          comparing every revision's values (<Adr n={[94, 158]} />).
+        </p>
+        <p><Path p="cli/src/iki_cli/testing.py" />, <Path p="cli/src/iki_cli/upgrade_test.py" />, <Path p="server/src/iki_server/plugins/upgrade_test.py" /></p>
+      </div>
+      <div slot="pin">
+        <p>
+          Each entry names a git URL, a path and a full commit, a state (<code>active</code>,
+          <code>detached</code>, <code>purged</code>) and settings. A <code>local</code> entry is for
+          development only (<Adr n="0034" />). Iki's own plugins may come from a mirror, which can
+          only serve trees Iki published (<Adr n="0114" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/lockfile.py" sym="def load_lock(" />, <Path p="deploy/config-template/deployments/staging/plugins.lock.yaml" /></p>
+      </div>
+      <div slot="wasm">
+        <p>
+          Rules and guards are CEL. The validator type-checks them through the same iki-wasm module
+          the server and browser evaluate them with, so a rule that validates means the same
+          everywhere (<Adr n={[127, 128]} />).
+        </p>
+        <p><Path p="spec/src/iki_spec/rules.py" sym="def type_check(" />, <Path p="spec/src/iki_spec/wasm.py" sym="EXPORTS" /></p>
+      </div>
+      <div slot="preflight">
+        <p>
+          An Org Admin checks a built <code>manifest.json</code> against the live records in one
+          read-only snapshot, without running its migrations: required-field backfills, invalid
+          values, unique clashes, records in removed states, and a sample for CEL rules. The deploy
+          repeats it and refuses blocking findings nobody acknowledged (<Adr n="0181" />).
+        </p>
+        <p><Path p="server/src/iki_server/plugins/preflight.py" sym="def preview_manifest(" />, <Path p="cli/src/iki_cli/preflight.py" /></p>
+      </div>
+      <div slot="build">
+        <p>
+          Reads the lockfile, fetches only the pinned commits (https or ssh, no hooks, submodules or
+          LFS), validates all plugins together, checks settings and that migrations are complete,
+          and writes each plugin's app plus <code>iki_installed_plugins</code>. A Dockerfile puts
+          them on Iki's image, root-owned and read-only (<Adr n="0034" />).
+        </p>
+        <p><Path p="cli/src/iki_cli/deploy.py" sym="def run_build(" />, <Path p="codegen/src/iki_codegen/build.py" sym="def build(" />, <Path p="deploy/plugins.Dockerfile" /></p>
+      </div>
+      <div slot="migrate">
+        <p>
+          The chart's migrate Job runs before new pods start. After refusal checks, Iki's own
+          migrations run; then one transaction covers purges, dropping the guards on changed tables,
+          reversing migrations the build lacks, every plugin's migrations, <code>sync_plugins</code>
+          and the grants (<Adr n="0134" />).
+        </p>
+        <p><Path p={D} sym="def migrate_deployment(" />, <Path p="deploy/helm/iki/templates/migrate-job.yaml" /></p>
+      </div>
+      <div slot="sync">
+        <p>
+          Puts back what the database enforces for the installed plugins: HRID sequences, column
+          comments, the <code>iki_views</code> views, unique and rule triggers, and the lock triggers
+          on state-bearing types (<Adr n={[120, 127]} />).
+        </p>
+        <p><Path p="server/src/iki_server/plugins/sync.py" sym="def sync(" /></p>
+      </div>
+      <div slot="running">
+        <p>
+          The server imports the generated apps and refuses a build made by another Iki version.
+          Plugins' web components are served by digest into sandboxed frames (<Adr n={[34, 84]} />).
+        </p>
+        <p><Path p="server/src/iki_server/settings.py" sym="iki_installed_plugins" /></p>
+      </div>
+      <div slot="detach">
+        <p>
+          A detached plugin's tables lose INSERT, UPDATE and DELETE for the app role; its data is
+          kept and readable (<Adr n="0091" />). Purging it needs a dry-run report, a reason, the
+          typed name and a wait (30 days by default, at least 7), respects legal holds, and leaves
+          tombstones; the next deploy drops its tables (<Adr n="0092" />).
+        </p>
+        <p><Path p="server/src/iki_server/plugins/purge.py" />, <Path p={D} sym="def _purge(" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="deploy">A deploy, step by step</h3>
+    <p>What happens between a merged lockfile change and new pods serving it.</p>
+    <Sequence
+      id="deploy-seq"
+      title="A deploy of a plugin change"
+      width={900}
+      actors={[
+        { id: "repo", label: "Config repo", sub: "CI" },
+        { id: "build", label: "iki deploy build" },
+        { id: "cluster", label: "Cluster", sub: "GitOps applies" },
+        { id: "job", label: "Migrate Job" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "pr", from: "repo", to: "build", label: "every PR: build and check the pinned plugins" },
+        { id: "image", from: "repo", to: "repo", label: "on merge: verify Iki's signatures, build, sign, pin by digest" },
+        { id: "apply", from: "repo", to: "cluster", label: "image.yaml updated; Argo CD or Flux applies the chart" },
+        { id: "job", from: "cluster", to: "job", label: "the migrate Job runs before new pods" },
+        { phase: "migrate_deployment" },
+        { id: "refuse", from: "job", to: "job", label: "refuse: newer Iki, missing plugin, changed migration…" },
+        { id: "own", from: "job", to: "db", label: "Iki's own migrations, each in its transaction" },
+        { id: "one", from: "job", to: "db", label: "one transaction: purges, plugins' migrations, sync, grants" },
+        { id: "pods", from: "cluster", to: "cluster", label: "new pods; a too-powerful role never turns ready" },
+      ]}
+    >
+      <div slot="pr"><p>Fetches each plugin at its commit and fails on a plugin whose migrations don't match its manifests, a missing dependency, or an active plugin that depends on a detached one.</p><p><Path p="cli/src/iki_cli/deploy.py" sym="def _detached_alone(" /></p></div>
+      <div slot="image"><p>The config template's workflow verifies Iki's images with cosign before building on them (<Adr n="0017" />).</p><p><Path p="deploy/config-template/.github/workflows/build.yml" />, <Path p="deploy/config-template/plugins.Dockerfile" /></p></div>
+      <div slot="apply"><p>Configuration is GitOps per deployment; data moves between deployments only in bundles (<Adr n="0015" />).</p><p><Path p="deploy/config-template/README.md" /></p></div>
+      <div slot="job"><p>The Job runs as the migrator role, the only one that owns tables (<Adr n="0025" />).</p><p><Path p="deploy/helm/iki/templates/migrate-job.yaml" /></p></div>
+      <div slot="refuse"><p>Also refused: a non-atomic migration, and blocking preflight findings not acknowledged in the chart's <code>acknowledgePreflight</code> (<Adr n="0181" />).</p><p><Path p={D} sym="def _check_preflight(" />, <Path p="deploy/helm/iki/values.yaml" sym="acknowledgePreflight" /></p></div>
+      <div slot="own"><p>Some of Iki's own migrations build indexes <code>CONCURRENTLY</code>, which can't run inside a transaction.</p></div>
+      <div slot="one"><p>So a deploy's migrations and the guards that hold its records are applied or rolled back together: no moment where a table exists without its lock triggers (<Adr n="0134" />). A rollback never loses data: it changes nothing and says why if it would (<Adr n="0034" />).</p><p><Path p={D} sym="def _unguard(" />, <Path p="server/src/iki_server/core/management/commands/grant_app_privileges.py" /></p></div>
+      <div slot="pods"><p>Readiness checks the app role's privileges (<Adr n="0025" />).</p><p><Path p="server/src/iki_server/core/db_roles.py" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      <Path p="plugins/lots" label="iki/lots" /> is a mid-sized first-party plugin: nine types, six
+      actions, triggers that recompute lots, one component, and five migrations. Its files, as git has
+      them:
+    </p>
+    <Tree dir="plugins/lots" depth={2} />
+    <p>Its manifest declares which Iki it works with and the types it needs, by schema version rather than commit (<Adr n={[16, 95]} />):</p>
+    <Excerpt file="plugins/lots/plugin.yaml" start="^dependencies:" />
+    <p>
+      A setting a deployment chooses, here which review flow plasmid verifications use. It's read at
+      build time from the deployment's settings file and checked against this declaration:
+    </p>
+    <Excerpt file="plugins/lots/plugin.yaml" start="^  verification_flow:" />
+    <p>
+      The component that shows a prep's verifications in a tab, and offers the plugin's own action
+      on it (<Adr n="0170" />):
+    </p>
+    <Excerpt file="plugins/lots/components/prep_verifications.yaml" start="^kind:" />
+    <p>
+      In a deployment, it's one line of the lockfile. On the dev cluster it's a local directory, so
+      editing it rebuilds the cluster's image; a real deployment pins a commit:
+    </p>
+    <Excerpt file="deploy/dev/plugins.lock.yaml" start="^  - \{ name: iki/lots" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="What a plugin can declare" open>
+        <p>The kinds, read from the validator:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Kind</th><th>Lives in</th></tr></thead>
+            <tbody>{kinds.map((k) => <tr><td><code>{k.kind}</code></td><td><code>{k.directory}</code></td></tr>)}</tbody>
+          </table>
+        </div>
+        <p>
+          Two more documents have schemas but aren't plugin manifests: <code>ActionTest</code> in a
+          plugin's <code>tests/</code>, and <code>PluginLock</code>, the lockfile. Lab roles are a
+          <code>roles:</code> key in <code>plugin.yaml</code>, not a kind (<Adr n="0116" />). Units are
+          UCUM, parsed by Iki's own code over the unmodified essence file (<Path
+            p="spec/src/iki_spec/units/__init__.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="What a build produces">
+        <p>
+          One package per plugin, <code>iki_plugin_&lt;namespace&gt;__&lt;name&gt;</code>: <code
+            >apps.py</code
+          >, <code>models.py</code>, <code>manifest.json</code>, <code>settings.json</code> for a
+          deployment, the plugin's own migrations copied unchanged, and its components checked
+          against their digests. Beside them, <code>iki_installed_plugins</code> lists the apps in
+          dependency order with the Iki version that built them. The output is byte-for-byte
+          deterministic (<Adr n="0033" />, <Path p="codegen/src/iki_codegen/build.py" />).
+        </p>
+        <p>
+          The core plugin is built the same way by <code>make core</code> into <Path
+            p="server/src/iki_plugin_iki__core"
+          />, and a test fails while that app is behind its manifests (<Path
+            p="scripts/build_core.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Migrations keep history">
+        <p>
+          A field is never deleted: it's marked <code>removed: true</code>, or answered as a rename.
+          A history column changes type only if its old values still fit. A unit change converts
+          current and historical values and records it, so signatures read through it (<Adr
+            n={[33, 148]}
+          />). A state a plugin removes must say where its records go (<Adr n="0121" />). The
+          operations are API: <Path p="server/src/iki_server/plugins/operations.py" sym="class ConvertUnit" />.
+        </p>
+      </Rule>
+      <Rule title="Versions and compatibility">
+        <p>
+          <code>iki:</code> in <code>plugin.yaml</code> says which Iki releases it works with, checked
+          by validate, build and deploy, and again by the migrate Job. Dependencies constrain entity
+          schema versions, not commits, because commits can't be ordered. The upgrade test fails if
+          what a type's entities may hold changed and its <code>schema_version</code> didn't go up (<Adr
+            n={[16, 95]}
+          />).
+        </p>
+        <p>
+          <Adr n="0016" /> names an <code>iki plugin upgrade</code> command that applies codemods. It
+          doesn't exist in <Path p="cli/src/iki_cli" />.
+        </p>
+      </Rule>
+      <Rule title="Wasm: modules, not plugin code">
+        <p>
+          Plugins don't ship Wasm of their own. Their CEL is checked and evaluated by iki-wasm. A few
+          first-party actions call standalone modules (primer checks, digests, annotation) under
+          wasmtime; <code>iki deploy build</code> takes each from <code>iki_spec</code>, checks it
+          against the digest the plugin keeps in git, and refuses a missing or mismatched one, so
+          workers need no Rust (<Path p="cli/src/iki_cli/workers.py" />, <Path
+            p="plugins/dna/data/oligo-checks.wasm.sha256"
+          />).
+        </p>
+      </Rule>
+      <Rule title="First-party plugins and their trees">
+        <p>
+          First-party plugins live in this repository with their own versions, and must validate
+          with their dependencies, have matching migrations, build, migrate forwards and back, and
+          store entities (<Adr n="0039" />). <code>make first-party</code> appends each plugin's
+          current git tree to <Path p="spec/src/iki_spec/first_party_trees.json" />, which only
+          grows; a mirror may serve an <code>iki/*</code> plugin only at one of those trees (<Adr
+            n="0114"
+          />, <Path p="scripts/first_party_trees.py" sym="def tree(" />). There are {firstParty.length}
+          today: <a href="/first-party-plugins/">the generated list</a>.
+        </p>
+        <p>
+          First-party images are built and signed like Iki's own, from <code
+            >plugins/&lt;plugin&gt;/images/</code
+          > (<Adr n="0065" />, <Path p="plugins/protein/images" />).
+        </p>
+      </Rule>
+      <Rule title="Web components">
+        <p>
+          A component is one bundled ES module, at most 10 MiB, declaring its element, slots and
+          events. The build copies it with its digest and the server checks it again before serving
+          (<Adr n="0084" />). Components with source under <code>web/</code> are bundled by <Path
+            p="scripts/bundle-plugin-components.mjs"
+          />, and <code>pnpm test</code> fails on a stale bundle (<Adr n="0191" />). <Inferred
+            why="They have no web/ source directory; nothing says how they were written."
+            >The lots and template components are checked-in JavaScript, written by hand.</Inferred
+          >
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Commands</h3>
+        <ul>
+          <li><code>iki plugin validate</code> <Path p={P} sym="def run_validate(" label="plugin.py" /></li>
+          <li><code>iki plugin build</code> <Path p={P} sym="def run_build(" label="plugin.py" /></li>
+          <li><code>iki plugin makemigrations</code> <Path p={P} sym="def run_makemigrations(" label="plugin.py" /></li>
+          <li><code>iki plugin test</code> <Path p="cli/src/iki_cli/testing.py" label="testing.py" /></li>
+          <li><code>iki plugin preflight</code> <Path p="cli/src/iki_cli/preflight.py" label="preflight.py" /></li>
+          <li><code>iki deploy build</code> <Path p="cli/src/iki_cli/deploy.py" sym="def run_build(" label="deploy.py" /></li>
+          <li><code>iki-server migrate_deployment</code> <Path p="server/src/iki_server/plugins/management/commands/migrate_deployment.py" label="command" /></li>
+          <li><code>make core</code>, <code>make first-party</code> <Path p="Makefile" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0006" title /></li>
+          <li><Adr n="0032" title /></li>
+          <li><Adr n="0033" title /></li>
+          <li><Adr n="0034" title /></li>
+          <li><Adr n="0093" title /></li>
+          <li><Adr n="0094" title /></li>
+          <li><Adr n="0114" title /></li>
+          <li><Adr n="0134" title /></li>
+          <li><Adr n="0181" title /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Skills for plugin authors</h3>
+        <ul>
+          <li><Path p="plugin-template/.claude/skills" /></li>
+          <li><Path p="plugin-template/README.md" /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

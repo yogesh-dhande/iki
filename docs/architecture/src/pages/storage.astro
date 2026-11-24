@@ -1,0 +1,354 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Routes from "../components/Routes.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+
+const AM = "server/src/iki_server/amounts";
+const ST = "server/src/iki_server/storage";
+const LIMS = "plugins/example_lims/types";
+
+const boxes = [
+  { id: "decl", x: 20, y: 30, w: 190, h: 60, label: "Type declarations", sub: "storage: and amount:" },
+  { id: "units", x: 250, y: 30, w: 190, h: 60, label: "UCUM units", sub: "exact conversions" },
+  { id: "places", x: 480, y: 30, w: 190, h: 60, label: "Plugin places", sub: "freezer, rack, box, tube" },
+  { id: "receive", x: 710, y: 30, w: 190, h: 60, label: "Receiving", sub: "receive_into, receipts" },
+  { id: "eligible", x: 20, y: 150, w: 190, h: 60, label: "Eligibility", sub: "holds, draw guards" },
+  { id: "ledger", x: 250, y: 150, w: 190, h: 60, label: "Amount ledger", sub: "append-only movements", strong: true },
+  { id: "place", x: 480, y: 150, w: 190, h: 60, label: "Place", sub: "container, row, column" },
+  { id: "events", x: 710, y: 150, w: 190, h: 60, label: "Location ledger", sub: "append-only events", strong: true },
+  { id: "balance", x: 250, y: 270, w: 190, h: 60, label: "Balance", sub: "one row; never below 0" },
+  { id: "graph", x: 20, y: 270, w: 190, h: 60, label: "Graph edges", sub: "aliquot, transfer, used" },
+  { id: "moves", x: 480, y: 270, w: 190, h: 60, label: "Bulk moves", sub: "preview, then commit" },
+  { id: "counts", x: 710, y: 270, w: 190, h: 60, label: "Counts", sub: "plan_revision pinned" },
+];
+const edges = [
+  { from: "decl", to: "eligible", label: "guards" },
+  { from: "units", to: "ledger", label: "converts" },
+  { from: "eligible", to: "ledger" },
+  { from: "ledger", to: "balance", label: "same transaction" },
+  { from: "ledger", to: "graph", label: "trigger" },
+  { from: "places", to: "place", label: "instances" },
+  { from: "events", to: "place" },
+  { from: "moves", to: "events", label: "one operation" },
+  { from: "counts", to: "events", label: "on completion" },
+  { from: "receive", to: "events", label: "places" },
+  ];
+
+const H = {
+  short: "Where material is, and how much is left",
+  how: "From a type's declaration to ledgers of what moved",
+  example: "A reagent delivery, a tube drawn for an assay, and a rack moved",
+  rules: "Amounts, draws, places, moves, receipts and counts",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "move-seq", label: "A bulk move, previewed then committed" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Iki itself declares no freezers or tubes: plugins say which types hold others, in what grid,
+      and which types have an amount in what unit. The server keeps two append-only ledgers: one of
+      amounts, where every draw, transfer, split and adjustment is a movement with the balance after
+      it, and one of locations, where every placement, move and hand-over is an event. The current
+      balance and the current place are single rows updated in the same transaction. Moves of many
+      records are previewed, then committed all or none.
+    </p>
+    <ul>
+      <li>A record's amount is a ledger of what moved (<Adr n="0139" />).</li>
+      <li>Where material is, and how it's received, moved and counted (<Adr n="0180" />).</li>
+      <li>Received packs go straight into storage (<Adr n="0190" />).</li>
+      <li>Commit the plan that was reviewed (<Adr n="0207" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="stor" title="Declarations, the two ledgers, and what writes to them" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="decl">
+        <p>
+          <code>storage:</code> says what a type holds, its grid, its barcode field and which
+          operations need a scan. <code>amount:</code> gives the unit, an optional concentration, and
+          the records whose guards a draw also follows (<Adr n={[139, 180]} />).
+        </p>
+        <p><Path p="spec/src/iki_spec/model.py" sym="class Storage:" />, <Path p="spec/src/iki_spec/model.py" sym="class Amount:" /></p>
+      </div>
+      <div slot="units">
+        <p>
+          An amount's unit must add up: a volume, a mass, or a count; percentages and parts per
+          million are refused. Conversions are exact fractions, from Iki's own UCUM parser (<Adr
+            n="0139"
+          />).
+        </p>
+        <p><Path p="spec/src/iki_spec/validate.py" sym="def _adds_up(" />, <Path p="spec/src/iki_spec/units/__init__.py" /></p>
+      </div>
+      <div slot="places">
+        <p>
+          The example LIMS plugin's freezer holds shelves, a shelf holds racks and boxes, a rack is a
+          5 × 4 grid of boxes, and a box's grid comes from its own fields (<Adr n="0180" />).
+        </p>
+        <p><Path p={`${LIMS}/freezer.yaml`} />, <Path p={`${LIMS}/rack.yaml`} />, <Path p={`${LIMS}/box.yaml`} /></p>
+      </div>
+      <div slot="receive">
+        <p>
+          An action that creates with <code>receive_into</code> opens each new record's amount and
+          places it, in the run's transaction, with the run as the move's operation. Receipts against
+          a request are checked line by line (<Adr n={[180, 190]} />).
+        </p>
+        <p><Path p="server/src/iki_server/runs/results.py" sym="def _place_received(" />, <Path p={`${ST}/receipts.py`} /></p>
+      </div>
+      <div slot="eligible">
+        <p>
+          Before taking material: is the record in a state that holds its amount, do its draw guards
+          pass, and those of the records it follows, and is there enough (<Adr n={[139, 162]} />).
+        </p>
+        <p><Path p={`${AM}/services.py`} sym="def _taking(" />, <Path p={`${AM}/eligibility.py`} /></p>
+      </div>
+      <div slot="ledger">
+        <p>
+          Each movement keeps its kind, the signed change and the balance after it, what was asked
+          for in its own unit, the counterpart, what it was used in, the person, agent and reason.
+          Triggers refuse UPDATE, DELETE and TRUNCATE (<Adr n={[25, 139]} />).
+        </p>
+        <p><Path p={`${AM}/models.py`} sym="class Movement(" />, <Path p="server/src/iki_server/plugins/operations.py" sym="class AppendOnly(" /></p>
+      </div>
+      <div slot="place">
+        <p>
+          One row per record. One record per position is a deferred unique constraint, so a swap
+          commits as one change; a trigger checks each position against the container's grid (<Adr
+            n="0180"
+          />).
+        </p>
+        <p><Path p={`${ST}/models.py`} sym="class Place(" />, <Path p={`${ST}/migrations/0001_initial.py`} sym="iki_storage_place_in_grid()" /></p>
+      </div>
+      <div slot="events">
+        <p>
+          Every placement, move, removal, check-out and hand-over is an event with where from and
+          where to, audited as <code>storage.moved</code> and sent to webhooks (<Adr n="0180" />).
+        </p>
+        <p><Path p={`${ST}/models.py`} sym="class Event(" />, <Path p={`${ST}/services.py`} sym='"storage.moved"' /></p>
+      </div>
+      <div slot="balance">
+        <p>
+          The current amount is a stored row, the ledger's last balance, not a sum taken on read. The
+          database refuses a negative one. Its last change time is the balance's revision (<Adr
+            n="0139"
+          />).
+        </p>
+        <p><Path p={`${AM}/models.py`} sym='name="iki_amount_not_negative"' /></p>
+      </div>
+      <div slot="graph">
+        <p>
+          A statement trigger on movements adds lineage edges: aliquot, transfer and used, so a
+          draw's experiment shows upstream of the tube (<Adr n={[123, 139]} />).
+        </p>
+        <p><Path p="server/src/iki_server/graph/sql.py" sym="MOVEMENTS = (" /></p>
+      </div>
+      <div slot="moves">
+        <p>
+          Up to 1,536 moves with one reason, all or none, under one operation. The same endpoint
+          previews, changing nothing and naming the plan it shows, and commits that plan only as
+          shown (<Adr n={[180, 207]} />).
+        </p>
+        <p><Path p="server/src/iki_server/api/storage.py" sym="if payload.preview:" />, <Path p={`${ST}/services.py`} sym="def move(" /></p>
+      </div>
+      <div slot="counts">
+        <p>
+          Receipts and counts carry a <code>plan_revision</code>; editing one advances it, and
+          completing a count is refused if anything moved in or out since it started (<Adr
+            n={[180, 207]}
+          />).
+        </p>
+        <p><Path p={`${ST}/reconciliations.py`} sym="def _advance_plan(" />, <Path p={`${ST}/reconciliations.py`} sym="storage.events_since(container, reconciliation.started_at)" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="move-seq">A bulk move, previewed then committed</h3>
+    <Sequence
+      id="move-dg"
+      title="Moving a rack to another shelf before a defrost"
+      width={900}
+      actors={[
+        { id: "person", label: "Lab member" },
+        { id: "app", label: "Web app", sub: "MoveDialog" },
+        { id: "api", label: "API", sub: "/storage/moves" },
+        { id: "svc", label: "storage.services" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "pick", from: "person", to: "app", label: "records, a destination scan, a reason" },
+        { id: "preview", from: "app", to: "api", label: "POST, preview: true" },
+        { id: "plan", from: "api", to: "svc", label: "plan(): positions and problems, no locks" },
+        { id: "review", from: "app", to: "person", label: "each move and problem, for review", dashed: true },
+        { id: "commit", from: "app", to: "api", label: "the same items and the plan, preview: false" },
+        { id: "lock", from: "svc", to: "db", label: "lock records and containers, in id order" },
+        { id: "replan", from: "svc", to: "svc", label: "plan() again; not the plan shown: 409" },
+        { id: "apply", from: "svc", to: "db", label: "places and events, one operation; clash check" },
+      ]}
+    >
+      <div slot="pick"><p>The destination is resolved from its scan. Types that need a scan to move also ask for the records' own scans.</p><p><Path p="web/app/src/storage-ui.tsx" sym="export function MoveDialog(" /></p></div>
+      <div slot="preview"><p>The request body names each record and where it goes, with or without a position.</p><p><Path p="server/src/iki_server/api/storage.py" sym="class MovesIn(" /></p></div>
+      <div slot="plan"><p>When no position is given, the planner takes the next free one in the container's order.</p><p><Path p={`${ST}/services.py`} sym="def plan(" /></p></div>
+      <div slot="review"><p>Nothing has changed yet. The preview also returns <code>plan</code>: a SHA-256 of each record, where it is, and the container and position it goes to.</p><p><Path p={`${ST}/services.py`} sym="def identify(" /></p></div>
+      <div slot="commit"><p>The dialog sends back the plan it showed. An API caller may leave it out; then a position left empty is the next free one when the moves are made.</p><p><Path p="server/src/iki_server/api/storage.py" sym="plan: str | None = Field(" /></p></div>
+      <div slot="lock"><p>A record whose location changed since it was read is refused.</p><p><Path p={`${ST}/services.py`} sym="def move(" /></p></div>
+      <div slot="replan"><p>The plan is computed again under the locks. If it isn't the plan shown, because another placement took a position or a record moved meanwhile, nothing moves: 409 <code>moves_plan_changed</code> carries what the moves would do now, and the dialog shows what changed per record for a fresh confirmation. Otherwise a single problem refuses every move with 422 (<Adr n="0207" />).</p><p><Path p={`${ST}/services.py`} sym="raise PlanChanged(planned)" />, <Path p="web/app/src/storage-ui.tsx" sym='"moves_plan_changed"' /></p></div>
+      <div slot="apply"><p>The deferred position constraint is checked before commit, so a clash refuses the whole move.</p><p><Path p={`${ST}/services.py`} sym="def _check_now(" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A reagent order arrives. The <code>receive_delivery</code> action creates stock lots and puts
+      them in storage as it records them; the lot type keeps its amount in millilitres, and a new lot
+      starts in quarantine:
+    </p>
+    <Excerpt file="plugins/reagents/actions/receive_delivery.yaml" start="^effects:" />
+    <p>
+      Until QA releases it, only a QA sampling draw may take from the lot. Its draw guards, which any
+      tube following the lot inherits:
+    </p>
+    <Excerpt file="plugins/lots/types/lot.yaml" start="^draw_guards:" />
+    <p>
+      Once QA has released the lot, a technician transfers 500 µL into a tube; the transfer converts exactly between the lot's mL and
+      the tube's µL, or is refused. The tube's amount follows its lot and sample, and a draw needs a
+      scan of the tube:
+    </p>
+    <Excerpt file={`${LIMS}/tube.yaml`} start="^amount:" />
+    <Excerpt file={`${LIMS}/tube.yaml`} start="^storage:" />
+    <p>The tube goes into a box, whose grid size comes from the box's own fields:</p>
+    <Excerpt file={`${LIMS}/box.yaml`} start="^storage:" />
+    <p>
+      For an assay, a scientist draws 50 µL with <code>POST /api/v1/entities/&#123;tube&#125;/amount/draw</code>,
+      naming the experiment it's used in and scanning the tube. The server locks the tube and the
+      records it follows, checks the guards and the balance, appends a <code>drawn</code> movement
+      with its purpose, and the graph gains a <code>used</code> edge from the tube to the experiment.
+      Before a freezer is defrosted, the rack holding the box is moved to another shelf: a shelf has
+      no grid, so nothing is allocated, and every box and tube in the rack keeps its place.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Movement kinds and draw purposes" open>
+        <Excerpt file={`${AM}/models.py`} start="^class MovementKind\(" />
+        <p>
+          A <code>drawn</code> movement must have a purpose and no other kind may; only a draw can
+          name what it was used in. Both are database checks (<Path
+            p={`${AM}/models.py`}
+            sym='name="iki_amount_draw_purpose"'
+          />).
+        </p>
+      </Rule>
+      <Rule title="Concurrency and exact arithmetic">
+        <p>
+          Draws lock the records, in key order, then their amount rows; a second draw waits and sees
+          what's left. Arithmetic runs at twice the stored precision (40 digits) with half-even
+          rounding. Each change moves the balance's timestamp forward by at least a microsecond,
+          because that timestamp is the balance's revision (<Adr n="0139" />, <Path
+            p={`${AM}/services.py`}
+            sym="def _lock_records("
+          />).
+        </p>
+        <p>
+          An adjustment needs a reason and the <code>If-Balance-Revision</code> header: without it,
+          428; stale, 409 <code>stale_balance</code> (<Path p="server/src/iki_server/api/amounts.py" sym='alias="If-Balance-Revision"' />).
+        </p>
+      </Rule>
+      <Rule title="Transfers, pools and lots">
+        <p>
+          Both sides of a transfer must be exact, or it's refused. Transferring into a record with a
+          concentration rewrites the concentration as a revision, with the transfer as its reason. A
+          type with <code>material:</code> takes material only of the same entity, and a locked record
+          only material in its own state (<Adr n={[157, 162]} />, <Path
+            p={`${AM}/services.py`}
+            sym="def _pool("
+          />, <Path p={`${AM}/services.py`} sym="def _what_it_takes(" />). A split makes at most 200
+          aliquots.
+        </p>
+      </Rule>
+      <Rule title="Bulk moves, as reviewed">
+        <p>
+          A preview names what it shows; confirming sends that name back, and the server compares it
+          with the plan it computes under the moves' locks. A different well, source, container or
+          order gives a different name. Problems and proofs aren't part of it, since they're checked
+          again when the moves are made (<Adr n={[180, 207]} />).
+        </p>
+        <Excerpt file={`${ST}/services.py`} start="^def identify\(" />
+      </Rule>
+      <Rule title="Places, grids and the location ledger">
+        <p>
+          A container's shape is kept when it's first used, append-only, and checked to be a valid
+          grid of at most 32 by 48 (<Adr n="0180" />, <Path
+            p="spec/src/iki_spec/model.py"
+            sym="GRID_POSITIONS = 1536"
+          />).
+        </p>
+        <Excerpt file={`${ST}/models.py`} start="^class EventKind\(" />
+      </Rule>
+      <Rule title="Receipts, counts and stability pulls">
+        <p>
+          A request can have one open receipt. A stale receipt revision answers with the lines that
+          changed. A count never passes an empty position to the planner, so it never allocates a
+          slot of its own (<Adr n={[180, 207]} />, <Path p={`${ST}/models.py`} sym='name="iki_storage_receipt_one_open"' />).
+          A stability pull draws once, from its assigned tube and lot, in its planned quantity (<Adr
+            n="0193"
+          />, <Path p={`${AM}/services.py`} sym="def _check_draw_target(" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            An adjustment's <code>If-Balance-Revision</code> requirement is in no ADR; <Adr n="0139" />
+            asks only for a reason.
+          </li>
+          <li>
+            <Adr n="0139" /> still says a location stays a field and containers aren't modelled;
+            <Adr n="0180" /> changed that, and the example box's <code>location</code> field is marked
+            removed.
+          </li>
+          <li>
+            <Adr n="0180" />'s example freezer holds racks and boxes; the plugin adds a shelf between
+            them.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["storage"]} />
+    <Routes tags={["amounts"]} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={AM} />: the amount ledger, eligibility and stock</li>
+        <li><Path p={ST} />: places, events, moves, receipts and counts</li>
+        <li><Path p="spec/src/iki_spec/units" />: UCUM units</li>
+        <li><Path p="web/app/src/storage-ui.tsx" />: the app's storage dialogs</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0139" title /></li>
+        <li><Adr n="0157" title /></li>
+        <li><Adr n="0162" title /></li>
+        <li><Adr n="0180" title /></li>
+        <li><Adr n="0190" title /></li>
+        <li><Adr n="0193" title /></li>
+        <li><Adr n="0207" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

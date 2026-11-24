@@ -1,0 +1,351 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Inferred from "../components/Inferred.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Routes from "../components/Routes.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+
+const REQ = "server/src/iki_server/entities/requests.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const MODELS = "server/src/iki_server/entities/models.py";
+const LIMS = "plugins/example_lims/types";
+
+const boxes = [
+  { id: "registry", x: 20, y: 30, w: 190, h: 60, label: "Registry", sub: "identities; registrars" },
+  { id: "asking", x: 250, y: 30, w: 190, h: 60, label: "Asking project", sub: "owns the request" },
+  { id: "intake", x: 480, y: 30, w: 190, h: 60, label: "Intake", sub: "types and sources" },
+  { id: "service", x: 710, y: 30, w: 190, h: 60, label: "Service project", sub: "serves it" },
+  { id: "entries", x: 20, y: 150, w: 190, h: 60, label: "Entries and records", sub: "registry XOR project" },
+  { id: "submit", x: 250, y: 150, w: 190, h: 60, label: "Submit", sub: "one service, for good", strong: true },
+  { id: "links", x: 480, y: 150, w: 190, h: 60, label: "Project links", sub: "via_request" },
+  { id: "guard", x: 710, y: 150, w: 190, h: 60, label: "Side guard", sub: "iki.request_side" },
+  { id: "share", x: 20, y: 270, w: 190, h: 60, label: "shareable_into", sub: "one sharing check" },
+  { id: "result", x: 250, y: 270, w: 190, h: 60, label: "Result", sub: "made in the service" },
+  { id: "release", x: 480, y: 270, w: 190, h: 60, label: "Release", sub: "signed; then final", strong: true },
+  { id: "told", x: 710, y: 270, w: 190, h: 60, label: "Audit and notices", sub: "both sides told" },
+];
+const edges = [
+  { from: "registry", to: "asking" },
+  { from: "asking", to: "submit" },
+  { from: "intake", to: "service" },
+  { from: "submit", to: "intake", label: "must match" },
+  { from: "submit", to: "links" },
+  { from: "registry", to: "entries" },
+  { from: "entries", to: "submit" },
+  { from: "service", to: "guard", label: "writes its fields" },
+  { from: "share", to: "submit", label: "checks" },
+  { from: "result", to: "release" },
+  { from: "release", to: "links", label: "back to the asker" },
+  { from: "release", to: "told" },
+];
+
+const H = {
+  short: "What a request is",
+  how: "From an asking project's request to a released result",
+  example: "Long-read sequencing from a core facility, under Regulated QC",
+  rules: "Intake, sides, sending, release and what each project sees",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "flow", label: "One request, from asking to release" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A request is a record in the project that asks, sent once to another project that serves it.
+      Both sides write the same record: the asker its own fields, the service the fields the plugin
+      gave it, and a database trigger keeps each to its side. Sending links the request and the
+      records it names into the service. The service makes results in its own project, and a result
+      reaches the asking project only when it's released, usually by a signed state. Released, it's
+      final; a correction before release sends it back for review.
+    </p>
+    <ul>
+      <li>A request is owned by the project that asks, and served by another (<Adr n="0132" />).</li>
+      <li>A result leaves its service only by release (<Adr n="0149" />).</li>
+      <li>A corrected result goes back for review (<Adr n="0179" />).</li>
+      <li>Identities live in registries; each project keeps its own records (<Adr n="0115" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      A request type is an ordinary plugin type with a <code>request:</code> block; a result type
+      has a <code>result:</code> block naming the request field and the released states. The core
+      adds a <code>Request</code> row, the service's intake, and the links that carry records
+      across.
+    </p>
+    <Diagram id="reqs" title="Projects, a request between them, and its released result" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="registry">
+        <p>
+          Every project is in one registry, fixed once it has entities. A registry is where an
+          identity is registered once; registrars curate its facts (<Adr n={[115, 143]} />).
+        </p>
+        <p><Path p="server/src/iki_server/org/models.py" sym="class Registry(" />, <Path p="server/src/iki_server/api/registries.py" /></p>
+      </div>
+      <div slot="asking">
+        <p>
+          The asking project owns the request: its Editors fill it in and send it. A project that doesn't allow sharing can't send one (<Adr n={[67, 132]} />).
+        </p>
+        <p><Path p="server/src/iki_server/org/models.py" sym="allow_sharing = models.BooleanField(" /></p>
+      </div>
+      <div slot="intake">
+        <p>
+          A service's Admins say which request types it takes, and from whom: the whole registry, or
+          named projects. A project can't name itself (<Adr n="0132" />).
+        </p>
+        <p><Path p={MODELS} sym="class Intake(" />, <Path p={MODELS} sym='name="iki_intake_not_itself"' />, <Path p={REQ} sym="def set_intake(" /></p>
+      </div>
+      <div slot="service">
+        <p>
+          The project that serves requests. Its role holders are told when one arrives, and see the
+          request and what it sends, but nothing else of the asker's (<Adr n="0142" />).
+        </p>
+        <p><Path p="server/src/iki_server/notifications/declared.py" sym="def sent(" /></p>
+      </div>
+      <div slot="entries">
+        <p>
+          Every entity is one row: an entry has a registry and no project; a record has a project.
+          The database holds that, and that a project has one record per entry (<Adr n="0115" />).
+        </p>
+        <p><Path p={MODELS} sym='name="iki_entity_entry_or_record"' />, <Path p={MODELS} sym='name="iki_entity_record_once"' /></p>
+      </div>
+      <div slot="submit">
+        <p>
+          Sending locks the request and checks: an Editor of the asking project, the current
+          revision, not already sent, a service whose intake accepts it, sharing allowed, and every
+          record it sends shareable into the service. Then it makes the <code>Request</code> row,
+          links, audits both sides and tells the service (<Adr n={[132, 142]} />).
+        </p>
+        <p><Path p={REQ} sym="def submit(" />, <Path p={MODELS} sym="class Request(" /></p>
+      </div>
+      <div slot="links">
+        <p>
+          A project link lists the projects an entity is in. Links a request made carry <code
+            >via_request</code
+          >: the request in its service, a record it sends, and a result released back. Those
+          links can't be removed while they're needed (<Adr n="0132" />).
+        </p>
+        <p><Path p={MODELS} sym="class ProjectLink(" />, <Path p={REQ} sym="def why_kept(" /></p>
+      </div>
+      <div slot="guard">
+        <p>
+          A trigger on each request type's tables refuses an asker changing service columns, and a
+          service changing the rest or inserting or deleting rows. The server says which side is
+          writing in the session setting <code>iki.request_side</code> (<Adr n={[120, 132]} />).
+        </p>
+        <p><Path p="server/src/iki_server/entities/migrations/0015_requests.py" sym="iki_request_guard()" />, <Path p={REQ} sym='SIDE_SETTING = "iki.request_side"' /></p>
+      </div>
+      <div slot="share">
+        <p>
+          One check decides what a project may use: its own entities, those linked into it, and those
+          whose owner allows sharing, in the same registry, that the person reads their own way, not
+          through a request. Results awaiting release are left out (<Adr n={[67, 149]} />).
+        </p>
+        <p><Path p={ACCESS} sym="def shareable_into(" />, <Path p={ACCESS} sym="def unreleased(" /></p>
+      </div>
+      <div slot="result">
+        <p>
+          A result must be made in the project the request was sent to. Until it's released the
+          asking project can't read it, nor the files it holds (<Adr n="0149" />).
+        </p>
+        <p><Path p={REQ} sym="def check_result(" />, <Path p={ACCESS} sym="def shareable_files(" /></p>
+      </div>
+      <div slot="release">
+        <p>
+          Every state change calls <code>released()</code>. When the state is one the result type
+          releases on, the result is linked into the asking project once. If the release was signed
+          after an independent review, the reviewed revision is kept, and the result is final (<Adr
+            n={[149, 179]}
+          />).
+        </p>
+        <p><Path p={REQ} sym="def released(" />, <Path p="server/src/iki_server/entities/states.py" sym="requests.released(" /></p>
+      </div>
+      <div slot="told">
+        <p>
+          <code>request.submitted</code> in the asking project, <code>request.received</code> in the
+          service, and <code>request.result_released</code> back in the asking project, with the
+          reviewed, signed and released revisions (<Adr n="0142" />).
+        </p>
+        <p><Path p="server/src/iki_server/audit/log.py" sym='"request.result_released"' />, <Path p="server/src/iki_server/notifications/declared.py" sym="def released(" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="flow">One request, from asking to release</h3>
+    <Sequence
+      id="flow-seq"
+      title="A Regulated QC request to a core facility"
+      width={900}
+      actors={[
+        { id: "asker", label: "Asking project", sub: "an Editor" },
+        { id: "server", label: "Server" },
+        { id: "service", label: "Core facility", sub: "coordinator, analyst, QA" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "intake", from: "service", to: "server", label: "Admin: intake takes QC requests from the asker" },
+        { id: "create", from: "asker", to: "server", label: "create the request, naming a tube" },
+        { id: "submit", from: "asker", to: "server", label: "POST /entities/{ref}/submit" },
+        { id: "link", from: "server", to: "db", label: "Request row; links into the service, via_request" },
+        { id: "work", from: "service", to: "server", label: "accept, assign, in progress: service fields only" },
+        { id: "deliver", from: "service", to: "server", label: "deliverable: submitted, reviewed, signed" },
+        { id: "release", from: "service", to: "server", label: "QA signs Released" },
+        { id: "back", from: "server", to: "db", label: "link the result back; released_review_revision" },
+        { id: "read", from: "asker", to: "server", label: "GET /entities/{ref}/request: results, receipts" },
+      ]}
+    >
+      <div slot="intake"><p>Until the intake accepts the type, sending fails with the same 404 whether the service exists or not (<Adr n="0132" />).</p><p><Path p={REQ} sym="def not_a_service(" /></p></div>
+      <div slot="create"><p>An unsent request is the asker's alone. Its service fields keep their defaults; the app shows it as not sent yet.</p><p><Path p={`${LIMS}/analysis_request.yaml`} /></p></div>
+      <div slot="submit"><p>A request goes to one service, for good. Stale revisions get 412, as any write does.</p><p><Path p="server/src/iki_server/api/requests.py" /></p></div>
+      <div slot="link"><p>Only the records the request names are linked; another of the asker's tubes isn't. For a registry entry, the asker's record of it is what's sent (<Adr n="0115" />).</p><p><Path p={REQ} sym="def sent_records(" /></p></div>
+      <div slot="work"><p>The server writes as the service side inside a savepoint; the database refuses anything else (<Adr n="0132" />).</p><p><Path p={REQ} sym="def writing(" /></p></div>
+      <div slot="deliver"><p>The plugin's states decide who may submit, review and release, and the guards keep the reviewer from releasing what they reviewed (<Adr n={[119, 125, 128]} />).</p><p><Path p={`${LIMS}/qc_core_deliverable.yaml`} /></p></div>
+      <div slot="release"><p>The signed document names the reviewed revision when the result type needs a review before release (<Adr n={[126, 179]} />).</p><p><Path p="server/src/iki_server/signatures/services.py" sym='document["reviewed"] = reference' /></p></div>
+      <div slot="back"><p>The database holds that a released-after-review result is locked, at exactly two revisions past the reviewed one (<Adr n="0179" />).</p><p><Path p={MODELS} sym='name="iki_released_review_locked"' /></p></div>
+      <div slot="read"><p>The receipts are read from the <code>request.result_released</code> audit events, not a table of their own.</p><p><Path p="server/src/iki_server/api/requests.py" sym="class ResultReleaseOut(" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A training project asks the core facility to sequence tube CEY652 by long reads; the core
+      answers with the public run ERR13376132. The example LIMS plugin models it, and <Path
+        p="server/tests/test_core_facility.py"
+        sym="def _sequencing("
+      /> drives it through the services. The request type gives the core its own fields and says
+      what the asker sends:
+    </p>
+    <Excerpt file={`${LIMS}/analysis_request.yaml`} start="^request:" />
+    <p>The service's status, which only the core's lab roles set:</p>
+    <Excerpt file={`${LIMS}/analysis_request.yaml`} start="^  status:" />
+    <p>The deliverable says which request it answers and which state releases it:</p>
+    <Excerpt file={`${LIMS}/qc_core_deliverable.yaml`} start="^result:" />
+    <Excerpt file={`${LIMS}/qc_core_deliverable.yaml`} start="^      released:" />
+    <p>What the test establishes, in order:</p>
+    <ol>
+      <li>Before the intake takes the type, sending is refused as "no such service".</li>
+      <li>After sending, the named tube is linked into the core through the request; another tube isn't.</li>
+      <li>The core's deliverable and its report file answer 404 to the asker until release.</li>
+      <li>A correction after review returns it to Recorded, and it's submitted and reviewed again.</li>
+      <li>The reviewer can't release, and release is refused while the tube is off the request.</li>
+      <li>
+        After QA's release, the request's receipts name the reviewed, signed and released revisions,
+        and the earlier report stays readable in the deliverable's history.
+      </li>
+    </ol>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Registries, entries and project records" open>
+        <p>
+          A registry holds identities; an identity is registered once per registry. A project holds
+          one record per entry, with its own fields, accession and HRID; a project sees an entry only
+          while it holds a record of it (<Adr n={[115, 154]} />, <Path p={ACCESS} sym="def held_entries(" />).
+          In a request, the asker sends its records, never the entry: the service reads the record
+          the asker gave it. A lot is a project's record
+          of an entry's material (<Adr n="0162" />). Registrars change an entry's facts through
+          <code>PATCH /entries/&#123;ref&#125;</code> (<Adr n="0143" />).
+        </p>
+      </Rule>
+      <Rule title="Which side writes what">
+        <p>
+          The request's <code>service_fields</code> are the service's; everything else is the
+          asker's. Before sending, service fields are refused with "the service's: … sets it, once
+          it's submitted". A list table belongs to one side as a whole. Records named later, when the
+          asker edits a sent request, go to the service too (<Adr n="0132" />, <Path
+            p={REQ}
+            sym="def refused_fields("
+          />, <Path p={REQ} sym="def send(" />).
+        </p>
+        <Excerpt file={REQ} start="^ASKER, SERVICE = " />
+      </Rule>
+      <Rule title="What each project can read">
+        <p>
+          The service reads the request and what it sends, through links made by the request; it can't
+          share those onward, because <code>shareable_into</code> counts only links the person reads
+          their own way. The asker reads results only once released, and why something is held is
+          one of four reasons (<Adr n={[67, 149]} />):
+        </p>
+        <Excerpt file={ACCESS} start="^def why_held\(" />
+      </Rule>
+      <Rule title="Release, and after it">
+        <p>
+          A release is told once: a result already linked back for this request isn't linked again.
+          A service that has stopped sharing can't release. When the release follows an independent
+          review, <code>released_review_revision</code> is set and the result is final: its values and
+          states can't change, and no correction path applies (<Adr n={[149, 179]} />, <Path
+            p="server/src/iki_server/entities/states.py"
+            sym="def _final_release("
+          />). Before release, a correction under lock returns each state to its <code>on_edit</code>
+          target with a reason (<Path p="server/src/iki_server/entities/states.py" sym="def return_for_edit(" />).
+        </p>
+        <p>
+          <Inferred why="Read from ResultSpec.requires_review; no test asserts it.">
+            A Research flow deliverable is released by a single review signature, so no earlier
+            reviewed revision is kept and its receipt has none.
+          </Inferred>
+        </p>
+      </Rule>
+      <Rule title="Searching a service's queue">
+        <p>
+          Search has a built-in <code>sent_to</code> column on the request's service, which gives a
+          service its queue as an ordinary search (<Path
+            p="server/src/iki_server/entities/search.py"
+            sym='"sent_to": Column('
+          />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0132" /> lists Withdrawn among a request's states. In the example plugin, withdrawn
+            is a state of the asker's own field, <code>standing</code>, not of the service's status.
+          </li>
+          <li>
+            <Adr n="0132" />'s database guard is broader in code: it also refuses the service's
+            inserts and deletes, and any write to the other side's list tables.
+          </li>
+          <li>
+            <Adr n="0115" />'s example looks up a record by project slug; the API takes the project's
+            UUID.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["requests"]} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={REQ} />: intake, sending, the two sides, release</li>
+        <li><Path p={ACCESS} />: what each project can read and share</li>
+        <li><Path p="server/src/iki_server/api/requests.py" />: the request routes</li>
+        <li><Path p="web/app/src/requests.ts" />: the app's request queries</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0067" title /></li>
+        <li><Adr n="0115" title /></li>
+        <li><Adr n="0132" title /></li>
+        <li><Adr n="0142" title /></li>
+        <li><Adr n="0149" title /></li>
+        <li><Adr n="0179" title /></li>
+        <li><Adr n="0195" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

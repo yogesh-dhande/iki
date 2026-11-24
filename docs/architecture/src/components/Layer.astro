@@ -1,0 +1,13 @@
+---
+// One layer of a page, in order: the short version, how it works, a worked example, the
+// rules in full, then reference. Each heading says what its layer holds on that page.
+type Props = { n: 1 | 2 | 3 | 4 | 5; title: string };
+const IDS = { 1: "short", 2: "how", 3: "example", 4: "rules", 5: "ref" } as const;
+const { n, title } = Astro.props;
+const id = IDS[n];
+---
+
+<section id={id} class:list={["layer", { short: n === 1 }]} aria-labelledby={`${id}-h`}>
+  <h2 id={`${id}-h`}>{title}</h2>
+  <slot />
+</section>

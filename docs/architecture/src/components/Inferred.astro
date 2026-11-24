@@ -1,0 +1,9 @@
+---
+// Marks a claim that wasn't read in the code or an ADR: reasoned from what was.
+type Props = { why?: string };
+const { why } = Astro.props;
+---
+
+<span class="tag-inferred" title={why ?? "Inferred, not read directly in the code or an ADR."}
+  >(inferred)</span
+><slot />

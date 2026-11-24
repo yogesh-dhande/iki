@@ -31,7 +31,7 @@ hooks: ## Install the pre-commit hook for this clone and its worktrees
 
 .PHONY: check
 # check-web builds the web app, which the browser tests in check-python load.
-check: check-workflows check-chart check-infra check-deps check-web check-python check-rust ## Run every CI check locally (except dev-ci)
+check: check-workflows check-chart check-infra check-deps check-web check-architecture check-python check-rust ## Run every CI check locally (except dev-ci)
 
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
@@ -143,6 +143,24 @@ check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generat
 	$(PNPM) test
 	scripts/check-client.sh
 	$(PNPM) build
+
+# --- The internal architecture site (docs/architecture) -------------------------------
+# Never deployed: it explains how Iki is built and why, for whoever maintains it. Its pages
+# cite files and ADRs that the build checks exist, so a move or rename fails the build.
+
+.PHONY: architecture
+architecture: ## Serve the internal architecture site with live reload at http://127.0.0.1:4321
+	$(PNPM) --filter @ikisci/ui build
+	$(PNPM) --filter @ikisci/architecture dev
+
+.PHONY: architecture-build
+architecture-build: ## Build the internal architecture site into docs/architecture/dist and check its links
+	$(PNPM) --filter @ikisci/ui build
+	$(PNPM) --filter @ikisci/architecture site
+	$(PNPM) --filter @ikisci/architecture check-links
+
+.PHONY: check-architecture
+check-architecture: architecture-build ## The architecture site builds, every file and ADR it cites exists, and its links resolve
 
 .PHONY: web
 web: ## Build the server's web app and the standalone package stories

@@ -1,0 +1,36 @@
+---
+// A directory's files as git has them, read at build time.
+import Path from "./Path.astro";
+import { filesUnder } from "../lib/repo.ts";
+
+type Props = { dir: string; depth?: number };
+const { dir, depth = 2 } = Astro.props;
+const files = filesUnder(dir).map((f) => f.slice(dir.length + 1));
+const shown = new Map<string, number>();
+for (const f of files) {
+  const parts = f.split("/");
+  const key = parts.slice(0, depth).join("/") + (parts.length > depth ? "/" : "");
+  shown.set(key, (shown.get(key) ?? 0) + 1);
+}
+const rows = [...shown].sort(([a], [b]) => a.localeCompare(b));
+---
+
+<figure class="tree">
+  <figcaption><Path p={dir} /> · {files.length} files</figcaption>
+  <pre><code>{rows.map(([k, n]) => (k.endsWith("/") ? `${k}  (${n} files)` : k)).join("\n")}</code></pre>
+</figure>
+
+<style>
+  .tree {
+    margin: 14px 0 18px;
+  }
+  .tree figcaption {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .tree pre {
+    margin: 0;
+    max-height: 480px;
+  }
+</style>

@@ -1,0 +1,179 @@
+---
+// Every ADR, read from docs/adr's headers at build time: its status, date, and the ADRs
+// its header says it refines, extends, amends or supersedes, with the inverse links.
+import Layout from "../../components/Layout.astro";
+import Path from "../../components/Path.astro";
+import AdrGraph from "../../components/AdrGraph.astro";
+import { ADR_GROUPS, groupOf } from "../../lib/adr-groups.ts";
+import { adrs, type Adr } from "../../lib/adrs.ts";
+import { NAV } from "../../lib/nav.ts";
+
+const all = [...adrs().values()];
+const counts = { Accepted: 0, Proposed: 0, Superseded: 0 };
+for (const a of all) counts[a.state] += 1;
+const uniq = (xs: string[]) => [...new Set(xs)];
+const rel = (a: Adr): [string, string[]][] =>
+  (
+    [
+      ["refines", a.out.refines],
+      ["extends", a.out.extends],
+      ["amends", a.out.amends],
+      ["supersedes", a.out.supersedes],
+      ["related", a.out.related],
+      ["refined by", a.in.refines],
+      ["extended by", a.in.extends],
+      ["amended by", uniq([...a.amendedBy, ...a.in.amends])],
+      ["superseded by", uniq([...a.supersededBy, ...a.in.supersedes])],
+    ] as [string, string[]][]
+  ).filter(([, ns]) => ns.length);
+const title = (n: string) => adrs().get(n)?.title ?? "";
+groupOf();
+const sectionHref = (name?: string) =>
+  NAV.flatMap((g) => g.items).find((i) => i.label === name)?.href;
+const pad = (n: number) => String(n).padStart(4, "0");
+const toc = [
+  { id: "graph", label: "How decisions build on each other" },
+  ...ADR_GROUPS.map((g) => ({ id: g.id, label: g.name })),
+];
+---
+
+<Layout wide toc={toc}>
+  <p class="lede">
+    {all.length} decisions: {counts.Accepted} accepted, {counts.Proposed} proposed, {counts.Superseded}
+    superseded, read from the headers in <Path p="docs/adr" />. The links are what each header's <code
+      >Refines</code
+    >, <code>Extends</code>, <code>Amends</code> and <code>Supersedes</code> lines and status say, and
+    their inverses. Which subsystem an ADR belongs to is kept by hand in <Path
+      p="docs/architecture/src/lib/adr-groups.ts"
+    />, and the build fails on an ADR it leaves out.
+  </p>
+  <h2 id="graph">How decisions build on each other</h2>
+  <AdrGraph />
+  <p class="filter">
+    <label for="adr-filter">Filter</label>
+    <input id="adr-filter" type="search" placeholder="Number or words in the title" />
+  </p>
+  {
+    ADR_GROUPS.map((g) => {
+      const href = sectionHref(g.section);
+      return (
+        <section class="adr-group" id={g.id}>
+          <h2>
+            {g.name}
+            {href && (
+              <a class="sec" href={href}>
+                {g.section}
+              </a>
+            )}
+          </h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ADR</th>
+                  <th>Title</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                  <th>Links</th>
+                </tr>
+              </thead>
+              <tbody>
+                {g.numbers
+                  .map((n) => adrs().get(pad(n)))
+                  .filter((a): a is Adr => !!a)
+                  .sort((p, q) => p.number.localeCompare(q.number))
+                  .map((a) => (
+                    <tr id={`adr-${a.number}`} data-text={`${a.number} ${a.title}`.toLowerCase()}>
+                      <td class="num">
+                        <a href={`/adrs/${a.number}/`}>{a.number}</a>
+                      </td>
+                      <td>
+                        <a href={`/adrs/${a.number}/`}>{a.title}</a>
+                      </td>
+                      <td>
+                        <span class="status">{a.state}</span>
+                      </td>
+                      <td class="num">{a.date}</td>
+                      <td class="links">
+                        {rel(a).map(([label, ns]) => (
+                          <div>
+                            <span class="rel">{label}</span>{" "}
+                            {ns.map((n, i) => (
+                              <>
+                                {i > 0 && ", "}
+                                <a href={`/adrs/${n}/`} title={title(n)}>
+                                  {n}
+                                </a>
+                              </>
+                            ))}
+                          </div>
+                        ))}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      );
+    })
+  }
+</Layout>
+
+<style>
+  .lede {
+    max-width: 800px;
+    margin-top: 12px;
+  }
+  label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-right: 8px;
+  }
+  input {
+    height: 32px;
+    width: min(360px, 100%);
+    padding: 0 10px;
+    border: 1px solid var(--input-border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+  }
+  .links {
+    font-size: 12.5px;
+    min-width: 200px;
+  }
+  .rel {
+    color: var(--muted);
+  }
+  .filter {
+    margin-top: 32px;
+  }
+  .adr-group h2 {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+  .sec {
+    font-size: 13px;
+    font-weight: 500;
+  }
+</style>
+
+<script>
+  const input = document.querySelector<HTMLInputElement>("#adr-filter");
+  const groups = [...document.querySelectorAll<HTMLElement>(".adr-group")];
+  input?.addEventListener("input", () => {
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    for (const group of groups) {
+      let shown = 0;
+      for (const row of group.querySelectorAll<HTMLTableRowElement>("tbody tr")) {
+        const text = row.dataset["text"] ?? "";
+        row.hidden = !words.every((w) => text.includes(w));
+        if (!row.hidden) shown += 1;
+      }
+      group.hidden = shown === 0;
+    }
+  });
+</script>

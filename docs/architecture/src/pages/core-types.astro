@@ -1,0 +1,56 @@
+---
+// The core plugin's types and the manifest kinds, read from spec/ at build time.
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Adr from "../components/Adr.astro";
+import { corePlugin, manifestKinds } from "../lib/manifests.ts";
+
+const core = corePlugin();
+const kinds = manifestKinds();
+const types = core.manifests.filter((m) => m.kind === "EntityType");
+const toc = [
+  { id: "kinds", label: "Manifest kinds" },
+  { id: "core", label: "Core types" },
+];
+---
+
+<Layout toc={toc}>
+  <h2 id="kinds">Manifest kinds</h2>
+  <p>
+    What a plugin's YAML can declare, and the directory each kind must live in, read from <Path
+      p="spec/src/iki_spec/validate.py"
+      sym="DIRECTORIES = {"
+    />. Each kind has a JSON Schema in <Path p="spec/src/iki_spec/schemas" /> (<Adr n="0032" />).
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Kind</th><th>Schema</th><th>Where in a plugin</th></tr></thead>
+      <tbody>
+        {kinds.map((k) => <tr><td><code>{k.kind}</code></td><td><Path p={`spec/src/iki_spec/schemas/${k.schema}`} label={k.schema} /></td><td><code>{k.directory}</code></td></tr>)}
+      </tbody>
+    </table>
+  </div>
+  <h2 id="core">Core types: {core.name} {core.version}</h2>
+  <p>
+    {core.description} Released with Iki itself, not listed in lockfiles, and built into the server
+    as <Path p="server/src/iki_plugin_iki__core" /> by <code>make core</code> (<Adr n="0038" />).
+    <code>Entity</code>'s own columns are the server's model, not fields here.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>Description</th><th>Fields</th><th>Schema</th></tr></thead>
+      <tbody>
+        {
+          types.map((t) => (
+            <tr>
+              <td><Path p={t.file} label={`iki/core.${t.name}`} />{t.abstract && " (abstract)"}</td>
+              <td>{t.description}</td>
+              <td>{t.fields.length ? t.fields.map((f) => <code>{f}</code>).reduce((a, b) => <>{a}, {b}</>) : "none"}</td>
+              <td class="num">v{t.schemaVersion}</td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</Layout>

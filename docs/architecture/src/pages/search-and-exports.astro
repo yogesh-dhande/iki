@@ -1,0 +1,325 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Inferred from "../components/Inferred.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Routes from "../components/Routes.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+
+const SEARCH = "server/src/iki_server/entities/search.py";
+const API = "server/src/iki_server/api/entities.py";
+const CSVS = "server/src/iki_server/api/csvs.py";
+
+const boxes = [
+  { id: "grid", x: 20, y: 30, w: 190, h: 60, label: "Grid and search box", sub: "words to JSON" },
+  { id: "api", x: 250, y: 30, w: 190, h: 60, label: "Search API", sub: "search, search.csv", strong: true },
+  { id: "compile", x: 480, y: 30, w: 190, h: 60, label: "Condition compiler", sub: "JSON to indexed SQL" },
+  { id: "access", x: 710, y: 30, w: 190, h: 60, label: "Access filter", sub: "readable projects" },
+  { id: "limit", x: 250, y: 150, w: 190, h: 60, label: "Time-limited reads", sub: "15 s; keyset pages" },
+  { id: "special", x: 480, y: 150, w: 190, h: 60, label: "Rules, motifs, graph", sub: "held, breaks, of" },
+  { id: "indexes", x: 710, y: 150, w: 190, h: 60, label: "Postgres indexes", sub: "trigram, full text" },
+  { id: "csv", x: 20, y: 150, w: 190, h: 60, label: "CSV writer", sub: "streamed; formula-safe" },
+  { id: "audit", x: 20, y: 270, w: 190, h: 60, label: "Audit log", sub: "each download" },
+  { id: "trail", x: 250, y: 270, w: 190, h: 60, label: "Audit-trail CSV", sub: "one row per change" },
+  { id: "files", x: 480, y: 270, w: 190, h: 60, label: "Record files", sub: "GenBank, FASTA, reports" },
+  { id: "bundles", x: 710, y: 270, w: 190, h: 60, label: "Bundles", sub: "signed, with history" },
+];
+const edges = [
+  { from: "grid", to: "api" },
+  { from: "api", to: "compile" },
+  { from: "compile", to: "access" },
+  { from: "compile", to: "special" },
+  { from: "access", to: "indexes" },
+  { from: "api", to: "limit" },
+  { from: "api", to: "csv", label: "rows" },
+  { from: "csv", to: "audit", label: "search.exported" },
+  { from: "trail", to: "audit" },
+  { from: "trail", to: "csv", label: "writer" },
+];
+
+const H = {
+  short: "Finding records, and taking them out of Iki",
+  how: "From a search to a downloaded file",
+  example: "A QA reviewer finds samples held out of specification",
+  rules: "Indexes, limits, conditions, CSVs, trails, files and bundles",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "csv-seq", label: "A search's CSV, step by step" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Search is Postgres: typed JSON conditions compiled to SQL that indexes serve, and no search
+      engine to keep in step. Every search starts from what the caller can read, runs under a time
+      limit, and pages by a signed cursor so a page costs the same at any depth. What leaves Iki
+      leaves in four ways, each audited: a search's results as CSV, one record's audit trail as CSV,
+      a record written as a file such as GenBank, and a signed bundle that carries records with their
+      history to another deployment.
+    </p>
+    <ul>
+      <li>Entity search: typed JSON conditions, compiled to indexed SQL (<Adr n="0037" />).</li>
+      <li>The grid answers a page in the same time at any size (<Adr n="0103" />).</li>
+      <li>A search's results download as CSV (<Adr n="0175" />).</li>
+      <li>Bundles carry entities between deployments, with their history (<Adr n="0096" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="srch" title="A search, and the four ways records leave: search CSV, audit trail, record files and bundles" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="grid">
+        <p>
+          The grid's filters and the search box's words become JSON conditions. Words follow GitHub:
+          <code>is:held</code>, <code>is:breaking</code>, <code>held:&lt;rule&gt;</code>. Download CSV
+          is a plain link to the server (<Adr n={[135, 175]} />).
+        </p>
+        <p><Path p="web/app/src/filters.ts" />, <Path p="web/app/src/entities.ts" sym="export function searchCsvUrl(" /></p>
+      </div>
+      <div slot="api">
+        <p>
+          <code>POST /entities/search</code> takes a type, a project, free text, conditions, a sort
+          and a cursor; <code>GET /entities/search.csv</code> takes the same as query parameters (<Adr
+            n={[37, 175]}
+          />).
+        </p>
+        <p><Path p={API} sym='@router.post("/entities/search"' />, <Path p={API} sym="def search_csv(" /></p>
+      </div>
+      <div slot="compile">
+        <p>
+          Conditions are checked against one operator table shared by the server, the plugin validator
+          and the web filters, then compiled to Django queries. At most 50 conditions, 6 levels deep
+          (<Adr n="0037" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/conditions.py" sym="OPERATORS: Mapping" />, <Path p={SEARCH} sym="MAX_CONDITIONS = 50" /></p>
+      </div>
+      <div slot="access">
+        <p>
+          Every search starts from the entities the caller can read: an <code>EXISTS</code> on links
+          into projects where they hold a role. Org Admins get no more (<Adr n={[24, 37]} />).
+        </p>
+        <p><Path p={SEARCH} sym="access.visible_of(user" />, <Path p="server/src/iki_server/entities/access.py" sym="my_role__isnull=False" /></p>
+      </div>
+      <div slot="limit">
+        <p>
+          Each search runs in its own transaction with a statement timeout and planner settings; a
+          cancelled query becomes 422 <code>search_too_slow</code>. Pages are keyset pages with a
+          signed cursor tied to the sort, and a sort no index serves is refused up front if it would
+          sort more than a million rows (<Adr n="0103" />).
+        </p>
+        <p><Path p={SEARCH} sym="def time_limit(" />, <Path p={SEARCH} sym="UNINDEXED_SORT_MAX = 1_000_000" /></p>
+      </div>
+      <div slot="special">
+        <p>
+          <code>held</code> and <code>breaks</code> match open rule holds and breaches. A sequence
+          motif with ambiguity codes becomes a regular expression, double-stranded records also match
+          the reverse complement, and circular ones across their origin. Graph conditions walk
+          lineage up or down, at most 30 deep (<Adr n={[123, 135, 175]} />).
+        </p>
+        <p><Path p={SEARCH} sym="def caught(" />, <Path p={SEARCH} sym="def having_motif(" />, <Path p="server/src/iki_server/graph/queries.py" sym="MAX_DEPTH = 30" /></p>
+      </div>
+      <div slot="indexes">
+        <p>
+          Codegen gives each plugin field its indexes: an <code>indexed</code> string gets a B-tree and
+          a trigram index, a <code>text</code> field a full-text index with the <code>simple</code>
+          configuration. Postgres updates them in the write's own transaction (<Adr n={[33, 37]} />).
+        </p>
+        <p><Path p="codegen/src/iki_codegen/models.py" sym="def _indexes(" />, <Path p="server/src/iki_server/entities/lookups.py" /></p>
+      </div>
+      <div slot="csv">
+        <p>
+          One writer for every CSV: every cell quoted, and a cell that starts like a formula prefixed
+          with <code>'</code> unless it's a number. Rows stream in pages of 500 (<Adr n="0175" />).
+        </p>
+        <p><Path p={CSVS} sym="QUOTE_ALL" />, <Path p={API} sym="EXPORT_PAGE = 500" /></p>
+      </div>
+      <div slot="audit">
+        <p>
+          Downloads are audited before their first row: <code>search.exported</code>, <code
+            >entity.trail_exported</code
+          >, <code>entity.exported</code>, and the bundle events (<Adr n="0025" />).
+        </p>
+        <p><Path p="server/src/iki_server/audit/log.py" sym='"search.exported"' /></p>
+      </div>
+      <div slot="trail">
+        <p>
+          One record's history as an inspector reads it: one row per changed field, the record's
+          revisions then its registry entry's. A change made through a project the reader can't read
+          shows what changed, not who or when. The export event records the record's revision and
+          its entry's, read together, and the file holds those and earlier ones only, however late
+          it's read (<Adr n={[25, 176, 207]} />).
+        </p>
+        <p><Path p="server/src/iki_server/api/trails.py" sym="def trail_csv(" />, <Path p="server/src/iki_server/api/trails.py" sym="number__lte=upto" /></p>
+      </div>
+      <div slot="files">
+        <p>
+          A type can declare file formats its records export as. Iki writes the file from a
+          revision's values, and the audit event keeps its SHA-256 and what the format couldn't hold
+          (<Adr n="0171" />).
+        </p>
+        <p><Path p="server/src/iki_server/entities/exports.py" sym="FORMATS: dict" /></p>
+      </div>
+      <div slot="bundles">
+        <p>
+          A project's Admin exports a signed <code>.tar.gz</code> of NDJSON: people, agents, files,
+          entries, entities, runs, signatures, all read at one moment. Kept 7 days; reading it checks
+          the Admin role again each time (<Adr n={[15, 96]} />).
+        </p>
+        <p><Path p="server/src/iki_server/bundles/export.py" />, <Path p="server/src/iki_server/bundles/exports.py" sym="KEPT = timedelta(days=7)" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="csv-seq">A search's CSV, step by step</h3>
+    <Sequence
+      id="csv-dg"
+      title="GET /api/v1/entities/search.csv"
+      width={900}
+      actors={[
+        { id: "browser", label: "Browser" },
+        { id: "api", label: "search_csv" },
+        { id: "search", label: "search.py" },
+        { id: "db", label: "Postgres" },
+        { id: "audit", label: "Audit log" },
+      ]}
+      steps={[
+        { id: "open", from: "browser", to: "api", label: "the grid's link: type, project, where, columns" },
+        { id: "build", from: "api", to: "search", label: "check the JSON; the readable queryset" },
+        { id: "first", from: "search", to: "db", label: "first page of 500, under the time limit" },
+        { id: "record", from: "api", to: "audit", label: "search.exported, the search as given" },
+        { id: "stream", from: "api", to: "browser", label: "header row and the first page", dashed: true },
+        { id: "next", from: "search", to: "db", label: "each next page, its own time limit" },
+        { id: "stop", from: "api", to: "browser", label: "or a row saying where it stopped", dashed: true },
+      ]}
+    >
+      <div slot="open"><p>The file is named after the project and the type.</p><p><Path p={API} sym="def _download_name(" /></p></div>
+      <div slot="build"><p>The columns are the grid's: ID, type, state fields, other fields, project when the search spans several, then when it last changed, its revision and its UUID (<Adr n="0175" />).</p><p><Path p="server/src/iki_server/entities/search_exports.py" /></p></div>
+      <div slot="first"><p>The first page is read before anything is recorded, so a search that can't run records nothing. Each page is read in one database snapshot, so a row's values are those of the revision and time it ends with, whatever's edited while the file streams (<Adr n="0207" />).</p><p><Path p={API} sym="with snapshot(), search.time_limit():" /></p></div>
+      <div slot="record"><p>The event is written in its own transaction, before any row leaves.</p><p><Path p={API} sym='"search.exported",' /></p></div>
+      <div slot="stream"><p>Under ASGI each chunk is made in the request's thread. Responses are <code>no-store</code>.</p><p><Path p={CSVS} sym="thread_sensitive=True" /></p></div>
+      <div slot="next"><p>Each page re-runs the readable queryset, with its references and people resolved as the reader can read them.</p></div>
+      <div slot="stop"><p>A page that runs out of time ends the file with "The download stopped here", rather than failing a half-sent response.</p><p><Path p={API} sym="The download stopped here" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      In the example LIMS plugin, a sample whose purity is under 95% is saved as measured and held
+      for QA's review. The rule:
+    </p>
+    <Excerpt file="plugins/example_lims/types/sample.yaml" start="^  purity_in_specification:" />
+    <p>
+      A QA reviewer types <code>held:purity_in_specification</code> in the samples grid. The app sends
+      it as a condition on the built-in <code>held</code> field, which the compiler turns into a match
+      on open holds by that rule; an unknown rule name is a 422 listing the type's rules:
+    </p>
+    <Excerpt file={SEARCH} start="^    def caught\(" />
+    <p>
+      Download CSV writes the same search, a row per sample at its current revision. Then, for one
+      sample, the reviewer downloads <code>/api/v1/entities/SAM-…/revisions.csv</code>: every changed
+      field of every revision, with who, when, how, the agent if one acted, the reason, signatures and
+      holds. Its columns:
+    </p>
+    <Excerpt file="server/src/iki_server/api/trails.py" start="^COLUMNS = \[" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Operators and built-in fields" open>
+        <p>What each kind of field can be compared with, shared by server, validator and app:</p>
+        <Excerpt file="spec/src/iki_spec/conditions.py" start="^OPERATORS: Mapping" />
+        <p>
+          Every entity also has built-in fields: its HRID, type, owner project, the service a request
+          was sent to, who made it and when, assignments, lineage up and down, and what rules caught
+          (<Path p={SEARCH} sym="_BUILT_IN = {" />).
+        </p>
+      </Rule>
+      <Rule title="Free text and full text">
+        <p>
+          <code>q</code> matches HRIDs and the title's text fields as one <code>IN</code> over a
+          <code>UNION</code>; text shaped like the start of an HRID uses a prefix match. <code
+            >contains</code
+          > and <code>starts_with</code> compile to <code>ILIKE</code> so the trigram index serves
+          them; <code>matches</code> is full-text search with web-search syntax (<Adr n="0037" />, <Path
+            p={SEARCH}
+            sym="def matching("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Files and lineage">
+        <p>
+          A project's files are found by name with a trigram index, first taking at most 5,000 hits,
+          with counts stopping at 1,000 (<Adr n="0177" />, <Path p="server/src/iki_server/files/listing.py" sym="NAMED_MAX = 5000" />).
+          Lineage downloads as <code>upstream.csv</code> or <code>downstream.csv</code>, up to 100,000
+          rows (<Adr n="0123" />, <Path p="server/src/iki_server/api/graph.py" sym="MAX_EXPORT = 100_000" />).
+        </p>
+      </Rule>
+      <Rule title="Record files">
+        <Excerpt file="server/src/iki_server/entities/exports.py" start="^FORMATS: dict" />
+        <p>
+          The <code>Iki-Left-Out</code> header counts what the format couldn't hold, and the audit
+          event lists it (<Adr n="0171" />).
+        </p>
+      </Rule>
+      <Rule title="Bundles">
+        <p>
+          Exporting needs the project's Admin role, and a token the <code>admin</code> scope. At most
+          10,000 entities can be picked by hand; a search goes in as a dynamic collection. The bundle
+          is signed with Ed25519, and importing it needs Org Admin as well as the project's Admin
+          (<Adr n={[96, 152]} />, <Path p="server/src/iki_server/bundles/exports.py" sym="MAX_PICKED = 10_000" />).
+        </p>
+      </Rule>
+      <Rule title="Access during a download">
+        <p>
+          <Inferred why="Each page re-runs the lazy queryset; not tested directly.">
+            Access revoked during a long download drops rows from later pages, since each page runs the
+            readable filter again.
+          </Inferred>
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0175" /> says the CSV's columns are the grid's, but the grid's Rules column has no
+            CSV form, so a CSV of a <code>held</code> search doesn't say which rule held each row.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["search"]} />
+    <Routes tags={["bundles"]} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={SEARCH} />: conditions, free text, limits and cursors</li>
+        <li><Path p="server/src/iki_server/entities/search_exports.py" />: a search's CSV columns</li>
+        <li><Path p={CSVS} />: the shared CSV writer</li>
+        <li><Path p="server/src/iki_server/api/trails.py" />: the audit-trail CSV</li>
+        <li><Path p="server/src/iki_server/bundles" />: bundle export and import</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0037" title /></li>
+        <li><Adr n="0096" title /></li>
+        <li><Adr n="0103" title /></li>
+        <li><Adr n="0123" title /></li>
+        <li><Adr n="0135" title /></li>
+        <li><Adr n="0171" title /></li>
+        <li><Adr n="0175" title /></li>
+        <li><Adr n="0177" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

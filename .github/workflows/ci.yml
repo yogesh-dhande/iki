@@ -404,6 +404,10 @@ jobs:
         run: scripts/check-client.sh
       - name: Build
         run: pnpm build
+      - name: Architecture site (build, cited files, links)
+        run: |
+          pnpm --filter @ikisci/architecture site
+          pnpm --filter @ikisci/architecture check-links
 
   rust:
     name: Rust

@@ -1,0 +1,52 @@
+---
+// The first-party plugins under plugins/, read from their manifests at build time.
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Adr from "../components/Adr.astro";
+import { firstPartyPlugins } from "../lib/manifests.ts";
+
+const plugins = firstPartyPlugins();
+const count = (p: (typeof plugins)[number], kind: string) =>
+  p.manifests.filter((m) => m.kind === kind).length;
+const KINDS = ["EntityType", "EntityTypeExtension", "Action", "Environment", "Workflow", "Trigger", "Component"];
+const SHORT: Record<string, string> = {
+  EntityType: "types",
+  EntityTypeExtension: "ext.",
+  Action: "actions",
+  Environment: "envs",
+  Workflow: "flows",
+  Trigger: "triggers",
+  Component: "comps",
+};
+---
+
+<Layout wide>
+  <p>
+    {plugins.length} plugins in <Path p="plugins" />, each with the same layout as a lab's own and
+    its own version; deployments pin them by this repository, a path and a commit (<Adr n="0039" />).
+    Counts are manifests by kind, found as the validator finds them.
+  </p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Plugin</th><th>Version</th><th>What it does</th><th>Depends on</th>
+          {KINDS.map((k) => <th>{SHORT[k]}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {
+          plugins.map((p) => (
+            <tr>
+              <td><Path p={p.dir} label={p.name} /></td>
+              <td class="num">{p.version}</td>
+              <td>{p.description}</td>
+              <td>{p.dependencies.map((d) => <code>{d}</code>).reduce((a, b) => <>{a}, {b}</>, <></>)}</td>
+              {KINDS.map((k) => <td class="num">{count(p, k) || ""}</td>)}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+</Layout>

@@ -1,0 +1,317 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Rule from "../components/Rule.astro";
+import Tree from "../components/Tree.astro";
+
+const CHART = "deploy/helm/iki";
+const TPL = "deploy/config-template";
+const PUB = ".github/workflows/publish.yml";
+const REL = ".github/workflows/release.yml";
+
+const boxes = [
+  { id: "source", x: 20, y: 30, w: 190, h: 60, label: "Source", sub: "Wasm as source + SHA-256" },
+  { id: "deps", x: 250, y: 30, w: 190, h: 60, label: "Dependency gate", sub: "3 days old; licences" },
+  { id: "live", x: 480, y: 30, w: 190, h: 60, label: "Live-test gate", sub: "every cloud, the tag" },
+  { id: "publish", x: 710, y: 30, w: 190, h: 60, label: "publish.yml", sub: "7 images, signed", strong: true },
+  { id: "release", x: 710, y: 150, w: 190, h: 60, label: "release.yml", sub: "chart, worker, npm" },
+  { id: "config", x: 20, y: 150, w: 190, h: 60, label: "Config repository", sub: "one per deployment" },
+  { id: "build", x: 250, y: 150, w: 190, h: 60, label: "Deployment build", sub: "build, sign, approve", strong: true },
+  { id: "customer", x: 480, y: 150, w: 190, h: 60, label: "Customer registry", sub: "licensed images" },
+  { id: "infra", x: 20, y: 270, w: 190, h: 60, label: "OpenTofu", sub: "GCP and AWS roots" },
+  { id: "cluster", x: 250, y: 270, w: 190, h: 60, label: "Cluster", sub: "one Helm chart", strong: true },
+  { id: "admit", x: 480, y: 270, w: 190, h: 60, label: "Admission", sub: "signed or approved" },
+  { id: "workers", x: 710, y: 270, w: 190, h: 60, label: "Lab workers", sub: "update to signed releases" },
+];
+const edges = [
+  { from: "source", to: "deps" },
+  { from: "deps", to: "live" },
+  { from: "live", to: "publish" },
+  { from: "publish", to: "release", dashed: true },
+  { from: "publish", to: "build", label: "base images, checked" },
+  { from: "config", to: "build" },
+  { from: "customer", to: "build" },
+  { from: "build", to: "cluster", label: "Deploy PR, GitOps" },
+  { from: "infra", to: "cluster" },
+  { from: "cluster", to: "admit" },
+  { from: "release", to: "workers" },
+];
+
+const H = {
+  short: "How Iki gets from this repository to a lab's cluster",
+  how: "From a tagged release to admitted pods",
+  example: "A release reaching a lab's staging deployment, with a licensed image",
+  rules: "The chart, infrastructure, images, licensed images, dependencies and Wasm",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Each organization gets its own deployment on Kubernetes, from one Helm chart. Iki publishes
+      signed images with provenance and SBOMs, but only after a live deployment to every cloud has
+      passed for the tag. A deployment is a git repository of its own: its CI builds the pinned
+      plugins onto Iki's images, signs the result, approves the images its runs may use, and opens a
+      pull request whose merge is the deploy. In the cluster, run pods are admitted only if Iki
+      signed their image or the deployment approved it. Reference OpenTofu sets up Google Cloud or
+      AWS around the chart.
+    </p>
+    <ul>
+      <li>Single-tenant deployments on Kubernetes, with Helm (<Adr n={[2, 14]} />).</li>
+      <li>GitOps configuration per deployment (<Adr n="0015" />).</li>
+      <li>Signed, attested artifacts verified at deploy time (<Adr n={[17, 63]} />).</li>
+      <li>Deployments supply licensed images Iki doesn't ship (<Adr n="0209" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="deploy" title="From Iki's release to a lab's cluster" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="source">
+        <p>
+          No <code>.wasm</code> file is ever in git: the Rust source and a SHA-256 for each module are,
+          and builds check the module they make against it.
+        </p>
+        <p><Path p="spec/tests/test_build_backend.py" sym="def test_iki_wasm_is_only_ever_built(" />, <Path p="server/iki_wasm.wasm.sha256" /></p>
+      </div>
+      <div slot="deps">
+        <p>
+          pnpm and uv refuse releases younger than three days; a script checks the rest of the locks.
+          OSV checks vulnerabilities and licences, cargo-deny the worker's crates (<Adr n={[17, 19]} />).
+        </p>
+        <p><Path p="scripts/supply-chain/check-deps.sh" />, <Path p="scripts/supply-chain/release-age.py" sym="MINIMUM_AGE = timedelta(days=3)" /></p>
+      </div>
+      <div slot="live">
+        <p>Both the publish and release workflows refuse a tag until each cloud's live test has passed at it.</p>
+        <p><Path p="deploy/live/live_runs.py" />, <Path p="deploy/live-runs.json" /></p>
+      </div>
+      <div slot="publish">
+        <p>
+          Seven images for amd64 and arm64: the server, the worker and five first-party tool images.
+          Each is scanned with Grype, signed keyless with cosign, and given SLSA provenance and a
+          CycloneDX SBOM per platform, then verified in the same run (<Adr n={[17, 65]} />).
+        </p>
+        <p><Path p={PUB} sym='run: cosign sign --yes "$REF"' /></p>
+      </div>
+      <div slot="release">
+        <p>
+          The chart as an OCI artifact, signed; the worker's tarballs with Sigstore bundles; and the
+          <code>@ikisci/science</code> and <code>@ikisci/ui</code> packages with npm provenance (<Adr
+            n="0017"
+          />).
+        </p>
+        <p><Path p={REL} sym="helm package deploy/helm/iki" /></p>
+      </div>
+      <div slot="config">
+        <p>
+          One folder per deployment: the Iki version and images by digest, the plugin lockfile,
+          chart values, settings, and the image file CI writes (<Adr n={[15, 34]} />).
+        </p>
+        <p><Path p={`${TPL}/deployments/staging/iki.yaml`} />, <Path p={`${TPL}/README.md`} /></p>
+      </div>
+      <div slot="build">
+        <p>
+          Every pull request runs <code>iki deploy build</code>. On merge, CI checks Iki's signatures
+          on the base images, builds and signs the deployment's server and worker images, signs each
+          image runs will use into an approvals package, and opens a "Deploy" pull request (<Adr
+            n={[34, 63]}
+          />).
+        </p>
+        <p><Path p={`${TPL}/.github/workflows/build.yml`} />, <Path p="deploy/plugins.Dockerfile" /></p>
+      </div>
+      <div slot="customer">
+        <p>
+          A licensed image the lab supplies, bound to an environment and a range of plugin releases,
+          pinned by digest, with an optional pull Secret (<Adr n="0209" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/compute.py" sym="def image_binding(" />, <Path p="cli/src/iki_cli/deploy.py" sym="def run_images(" /></p>
+      </div>
+      <div slot="infra">
+        <p>
+          Reference OpenTofu for Google Cloud and AWS: network, cluster, database, storage, secrets,
+          access, the VM tier and more, with an output of chart values (<Adr n={[97, 107, 109]} />).
+        </p>
+        <p><Path p="deploy/gcp/production" />, <Path p="deploy/aws/production" /></p>
+      </div>
+      <div slot="cluster">
+        <p>
+          The web pods (which also serve MCP), the task runner, a migrate hook before every install,
+          upgrade and rollback, backend workers, the provisioner, the egress proxy, and network
+          policies that deny everything by default (<Adr n={[14, 53, 155]} />).
+        </p>
+        <p><Path p={`${CHART}/templates`} />, <Path p={`${CHART}/values.yaml`} /></p>
+      </div>
+      <div slot="admit">
+        <p>
+          A Sigstore policy on the pods the provisioner makes: Iki's publish workflow or the
+          deployment's approvals. On Google Cloud, Binary Authorization denies every other image
+          cluster-wide (<Adr n={[63, 107]} />).
+        </p>
+        <p><Path p={`${CHART}/templates/image-policy.yaml`} sym="kind: ClusterImagePolicy" />, <Path p="deploy/gcp/modules/binary-authorization/main.tf" sym="ALWAYS_DENY" /></p>
+      </div>
+      <div slot="workers">
+        <p>
+          Workers on people's computers update themselves, verifying offline that the release workflow
+          signed the new version. VM-tier machines never update themselves (<Adr n="0060" />).
+        </p>
+        <p><Path p="worker/crates/iki-worker/src/update.rs" />, <Path p="server/src/iki_server/runs/machines.py" sym='"IKI_WORKER_AUTO_UPDATE": "0"' /></p>
+      </div>
+    </Diagram>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      Iki tags a release after both clouds' live tests pass; <code>publish.yml</code> signs its images
+      and <code>release.yml</code> its chart. A lab's staging deployment moves to it with one pull
+      request to its config repository, which starts from this template:
+    </p>
+    <Tree dir={`${TPL}/deployments/staging`} depth={1} />
+    <Excerpt file={`${TPL}/deployments/staging/iki.yaml`} start="^serverImage:" />
+    <p>
+      The lab also runs its own single-cell plugin, whose analysis needs a vendor's licensed image that Iki can't ship. Its
+      environment declares <code>customer_image_required: true</code>, and the lab's Compute admin
+      binds it, in the shape <Adr n="0209" /> gives:
+    </p>
+    <Excerpt file="docs/adr/0209-deployments-supply-licensed-oci-images.md" start="^kind: EnvironmentImageBinding" note="from ADR 0209's example" />
+    <p>
+      The pull request's build lists that image with the others runs use. On merge, CI signs it into
+      the deployment's approvals package, which the chart's image policy trusts:
+    </p>
+    <Excerpt file={`${CHART}/values.yaml`} start="^  imagePolicy:" />
+    <p>
+      Merging the Deploy pull request lets Argo CD or Flux apply the chart. The migrate hook runs
+      first. A run of the licensed action pins the bound image when it's queued, so retries keep it,
+      and the provisioner's pod carries the pull Secret. On Google Cloud the registry path must also
+      be allowed by Binary Authorization, or the pod is refused there.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The chart" open>
+        <p>
+          One chart for every environment, requiring Kubernetes 1.33 or later. Templates render by
+          value: the provisioner when a container or VM tier is on, the image policy with the
+          container tier and <code>imagePolicy.enabled</code>, the egress proxy and network policies
+          by default (<Adr n="0014" />).
+        </p>
+        <Tree dir={`${CHART}/templates`} depth={1} />
+      </Rule>
+      <Rule title="Infrastructure">
+        <p>
+          On Google Cloud, Artifact Registry tags are immutable, files use Cloud Storage's own API,
+          and Binary Authorization allows only the deployment's repositories, Iki's, and listed
+          extras. On AWS, pods get credentials through EKS Pod Identity. Both production roots take a
+          <code>recovery</code> variable for rebuilding in another region (<Adr n={[97, 100, 107, 109]} />).
+        </p>
+        <Tree dir="deploy/gcp/modules" depth={1} />
+      </Rule>
+      <Rule title="Licensed customer images">
+        <p>
+          A provisioned environment needs an image pinned by digest or the customer flag. Exactly one
+          binding may match an installed plugin version; overlapping bindings and a pull Secret on the
+          wrong kind of template fail the deployment build. An action with no binding is unavailable,
+          and its launch refusal says which environment needs one (<Adr n="0209" />, <Path
+            p="server/src/iki_server/runs/catalog.py"
+            sym="def customer_image("
+          />, <Path p="server/src/iki_server/runs/kubernetes.py" sym='pod["imagePullSecrets"]' />).
+          Compute admins see each environment that needs one, the binding its installed version
+          matches, and bindings that match nothing, under Compute → Images; the page is read-only,
+          since bindings change only in <code>compute.yaml</code> (<Path
+            p="web/app/src/pages/compute-images.tsx"
+          />, <Path p="server/src/iki_server/api/compute.py" sym="def list_image_bindings(" />). No
+          first-party plugin needs one yet.
+        </p>
+      </Rule>
+      <Rule title="Dependencies">
+        <p>
+          The three-day minimum age is set in pnpm and uv; for Cargo, which has no such setting, a
+          script checks the lock. The licence allowlist is a file of its own; per-package exceptions,
+          such as psycopg's LGPL, live beside the vulnerability exceptions, and each vulnerability
+          exception expires on a date. Dependabot waits seven days (<Adr n="0019" />).
+        </p>
+        <Excerpt file="pnpm-workspace.yaml" start="^minimumReleaseAge:" />
+        <p><Path p="scripts/supply-chain/allowed-licenses.txt" />, <Path p="osv-scanner.toml" />, <Path p="worker/deny.toml" />, <Path p=".github/dependabot.yml" /></p>
+      </Rule>
+      <Rule title="Wasm modules">
+        <p>
+          The server's Wasm is built once, in a reusable workflow, and checked against the pinned
+          digests before it's published. A worker bundle refuses a module whose digest doesn't match
+          (<Path p=".github/workflows/build-server-wasm.yml" />, <Path
+            p="cli/tests/test_workers_bundle.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="The dev cluster">
+        <p>
+          kind with kindnet, so the chart's network policies are enforced locally, and CloudNativePG
+          pinned by digest. The same chart runs there (<Adr n={[14, 22]} />, <Path
+            p="deploy/dev/kind-config.yaml"
+          />, <Path p="deploy/dev/up.sh" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0014" /> lists mcp and scheduler deployments; MCP is a route on the web pods, and
+            scheduled work is the task runner and a maintenance CronJob. It also names IRSA (the code
+            uses Pod Identity) and MinIO (replaced by SeaweedFS in <Adr n="0022" />).
+          </li>
+          <li>
+            <Adr n="0107" /> says files go through Cloud Storage's S3-compatible API; <Adr n="0109" />
+            and the code use its own API, and 0107's status doesn't say so.
+          </li>
+          <li>
+            <Adr n="0017" /> says each artifact ships an SBOM; the chart doesn't.
+          </li>
+          <li>
+            <Adr n="0063" />, the chart's comments and the supply-chain doc say Iki's images are signed
+            by its release workflow; <code>publish.yml</code> signs them, and that's what the policy
+            pins.
+          </li>
+          <li>
+            The config template pushes a deployment's images to ghcr, but the Google Cloud
+            reference's Binary Authorization allows only its Artifact Registry and Iki's images, so
+            those would be refused unless listed as extras.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={CHART} />: the chart</li>
+        <li><Path p={TPL} />: a deployment's config repository</li>
+        <li><Path p="deploy/gcp" />, <Path p="deploy/aws" />: reference infrastructure</li>
+        <li><Path p={PUB} />, <Path p={REL} />: images and releases</li>
+        <li><Path p="docs/supply-chain.md" />: verifying what Iki publishes</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0014" title /></li>
+        <li><Adr n="0015" title /></li>
+        <li><Adr n="0017" title /></li>
+        <li><Adr n="0034" title /></li>
+        <li><Adr n="0060" title /></li>
+        <li><Adr n="0063" title /></li>
+        <li><Adr n="0097" title /></li>
+        <li><Adr n="0107" title /></li>
+        <li><Adr n="0209" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

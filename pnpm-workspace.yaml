@@ -1,5 +1,7 @@
 packages:
   - "web/app"
+  # The internal architecture site, served locally only: `make architecture`.
+  - "docs/architecture"
   - "web/packages/*"
   # Builds the small_molecule plugin's depiction component from RDKit.js.
   - "plugins/small_molecule/web"
@@ -15,4 +17,8 @@ onlyBuiltDependencies: []
 allowBuilds:
   "@scarf/scarf": false
 strictDepBuilds: true
+# Astro's optional image service: nothing here resizes images, and its libvips builds
+# are LGPL. Only the architecture site (docs/architecture) uses Astro.
+ignoredOptionalDependencies:
+  - sharp
 engineStrict: true

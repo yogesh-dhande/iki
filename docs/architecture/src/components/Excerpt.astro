@@ -1,0 +1,34 @@
+---
+// A verbatim block of a repository file, read at build time: what the page shows is what
+// the file says today. `start` picks the block (a YAML key and its children); without it
+// the whole file is shown.
+import Path from "./Path.astro";
+import { block } from "../lib/source.ts";
+import { readRepo } from "../lib/repo.ts";
+
+type Props = { file: string; start?: string; within?: string; note?: string; rest?: boolean };
+const { file, start, within, note, rest = false } = Astro.props;
+const text = start
+  ? block(file, new RegExp(start), within ? new RegExp(within) : undefined, rest)
+  : readRepo(file).trimEnd();
+---
+
+<figure class="excerpt">
+  <figcaption><Path p={file} />{note && <span> · {note}</span>}</figcaption>
+  <pre><code>{text}</code></pre>
+</figure>
+
+<style>
+  .excerpt {
+    margin: 14px 0 18px;
+  }
+  .excerpt figcaption {
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  .excerpt pre {
+    margin: 0;
+    max-height: 520px;
+  }
+</style>

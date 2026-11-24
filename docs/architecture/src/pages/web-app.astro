@@ -1,0 +1,374 @@
+---
+import Adr from "../components/Adr.astro";
+import Diagram from "../components/Diagram.astro";
+import Excerpt from "../components/Excerpt.astro";
+import Inferred from "../components/Inferred.astro";
+import Layer from "../components/Layer.astro";
+import Layout from "../components/Layout.astro";
+import Path from "../components/Path.astro";
+import Rule from "../components/Rule.astro";
+import Sequence from "../components/Sequence.astro";
+
+const APP = "web/app/src";
+const ROUTER = "web/app/src/router.tsx";
+const SDK = "web/packages/sdk/src/index.ts";
+const FRAME = "web/app/src/component-frame.tsx";
+const CV = "server/src/iki_server/components/views.py";
+
+const boxes = [
+  { id: "shell", x: 20, y: 30, w: 190, h: 60, label: "Django page shell", sub: "one template, no data" },
+  { id: "build", x: 250, y: 30, w: 190, h: 60, label: "Vite build", sub: "/static/app/, immutable" },
+  { id: "router", x: 480, y: 30, w: 190, h: 60, label: "Router", sub: "routes with loaders", strong: true },
+  { id: "layout", x: 710, y: 30, w: 190, h: 60, label: "Layout", sub: "sidebar, palette" },
+  { id: "query", x: 480, y: 150, w: 190, h: 60, label: "Query cache", sub: "page reads, 30 s stale" },
+  { id: "sdk", x: 250, y: 150, w: 190, h: 60, label: "@ikisci/sdk", sub: "generated from OpenAPI" },
+  { id: "api", x: 20, y: 150, w: 190, h: 60, label: "/api/v1 and events", sub: "session, CSRF, SSE" },
+  { id: "ui", x: 710, y: 150, w: 190, h: 60, label: "@ikisci/ui", sub: "tokens, button, sidebar" },
+  { id: "science", x: 710, y: 270, w: 190, h: 60, label: "@ikisci/science", sub: "viewers and inputs" },
+  { id: "workers", x: 480, y: 270, w: 190, h: 60, label: "Workers and iki-wasm", sub: "rules, parsers, apps" },
+  { id: "frames", x: 250, y: 270, w: 190, h: 60, label: "Plugin frames", sub: "sandboxed, by digest" },
+  { id: "still", x: 20, y: 270, w: 190, h: 60, label: "Stability checks", sub: "lint rules, press tests" },
+];
+const edges = [
+  { from: "shell", to: "build" },
+  { from: "build", to: "router" },
+  { from: "router", to: "layout" },
+  { from: "router", to: "query", label: "loaders" },
+  { from: "query", to: "sdk" },
+  { from: "sdk", to: "api" },
+  { from: "layout", to: "ui" },
+  { from: "ui", to: "science", dashed: true },
+  { from: "science", to: "workers" },
+  {
+    from: "router",
+    to: "frames",
+    label: "plugin tabs",
+    via: [
+      [460, 110],
+      [460, 240],
+      [345, 240],
+    ] as [number, number][],
+    at: [400, 232] as [number, number],
+  },
+  { from: "still", to: "frames", dashed: true },
+];
+
+const H = {
+  short: "What the browser runs",
+  how: "From a URL to a page that holds still",
+  example: "A plasmid's map, drawn by its plugin in a frame",
+  rules: "Routing, data, the SDK, packages, frames, stability and serving",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "frame-seq", label: "A plugin tab, step by step" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The web app is a React app that Django serves as one template for every app path, with no
+      data in it. TanStack Router's loaders read through TanStack Query, and every read goes through
+      a TypeScript client generated from the server's OpenAPI document, so a server change that
+      breaks a page fails a check. Scientific views come from <code>@ikisci/science</code>, the
+      basic controls and tokens from <code>@ikisci/ui</code>, and plugins draw their own views in
+      sandboxed frames the page talks to over a private port. Pages read what decides their buttons
+      before they render, so nothing moves under a press, and the browser tests fail if it does.
+    </p>
+    <ul>
+      <li>React pages served by Iki, beside server-rendered ones (<Adr n="0029" />).</li>
+      <li>Plugin components run in sandboxed frames (<Adr n={[84, 102]} />).</li>
+      <li>Web components are published by entry point (<Adr n="0191" />).</li>
+      <li>The app is laid out around a sidebar, and what you can read (<Adr n="0176" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <Diagram id="webapp" title="The web app's parts, from the page shell to plugin frames" width={920} height={350} boxes={boxes} edges={edges}>
+      <div slot="shell">
+        <p>
+          Every app path is also a Django route serving <code>web/app.html</code>: sign-in required,
+          the CSRF token in a meta tag, module preloads and the entry script. It answers 503 when the
+          build is missing (<Adr n="0029" />).
+        </p>
+        <p><Path p="server/src/iki_server/web/views.py" sym="def app(" />, <Path p="server/src/iki_server/web/templates/web/app.html" /></p>
+      </div>
+      <div slot="build">
+        <p>
+          Vite builds into Django's static files; hashed files are cached for good. In development a
+          header switches the shell to Vite's modules.
+        </p>
+        <p><Path p="web/app/vite.config.ts" sym='base: "/static/app/"' />, <Path p="server/src/iki_server/web/frontend.py" sym="def page_assets(" /></p>
+      </div>
+      <div slot="router">
+        <p>
+          Routes are written in code in one file. The root loader reads who's signed in and their
+          roles; most pages are split out and loaded when needed, and links preload on intent (<Adr
+            n={[29, 176]}
+          />).
+        </p>
+        <p><Path p={ROUTER} sym="createRootRouteWithContext" />, <Path p={ROUTER} sym='defaultPreload: "intent"' /></p>
+      </div>
+      <div slot="layout">
+        <p>
+          A skip link, the sidebar, the top bar and the page, plus the ⌘K palette. The sidebar reads
+          the same navigation file as the server's own pages (<Adr n="0176" />).
+        </p>
+        <p><Path p={`${APP}/layout.tsx`} sym="export function Layout(" />, <Path p="server/src/iki_server/web/navigation.json" /></p>
+      </div>
+      <div slot="query">
+        <p>
+          A <code>QueryClient</code> subclass retries a loader's read that a navigation cancelled.
+          Reads stop when the document is left and resume from the back-forward cache. A 401 sends
+          the person to sign in (<Adr n="0153" />).
+        </p>
+        <p><Path p={`${APP}/api.ts`} sym="class PageQueryClient extends QueryClient" />, <Path p={`${APP}/page-reads.ts`} sym="export const fetchPageRead" /></p>
+      </div>
+      <div slot="sdk">
+        <p>
+          <code>openapi-fetch</code> over a schema generated from the server's OpenAPI document. It
+          sets the CSRF header on writes, or a bearer token, and turns problem responses into an
+          <code>ApiError</code> (<Adr n={[27, 29]} />).
+        </p>
+        <p><Path p={SDK} sym="export function createIkiClient(" />, <Path p="web/packages/sdk/openapi.json" /></p>
+      </div>
+      <div slot="api">
+        <p>
+          The REST API with the session cookie, and one event stream per tab. Events carry ids, never
+          content, and invalidate queries; a hidden tab closes its stream after five minutes (<Adr
+            n="0030"
+          />).
+        </p>
+        <p><Path p={`${APP}/events.ts`} sym="HIDDEN_GRACE_MS = 5 * 60_000" /></p>
+      </div>
+      <div slot="ui">
+        <p>
+          Tokens, the Inter font and three custom elements: a button, a page header and the sidebar.
+          No dependencies. This site uses its tokens too (<Adr n="0191" />).
+        </p>
+        <p><Path p="web/packages/ui/src/button.ts" />, <Path p="web/packages/ui/src/sidebar.ts" /></p>
+      </div>
+      <div slot="science">
+        <p>
+          Scientific custom elements and functions, each its own entry point: the sequence and
+          alignment viewers, plasmid maps, virtual gels, quantity and sequence inputs, the structure
+          viewer and more (<Adr n={[87, 174, 191, 202]} />).
+        </p>
+        <p><Path p="web/packages/science/src/sequence-viewer.tsx" sym='customElements.define("iki-sequence-viewer"' />, <Path p="web/packages/science/package.json" /></p>
+      </div>
+      <div slot="workers">
+        <p>
+          iki-wasm runs in a Web Worker: the same parsers and CEL the server uses. Forms check
+          plugin rules 250 ms after typing pauses, and the server checks again on save. Workers are
+          created only through one Trusted Types policy (<Adr n={[90, 127]} />).
+        </p>
+        <p><Path p={`${APP}/workers/expressions.ts`} />, <Path p={`${APP}/rules.ts`} sym="SETTLE_MS = 250" />, <Path p={`${APP}/reading.ts`} sym='createPolicy("iki-workers"' /></p>
+      </div>
+      <div slot="frames">
+        <p>
+          A plugin's component runs in an <code>iframe sandbox="allow-scripts"</code> served by its
+          digest, with <code>connect-src 'none'</code>: the page fetches, and hands data in over a
+          <code>MessageChannel</code> port (<Adr n={[84, 102, 117, 170]} />).
+        </p>
+        <p><Path p={FRAME} sym='sandbox="allow-scripts"' />, <Path p={CV} sym="component.sha256 != digest" />, <Path p="server/src/iki_server/components/bridge.js" /></p>
+      </div>
+      <div slot="still">
+        <p>
+          Two lint rules keep reads cancellable and stopping with the page, and a browser-test
+          fixture fails any test where a press and its release land on different targets.
+        </p>
+        <p><Path p="eslint.config.js" sym="const QUERY_SIGNAL" />, <Path p="server/tests/click_stability.js" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="frame-seq">A plugin tab, step by step</h3>
+    <Sequence
+      id="frame-dg"
+      title="Opening /entities/PLS-…/components/iki/plasmid.plasmid_map/"
+      width={900}
+      actors={[
+        { id: "page", label: "Page", sub: "ComponentFrame" },
+        { id: "server", label: "Server" },
+        { id: "frame", label: "Frame", sub: "opaque origin" },
+        { id: "el", label: "Plugin element" },
+      ]}
+      steps={[
+        { id: "list", from: "page", to: "server", label: "GET /api/v1/components: the frame's URL" },
+        { id: "load", from: "page", to: "server", label: "iframe src: /plugin-components/<name>/<digest>/" },
+        { id: "served", from: "server", to: "frame", label: "harden script, module (SRI), bridge; strict CSP", dashed: true },
+        { id: "connect", from: "page", to: "frame", label: "iki-connect, with one MessageChannel port" },
+        { id: "props", from: "frame", to: "el", label: "entity, entities, place" },
+        { id: "event", from: "el", to: "frame", label: "iki-select, iki-open, iki-run" },
+        { id: "check", from: "frame", to: "page", label: "over the port; the page decides" },
+      ]}
+    >
+      <div slot="list"><p>The API gives each installed component's frame URL, digest included.</p><p><Path p="server/src/iki_server/api/components.py" sym='"frame": reverse("component_frame"' /></p></div>
+      <div slot="load"><p>The frame is sandboxed with scripts only and no referrer; a frame that hasn't started in 15 seconds shows as failed.</p><p><Path p={FRAME} sym="START_TIMEOUT_MS = 15_000" /></p></div>
+      <div slot="served"><p>404 unless the installed component's SHA-256 is the digest in the URL. The frame and module are cached for a year.</p><p><Path p={CV} sym='"connect-src": [CSP.NONE]' />, <Path p="server/src/iki_server/web/frame_harden.js" /></p></div>
+      <div slot="connect"><p>The target origin is <code>"*"</code> because the frame's origin is opaque; the port is what stays private. If the frame loads a second document, the page closes the port and removes it.</p><p><Path p={FRAME} sym="loads.current > 1" /></p></div>
+      <div slot="props"><p>The bridge accepts <code>iki-connect</code> only from its parent, then sets the element's properties. Its own comment calls it a convenience, not a guard.</p><p><Path p="server/src/iki_server/components/bridge.js" sym="const PROPERTIES" /></p></div>
+      <div slot="event"><p>A component may offer its plugin's actions on its entity (<Adr n="0170" />).</p></div>
+      <div slot="check"><p>The page runs an action only if the place lists it, then opens the launch page.</p><p><Path p={FRAME} sym="now.place.runs?.includes(message.action)" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A scientist opens a plasmid's map tab. Django serves the shell for the path, the router matches
+      the entity route, and its loader reads the record, whether the reader watches it, the types and
+      the installed components in parallel. It reads the watch state before rendering because the
+      watch button arriving later would move the others along:
+    </p>
+    <Excerpt file={ROUTER} start="^const entityRoute = createRoute\(\{" />
+    <p>
+      The child route for <code>components/$</code> is split out and loaded on demand. Its page
+      renders a <code>ComponentFrame</code> for <code>iki/plasmid.plasmid_map</code>. Inside the
+      frame the plugin's module, bundled from <Path p="plugins/plasmid/web/src/plasmid-map.js" /> and
+      <code>@ikisci/science</code>'s plasmid map, draws the map from the entity the page handed it,
+      with the project's primers it declared it needs:
+    </p>
+    <Excerpt file="plugins/plasmid/components/plasmid_map.yaml" start="^entities:" />
+    <p>
+      If the scientist picks one of the plugin's actions in the frame, the page checks the place
+      offers it and opens the launch page.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Reads that hold still and stop with the page" open>
+        <p>Two rules in the app's ESLint config, besides jsx-a11y strict and the hooks rules:</p>
+        <Excerpt file="eslint.config.js" start="^const QUERY_SIGNAL = \{" />
+        <Excerpt file="eslint.config.js" start="^const POST_READ = \{" />
+        <p>
+          A third, <code>RAW_HTML</code>, bans <code>dangerouslySetInnerHTML</code>, which Trusted
+          Types would refuse anyway.
+        </p>
+      </Rule>
+      <Rule title="Pages that hold still under a press">
+        <p>
+          Loaders read everything that decides a toolbar before the first render. Tab rows draw only
+          when settled, with placeholders holding their place; overview cards are laid out hidden
+          until each reports settled or a time budget runs out, and a late card draws into a fixed
+          reserve. The grid keeps its rows while a new filter loads (<Path
+            p={`${APP}/settling.tsx`}
+            sym="export function useSettled("
+          />, <Path p={`${APP}/tab-strip.tsx`} />).
+        </p>
+        <p>
+          Buttons that can't be pressed set <code>aria-disabled</code> or <code>aria-busy</code> and
+          swallow the press, rather than using the native <code>disabled</code> attribute (<Path
+            p="web/packages/ui/src/button.ts"
+            sym="if (unavailable) event.preventDefault();"
+          />). <Inferred why="No comment or ADR says why.">That keeps them focusable and in place.</Inferred>
+          The app makes no optimistic updates.
+        </p>
+        <p>
+          The browser tests install a script in every page and frame that records each press and
+          release and every layout shift; a test fails when a press and its release land on different
+          targets (<Path p="server/tests/conftest.py" sym="def _watch_browser_click_stability(" />, <Path
+            p="server/tests/click_stability.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="The SDK, generated and checked">
+        <p>
+          <code>make client</code> writes the OpenAPI document from the server, then the TypeScript
+          schema from it. Two checks catch drift: a server test compares the committed document with
+          the live schema, and <code>make check-web</code> regenerates the TypeScript and diffs it (<Path
+            p="server/tests/test_web_app.py"
+            sym="def test_the_published_openapi_document_is_current("
+          />, <Path p="scripts/check-client.sh" />). The <a href="/routes/">route list</a> on this site
+          is read from the same document.
+        </p>
+      </Rule>
+      <Rule title="Packages">
+        <ul>
+          <li><Path p="web/app" label="@ikisci/app" />: the React app, private</li>
+          <li><Path p="web/packages/sdk" label="@ikisci/sdk" />: the generated client</li>
+          <li><Path p="web/packages/ui" label="@ikisci/ui" />: tokens and basic elements, published</li>
+          <li><Path p="web/packages/science" label="@ikisci/science" />: scientific elements and functions, published</li>
+          <li><Path p="web/packages/component" label="@ikisci/component" />: types and helpers for plugin authors' components</li>
+        </ul>
+        <p>
+          Plugin components with source under <code>web/</code> are bundled into one self-contained
+          module each, and <code>pnpm test</code> fails on a stale bundle (<Adr n="0191" />, <Path
+            p="scripts/bundle-plugin-components.mjs"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Every routed page is served">
+        <p>
+          A test reads the route tree and checks that every page the app routes answers 200 from
+          Django, and another that each sidebar item is a page (<Path
+            p="server/tests/test_web_app.py"
+            sym="def test_every_page_the_app_routes_loads_it("
+          />).
+        </p>
+      </Rule>
+      <Rule title="The page's content security policy">
+        <p>
+          Trusted Types are required for scripts, with exactly one policy, <code>iki-workers</code>,
+          which allows only Iki's own worker scripts. Worker scripts get a policy of their own that
+          allows WebAssembly (<Path p="server/src/iki_server/settings.py" sym='"trusted-types": ["iki-workers"]' />, <Path
+            p="server/src/iki_server/web/static_headers.py"
+            sym="WORKER_CSP = ("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0029" /> says the policy allows no Trusted Types policies; the code has one, for
+            workers. Comments in <Path p={`${APP}/uploads.ts`} /> and <Path p="web/app/README.md" /> still
+            say workers aren't allowed.
+          </li>
+          <li>
+            <Adr n="0012" /> says a component fetches its own data with the viewer's permissions. Under
+            <Adr n="0084" /> its frame can't connect anywhere; the page fetches for it.
+          </li>
+          <li>
+            <Adr n="0029" /> describes the app as home and project pages; it now also routes records,
+            runs, storage, files and admin compute pages (<Adr n="0176" />).
+          </li>
+          <li>
+            <code>@ikisci/component</code>'s place type has no <code>runs</code>, though <Adr
+              n="0170"
+            />, the bridge and the app support offering actions.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={ROUTER} />: every route and loader</li>
+        <li><Path p={`${APP}/api.ts`} />: the client and query defaults</li>
+        <li><Path p={FRAME} />: plugin frames on the page</li>
+        <li><Path p="server/src/iki_server/components" />: serving frames, and the bridge</li>
+        <li><Path p="server/src/iki_server/web" />: the page shell, static files and frames</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0012" title /></li>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0030" title /></li>
+        <li><Adr n="0084" title /></li>
+        <li><Adr n="0102" title /></li>
+        <li><Adr n="0103" title /></li>
+        <li><Adr n="0170" title /></li>
+        <li><Adr n="0176" title /></li>
+        <li><Adr n="0191" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

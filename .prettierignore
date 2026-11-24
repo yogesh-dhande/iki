@@ -51,3 +51,5 @@ plugins/plasmid_sequencing/components/whole-plasmid-map.js
 plugins/plasmid_sequencing/conda/long-read-tools-lock.yml
 # Translated from the checked Rust binary by pnpm generate:temperature.
 web/packages/science/generated/oligo-temperature.js
+# The architecture site: what Astro generates and builds (docs/architecture).
+docs/architecture/.astro/

@@ -1,0 +1,228 @@
+---
+// How ADRs build on one another, drawn from their headers: an arc diagram with the ADRs
+// on one line, grouped by subsystem. Arcs above join an ADR to the one it refines or
+// extends; arcs below, to one it amends (dashed) or supersedes (heavy). ADRs with none
+// of these links are left out; they're in the tables below the graph.
+import { adrs, type Adr } from "../lib/adrs.ts";
+import { ADR_GROUPS, groupOf } from "../lib/adr-groups.ts";
+import "../styles/diagram.css";
+
+type Kind = "refines" | "extends" | "amends" | "supersedes";
+interface Edge {
+  from: string;
+  to: string;
+  kind: Kind;
+}
+
+const all = adrs();
+const groups = groupOf();
+const edges = new Map<string, Edge>();
+const add = (from: string, to: string, kind: Kind): void => {
+  edges.set(`${from}>${to}>${kind}`, { from, to, kind });
+};
+for (const a of all.values()) {
+  for (const kind of ["refines", "extends", "amends", "supersedes"] as Kind[]) {
+    for (const to of a.out[kind]) add(a.number, to, kind);
+  }
+  for (const by of a.amendedBy) add(by, a.number, "amends");
+  for (const by of a.supersededBy) add(by, a.number, "supersedes");
+}
+const linked = new Set([...edges.values()].flatMap((e) => [e.from, e.to]));
+
+const STEP = 13;
+const GAP = 26;
+const TOP = 176;
+const DROP = 150;
+const LABELS = 190;
+const xs = new Map<string, number>();
+const bands: { name: string; x: number; w: number }[] = [];
+let x = 16;
+for (const g of ADR_GROUPS) {
+  const members = [...linked]
+    .filter((n) => groups.get(n)?.id === g.id)
+    .sort((p, q) => p.localeCompare(q));
+  if (!members.length) continue;
+  const start = x;
+  for (const n of members) {
+    xs.set(n, x + STEP / 2);
+    x += STEP;
+  }
+  bands.push({ name: g.name, x: start, w: x - start });
+  x += GAP;
+}
+const width = x;
+const height = TOP + DROP + LABELS;
+
+const arc = (e: Edge): string => {
+  const a = xs.get(e.from) ?? 0;
+  const b = xs.get(e.to) ?? 0;
+  const [x1, x2] = a < b ? [a, b] : [b, a];
+  const rx = (x2 - x1) / 2;
+  const above = e.kind === "refines" || e.kind === "extends";
+  const ry = Math.min(rx, above ? TOP - 12 : DROP - 12);
+  return `M ${x1} ${TOP} A ${rx} ${ry} 0 0 ${above ? 1 : 0} ${x2} ${TOP}`;
+};
+
+const nodes = [...xs.keys()].map((n) => all.get(n)).filter((a): a is Adr => !!a);
+const VERB: Record<Kind, [string, string]> = {
+  refines: ["Refines", "Refined by"],
+  extends: ["Extends", "Extended by"],
+  amends: ["Amends", "Amended by"],
+  supersedes: ["Supersedes", "Superseded by"],
+};
+const links = (n: string): [string, string[]][] => {
+  const out: [string, string[]][] = [];
+  for (const kind of Object.keys(VERB) as Kind[]) {
+    const fwd = [...edges.values()].filter((e) => e.kind === kind && e.from === n).map((e) => e.to);
+    const back = [...edges.values()].filter((e) => e.kind === kind && e.to === n).map((e) => e.from);
+    if (fwd.length) out.push([VERB[kind][0], fwd.sort()]);
+    if (back.length) out.push([VERB[kind][1], back.sort()]);
+  }
+  return out;
+};
+const title = (n: string): string => all.get(n)?.title ?? "";
+---
+
+<figure class="dg adr-graph" data-dg id="adr-graph">
+  <div class="dg-canvas">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      role="group"
+      aria-label={`How ${nodes.length} ADRs refine, extend, amend and supersede one another`}
+    >
+      {
+        bands.map((b) => (
+          <g class="adr-band">
+            <rect x={b.x - 4} y="4" width={b.w + 8} height={TOP + DROP - 4} rx="6" />
+            <text
+              x={b.x + b.w / 2 + 4}
+              y={TOP + DROP + 10}
+              transform={`rotate(90 ${b.x + b.w / 2 + 4} ${TOP + DROP + 10})`}
+            >
+              {b.name}
+            </text>
+          </g>
+        ))
+      }
+      <line class="adr-axis" x1="8" x2={width - 8} y1={TOP} y2={TOP} />
+      {
+        [...edges.values()].map((e) => (
+          <path class={`adr-arc ${e.kind}`} d={arc(e)} data-ends={`${e.from} ${e.to}`} />
+        ))
+      }
+      {
+        nodes.map((a) => (
+          <g
+            class="dg-node live adr-dot"
+            data-node={a.number}
+            tabindex="0"
+            role="button"
+            aria-label={`ADR ${a.number}, ${a.title}: show its links`}
+            aria-controls={`adr-graph-${a.number}`}
+          >
+            <circle class="hit" cx={xs.get(a.number)} cy={TOP} r="7" />
+            <circle class="dot" cx={xs.get(a.number)} cy={TOP} r="4" />
+          </g>
+        ))
+      }
+    </svg>
+  </div>
+  <figcaption>
+    {nodes.length} ADRs and {edges.size} links. Above the line: refines or extends. Below: amends (dashed)
+    or supersedes (heavy). Each arc joins the later ADR to the earlier one it changes.
+  </figcaption>
+  <div class="dg-details">
+    <p class="dg-hint">Hover or focus a dot to see that ADR and what it links to; click to keep it.</p>
+    {
+      nodes.map((a) => (
+        <section class="dg-detail" id={`adr-graph-${a.number}`} data-for={a.number}>
+          <h3>
+            <a href={`/adrs/${a.number}/`}>
+              {a.number}. {a.title}
+            </a>
+          </h3>
+          <p class="status">
+            {a.state}, in {groups.get(a.number)?.name}
+          </p>
+          <ul>
+            {links(a.number).map(([verb, ns]) => (
+              <li>
+                {verb}{" "}
+                {ns.map((n, i) => (
+                  <>
+                    {i > 0 && "; "}
+                    <a href={`/adrs/${n}/`}>
+                      {n}. {title(n)}
+                    </a>
+                  </>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))
+    }
+  </div>
+</figure>
+
+<style is:global>
+  .adr-graph svg {
+    max-width: none;
+  }
+  .adr-band rect {
+    fill: var(--surface-2);
+  }
+  .adr-band text {
+    font-size: 11px;
+    fill: var(--muted);
+  }
+  .adr-axis {
+    stroke: var(--border-strong);
+  }
+  .adr-arc {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1;
+    opacity: 0.55;
+  }
+  .adr-arc.amends {
+    stroke-dasharray: 4 3;
+  }
+  .adr-arc.supersedes {
+    stroke-width: 2.4;
+  }
+  .adr-arc.hot {
+    stroke: var(--accent);
+    opacity: 1;
+    stroke-width: 2;
+  }
+  .adr-arc.supersedes.hot {
+    stroke-width: 3;
+  }
+  .adr-graph.focusing .adr-arc:not(.hot) {
+    opacity: 0.15;
+  }
+  .adr-dot .hit {
+    fill: transparent;
+  }
+  .adr-dot .dot {
+    fill: var(--surface);
+    stroke: var(--text);
+    stroke-width: 1.4;
+  }
+  .adr-dot.near .dot {
+    fill: var(--accent-soft);
+    stroke: var(--accent);
+  }
+  .adr-dot.current .dot,
+  .adr-dot:focus-visible .dot {
+    fill: var(--accent);
+    stroke: var(--accent);
+  }
+</style>
+
+<script>
+  import "../lib/diagram-client.ts";
+</script>
