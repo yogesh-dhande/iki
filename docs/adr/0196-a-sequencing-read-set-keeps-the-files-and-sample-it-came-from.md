@@ -1,6 +1,6 @@
 # 0196. A sequencing read set keeps the files and sample it came from
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-23
 - Refines: [0036](0036-files-content-addressed-uploads.md),
   [0179](0179-a-corrected-result-goes-back-for-review.md) and
