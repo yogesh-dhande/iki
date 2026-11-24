@@ -4,7 +4,7 @@ import { glob } from "astro/loaders";
 import { z } from "astro/zod";
 
 import { plugins } from "./lib/plugins.ts";
-import { prerequisites, problems } from "./lib/prerequisites.ts";
+import { prerequisites, unknownPlugins } from "./lib/prerequisites.ts";
 
 const audience = z.enum(["bench", "run", "build"]);
 /** A link, or a planned page (no `href`). */
@@ -36,16 +36,21 @@ export const collections = {
       description: z.string(),
       audience,
       topic: z.string(),
-      /** Which of the use cases' four kinds it is: see USE_CASE_CATEGORIES. */
-      category: z.enum(["registry-and-inventory", "data-tracking", "analysis", "collaboration"]),
+      /** Which of the use cases' four kinds it is, which orders the list: see
+       * USE_CASE_CATEGORIES. One without a kind is listed after them. */
+      category: z
+        .enum(["registry-and-inventory", "data-tracking", "analysis", "collaboration"])
+        .optional(),
       order: z.number().default(100),
-      /** What the reader needs before its steps: "Before you start". Its plugins, their
-       * versions and its starter are checked against Iki's own plugins. */
-      prerequisites: prerequisites.superRefine((given, context) => {
-        for (const message of problems(given, plugins())) {
-          context.addIssue({ code: "custom", message, path: ["plugins"] });
-        }
-      }),
+      /** What the reader needs before its steps: "Before you start", if it says. The plugins
+       * it names are Iki's, so their links into the reference resolve. */
+      prerequisites: prerequisites
+        .superRefine((given, context) => {
+          for (const message of unknownPlugins(given, plugins())) {
+            context.addIssue({ code: "custom", message, path: ["plugins"] });
+          }
+        })
+        .optional(),
       /** The concept pages that explain it. */
       concepts: z.array(link).default([]),
       reference: z.array(link),

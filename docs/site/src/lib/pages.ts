@@ -27,7 +27,7 @@ export async function sitePages(): Promise<Page[]> {
       href: `/use-cases/${entry.id}/`,
       order: entry.data.order,
       text: entry.data.description,
-      category: entry.data.category,
+      ...(entry.data.category === undefined ? {} : { category: entry.data.category }),
     })),
     ...concepts.map((entry) => ({
       section: "Concepts" as const,

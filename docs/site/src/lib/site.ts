@@ -180,10 +180,13 @@ export function isGroup(entry: NavEntry): entry is NavGroup {
   return "links" in entry;
 }
 
-/** The use cases in the order they're listed: by kind, then their own order. */
+/** The use cases in the order they're listed: by kind, then their own order. One without a
+ * kind is listed after those with one. */
 export function useCasesInOrder(pages: readonly Page[]): Page[] {
-  const kind = (page: Page) =>
-    USE_CASE_CATEGORIES.findIndex((category) => category.id === page.category);
+  const kind = (page: Page) => {
+    const at = USE_CASE_CATEGORIES.findIndex((category) => category.id === page.category);
+    return at < 0 ? USE_CASE_CATEGORIES.length : at;
+  };
   return pages
     .filter((page) => page.section === "Use cases")
     .sort((a, b) => kind(a) - kind(b) || inOrder(a, b));

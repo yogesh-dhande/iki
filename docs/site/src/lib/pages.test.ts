@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import { api } from "./api.ts";
 import { anchors, pluginHref, plugins } from "./plugins.ts";
 import { ROOT } from "./repo.ts";
-import { USE_CASE_CATEGORIES } from "./site.ts";
 import { specPages } from "./spec.ts";
 
 const CONTENT = fileURLToPath(new URL("../content/", import.meta.url));
@@ -157,17 +156,6 @@ describe("the written pages' links", () => {
     expect(problemWith("/reference/plugins/lots/#NoSuchType")).toBe(
       "no type or action NoSuchType on /reference/plugins/lots/",
     );
-  });
-
-  it("file each use case under exactly one of the four kinds", () => {
-    const kinds = USE_CASE_CATEGORIES.map((category) => category.id as string);
-    const filed = mdx(join(CONTENT, "use-cases")).map((file) => {
-      const front = readFileSync(file, "utf-8").split(/^---$/m)[1] ?? "";
-      const found = [...front.matchAll(/^category:\s*(\S+)\s*$/gm)].map((match) => match[1]);
-      return [relative(CONTENT, file), found.length === 1 && kinds.includes(found[0] ?? "")];
-    });
-    expect(filed.length).toBeGreaterThan(2);
-    expect(filed.filter(([, ok]) => !ok)).toEqual([]);
   });
 
   it("put each table they write by hand in a region a keyboard can scroll", () => {

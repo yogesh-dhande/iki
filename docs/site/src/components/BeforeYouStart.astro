@@ -1,15 +1,16 @@
 ---
-// A use case's prerequisites, from its frontmatter, the same on every use case: the plugins
-// and their versions, a starter, the roles, where its actions run, its data and the outside
-// services it calls. A use case puts it right after its "In short".
+// A use case's prerequisites, from its frontmatter: the plugins and their versions, a
+// starter, the roles, where its actions run, its data and the outside services it calls.
+// Each part shows if the page gives it, and a page that gives none shows nothing.
 import { pluginHref, plugins } from "../lib/plugins.ts";
 import { COMPUTE, prerequisites as schema } from "../lib/prerequisites.ts";
 
 interface Props {
-  /** The page's `frontmatter.prerequisites`, checked as the collection checks it. */
-  prerequisites: unknown;
+  /** The page's `frontmatter.prerequisites`, if it has one. */
+  prerequisites?: unknown;
 }
-const given = schema.parse(Astro.props.prerequisites);
+const given =
+  Astro.props.prerequisites === undefined ? undefined : schema.parse(Astro.props.prerequisites);
 const known = plugins();
 const href = (name: string) => {
   const plugin = known.find((candidate) => candidate.name === name);
@@ -17,75 +18,102 @@ const href = (name: string) => {
 };
 ---
 
-<section class="before" aria-labelledby="before-you-start">
-  <h2 id="before-you-start">Before you start</h2>
-  <dl>
-    <dt>Plugins</dt>
-    <dd>
-      <ul>
-        {given.plugins.map((plugin) => (
-          <li>
-            <a href={href(plugin.name)}>
-              <code>{plugin.name}</code>
-            </a>{" "}
-            <code>{plugin.version}</code>
-          </li>
-        ))}
-      </ul>
-    </dd>
-    {given.starter && (
-      <>
-        <dt>Starter</dt>
-        <dd>
-          <code>{given.starter}</code>
-        </dd>
-      </>
-    )}
-    <dt>Roles</dt>
-    <dd>
-      <ul>
-        {given.roles.map((role) => (
-          <li>
-            <strong>{role.role}</strong>: {role.needs}
-          </li>
-        ))}
-      </ul>
-    </dd>
-    <dt>Compute</dt>
-    <dd>{COMPUTE[given.compute]}</dd>
-    <dt>Data</dt>
-    <dd>
-      {given.data.length === 0 ? (
-        "None"
-      ) : (
-        <ul>
-          {given.data.map((item) => (
-            <li>
-              {item.name}
-              <span class="detail">
-                Source: {item.source}. Licence: {item.licence}.
-              </span>
-            </li>
-          ))}
-        </ul>
+{given && (
+  <section class="before" aria-labelledby="before-you-start">
+    <h2 id="before-you-start">Before you start</h2>
+    <dl>
+      {given.plugins && given.plugins.length > 0 && (
+        <>
+          <dt>Plugins</dt>
+          <dd>
+            <ul>
+              {given.plugins.map((plugin) => (
+                <li>
+                  <a href={href(plugin.name)}>
+                    <code>{plugin.name}</code>
+                  </a>
+                  {plugin.version && (
+                    <>
+                      {" "}
+                      <code>{plugin.version}</code>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </>
       )}
-    </dd>
-    <dt>Outside services</dt>
-    <dd>
-      {given.services.length === 0 ? (
-        "None"
-      ) : (
-        <ul>
-          {given.services.map((service) => (
-            <li>
-              <strong>{service.name}</strong>: {service.use}
-            </li>
-          ))}
-        </ul>
+      {given.starter && (
+        <>
+          <dt>Starter</dt>
+          <dd>
+            <code>{given.starter}</code>
+          </dd>
+        </>
       )}
-    </dd>
-  </dl>
-</section>
+      {given.roles && given.roles.length > 0 && (
+        <>
+          <dt>Roles</dt>
+          <dd>
+            <ul>
+              {given.roles.map((role) => (
+                <li>
+                  <strong>{role.role}</strong>: {role.needs}
+                </li>
+              ))}
+            </ul>
+          </dd>
+        </>
+      )}
+      {given.compute && (
+        <>
+          <dt>Compute</dt>
+          <dd>{COMPUTE[given.compute]}</dd>
+        </>
+      )}
+      {given.data && (
+        <>
+          <dt>Data</dt>
+          <dd>
+            {given.data.length === 0 ? (
+              "None"
+            ) : (
+              <ul>
+                {given.data.map((item) => (
+                  <li>
+                    {item.name}
+                    <span class="detail">
+                      Source: {item.source}. Licence: {item.licence}.
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </>
+      )}
+      {given.services && (
+        <>
+          <dt>Outside services</dt>
+          <dd>
+            {given.services.length === 0 ? (
+              "None"
+            ) : (
+              <ul>
+                {given.services.map((service) => (
+                  <li>
+                    <strong>{service.name}</strong>: {service.use}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </>
+      )}
+    </dl>
+  </section>
+)}
 
 <style>
   .before {
