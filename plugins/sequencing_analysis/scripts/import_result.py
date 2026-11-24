@@ -85,7 +85,7 @@ def variant_rows(lines: Iterable[str], selector: str, output: csv._writer) -> di
     sample = choose_column(header[9:], selector, "VCF sample") if len(header) > 8 else ""
     if selector and not sample:
         raise ValueError("This VCF has no genotype sample columns.")
-    sample_index = header.index(sample) if sample else None
+    sample_index = header.index(sample, 9) if sample else None
     output.writerow([*VCF_COLUMNS, *([header[8], sample] if sample else [])])
     preview: list[dict[str, Any]] = []
     variants = 0
