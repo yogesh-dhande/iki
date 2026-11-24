@@ -152,6 +152,12 @@ each by its column. The preview counts rows to create, register, add, reuse
 or merge, rows with problems (and how many are ambiguous), and rows held for
 review by a plugin's rule (ADR 0127). Changing anything starts it afresh.
 
+Each accepted preview advances the import's revision, even with the same sheet
+and mapping. Records in the project may have changed since the previous check.
+The rows a person pages through and the approval they give belong to that
+preview revision. A later preview requires another review before committing
+with a reason or choosing to leave out problem rows.
+
 ### 5. Committing: one run of a core action
 
 Committing writes the rows through ADR 0056's bulk import and no other way.
@@ -185,6 +191,14 @@ whose headers include all of a saved mapping's is mapped by it, wherever the
 columns are; others are offered, best matched first. Mappings are the
 project's because a project's instruments and vendors are; one a team wants
 everywhere is saved in each project, as views are.
+
+Replacing a saved mapping names two revisions. The import revision identifies
+the source sheet and column choices the person reviewed. The saved mapping's
+revision identifies the template they agreed to replace. The save checks
+both while holding their locks. If either changed, the person can review the
+current pair before saving again. The import remembers the template it used
+when its mapping was chosen. Renaming or deleting a project template leaves
+that provenance intact throughout review and after commit.
 
 ### 7. Keeping and clearing
 

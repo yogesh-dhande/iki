@@ -51,6 +51,7 @@ class SavedMapping(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="+")
     type = models.CharField(max_length=112, db_comment="The entity type it maps to.")
     name = models.CharField(max_length=100)
+    revision = models.PositiveIntegerField(default=1, db_default=1)
     #: Each column it maps, by its header: {"header": …, "field": …, and how it reads}.
     columns = models.JSONField()
     #: The headers it was saved from, as compared: a sheet with them is suggested it.
@@ -75,6 +76,7 @@ class SavedMapping(models.Model):
                 fields=["project", "type", "name"], name="iki_spreadsheet_mapping_name"
             ),
             models.CheckConstraint(condition=~Q(name=""), name="iki_spreadsheet_mapping_named"),
+            models.CheckConstraint(condition=Q(revision__gt=0), name="iki_spreadsheet_mapping_rev"),
         ]
 
     def __str__(self) -> str:
@@ -128,11 +130,6 @@ class SpreadsheetImport(models.Model):
     locale = models.JSONField(default=dict)
     #: Each column it maps, as :class:`cells.Column` keeps it.
     columns = models.JSONField(default=list)
-    #: The saved mapping it started from, if one.
-    mapping = models.ForeignKey(
-        SavedMapping, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
-    )
-
     #: The name and identity of the saved mapping when this draft selected it.
     mapping_source = models.JSONField(null=True, blank=True)
 

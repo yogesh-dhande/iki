@@ -693,7 +693,7 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     again = api.post(
         f"/spreadsheet-imports/{imported['id']}/mappings",
         {"name": "Plate reader export"},
-        headers=seen(mapped_now),
+        headers=seen(api.get(f"/spreadsheet-imports/{imported['id']}").json()),
     )
     assert again.status_code == 422
 
@@ -726,7 +726,7 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     saved = owner.post(f"{ref}/mappings", {"name": "Instrument v1"}, headers=seen(original))
     assert saved.status_code == 201, saved.content
     mapping_id = saved.json()["id"]
-    previewed(world, original)
+    reviewed = previewed(world, owner.get(ref).json())
 
     next_sheet = started(
         world, b"Label,Purity (%)\nS-2,85\n", name="second.csv", principal="via_team"
@@ -738,13 +738,20 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     assert changed.status_code == 200, changed.content
     replacement = colleague.post(
         f"{next_ref}/mappings",
-        {"name": "Instrument v2", "replace": mapping_id},
+        {
+            "name": "Instrument v2",
+            "replace": mapping_id,
+            "target_revision": saved.json()["revision"],
+        },
         headers=seen(changed.json()),
     )
     assert replacement.status_code == 201, replacement.content
     assert replacement.json()["columns"] == [{"header": "Label", "field": "label"}]
 
-    accepted = owner.post(f"{ref}/commit", {}, headers=seen(original))
+    refreshed = owner.get(ref).json()
+    assert refreshed["mapping"] == reviewed["mapping"]
+    assert refreshed["mappings"][0]["name"] == "Instrument v2"
+    accepted = owner.post(f"{ref}/commit", {}, headers=seen(refreshed))
     assert accepted.status_code == 202, accepted.content
     pinned = accepted.json()["applied_mapping"]
     assert pinned["template"] == {"id": mapping_id, "name": "Instrument v1", "match": 1.0}
@@ -760,7 +767,7 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     ]
     assert values(records(world)["S-1"])["purity"] == 95
 
-    late = owner.post(f"{ref}/mappings", {"name": "Saved after the import"}, headers=seen(original))
+    late = owner.post(f"{ref}/mappings", {"name": "Saved after the import"}, headers=seen(done))
     assert late.status_code == 201, late.content
     assert late.json()["id"] != mapping_id
     assert colleague.delete(f"/spreadsheet-mappings/{mapping_id}").status_code == 204
@@ -887,8 +894,7 @@ def test_a_preview_checks_the_revision_that_was_read(world: World) -> None:
     proteins(world)
     imported = started(world, xlsx(("Samples", MANIFEST)))
     checked = previewed(world, imported)
-    # Checking it doesn't change what it imports: the same revision commits.
-    assert checked["revision"] == imported["revision"]
+    assert checked["revision"] == imported["revision"] + 1
     moved = change(world, checked, {"first_row": 3}).json()
     # What was checked isn't what it imports now: it's checked again before it's imported.
     refused = api_as(world).post(
@@ -972,7 +978,9 @@ def test_reserved_vendor_code_is_a_field_problem_before_a_tube_is_imported(world
     assert len(problems) == 1 and problems[0]["row"] == 3
     assert any(p["field"] == "barcode" and "IKI:" in p["detail"] for p in problems[0]["problems"])
     assert checked["preview"]["counts"]["create"] == 1
-    refused = api_as(world).post(f"/spreadsheet-imports/{uploaded['id']}/commit", {})
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{uploaded['id']}/commit", {}, headers=seen(checked)
+    )
     assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
     assert not records(world, TUBE, "barcode")
     done = committed(world, checked, skip_problems=True, reason="Import the valid supplier row")

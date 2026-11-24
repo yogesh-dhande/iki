@@ -4322,7 +4322,8 @@ export interface paths {
          * Save a spreadsheet import's mapping
          * @description Keeps how its columns map, by their headers, for the project's next sheet of the same
          *     kind: one from the same instrument or vendor maps itself. Send the revision you read
-         *     (If-Match): its mapping is what's kept.
+         *     (If-Match): its mapping is what's kept. To replace a template send its ID and reviewed
+         *     target_revision. A stale template returns 409; a stale import returns 412.
          */
         post: operations["iki_server_api_spreadsheets_save_mapping"];
         delete?: never;
@@ -4344,7 +4345,7 @@ export interface paths {
          * Check a spreadsheet import's rows
          * @description Checks every row as importing would write it, a chunk at a time: what's wrong with
          *     each, by its column, and the records each would duplicate. Send the revision you read
-         *     (If-Match): it's what's checked. Poll it until it's ``previewed``.
+         *     (If-Match). Each preview starts a new revision. Poll until that revision is previewed.
          */
         post: operations["iki_server_api_spreadsheets_preview_import"];
         delete?: never;
@@ -4362,7 +4363,8 @@ export interface paths {
         };
         /**
          * What a preview found, row by row
-         * @description In the sheet's order; ``outcome`` narrows them to those with problems, say.
+         * @description Read its rows in sheet order. Send the preview's If-Match on each page to read
+         *     that revision; a superseded preview returns 412. ``outcome`` filters its rows.
          */
         get: operations["iki_server_api_spreadsheets_import_rows"];
         put?: never;
@@ -6327,6 +6329,23 @@ export interface components {
             hrid: string;
             /** Version */
             version: number;
+        };
+        /** AvailableMapping */
+        AvailableMapping: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Match
+             * @description The share of its headers the sheet has.
+             */
+            match: number;
+            /** Name */
+            name: string;
+            /** Revision */
+            revision: number;
         };
         /** BatchCan */
         BatchCan: {
@@ -15180,6 +15199,11 @@ export interface components {
              * @description A saved mapping to change, rather than add.
              */
             replace?: string | null;
+            /**
+             * Target Revision
+             * @description The reviewed saved template revision, with replace.
+             */
+            target_revision?: number | null;
         };
         /** SavedMappingMatch */
         SavedMappingMatch: {
@@ -15215,6 +15239,8 @@ export interface components {
             locale: components["schemas"]["SheetLocaleOut"];
             /** Name */
             name: string;
+            /** Revision */
+            revision: number;
             /** Type */
             type: string;
             /**
@@ -17065,7 +17091,7 @@ export interface components {
              * Mappings
              * @description The project's saved mappings for the type, best matched first.
              */
-            mappings: components["schemas"]["SavedMappingMatch"][];
+            mappings: components["schemas"]["AvailableMapping"][];
             preview: components["schemas"]["SpreadsheetPreviewOut"] | null;
             /**
              * Project
@@ -17080,7 +17106,7 @@ export interface components {
             requested_by: components["schemas"]["PersonRef"];
             /**
              * Revision
-             * @description One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.
+             * @description Advances for each change to what it imports and each new preview. Send it as If-Match to change, preview, commit or save its mapping.
              */
             revision: number;
             run: components["schemas"]["ImportRunRef"] | null;
@@ -25507,7 +25533,9 @@ export interface operations {
                 /** @description Only rows with these outcomes. */
                 outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
             };
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 import_id: string;
             };
