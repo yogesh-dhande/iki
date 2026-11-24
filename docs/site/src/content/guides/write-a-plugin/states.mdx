@@ -1,0 +1,155 @@
+---
+title: Track where a record is with state fields
+description: Give a type state fields, say which lab roles set each state, lock records in a state, return a corrected record for review, require electronic signatures, and remove a state safely.
+audience: build
+order: 40
+reference:
+  - { label: "Field: states", href: /reference/plugin-spec/field/#states }
+  - { label: "Field: signatures", href: /reference/plugin-spec/field/#states.signatures }
+  - { label: "Field: moved_to", href: /reference/plugin-spec/field/#moved_to }
+---
+
+A state field (`type: state`) holds where a record is in a process: one of its
+[`states`](/reference/plugin-spec/field/#states), which new records start in
+[`initial`](/reference/plugin-spec/field/#initial). A type can have several, each set on its own:
+a lot's production status and its QA disposition, or an instrument's service and its calibration,
+as in the LIMS example. [States, locks and signatures](/concepts/states-locks-and-signatures/)
+explains how people use them.
+
+```yaml
+service:
+  type: state
+  label: Service
+  initial: in_service
+  states:
+    in_service: { label: In service, set_by: [engineer] }
+    out_of_service:
+      label: Out of service
+      description: Broken, or being repaired. Anyone who finds it so says why.
+      set_by: [engineer, analyst]
+      reason: required
+    retired:
+      label: Retired
+      description: No longer used. Its record is kept as it was.
+      set_by: [engineer]
+      locks: true
+      reason: required
+calibration:
+  type: state
+  label: Calibration
+  initial: due
+  states:
+    due: { label: Due, description: It needs calibrating before use., set_by: [engineer, qa] }
+    calibrated: { label: Calibrated, set_by: [engineer], reason: optional }
+    failed: { label: Failed, set_by: [engineer], reason: required }
+```
+
+## States and who sets them
+
+- A state field has 2 to 30 states, named as fields are, each with a
+  [`label`](/reference/plugin-spec/field/#states.label) (its name in words, if left out) and a
+  [`description`](/reference/plugin-spec/field/#states.description). The initial state can't lock
+  (`state-initial`).
+- [`set_by`](/reference/plugin-spec/field/#states.set_by) names the
+  [lab roles](/guides/write-a-plugin/#lab-roles) whose holders may set the field to the state, from
+  any other state, in the record's project (`unknown-role`). Every state but the initial one has
+  some (`state-unreachable`). That's all core decides. Which states may follow which, and keeping
+  whoever sets one apart from whoever set another, are the plugin's policy, in its
+  [guards](/guides/write-a-plugin/rules-and-guards/#guards).
+- [`reason`](/reference/plugin-spec/field/#states.reason), `required` or `optional`, asks whoever
+  sets the state why.
+- A person sets a state by choosing it on the record's page or through the API. An action's
+  results can't set one (`updates-state`), and a state field is never part of an identity.
+- A state field is the type's own: an extension (`state-field-in-extension`) or a list
+  (`state-field-in-list`) can't have one. Subtypes have their parents'.
+
+## Locks
+
+A state that [`locks`](/reference/plugin-spec/field/#states.locks) keeps the record's other fields
+from changing, by any path, and keeps the record from being archived, restored or moved to another
+registry entry, while the field is in it. A record is locked while any of its state fields is in a
+state that locks. State fields stay settable by their roles, which is how a record is unlocked. A
+lock freezes the people the record names too, so name whoever has it next before it gets there.
+
+A state that [`holds_amount`](/reference/plugin-spec/field/#states.holds_amount) stops the record's
+amount being drawn, which a lock alone doesn't: see
+[Keep how much of each thing there is](/guides/write-a-plugin/amounts/#holds-and-locks).
+
+## Returning a corrected record
+
+A locking state can name the state a correction returns the record to, in
+[`on_edit`](/reference/plugin-spec/field/#states.on_edit). The LIMS example's approved samples go
+back to testing when someone changes a value:
+
+```yaml
+approved:
+  label: Approved
+  description: A reviewer checked its results; they can't change now.
+  set_by: [reviewer]
+  locks: true
+  on_edit: in_testing
+  signatures:
+    - meaning: review
+```
+
+The editor sees the return before saving and gives a reason. They must be allowed to edit the
+record and to enter the destination, holding its lab role and passing its guards. The return and
+the change succeed together, earlier signatures stay with the revisions they signed, and the
+corrected values need fresh review: see [Corrections](/concepts/corrections/). A destination is a
+different, live, unlocked state with `set_by` and no required signatures (`state-on-edit`,
+`unknown-state`).
+
+## Electronic signatures
+
+[`signatures`](/reference/plugin-spec/field/#states.signatures) makes setting a state an
+electronic signature under 21 CFR Part 11. The state is set by the last of them, once each is
+given on the same revision, never directly, and each signer signs in again at the identity
+provider to give theirs. The LIMS example's release:
+
+```yaml
+released:
+  label: Released
+  description: QA released it, so its results can be used.
+  set_by: [qa]
+  locks: true
+  reason: optional
+  signatures:
+    - meaning: approval
+      label: QA release
+      statement: I release this sample for use.
+```
+
+- Each signature has a [`meaning`](/reference/plugin-spec/field/#states.signatures.meaning):
+  `authorship`, `review`, `approval`, `verification`, `responsibility` or `witness`. Every page and
+  export that shows it says it.
+- Optionally, a [`label`](/reference/plugin-spec/field/#states.signatures.label), the
+  [`statement`](/reference/plugin-spec/field/#states.signatures.statement) its signer attests to,
+  and a lab [`role`](/reference/plugin-spec/field/#states.signatures.role) of its own; without one,
+  any of the state's `set_by` roles signs (`unknown-role`).
+- A state takes up to 5. Neither the initial state nor a removed one is signed for
+  (`state-signatures`).
+- Core keeps each signature its signer's own act, bound to the exact revision. Whether one person
+  may give two, and in which order, is for [guards](/guides/write-a-plugin/rules-and-guards/#guards),
+  which read the signatures given so far.
+
+## Removing states
+
+A state can't be taken out of a manifest once records may be in it. Keep it,
+[`removed: true`](/reference/plugin-spec/field/#states.removed), with
+[`moved_to`](/reference/plugin-spec/field/#states.moved_to) the state its records move to, which
+can't be removed itself (`unknown-state`). A removed state doesn't lock, and isn't initial
+(`state-removed`).
+
+A state field is removed like any field, `removed: true`, and its records' states move to another
+of the type's own state fields, as its [`moved_to`](/reference/plugin-spec/field/#moved_to) says
+(`unknown-field`, `state-removed`):
+
+```yaml
+custody:
+  type: state
+  removed: true
+  moved_to: { field: status, states: { in_lab: received, quarantined: in_review } }
+```
+
+Without `moved_to`, the plugin's migration is refused while the type has any records. Each record a
+migration moves gets a revision of its own, by no one, through the system.
