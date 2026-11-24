@@ -285,7 +285,13 @@ def emit(event: str, data: dict[str, Any], *, project: Project | None) -> list[D
         return []
     targets = _sending(Webhook.objects.filter(wanted, active=True, events__contains=[event]))
     payload = _payload(event, data)
-    return [_queue(webhook, event, payload) for webhook in targets]
+    project_payload = payload
+    if event == "storage.moved" and project is not None and any(w.project_id for w in targets):
+        project_payload = {**payload, "data": events.project_movement(data, project)}
+    return [
+        _queue(webhook, event, project_payload if webhook.project_id else payload)
+        for webhook in targets
+    ]
 
 
 def emit_to(event: str, data: dict[str, Any], *, projects: list[Project]) -> list[Delivery]:

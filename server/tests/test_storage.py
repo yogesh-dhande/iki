@@ -3,20 +3,25 @@ by one record; moves, all or none, each with who, when and why; custody; receivi
 request's tubes against what it expected; reconciling a box by scan; and draws from a tube,
 linked to the sample and the experiment it went into."""
 
+from importlib import import_module
 from typing import Any
 
 import pytest
 from api_client import Api
 from django.db import DatabaseError, IntegrityError, connection, transaction
+from django.db.migrations.state import ProjectState
 from org_world import World, build_world
 from test_api_entities import create
 from test_requests import ANALYST, ASK, QA, SAMPLE, Lab, _member, state, submit, takes
+from test_webhooks import deliveries
+from test_webhooks import make as make_webhook
 
 from iki_server.accounts.models import User
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
 from iki_server.graph.models import Edge
 from iki_server.notifications.models import Notification
+from iki_server.notifications.tasks import message as notification_email
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, Project, ProjectRole
 from iki_server.storage import labels, services
@@ -305,7 +310,22 @@ def test_a_path_stops_at_a_place_the_reader_cant_open(lab: Lab) -> None:
     cryo = box(tech, lab.core, "Incoming")
     moved(tech, (cryo, freezer, None))
     ask, tubes = sent_with_tubes(lab, 1)
+    requester = make_webhook(lab.world, "https://hooks.example.com/project", ["storage.moved"])
+    org = make_webhook(
+        lab.world, "https://hooks.example.com/org", ["storage.moved"], org_level=True
+    )
     receive(lab, ask, put={tubes[0]["id"]: (cryo, "A1")})
+    moved(tech, (tubes[0], cryo, "B2"), reason="Moved after inspection")
+    project_data = deliveries(requester)[-1].payload["data"]
+    org_data = deliveries(org)[-1].payload["data"]
+    assert project_data["from"] is None and project_data["to"] is None
+    assert project_data["reason"] == org_data["reason"] == "Moved after inspection"
+    for key, position in (("from", "A1"), ("to", "B2")):
+        assert org_data[key] == {
+            "container": cryo["id"],
+            "hrid": cryo["hrid"],
+            "position": position,
+        }
     where = lab.api("editor").get(f"/entities/{tubes[0]['id']}/location").json()
     assert where == {
         "path": [],
@@ -317,6 +337,15 @@ def test_a_path_stops_at_a_place_the_reader_cant_open(lab: Lab) -> None:
     }
     seen = lab.api("tech").get(f"/entities/{tubes[0]['id']}/location").json()
     assert [s["hrid"] for s in seen["path"]] == [freezer["hrid"], cryo["hrid"]]
+    editor = lab.api("editor")
+    own = tube(editor, lab.world.project, "LOCAL-1")
+    visible = box(editor, lab.world.project)
+    moved(editor, (own, visible, "A2"))
+    assert deliveries(requester)[-1].payload["data"]["to"] == {
+        "container": visible["id"],
+        "hrid": visible["hrid"],
+        "position": "A2",
+    }
 
 
 # --- Receiving ----------------------------------------------------------------------------------
@@ -404,7 +433,8 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     assert scanned["found"] == "matched"
     duplicate = tech.post(f"{path}/scan", {"code": "RC000"}).json()
     assert duplicate["found"] == "again"
-    # A tube nobody expected is an extra line.
+    # A service-private tube nobody expected is an extra line.
+    private_tube = tube(tech, lab.core, "UNLABELLED-7")
     extra = tech.post(f"{path}/scan", {"code": "UNLABELLED-7"}).json()
     assert extra["found"] == "extra"
     receipt = extra["receipt"]
@@ -482,7 +512,14 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
         recipient=lab.users["editor"], kind="storage.receipt_discrepancy"
     )
     assert ask["hrid"] in told.title
-    assert "Thawed" not in told.body
+    assert told.title.endswith("1 missing, 1 extra, 1 damaged, 1 rejected")
+    assert told.path == f"/storage/receive/{ask['id']}/"
+    assert not told.body
+    email = notification_email(told)
+    assert "1 extra" in email.subject
+    for text in (email.body, *(content for content, _ in email.alternatives)):
+        assert isinstance(text, str)
+        assert private_tube["hrid"] not in text and "UNLABELLED-7" not in text
     assert AuditEvent.objects.filter(action="request.receipt_completed").count() == 2
     # The core, keeping it, draws from what it received.
     drawn = tech.post(
@@ -503,6 +540,44 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     assert "completed" in errors(frozen)["#"]
     again = tech.post(f"/entities/{ask['id']}/receipts").json()
     assert [x["code"] for x in again["lines"]] == ["RC003"]
+
+
+def test_upgrade_filters_existing_movement_deliveries_and_notices(lab: Lab) -> None:
+    requester = make_webhook(lab.world, "https://hooks.example.com/project", ["storage.moved"])
+    org = make_webhook(
+        lab.world, "https://hooks.example.com/org", ["storage.moved"], org_level=True
+    )
+    visible = box(lab.api("editor"), lab.world.project)
+    hidden = box(lab.api("tech"), lab.core)
+    payload = {
+        "data": {
+            "from": {"container": visible["id"], "hrid": visible["hrid"], "position": "A1"},
+            "to": {"container": hidden["id"], "hrid": hidden["hrid"], "position": "B2"},
+            "reason": "Received",
+        }
+    }
+    for hook in (requester, org):
+        hook.deliveries.create(message_id="msg_saved", event="storage.moved", payload=payload)
+    ask, _ = sent_with_tubes(lab, 1)
+    notice = Notification.objects.create(
+        recipient=lab.users["editor"],
+        kind="storage.receipt_discrepancy",
+        entity_id=ask["id"],
+        title="1 extra",
+        body="Previously stored line",
+        path=f"/entities/{ask['id']}",
+    )
+    migration = import_module("iki_server.storage.migrations.0007_receipt_and_movement_privacy")
+    with connection.schema_editor() as schema_editor:
+        migration.Migration("0007", "iki_storage").apply(ProjectState(), schema_editor)
+    notice.refresh_from_db()
+    assert (notice.title, notice.body, notice.path) == (
+        "1 extra",
+        "",
+        f"/storage/receive/{ask['id']}/",
+    )
+    assert deliveries(org)[0].payload == payload
+    assert deliveries(requester)[0].payload["data"] == {**payload["data"], "to": None}
 
 
 # --- Reconciling --------------------------------------------------------------------------------

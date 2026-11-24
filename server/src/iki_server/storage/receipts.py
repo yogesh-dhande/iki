@@ -693,17 +693,11 @@ def _tell(user: User, receipt: Receipt, wrong: Sequence[ReceiptLine]) -> None:
         return
     counts = tally(wrong)
     said = ", ".join(f"{n} {k}" for k, n in counts.items() if n and k != "unchecked")
-    # What, not why: notes stay in Iki, with the receipt, for whoever can read it.
-    details = "\n".join(
-        f"{line.entity.hrid if line.entity is not None else line.code}: {line.outcome}"
-        for line in wrong
-    )
     notifications.notify(
         people,
         DISCREPANCY,
         title=f"{receipt.project.name} received {request.hrid}: {said}",
-        body=details,
-        path=f"/entities/{request.pk}",
+        path=f"/storage/receive/{request.pk}/",
         project=request.owner_project,
         actor=user,
         about=[request],

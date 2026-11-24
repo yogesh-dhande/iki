@@ -146,8 +146,8 @@ _register(
         "storage.moved",
         "Someone puts a record away, moves it, takes it out of storage, checks it out or in, "
         "hands it over or receives it (ADR 0180): `kind`, where it was (`from`) and went "
-        "(`to`), each a container and a position, its `custodian`, and the `operation` a "
-        "bulk move's records share.",
+        "(`to`), each a container and position (null when hidden from the project), "
+        "its `custodian`, and the `operation` a bulk move's records share.",
         project=True,
         org=True,
     ),
@@ -523,6 +523,22 @@ def _moved(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[st
         return None
     keys = ("kind", "from", "to", "custodian", "operation", "reason")
     return event.action, {"entity": entity_data(target), **{k: event.data.get(k) for k in keys}}
+
+
+def project_movement(data: dict[str, Any], project: Project) -> dict[str, Any]:
+    """Keep each endpoint only when the project can read its container."""
+    from iki_server.entities import access
+
+    endpoints = {key: data[key] for key in ("from", "to") if data[key] is not None}
+    containers = [end["container"] for end in endpoints.values()]
+    readable = {
+        str(pk)
+        for pk in access.in_project(project).filter(pk__in=containers).values_list("pk", flat=True)
+    }
+    return {
+        **data,
+        **{key: None for key, end in endpoints.items() if end["container"] not in readable},
+    }
 
 
 def _receipt(event: AuditEvent, target: models.Model | None) -> tuple[str, dict[str, Any]] | None:
