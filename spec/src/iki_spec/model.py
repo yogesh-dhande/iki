@@ -936,6 +936,16 @@ class EntityType:
         return {name: f for name, f in self.fields.items() if not f.removed}
 
 
+def amount_of(type_name: str, types: Mapping[str, EntityType]) -> Amount | None:
+    """The nearest amount declaration on a validated type or one of its ancestors."""
+    current = types.get(type_name)
+    while current is not None:
+        if current.amount is not None:
+            return current.amount
+        current = types.get(current.extends) if current.extends else None
+    return None
+
+
 @dataclass(frozen=True)
 class Track:
     """Values along a sequence viewer's residues: a json field of one number per residue."""

@@ -59,7 +59,7 @@ from iki_server.storage import scan_identity
 from iki_server.storage import services as storage
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
-from iki_spec.model import DrawTarget, EntityType
+from iki_spec.model import DrawTarget, EntityType, amount_of
 
 
 class Wrong(Invalid):
@@ -134,13 +134,7 @@ class Given:
 
 def spec(type_name: str) -> AmountSpec | None:
     """The amount ``type_name``'s records have, its own or a parent's."""
-    entity_type = registry.types().get(type_name)
-    if entity_type is None:
-        return None
-    for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.amount is not None:
-            return t.amount
-    return None
+    return amount_of(type_name, registry.types())
 
 
 def amounts_of(entities: Sequence[Entity]) -> dict[Any, Amount]:

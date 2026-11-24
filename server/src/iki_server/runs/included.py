@@ -23,7 +23,7 @@ from iki_server.entities import access, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
 from iki_server.runs.models import ActionRun, RunInclusion
-from iki_spec.model import Action, included_reference
+from iki_spec.model import Action, amount_of, included_reference
 
 
 @dataclass(frozen=True)
@@ -216,6 +216,9 @@ def document(
         "revision": revision,
         "values": visible_values,
     }
+    amount = amount_of(entity.type, registry.types())
+    if amount is not None and amount.material is not None:
+        row["material_field"] = amount.material
     if entity.entry_id is not None and entry is not None:
         entry_id, _ = entry
         row["entry_id"] = str(entry_id)

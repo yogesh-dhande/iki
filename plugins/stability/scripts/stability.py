@@ -13,14 +13,6 @@ from typing import Any
 
 PLUGIN = "iki/stability"
 FLOWS = {"research", "regulated_qc"}
-LOT_MATERIAL = {
-    "GenericLot": "of",
-    "ConjugateLot": "conjugate",
-    "OligoLot": "oligonucleotide",
-    "PlasmidPrep": "plasmid",
-    "PolymerLot": "polymer",
-    "ProteinLot": "protein",
-}
 
 
 def anniversary(start: date, months: int) -> date:
@@ -61,18 +53,26 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     includes = study["included"]
     tubes = {record["id"]: record for record in includes["assignments.tube"]}
     lot = includes["lot"][0]
-    lot_type = lot["type"].split(".")[-1]
-    if lot_type in LOT_MATERIAL and lot["values"].get(LOT_MATERIAL[lot_type]) != values["material"]:
+    material_field = lot.get("material_field")
+    if not material_field or not lot["values"].get(material_field):
+        raise ValueError("The selected lot must identify its material before scheduling pulls.")
+    if lot["values"][material_field] != values["material"]:
         raise ValueError("The selected material does not match the lot.")
     flow = run.get("settings", {}).get("review_flow", "research")
     if flow not in FLOWS:
         raise ValueError("Choose a stability measurement review flow before scheduling this study.")
     start = date.fromisoformat(values["starts_on"])
+    tube_conditions: dict[str, str] = {}
     pulls = []
     for (condition, month), assignment in sorted(assignments.items()):
         tube = tubes.get(assignment["tube"])
         if tube is None or tube["values"].get("lot") != values["lot"]:
             raise ValueError(f"The tube for {condition}, month {month} must hold the study lot.")
+        previous = tube_conditions.setdefault(tube["id"], condition)
+        if previous != condition:
+            raise ValueError(
+                f"Assign separate tubes to storage conditions {previous} and {condition}."
+            )
         point = time_points[month]
         due = anniversary(start, month)
         opens = due - timedelta(days=point["days_before"])
