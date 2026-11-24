@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 from Bio import BiopythonParserWarning, SeqIO
+from Bio.SeqFeature import CompoundLocation
 from Bio.SeqRecord import SeqRecord
 
 from iki_server.entities.sequence_files import Organism, SequenceFile, fasta, genbank
@@ -281,6 +282,32 @@ def test_parts_partial_ends_and_orders_are_written_as_insdc_writes_them() -> Non
     text = genbank(record).content.decode()
     assert "     mRNA            complement(join(<2..9,30..>40))\n" in text
     assert "     misc_feature    order(5..8,complement(15..20),12)\n" in text
+
+
+@pytest.mark.parametrize("operator", ["join", "order"])
+def test_a_mixed_strand_feature_retains_its_reverse_part_across_the_origin(operator: str) -> None:
+    feature = {
+        "type": "misc_feature",
+        "start": 90,
+        "end": 15,
+        "strand": "mixed",
+        "operator": operator,
+        "parts": [
+            {"start": 90, "end": 5, "strand": "reverse", "partial_start": True},
+            {"start": 12, "end": 15, "strand": "forward"},
+        ],
+    }
+    record = SequenceFile(
+        "DNA-1", "placeholder", "N" * 100, "circular", 1, DAY, features=(feature,)
+    )
+    exported = genbank(record)
+    assert exported.left_out == []
+    [read] = biopython(exported.content).features
+    location = read.location
+    assert isinstance(location, CompoundLocation)
+    assert location.operator == operator
+    assert parts(read) == [(0, 5, -1), (89, 100, -1), (11, 15, 1)]
+    assert str(location.parts[1].start) == "<89"
 
 
 def test_a_name_locus_cant_hold_is_kept_in_the_comment() -> None:

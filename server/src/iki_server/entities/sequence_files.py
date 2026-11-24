@@ -259,10 +259,14 @@ def location_of(feature: dict[str, Any], length: int, *, circular: bool) -> str:
         inner.reverse()
         joined = _joined(operator, inner)
         return f"complement({joined})"
-    pieces = [
-        f"complement({text})" if _strand(p) == "reverse" else text
-        for p, text in zip(parts, texts, strict=True)
-    ]
+    pieces: list[str] = []
+    for part, text in zip(parts, texts, strict=True):
+        if _strand(part) == "reverse":
+            # Each interval in a wrapped part has its own complement. The part reads
+            # from the low end first on the reverse strand.
+            pieces.extend(f"complement({piece})" for piece in reversed(_top_level(text)))
+        else:
+            pieces.append(text)
     return _joined(operator, pieces)
 
 
