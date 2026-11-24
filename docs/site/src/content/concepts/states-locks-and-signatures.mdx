@@ -1,0 +1,210 @@
+---
+title: States, locks and signatures
+description: How a record moves through a process in state fields, who may set each state, how a state locks a record, and how setting one can take electronic signatures.
+audience: bench
+topic: Records
+order: 20
+useCases:
+  - {
+      label: Release a lot with a certificate of analysis,
+      href: /use-cases/release-a-lot-with-a-certificate-of-analysis/,
+    }
+  - { label: Run a dose-response plate assay, href: /use-cases/dose-response-plate-assay/ }
+---
+
+## In short
+
+A record's place in a process, such as a sample's testing or a lot's QA disposition, is a **state
+field**. Each of its states says which lab roles may set it. A state can **lock** the record, so
+its values can't change by any path until someone with the right role sets the field to another
+state. And setting a state can take **electronic signatures**: each signer signs in again at the
+organization's identity provider, and each signature is bound to the exact revision it signs.
+
+## How it works
+
+### State fields
+
+A type can have several state fields, each set on its own: a lot's production status beside its
+QA disposition, an instrument's service beside its calibration. Each has states, and new records
+start in its initial one. A state field's value is a value like any other: it's in the record's
+history, search, the grid and exports.
+
+Each state names the **lab roles** that may set the field to it, from any other state. A plugin
+declares its lab roles, and a project's Admins give them to its members. A state can ask whoever
+sets it for a reason, as a requirement or as an option.
+
+A state field is never set with other values, nor by an action's results: it's set on its own,
+and each change is a revision of the record of kind **State changed**, naming the field, the state
+it left, the state it's in, who set it, when and why.
+
+### Guards
+
+Which state may follow which, who mustn't set a state after setting another, and what a record
+must have before it moves on are the plugin's **guards**. Each guard on a state is a condition
+that must be true when someone sets it, with a message saying why not. The record's page offers
+only the states its reader may set now, and says why not of the others, in the guards' words.
+
+A guard reads the record's values, who's acting, which state the field is leaving, each state
+field's history of changes, and the edits made since a state was last entered. So a plugin can say
+that whoever submitted a sample for review doesn't approve it, or that whoever edited its results
+doesn't release it.
+
+### Locks
+
+A state that locks keeps the record's other values from changing while the field is in it. The
+web app, the API, agents, runs, bulk imports and registry moves are all refused, and so is any
+write straight to the database, which a trigger on the record's tables refuses. A locked record
+can't be archived or restored either. Its state fields stay settable by their roles, which is how
+it's unlocked.
+
+A locking state can name the state a correction returns the record to. Editing a value of the
+record then takes it back to that state, in the same save, with a reason. That's in
+[Corrections](/concepts/corrections/).
+
+A lock freezes the record's values, not how much of it there is: a released lot is still drawn
+from. A state that **holds the amount**, such as a quarantine, stops draws, transfers and splits
+while the record is in it.
+
+### Signatures
+
+A state can need up to five signatures, each with a **meaning**: authorship, review, approval,
+verification, responsibility or witness. Each can have a label, a statement its signer attests to,
+and a lab role of its own. The state is set by the last signature, once each is given on the same
+revision of the record. Setting it any other way is refused, whoever or whatever asks.
+
+To sign, a person starts in the web app, reads what they sign and gives a reason if asked, and
+signs in again at the identity provider, however recently they last signed in. Iki checks that the
+provider signed in that same person just now. Apps, agents, tokens and service accounts never sign:
+they can read signatures and check them.
+
+Each signature is shown with the record, everywhere it's shown, as its signer's printed name, the
+date and time in UTC and what it means: "Reviewed by Tomás Herrera on 2026-11-13 at 09:02:51 UTC.
+Meaning: Review."
+
+### What a signature is bound to
+
+A signature is a document that the deployment signs with its own key. It names the record, its
+revision, the change it's for, the signer, the reason, the time, how the signer signed in again,
+and a hash of the record's content at that revision. Anyone who can read the record can check a
+signature again: the check fails if the content was changed outside Iki, the signature moved to
+another record, or its document edited.
+
+A signature waiting for others is **pending**. It's **carried** once its change sets the state. It
+**lapses** if the record changes before then, or its signer loses the role, and then counts for
+nothing. Its signer can **withdraw** it before then, with a reason. None is ever deleted.
+
+## Worked example
+
+The example LIMS plugin's **Sample** has a state field, **Status**. Its states, the roles that set
+them, and what each does:
+
+| State               | Set by                    | Locks | Signatures                    |
+| ------------------- | ------------------------- | ----- | ----------------------------- |
+| Registered          | Coordinator               | No    |                               |
+| Received            | Coordinator, Analyst      | No    |                               |
+| In testing          | Analyst, Reviewer, QA     | No    |                               |
+| In review           | Analyst                   | No    | Authorship                    |
+| Approved            | Reviewer                  | Yes   | Review                        |
+| Released            | QA                        | Yes   | Approval, labelled QA release |
+| Returned to testing | QA                        | No    | Approval, with a reason       |
+| Rejected            | QA                        | Yes   | Responsibility, with a reason |
+
+Sample `SAM-000214` is tested against its specification: purity at least 95%, and a concentration
+from 0.5 to 10 mg/mL. Its revisions:
+
+| Revision | Change                                                           | By                                |
+| -------- | ---------------------------------------------------------------- | --------------------------------- |
+| 1        | Created, in Registered                                           | Sam Whitfield, Coordinator        |
+| 2        | Status: Registered to Received                                   | Sam Whitfield                     |
+| 3        | Status: Received to In testing                                   | Priya Natarajan, Analyst          |
+| 4        | Purity 97.8%, concentration 2.04 mg/mL, result pass              | Priya Natarajan                   |
+| 5        | Status: In testing to In review, signed for authorship           | Priya Natarajan                   |
+| 6        | Status: In review to Approved, signed for review                 | Tomás Herrera, Reviewer           |
+| 7        | Status: Approved to Released, signed as QA release               | Ingrid Larsen, QA                 |
+
+At revision 5, Priya's signature reads "Authored by Priya Natarajan on 2026-11-12 at 16:47:30 UTC.
+Meaning: Authorship.", with the statement she attested to: "I performed these tests and recorded the
+results as observed." It's bound to revision 4, the values she submitted.
+
+Before revision 6, the plugin's guards on Approved are checked: the sample is In review; whoever
+approves it isn't Priya, who submitted it; and they didn't edit its purity, concentration, result
+or notes since it was last in testing. Tomás passes all three and signs. From revision 6 the sample
+is locked. A change to its purity now is refused, saying that `SAM-000214` is locked by its Status
+(Approved), and which states and roles would unlock it.
+
+Ingrid releases it at revision 7. Her guards check that it's approved, that it passed, and that she
+neither approved it nor edited its results. Her signature reads "Approved by Ingrid Larsen on
+2026-11-13 at 14:20:05 UTC. Meaning: QA release."
+
+Had its purity been 93.1%, the plugin's rule would have held the sample for QA's review when Priya
+saved it, and nobody could set it to Approved until QA had reviewed the hold.
+
+## The rules in full
+
+### Setting a state
+
+- Setting a state takes one of its lab roles in the record's project. A project role, Admin
+  included, never does.
+- Every state but the initial one has roles that set it. The initial state can't lock, and can't
+  need signatures.
+- A state that asks for a reason refuses a change without one. Reasons are kept, up to 2,000
+  characters.
+- A change names the revision it was made on, and is refused if the record has changed since.
+- A guard that can't be worked out refuses the change, whatever's empty. A refused change says
+  which guard refused it.
+- A record held by a rule can't be set to a state that locks it until each hold is reviewed.
+
+### Locks
+
+- A record is locked while any of its state fields is in a state that locks.
+- While it's locked, its other values can't change, and it can't be archived, restored or moved to
+  another registry entry. Linking it into another project still works: that changes who reads it,
+  not what it says.
+- An action whose run would update a locked record isn't launched. A run launched before the record
+  locked has its results refused.
+- The database refuses any write to a locked record's values, whatever made it.
+- The people a locked record names are locked with it: name whoever has it next before it gets
+  there.
+
+### Signatures
+
+- Nobody signs until an Org Admin records the organization's certification to the FDA that its
+  electronic signatures are the legally binding equivalent of handwritten ones. Each person agrees
+  to the same at their first signature.
+- Each signature takes the lab role it names, or one of its state's roles, in the record's
+  project.
+- A signing lasts ten minutes, is bound to the browser session that started it, and is accepted
+  once.
+- A signing that doesn't prove the person signed in again is in the audit log, and Org Admins are
+  told at once. Three within fifteen minutes lock the person's signing, end their sessions and
+  revoke their tokens, until an Org Admin unlocks it.
+- Core keeps each signature its signer's own act on the exact revision. Whether one person may give
+  two of a change's signatures, or in which order, is for the plugin's guards.
+- Signatures, withdrawals and certifications are append-only for every role.
+- A plugin's upgrade that renames a signed field, changes its unit or renames its type is recorded,
+  signed by the deployment, and a signature's check reads the record through it, saying what was
+  done since.
+- Bundles carry signatures with the records they sign, and `iki bundle verify` checks them without
+  Iki.
+
+## Reference
+
+- State field keys: [initial](/reference/plugin-spec/field/#initial),
+  [states](/reference/plugin-spec/field/#states),
+  [set_by](/reference/plugin-spec/field/#states.set_by),
+  [reason](/reference/plugin-spec/field/#states.reason),
+  [locks](/reference/plugin-spec/field/#states.locks),
+  [holds_amount](/reference/plugin-spec/field/#states.holds_amount),
+  [on_edit](/reference/plugin-spec/field/#states.on_edit) and
+  [guards](/reference/plugin-spec/field/#states.guards)
+- A guard's keys: [check](/reference/plugin-spec/rule/#guard.check) and
+  [message](/reference/plugin-spec/rule/#guard.message)
+- Signature keys: [signatures](/reference/plugin-spec/field/#states.signatures),
+  [meaning](/reference/plugin-spec/field/#states.signatures.meaning) and
+  [statement](/reference/plugin-spec/field/#states.signatures.statement)
+- Set a state: [POST /entities/\{ref\}/states/\{field\}](/reference/api/post-entities-ref-states-field/)
+- Sign for one: [POST /entities/\{ref\}/signatures](/reference/api/post-entities-ref-signatures/),
+  and a record's signatures: [GET /entities/\{ref\}/signatures](/reference/api/get-entities-ref-signatures/)
+- Check a signature again: [GET /signatures/\{id\}/verification](/reference/api/get-signatures-signature-id-verification/),
+  or withdraw one: [POST /signatures/\{id\}/withdrawal](/reference/api/post-signatures-signature-id-withdrawal/)
+- Record type: [iki/example_lims.Sample](repo:plugins/example_lims/types/sample.yaml)
