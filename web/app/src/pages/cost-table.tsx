@@ -9,6 +9,7 @@ import { Link } from "@tanstack/react-router";
 
 import type { Project } from "../api";
 import { machineTime, money, monthName, projectCostsQuery, type CostSummary } from "../costs";
+import { useSettled } from "../settling";
 import { BudgetMeter, EnforceBadge } from "./budget-meter";
 
 /** The groups of a summary, most first, with their totals below. */
@@ -83,7 +84,9 @@ export function CostTable({
 /** This month's cost of the project's runs, and its budget, on its overview; nothing if
  * it has no budget and its runs cost nothing. */
 export function ProjectCosts({ project }: { project: Project }) {
-  const report = useQuery(projectCostsQuery(project.id)).data;
+  const read = useQuery(projectCostsQuery(project.id));
+  useSettled(!read.isLoading);
+  const report = read.data;
   if (!report || (!report.groups.length && !report.budget)) return null;
   const month = monthName(report.since);
   const { budget } = report;

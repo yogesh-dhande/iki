@@ -152,6 +152,39 @@ describe("a project's page", () => {
     );
   });
 
+  it("draws its cards together, once each has what decides its lines", async () => {
+    signedIn();
+    onProject();
+    let release = (): void => undefined;
+    const held = new Promise<void>((done) => {
+      release = done;
+    });
+    // What changed lately answers last: the cards drawn already would move as it came.
+    answer(`GET ${BASE}/changes`, async () => {
+      await held;
+      return [change({})];
+    });
+    await renderApp("/projects/kinase-atlas/");
+    expect(await screen.findByText("Opening its overview…")).toBeVisible();
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/entities/counts")).not.toHaveLength(0);
+    });
+    // None of its links can be pressed yet, wherever its answer is in.
+    expect(
+      screen.queryByRole("link", { name: "Open in Entities, filtered to this project" }),
+    ).toBeNull();
+    expect(screen.queryByRole("link", { name: "Manage" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Automation" })).toBeNull();
+    release();
+    const changes = await screen.findByRole("list", { name: "Recent changes" });
+    expect(changes).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Open in Entities, filtered to this project" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Manage" })).toBeVisible();
+    expect(screen.queryByText("Opening its overview…")).toBeNull();
+  });
+
   it("counts its entities by type, each opening its table held to the project", async () => {
     signedIn();
     onProject();
@@ -300,10 +333,9 @@ describe("a project's page", () => {
     ]);
     answer(`GET ${BASE}/webhooks`, page([{ id: "w1" }]));
     await renderApp("/projects/kinase-atlas/");
-    const card = screen.getByRole("region", { name: "Automation" });
-    expect(
-      await within(card).findByText("2 workflows · 1 of 2 triggers on · 1 webhook"),
-    ).toBeVisible();
+    // Drawn with its counts, once they're in: its link doesn't move as they come.
+    const card = await screen.findByRole("region", { name: "Automation" });
+    expect(within(card).getByText("2 workflows · 1 of 2 triggers on · 1 webhook")).toBeVisible();
     expect(
       within(card).getByRole("link", { name: "Workflows, triggers and webhooks" }),
     ).toHaveAttribute("href", "/projects/kinase-atlas/automation/");

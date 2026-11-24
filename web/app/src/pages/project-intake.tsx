@@ -29,6 +29,7 @@ import {
   useRequestSides,
   type Intake as IntakeSettings,
 } from "../requests";
+import { useSettled } from "../settling";
 import {
   Badge,
   Button,
@@ -240,16 +241,22 @@ function IntakeForm({
 }
 
 /** On the project's page, for a project that takes requests, was sent some, or sent its own:
- * what it takes, its latest requests with their status, and its queue. */
+ * what it takes, its queue, and its latest requests with their status. */
 export function ProjectRequests({ project }: { project: Project }) {
   const sides = useRequestSides(project);
-  const types = useQuery(typesQuery).data;
+  const read = useQuery(typesQuery);
+  const types = read.data;
   const any = sides.received || sides.sent;
   const latest = useQuery({
     ...latestRequestsQuery(project.id, { received: sides.received, sent: sides.sent }),
     enabled: sides.ready && any,
   });
-  if (!any) return null;
+  // What decides its first lines (whether it's there, what it takes in its types' words, and
+  // its shortcuts) is in before the Overview's drawn. Its latest requests aren't waited
+  // for: they come after its shortcuts, at the foot of the last card, and move nothing.
+  // Without the types, it can't tell, and isn't drawn.
+  useSettled(sides.ready || read.isError);
+  if (!sides.ready || !any) return null;
   return (
     <Box
       id="requests-title"
@@ -262,6 +269,26 @@ export function ProjectRequests({ project }: { project: Project }) {
     >
       {sides.intake?.types.length ? (
         <p className="box-body">{takesWhat(project, sides.intake, types)}</p>
+      ) : null}
+      {sides.received || (project.can.manage && !project.archived) ? (
+        <p className="box-body">
+          {sides.received ? (
+            // A shortcut to its Requests tab, as the service sees it.
+            <Link
+              to="/projects/$slug/requests/"
+              params={{ slug: project.slug }}
+              search={{ side: "received" }}
+            >
+              Requests sent to {project.name}
+            </Link>
+          ) : null}
+          {sides.received && project.can.manage && !project.archived ? " · " : null}
+          {project.can.manage && !project.archived ? (
+            <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
+              Choose what it takes
+            </Link>
+          ) : null}
+        </p>
       ) : null}
       {latest.isError ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
       {latest.data?.length ? (
@@ -283,26 +310,6 @@ export function ProjectRequests({ project }: { project: Project }) {
             </li>
           ))}
         </ul>
-      ) : null}
-      {sides.received || (project.can.manage && !project.archived) ? (
-        <p className="box-body">
-          {sides.received ? (
-            // A shortcut to its Requests tab, as the service sees it.
-            <Link
-              to="/projects/$slug/requests/"
-              params={{ slug: project.slug }}
-              search={{ side: "received" }}
-            >
-              Requests sent to {project.name}
-            </Link>
-          ) : null}
-          {sides.received && project.can.manage && !project.archived ? " · " : null}
-          {project.can.manage && !project.archived ? (
-            <Link to="/projects/$slug/settings/" params={{ slug: project.slug }}>
-              Choose what it takes
-            </Link>
-          ) : null}
-        </p>
       ) : null}
     </Box>
   );

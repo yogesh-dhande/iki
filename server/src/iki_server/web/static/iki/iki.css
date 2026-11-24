@@ -3753,6 +3753,21 @@ input[type="file"]::file-selector-button {
   font-size: 12.5px;
 }
 
+/* A part of a page drawn once its cards' reads are in (settling.tsx): till then it says
+   so where its cards will be, which are laid out, hidden, under it. */
+.settling {
+  position: relative;
+}
+
+.settling-wait {
+  position: absolute;
+  inset: 0 0 auto;
+}
+
+.settling-wait > p {
+  margin: 0;
+}
+
 .box {
   min-width: 0;
   background: var(--surface);

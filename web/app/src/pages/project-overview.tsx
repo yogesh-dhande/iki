@@ -21,6 +21,7 @@ import { swatchColor } from "../project-color";
 import { TabStrip } from "../tab-strip";
 import { countsQuery } from "../lists";
 import { useRequestSides } from "../requests";
+import { Settling, useSettled } from "../settling";
 import { Badge, Button, Loading, PageTitle, ProblemAlert, useMessages } from "../ui";
 import { AppPanel } from "./app";
 import { ProjectCosts } from "./cost-table";
@@ -347,7 +348,9 @@ export function ProjectOverview() {
         </div>
       ) : null}
       {project.can.read ? (
-        <div className="project-overview">
+        // Its cards are drawn together, once each has what decides its lines: none moves
+        // under a press as another's answer comes.
+        <Settling key={project.id} label="Opening its overview…" className="project-overview">
           <div className="project-main">
             <Dashboard project={project} />
             <EntityCounts project={project} />
@@ -359,12 +362,13 @@ export function ProjectOverview() {
           </div>
           <aside className="project-aside" aria-label="Project summary">
             <About project={project} />
-            {/* What it takes as a service, its queue, and what it sent (ADR 0132). */}
-            <ProjectRequests project={project} />
             <Members project={project} />
             <Automation project={project} />
+            {/* What it takes as a service, its queue, and what it sent (ADR 0132). Last: its
+                latest requests come after the rest is drawn, and move nothing below them. */}
+            <ProjectRequests project={project} />
           </aside>
-        </div>
+        </Settling>
       ) : (
         <NotAMember project={project} />
       )}
@@ -378,6 +382,7 @@ function Dashboard({ project }: { project: Project }) {
   const chosen = dashboard.data?.app;
   const app = useQuery({ ...entityQuery(chosen?.hrid ?? ""), enabled: Boolean(chosen) });
   const types = useQuery(typesQuery);
+  useSettled(!dashboard.isLoading && (!chosen || (!app.isLoading && !types.isLoading)));
   if (dashboard.isError) return <ProblemAlert problem={problemOf(dashboard.error)} />;
   if (!dashboard.data) return <Loading label="Opening its dashboard…" />;
   // Its Admins hear how to choose one at the foot of the page: below what it holds.

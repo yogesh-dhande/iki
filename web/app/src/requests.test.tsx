@@ -849,4 +849,31 @@ describe("a project's Requests tab", () => {
       within(card).getByRole("link", { name: "Requests sent to Protein Core" }),
     ).toHaveAttribute("href", "/projects/protein-core/requests/?side=received");
   });
+
+  it("draws the service's shortcut where it stays: its latest requests come after it", async () => {
+    on(CORE, { intake: TAKES });
+    let release = (): void => undefined;
+    const held = new Promise<void>((done) => {
+      release = done;
+    });
+    answer("POST /api/v1/entities/search", async ({ body }: { body: Record<string, unknown> }) => {
+      if (body["limit"] === 1) return page(body["type"] ? [] : [request()]);
+      // The latest requests, held back till the shortcut's drawn.
+      await held;
+      return page([request()]);
+    });
+    await renderApp("/projects/protein-core/");
+    const card = await screen.findByRole("region", { name: "Requests" });
+    const shortcut = within(card).getByRole("link", { name: "Requests sent to Protein Core" });
+    expect(within(card).queryByRole("list", { name: "Latest requests" })).toBeNull();
+    // The Overview's last card: nothing comes after it to be moved as they come.
+    const aside = screen.getByRole("complementary", { name: "Project summary" });
+    expect(aside.lastElementChild).toBe(card);
+    release();
+    const latest = await within(card).findByRole("list", { name: "Latest requests" });
+    expect(
+      shortcut.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(within(latest).getByRole("link", { name: "ARQ-000001" })).toBeVisible();
+  });
 });

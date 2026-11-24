@@ -22,6 +22,7 @@ import { TypeDot } from "../type-color";
 import { changeWords, changedBy, projectChangesQuery, type ProjectChange } from "../project-page";
 import { countsQuery } from "../lists";
 import { projectTriggersQuery, workflowsQuery } from "../runs";
+import { useSettled } from "../settling";
 import { Loading, ProblemAlert, RelativeTime, Time } from "../ui";
 
 /** A card of the Overview: a heading, maybe a link beside it, and what it holds. */
@@ -50,6 +51,7 @@ export function Box({
 /** How many of each type of record the project has, each opening that type's table. */
 export function EntityCounts({ project }: { project: Project }) {
   const counts = useQuery(countsQuery(project.id));
+  useSettled(!counts.isLoading);
   // The lists across projects name a project by its slug (ADR 0176).
   const held = { project: project.slug };
   return (
@@ -156,13 +158,15 @@ function ChangeRow({ change, project }: { change: ProjectChange; project: Projec
 /** What changed in the project lately, newest first; Auditors open the audit log from it. */
 export function RecentChanges({ project }: { project: Project }) {
   const changes = useQuery(projectChangesQuery(project.id));
-  const me = useQuery(meQuery).data;
+  const me = useQuery(meQuery);
+  // Its audit log link is beside its heading, by what the reader may read.
+  useSettled(!changes.isLoading && !me.isLoading);
   const audit = `/audit/?${new URLSearchParams({ project: project.id }).toString()}`;
   return (
     <Box
       id="project-changes-title"
       title="Recent changes"
-      aside={me?.can.read_audit ? <a href={audit}>Project audit log</a> : undefined}
+      aside={me.data?.can.read_audit ? <a href={audit}>Project audit log</a> : undefined}
     >
       {changes.isError ? <ProblemAlert problem={problemOf(changes.error)} /> : null}
       {changes.isPending ? <Loading label="Finding what changed…" /> : null}
@@ -186,7 +190,9 @@ export function RecentChanges({ project }: { project: Project }) {
 
 /** What the project is for, its team, your role in it, and when it began. */
 export function About({ project }: { project: Project }) {
-  const role = useQuery(rolesQuery).data?.find((r) => r.name === project.my_role);
+  const roles = useQuery(rolesQuery);
+  useSettled(!roles.isLoading);
+  const role = roles.data?.find((r) => r.name === project.my_role);
   return (
     <Box id="project-about-title" title="About">
       <div className="box-body">
@@ -224,6 +230,7 @@ function memberName(member: Member): string {
 /** Who's in the project: people, and teams as one each. */
 export function Members({ project }: { project: Project }) {
   const members = useQuery(membersQuery(project.id));
+  useSettled(!members.isLoading);
   const found = members.data ?? [];
   const more = found.length - MEMBERS_SHOWN;
   return (
@@ -258,12 +265,16 @@ function counted(n: number, one: string, many: string): string {
 
 /** How much runs by itself: the workflows it may run, its triggers on, its webhooks. */
 export function Automation({ project }: { project: Project }) {
-  const workflows = useQuery(workflowsQuery).data;
-  const triggers = useQuery(projectTriggersQuery(project.id)).data;
-  const webhooks = useQuery({
-    ...webhooksQuery(project.id),
-    enabled: project.can.manage_webhooks,
-  }).data;
+  const read = {
+    workflows: useQuery(workflowsQuery),
+    triggers: useQuery(projectTriggersQuery(project.id)),
+    // A query that isn't asked, for one who can't manage them, isn't loading.
+    webhooks: useQuery({ ...webhooksQuery(project.id), enabled: project.can.manage_webhooks }),
+  };
+  useSettled(Object.values(read).every((q) => !q.isLoading));
+  const workflows = read.workflows.data;
+  const triggers = read.triggers.data;
+  const webhooks = read.webhooks.data;
   const parts = [
     workflows ? counted(workflows.length, "workflow", "workflows") : "",
     triggers
