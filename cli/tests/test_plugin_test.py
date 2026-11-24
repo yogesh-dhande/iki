@@ -3,13 +3,17 @@
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
+import yaml
 
-from iki_cli import workers
+from iki_cli import upgrade_test, workers
 from iki_cli.main import main
+from iki_spec.builtin import CORE_DIRECTORY, core_plugin
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 
@@ -401,3 +405,81 @@ def test_it_needs_the_worker(
     assert "iki-worker, which isn't on the PATH" in capsys.readouterr().err
     assert run(plugin, "--worker", str(plugin / "plugin.yaml")) == 1
     assert "isn't an iki-worker binary this can run" in capsys.readouterr().err
+
+
+def test_upgrade_builds_against_core_at_the_earlier_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    core = tmp_path / "spec/src/iki_spec/core"
+    shutil.copytree(CORE_DIRECTORY, core)
+    alignment = core / "types/alignment.yaml"
+    old_core = yaml.safe_load(alignment.read_text())
+    del old_core["fields"]["sample"]
+    alignment.write_text(yaml.safe_dump(old_core))
+
+    core_app = tmp_path / "server/src/iki_plugin_iki__core"
+    core_app.mkdir(parents=True)
+    (core_app / "manifest.json").write_text('{"earlier": true}')
+
+    plugin = manifest(tmp_path / "plugins/lab", "lab/assays")
+    (plugin / "types").mkdir()
+    result_type = plugin / "types/result.yaml"
+    result_type.write_text(
+        """\
+apiVersion: iki/v1
+kind: EntityType
+name: Result
+schema_version: 1
+hrid: { prefix: RSL }
+extends: iki/core.Alignment
+fields:
+  sample: { type: ref, to: iki/core.Entity }
+"""
+    )
+    for args in (
+        ["init", "-q"],
+        ["add", "."],
+        ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "base"],
+    ):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True)  # noqa: S603, S607
+    result_type.write_text(
+        result_type.read_text()
+        .replace("schema_version: 1", "schema_version: 2")
+        .replace("fields:\n  sample: { type: ref, to: iki/core.Entity }\n", "")
+    )
+    (core_app / "manifest.json").write_text('{"earlier": false}')
+    (plugin / "plugin.yaml").write_text(
+        (plugin / "plugin.yaml").read_text().replace("1.0.0", "1.1.0")
+    )
+
+    class Scratch(nullcontext[str]):
+        name = "dummy"
+        left = False
+
+    monkeypatch.setattr(upgrade_test, "_scratch", lambda *_: Scratch("unused"))
+    steps = []
+
+    def check_core(
+        step: str, build: Path, *_: object, core: Path | None
+    ) -> tuple[list[str], list[str]]:
+        steps.append(step)
+        archived = build / "iki_plugin_iki__core/manifest.json"
+        if step == "after":
+            assert core is None
+            assert not archived.exists()
+        else:
+            assert core is not None
+            assert (
+                "sample"
+                not in yaml.safe_load((core / "types/alignment.yaml").read_text())["fields"]
+            )
+            assert json.loads(archived.read_text()) == {"earlier": True}
+        return [], []
+
+    monkeypatch.setattr(upgrade_test, "_step", check_core)
+    assert (
+        main(["plugin", "test", str(plugin), "--upgrade-from", "HEAD", "--database", "unused"]) == 0
+    )
+    assert steps == ["before", "after", "rollback"]
+    assert "sample" in core_plugin().types["iki/core.Alignment"].fields
+    assert "upgraded: the samples and their history are intact" in capsys.readouterr().out

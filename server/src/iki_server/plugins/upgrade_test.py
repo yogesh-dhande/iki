@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from iki_spec.builtin import using_core
 from iki_spec.model import Field, included_reference
 
 if TYPE_CHECKING:
@@ -30,12 +31,18 @@ if TYPE_CHECKING:
 
 
 def main(argv: list[str] | None = None) -> int:
-    step, state_file = (argv if argv is not None else sys.argv[1:])[:2]
+    step, state_file, *core = argv if argv is not None else sys.argv[1:]
     os.environ["DJANGO_SETTINGS_MODULE"] = "iki_server.plugins.harness_settings"
     import django
 
-    django.setup()
-    state: dict[str, Any] = json.loads(Path(state_file).read_text("utf-8"))
+    with using_core(Path(core[0]) if core else None):
+        django.setup()
+        _run(step, Path(state_file))
+    return 0
+
+
+def _run(step: str, state_file: Path) -> None:
+    state: dict[str, Any] = json.loads(state_file.read_text("utf-8"))
     state.setdefault("problems", [])
     log = io.StringIO()
     try:
@@ -45,8 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         state["problems"].append(str(stop))
     finally:
         state.setdefault("logs", {})[step] = log.getvalue()
-        Path(state_file).write_text(json.dumps(state, indent=2, default=str), "utf-8")
-    return 0
+        state_file.write_text(json.dumps(state, indent=2, default=str), "utf-8")
 
 
 class _StepError(Exception):
