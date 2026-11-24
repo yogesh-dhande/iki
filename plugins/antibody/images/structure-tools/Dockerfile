@@ -15,6 +15,11 @@
 # Iki's worker is copied in when a run starts (ADR 0061): the image needs
 # nothing of Iki's, and runs as any user, with no network.
 
+# The weights are architecture-independent. This attested release collected them
+# from Zenodo using the same file hashes now in SHA256SUMS. Keep its digest and
+# copy only its weight files so normal builds never contact Zenodo.
+FROM --platform=$BUILDPLATFORM ghcr.io/yogesh-dhande/iki-antibody-structure-tools@sha256:eb6f0596205fa9fac71d5909b25e992668854599fb8e53e60ab5e88604b81e85 AS immunebuilder-weights
+
 FROM python:3.12-slim-trixie@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
 
 # hmmscan, and Debian's security updates. Debian rebuilt HMMER for arm64 alone
@@ -42,21 +47,16 @@ RUN pip install --no-cache-dir --no-deps --require-hashes \
  && rm /tmp/requirements.txt \
  && python -m pip uninstall -y pip
 
-# The weights, each checked against its SHA-256 (Zenodo's MD5s agree) and
-# readable by any user, where the action's script reads them: ImmuneBuilder would
-# otherwise download them as it runs, and a run has no network.
-ARG WEIGHTS=https://zenodo.org/records/7258553/files
-# Made first, so they're 0755: ADD would make them as it makes the files, 0444,
-# which nobody could open.
+# Verify the complete set of copied weights against the original file pins.
 RUN mkdir -p -m 0755 /opt/immunebuilder/weights /usr/share/licenses/openmm
-ADD --chmod=0444 --checksum=sha256:ecefff604457a105fe405dcca44a76b046609ff2ac3c355329974659f6881e09 ${WEIGHTS}/antibody_model_1 /opt/immunebuilder/weights/antibody_model_1
-ADD --chmod=0444 --checksum=sha256:91dd9f5ebca8cc68f292d3a40ccdbc8a86974e7cebc4853e19565ecb8a8d508b ${WEIGHTS}/antibody_model_2 /opt/immunebuilder/weights/antibody_model_2
-ADD --chmod=0444 --checksum=sha256:33085a728cfb1059d9e817b785a21f1dda74eff8f083a0c2a033ae88bdbdcd45 ${WEIGHTS}/antibody_model_3 /opt/immunebuilder/weights/antibody_model_3
-ADD --chmod=0444 --checksum=sha256:e2d666a22b1f0a7219baec778e67f36e448ad0cd8eed8dae044af20eec163a04 ${WEIGHTS}/antibody_model_4 /opt/immunebuilder/weights/antibody_model_4
-ADD --chmod=0444 --checksum=sha256:2f8f398a95e2fd3fe38527415471a60346cb131864a1a4ef081e11816d74e995 ${WEIGHTS}/nanobody_model_1 /opt/immunebuilder/weights/nanobody_model_1
-ADD --chmod=0444 --checksum=sha256:41c163511ad20d1aa67fbd50f64ced9a25381d0618847b16a19d5e14df73297e ${WEIGHTS}/nanobody_model_2 /opt/immunebuilder/weights/nanobody_model_2
-ADD --chmod=0444 --checksum=sha256:8de57b3f0b6b89acb0e87fc7b647522666dd90e86ed3138417cbcd785c982c4d ${WEIGHTS}/nanobody_model_3 /opt/immunebuilder/weights/nanobody_model_3
-ADD --chmod=0444 --checksum=sha256:96f3cfba8de00e4c833bc73efa821f6022ed65e951a4289c7e3b5409527964e0 ${WEIGHTS}/nanobody_model_4 /opt/immunebuilder/weights/nanobody_model_4
+COPY --from=immunebuilder-weights --chmod=0444 \
+    /opt/immunebuilder/weights/antibody_model_[1234] \
+    /opt/immunebuilder/weights/nanobody_model_[1234] \
+    /opt/immunebuilder/weights/
+COPY images/structure-tools/SHA256SUMS images/structure-tools/WEIGHTS-NOTICE.txt /usr/share/licenses/immunebuilder-weights/
+RUN --network=none cd /opt/immunebuilder/weights \
+ && sha256sum antibody_model_* nanobody_model_* \
+    | diff -u /usr/share/licenses/immunebuilder-weights/SHA256SUMS -
 
 # OpenMM's licences, which its wheel doesn't carry: its own, the LGPL's and the
 # GPL's that it incorporates, and the notices of what it bundles, at the commit

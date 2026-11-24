@@ -585,10 +585,8 @@ jobs:
           IMAGE: ${{ matrix.image }}
           PLUGIN: ${{ matrix.plugin }}
           DIR: ${{ matrix.dir }}
-        # A build downloads its files from their sources (ImmuneBuilder's weights from
-        # Zenodo, licences from GitHub), each checked against its SHA-256: a source's bad
-        # moment fails that check. A second try reuses every layer the first built, so it
-        # fetches only what failed; a real fault fails both.
+        # A second try can reuse the layers from a build that fails while fetching a
+        # pinned dependency.
         run: |
           if ! docker build -f "$DIR/Dockerfile" -t "$IMAGE:ci" "$PLUGIN"; then
             echo "::warning::Building $IMAGE failed; trying once more."
