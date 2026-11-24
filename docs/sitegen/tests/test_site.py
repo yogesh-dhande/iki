@@ -37,19 +37,27 @@ PREP = "/use-cases/verify-a-plasmid-prep/"
 ALIGNMENTS = "/concepts/whole-plasmid-alignments/"
 ASSAY = "/use-cases/dose-response-plate-assay/"
 SIGNATURES = "/reference/api/get-entities-ref-signatures/"
+STATES = "/concepts/states-locks-and-signatures/"
+FIELD = "/reference/plugin-spec/field/"
+STATE_FIELDS = "/guides/write-a-plugin/states/"
 
 #: Every kind of page: the home page, a use case with a viewer's frame, a use case with
-#: the live plate, a concept, the API's overview, a call and a schema, the sections' indexes, and
-#: the page a host serves for a missing path.
+#: the live plate, a concept with a viewer and one in words, the API's overview, a call and
+#: a schema, the plugin spec's overview and a kind's keys, a page of a guide in several
+#: pages, the sections' indexes, and the page a host serves for a missing path.
 PAGES = [
     "/",
     PREP,
     ASSAY,
     ALIGNMENTS,
+    STATES,
     "/reference/",
     "/reference/api/",
     SIGNATURES,
     "/reference/api/schemas/SignaturesOut/",
+    "/reference/plugin-spec/",
+    FIELD,
+    STATE_FIELDS,
     "/guides/",
     "/use-cases/",
     "/concepts/",
@@ -242,6 +250,34 @@ def test_the_worked_plate_switches_between_its_two_recorded_fits(
     figure.get_by_role("button", name="Include A4 again").click()
     expect(figure.get_by_text("12.07 nM")).to_be_visible()
     assert opened.violations() == []
+    assert opened.errors == []
+    page.context.close()
+
+
+def test_a_spec_key_is_a_place_to_link_to(browser: Browser, site: str) -> None:
+    opened = open_page(browser, site, f"{FIELD}#states.on_edit")
+    page = opened.page
+    row = page.locator("tr", has=page.get_by_role("link", name="on_edit", exact=True))
+    expect(row).to_be_in_viewport()
+    expect(row).to_have_attribute("id", "states.on_edit")
+    # A field type's keys link to each key's row.
+    by_type = page.get_by_role("region", name="The keys each field type takes")
+    by_type.get_by_role("link", name="link", exact=True).first.click()
+    expect(page.locator("tr#link")).to_be_in_viewport()
+    assert opened.errors == []
+    page.context.close()
+
+
+def test_a_guide_in_several_pages_links_its_pages(browser: Browser, site: str) -> None:
+    opened = open_page(browser, site, STATE_FIELDS)
+    page = opened.page
+    pages = page.get_by_role("navigation", name="Pages for this audience")
+    expect(pages.get_by_role("link", name="Write a plugin", exact=True)).to_be_visible()
+    expect(pages.locator("a[aria-current=page]")).to_have_attribute("href", STATE_FIELDS)
+    pager = page.get_by_role("navigation", name="This guide's pages")
+    expect(pager.locator("a[rel=prev]")).to_be_visible()
+    pager.locator("a[rel=next]").click()
+    expect(page.get_by_role("navigation", name="Breadcrumbs")).to_contain_text("Write a plugin")
     assert opened.errors == []
     page.context.close()
 
