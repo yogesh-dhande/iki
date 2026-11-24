@@ -5419,6 +5419,39 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
     screened(alice, project, heavy, light)
     predicted(alice, project, effects[0]["entity"], heavy, light)
     complexes(alice, project, effects[0])
+    biologics_ms(alice, project, effects[0]["entity"])
+
+
+def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: str) -> None:
+    """Map a published trastuzumab peptide onto the already registered Fv."""
+    prefix = "iki/biologics_ms."
+    antibody = record(alice, antibody_id)
+    seen = matching_records(alice, project, prefix + "MSResult", "antibody", entry_of(antibody))
+    if seen:
+        comparison = seen[0]
+    else:
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "plugins/biologics_ms/tests/data/trastuzumab-peptides.tsv"
+        )
+        report = upload(
+            alice, project, fixture.name, fixture.read_bytes(), "text/tab-separated-values"
+        )
+        run = launch(
+            alice,
+            project,
+            prefix + "characterize",
+            {"antibody": antibody_id},
+            {"analysis": "peptide_map", "report": report},
+        )
+        effect = next(e for e in run["effects"] if e["type"] == prefix + "MSResult")
+        comparison = record(alice, effect["entity"])
+    heavy = next(
+        row for row in comparison["values"]["comparison"]["coverage"] if row["chain"] == "heavy"
+    )
+    if heavy["covered"] != 9:
+        fail(f"{comparison['hrid']} contains {heavy}, expected nine covered heavy chain residues")
+    ok(f"{comparison['hrid']}: mapped the published trastuzumab peptide onto {antibody['hrid']}")
 
 
 def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:

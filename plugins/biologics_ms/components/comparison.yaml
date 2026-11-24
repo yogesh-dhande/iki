@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Component
+name: comparison
+label: MS comparison
+description: Observed and theoretical mass, or the peptide coverage of each reference chain.
+module: ./components/comparison.js
+element: biologics-ms-comparison
+slots: [{ slot: entity.tab, type: MSResult }]

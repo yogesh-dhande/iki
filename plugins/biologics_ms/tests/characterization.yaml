@@ -1,0 +1,136 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: published_intact_glycoform
+action: characterize
+inputs:
+  antibody:
+    - values:
+        name: Trastuzumab
+        molecular_weight: 145197.41
+        components:
+          - part: 00000000-0000-7000-8003-000000000002
+            role: heavy
+            copies: 2
+          - part: 00000000-0000-7000-8003-000000000003
+            role: light
+            copies: 2
+      included:
+        components.part:
+          - values:
+              sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+            type: iki/protein.Protein
+          - values:
+              sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+            type: iki/protein.Protein
+files:
+  report: tests/data/trastuzumab-intact.tsv
+params:
+  analysis: mass
+  report:
+    $file: report
+  mass_basis: average
+  tolerance_ppm: 35
+expect:
+  output:
+    creates:
+      - type: iki/biologics_ms.MSResult
+        values:
+          comparison:
+            basis: average
+            peaks:
+              - observed_da: 148058.4
+                expected_da: 148055.836
+                within_tolerance: true
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: published_reduced_subunits
+action: characterize
+inputs:
+  antibody:
+    - values:
+        name: Trastuzumab
+        molecular_weight: 145197.41
+        components:
+          - part: 00000000-0000-7000-8003-000000000002
+            role: heavy
+            copies: 2
+          - part: 00000000-0000-7000-8003-000000000003
+            role: light
+            copies: 2
+      included:
+        components.part:
+          - values:
+              sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+            type: iki/protein.Protein
+          - values:
+              sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+            type: iki/protein.Protein
+files:
+  report: tests/data/trastuzumab-reduced.tsv
+params:
+  analysis: mass
+  report:
+    $file: report
+  mass_basis: average
+  tolerance_ppm: 35
+expect:
+  output:
+    creates:
+      - type: iki/biologics_ms.MSResult
+        values:
+          comparison:
+            basis: average
+            peaks:
+              - observed_da: 23443
+                analyte: light
+                within_tolerance: true
+              - observed_da: 50601
+                analyte: heavy
+                within_tolerance: true
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: map_the_published_heavy_chain_peptide
+action: characterize
+inputs:
+  antibody:
+    - values:
+        name: Trastuzumab
+        molecular_weight: 145197.41
+        components:
+          - part: 00000000-0000-7000-8003-000000000002
+            role: heavy
+            copies: 2
+          - part: 00000000-0000-7000-8003-000000000003
+            role: light
+            copies: 2
+      included:
+        components.part:
+          - values:
+              sequence: EVQLVESGGGLVQPGGSLRLSCAASGFNIKDTYIHWVRQAPGKGLEWVARIYPTNGYTRYADSVKGRFTISADTSKNTAYLQMNSLRAEDTAVYYCSRWGGDGFYAMDYWGQGTLVTVSSASTKGPSVFPLAPSSKSTSGGTAALGCLVKDYFPEPVTVSWNSGALTSGVHTFPAVLQSSGLYSLSSVVTVPSSSLGTQTYICNVNHKPSNTKVDKKVEPKSCDKTHTCPPCPAPELLGGPSVFLFPPKPKDTLMISRTPEVTCVVVDVSHEDPEVKFNWYVDGVEVHNAKTKPREEQYNSTYRVVSVLTVLHQDWLNGKEYKCKVSNKALPAPIEKTISKAKGQPREPQVYTLPPSREEMTKNQVSLTCLVKGFYPSDIAVEWESNGQPENNYKTTPPVLDSDGSFFLYSKLTVDKSRWQQGNVFSCSVMHEALHNHYTQKSLSLSPG
+            type: iki/protein.Protein
+          - values:
+              sequence: DIQMTQSPSSLSASVGDRVTITCRASQDVNTAVAWYQQKPGKAPKLLIYSASFLYSGVPSRFSGSRSGTDFTLTISSLQPEDFATYYCQQHYTTPPTFGQGTKVEIKRTVAAPSVFIFPPSDEQLKSGTASVVCLLNNFYPREAKVQWKVDNALQSGNSQESVTEQDSKDSTYSLSSTLTLSKADYEKHKVYACEVTHQGLSSPVTKSFNRGEC
+            type: iki/protein.Protein
+files:
+  report: tests/data/trastuzumab-peptides.tsv
+params:
+  analysis: peptide_map
+  report:
+    $file: report
+expect:
+  output:
+    creates:
+      - type: iki/biologics_ms.MSResult
+        values:
+          comparison:
+            coverage:
+              - chain: heavy
+                covered: 9
+              - chain: light
+                covered: 0
+            peptides:
+              - chain: heavy
+                start: 68
+                end: 76
