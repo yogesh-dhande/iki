@@ -97,13 +97,15 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "pattern": "^[^\\s](.*[^\\s])?$"
+                "pattern": "^[^\\s](.*[^\\s])?$",
+                "description": "The tool's name, such as `AlphaFold`."
               },
               "version": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "pattern": "^[^\\s](.*[^\\s])?$"
+                "pattern": "^[^\\s](.*[^\\s])?$",
+                "description": "Its version, such as `2.3.2`."
               }
             }
           }
@@ -151,6 +153,7 @@
           "properties": {
             "amount": {
               "type": "object",
+              "description": "How much it starts with.",
               "additionalProperties": false,
               "required": ["value", "unit"],
               "properties": {
@@ -166,10 +169,20 @@
                     }
                   ]
                 },
-                "unit": { "type": "string", "minLength": 1, "maxLength": 50 }
+                "unit": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 50,
+                  "description": "Its unit, in UCUM, such as `uL` or `mg`."
+                }
               }
             },
-            "reason": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "Why, as kept with its starting amount and its move into the container."
+            },
             "position": {
               "type": "string",
               "minLength": 1,
@@ -215,8 +228,8 @@
     }
   },
   "properties": {
-    "apiVersion": { "const": "iki/v1" },
-    "kind": { "const": "RunOutput" },
+    "apiVersion": { "const": "iki/v1", "description": "The spec version this document follows." },
+    "kind": { "const": "RunOutput", "description": "What this document is: `RunOutput`." },
     "updates": {
       "type": "object",
       "description": "By input name (one the action declares it updates): the entities it was given there, and the new values of fields the action declares.",
@@ -233,7 +246,11 @@
               "format": "uuid",
               "description": "The input entity's ID, from input.json."
             },
-            "values": { "type": "object", "minProperties": 1 },
+            "values": {
+              "type": "object",
+              "minProperties": 1,
+              "description": "The fields' new values, by name: only fields the action declares it updates."
+            },
             "require_unchanged": {
               "type": "boolean",
               "description": "When true, write this output only if the record is still at the revision this input read. Any intervening revision rejects the entire result, including its creates."
@@ -276,7 +293,11 @@
       "required": ["api", "job"],
       "additionalProperties": false,
       "properties": {
-        "api": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+        "api": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,62}$",
+          "description": "The API's name in its plugin: one of the action's, with `jobs`."
+        },
         "job": {
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:~-]{0,199}$",
@@ -304,8 +325,11 @@
         "required": ["level", "text"],
         "additionalProperties": false,
         "properties": {
-          "level": { "enum": ["info", "warning", "error"] },
-          "text": { "type": "string", "maxLength": 2000 },
+          "level": {
+            "enum": ["info", "warning", "error"],
+            "description": "How serious it is."
+          },
+          "text": { "type": "string", "maxLength": 2000, "description": "What it says." },
           "entity": {
             "type": "string",
             "format": "uuid",

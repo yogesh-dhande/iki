@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 pub struct RunInputFile {
     /// Its file name, such as model_1.pdb.
     pub name: String,
+    /// Its media type, such as `text/plain`.
     pub media_type: String,
     /// Bytes.
     pub size: i64,
+    /// Its SHA-256, in hex.
     pub sha256: String,
     /// Where iki-worker put it, for the command to read. The server leaves it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -18,7 +20,9 @@ pub struct RunInputFile {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputEntity {
+    /// Its ID.
     pub id: String,
+    /// Its human-readable ID, such as PRT-000123.
     pub hrid: String,
     /// The field in values that names the material, when the type or an ancestor declares amount.material.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -31,6 +35,7 @@ pub struct RunInputEntity {
     pub entry_revision: Option<i64>,
     /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
+    /// The version of its type's schema that its values follow.
     pub schema_version: i64,
     /// The revision the run reads.
     pub revision: i64,
@@ -44,9 +49,12 @@ pub struct RunInputEntity {
 /// What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. iki-worker gets it when it leases a job and writes it to input.json.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInput {
+    /// The spec version this document follows.
     #[serde(rename = "apiVersion")]
     pub api_version: RunInputApiVersion,
+    /// What this document is: `RunInput`.
     pub kind: RunInputKind,
+    /// The run: which, which attempt at it, its action and plugin, and the project it runs in.
     pub run: RunInputRun,
     /// For iki-worker, not the command: the lease it holds, and its limits.
     pub job: RunInputJob,
@@ -75,22 +83,28 @@ pub struct RunInput {
     pub files: Option<std::collections::BTreeMap<String, RunInputFile>>,
 }
 
+/// The spec version this document follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunInputApiVersion {
     #[serde(rename = "iki/v1")]
     IkiV1,
 }
 
+/// What this document is: `RunInput`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunInputKind {
     #[serde(rename = "RunInput")]
     RunInput,
 }
 
+/// The run: which, which attempt at it, its action and plugin, and the project it runs in.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputRun {
+    /// The run's ID.
     pub id: String,
+    /// Its human-readable ID, such as RUN-000123.
     pub hrid: String,
+    /// Which attempt at the run this is: 1, then one more each time it's retried.
     pub attempt: i64,
     /// The authenticated account that requested this run. Commands can attribute decisions in the output to its requester.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,16 +114,21 @@ pub struct RunInputRun {
     pub seed: Option<i64>,
     /// The qualified name, such as `iki/protein.compute_properties`.
     pub action: String,
+    /// The plugin the action is from, at the version the run was launched with.
     pub plugin: RunInputRunPlugin,
+    /// The project it runs in, by ID.
     pub project: String,
     /// For a run a scheduled trigger launched (ADR 0080): which, the time it was for, and the time the last run of it that succeeded was for, to carry on from. An import fetches what changed since `since`; null on its first run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<RunInputRunTrigger>,
 }
 
+/// The plugin the action is from, at the version the run was launched with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputRunPlugin {
+    /// Its qualified name, such as `iki/protein`.
     pub name: String,
+    /// Its version.
     pub version: String,
     /// The plugin's commit, when the deployment was built from a lockfile.
     pub sha: Option<String>,
@@ -120,15 +139,20 @@ pub struct RunInputRunPlugin {
 pub struct RunInputRunTrigger {
     /// The trigger's qualified name, such as `acme/lims.sync_samples`.
     pub name: String,
+    /// The time this firing was for, in UTC.
     pub scheduled_for: String,
+    /// The time the trigger's last successful run was for, in UTC. Null on its first run.
     pub since: Option<String>,
 }
 
 /// For iki-worker, not the command: the lease it holds, and its limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJob {
+    /// The job's ID: this attempt at the run, as the worker API names it.
     pub id: String,
+    /// What the worker gives with every report on the job, to show it holds the lease. Each lease has a new one.
     pub lease_token: String,
+    /// When the lease ends unless the worker renews it, in UTC.
     pub lease_expires_at: String,
     /// Seconds.
     pub heartbeat_every: i64,
@@ -159,14 +183,19 @@ pub struct RunInputJob {
 /// What the job needs. Memory and disk are in bytes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobResources {
+    /// CPU cores, such as 0.5. Null for no minimum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu: Option<f64>,
+    /// Memory. Null for no minimum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<i64>,
+    /// GPUs. Null for none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpu_count: Option<i64>,
+    /// Memory on each GPU, in bytes. Null for no minimum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpu_memory: Option<i64>,
+    /// Scratch disk. Null for no minimum.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scratch_disk: Option<i64>,
 }
@@ -174,7 +203,9 @@ pub struct RunInputJobResources {
 /// For an action that calls outside APIs (ADR 0130): the certificate authority made for this attempt alone, which the worker adds to the command's trusted roots so it trusts the egress proxy for those hosts, and each API's address. The proxy adds the API's key to each call; the command never gets it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobApis {
+    /// The certificate authority's certificate, in PEM.
     pub ca: String,
+    /// Each outside API the action calls: its name, address and callback.
     pub calls: Vec<RunInputJobApisCallsItem>,
 }
 
@@ -182,6 +213,7 @@ pub struct RunInputJobApis {
 pub struct RunInputJobApisCallsItem {
     /// The API's name in its plugin: the command gets its address as IKI_API_<NAME>_URL.
     pub name: String,
+    /// Its address: `https://` and the host its plugin declares. The command gets it as IKI_API_<NAME>_URL.
     pub url: String,
     /// For an API that calls back when a job is done: where it calls, for this run. The command gets it as IKI_API_<NAME>_CALLBACK_URL, to give the API.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -191,12 +223,15 @@ pub struct RunInputJobApisCallsItem {
 /// For a Slurm cluster's worker (ADR 0133): where on the cluster to submit the job, and what to ask for. The worker submits it with `sbatch`, runs its image under Apptainer, and reports what Slurm says of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobSlurm {
+    /// The cluster, as the deployment's Slurm templates name it.
     pub cluster: String,
     /// The compute template that placed it.
     pub template: String,
+    /// The partition to submit it to (`--partition`).
     pub partition: String,
     /// The Slurm account it's charged to.
     pub account: String,
+    /// The quality of service to ask for (`--qos`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub qos: Option<String>,
     /// Node features it must run on (`--constraint`).
@@ -210,6 +245,7 @@ pub struct RunInputJobSlurm {
     /// Bytes: `--mem`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory: Option<i64>,
+    /// How many GPUs to ask for (`--gpus`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gpus: Option<i64>,
     /// Bytes: `--tmp`.
@@ -227,30 +263,42 @@ pub struct RunInputJobSlurm {
 /// Who may have signed the image (ADR 0063), when the deployment says. The worker checks its signature with cosign before running it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobSlurmImagePolicy {
+    /// Iki's release workflow, which signs Iki's own images.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iki: Option<RunInputJobSlurmImagePolicyIki>,
+    /// The deployment's own build, which signs the images it approved.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approvals: Option<RunInputJobSlurmImagePolicyApprovals>,
 }
 
+/// Iki's release workflow, which signs Iki's own images.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobSlurmImagePolicyIki {
+    /// The OIDC issuer of the signing certificate (`--certificate-oidc-issuer`), such as `https://token.actions.githubusercontent.com`.
     pub issuer: String,
+    /// The signer's identity in the certificate, exactly (`--certificate-identity`). Used over `subject_regexp` when both are given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// A regular expression the signer's identity must match (`--certificate-identity-regexp`), when there's no `subject`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_regexp: Option<String>,
+    /// Where the signatures are kept, when not beside the image (`COSIGN_REPOSITORY`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 }
 
+/// The deployment's own build, which signs the images it approved.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobSlurmImagePolicyApprovals {
+    /// The OIDC issuer of the signing certificate (`--certificate-oidc-issuer`), such as `https://token.actions.githubusercontent.com`.
     pub issuer: String,
+    /// The signer's identity in the certificate, exactly (`--certificate-identity`). Used over `subject_regexp` when both are given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    /// A regular expression the signer's identity must match (`--certificate-identity-regexp`), when there's no `subject`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_regexp: Option<String>,
+    /// Where the signatures are kept, when not beside the image (`COSIGN_REPOSITORY`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repository: Option<String>,
 }
@@ -282,18 +330,22 @@ pub enum RunInputJobCheckpointSaveOnItem {
 /// The checkpoint an earlier attempt saved, to restore into the directory before the command starts. Null if there's none.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputJobCheckpointSaved {
+    /// The checkpoint's ID, for the worker to download it by.
     pub id: String,
     /// The attempt that saved it.
     pub attempt: i64,
+    /// When it was saved, in UTC.
     pub saved_at: String,
     /// Bytes.
     pub size: i64,
+    /// Its SHA-256, in hex.
     pub sha256: String,
 }
 
 /// When the run parked on an outside API's job and it's done (ADR 0130): the job, what the command saved when it parked, and the poll's last answer. The command picks up from there.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputResume {
+    /// The API's name in its plugin, as the command gave it under `park.api`.
     pub api: String,
     /// The API's ID for the job.
     pub job: String,
@@ -303,22 +355,29 @@ pub struct RunInputResume {
     pub status: String,
     /// The last poll's answer: its JSON, or null when it wasn't JSON or was over 1 MiB.
     pub answer: serde_json::Value,
+    /// When the run parked, in UTC.
     pub parked_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputVolumesValue {
+    /// The setup build that made the version, by ID.
     pub build: String,
+    /// That build's human-readable ID, such as SETUP-000012.
     pub hrid: String,
+    /// The version of the environment's volumes that build made.
     pub version: i64,
+    /// What its setup said the data is, such as `PDB 2026-10-01`. Empty when it said nothing.
     pub data_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInputPackItem {
+    /// The run's ID.
     pub run: String,
     /// Such as RUN-000123.
     pub hrid: String,
+    /// The entity its input holds, by ID.
     pub entity: String,
 }
 
@@ -378,7 +437,9 @@ pub enum RunOutputMadeKind {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputMadeSoftwareItem {
+    /// The tool's name, such as `AlphaFold`.
     pub name: String,
+    /// Its version, such as `2.3.2`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 }
@@ -412,7 +473,9 @@ pub struct RunOutputCreate {
 /// For a create that declares receive_into: the starting amount and location within the input container. Only fresh inline creates can receive material.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputCreateReceipt {
+    /// How much it starts with.
     pub amount: RunOutputCreateReceiptAmount,
+    /// Why, as kept with its starting amount and its move into the container.
     pub reason: String,
     /// The grid position, such as A1. Omit to use the next free position or place into an ungridded container.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,18 +485,22 @@ pub struct RunOutputCreateReceipt {
     pub confirmation: Option<String>,
 }
 
+/// How much it starts with.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputCreateReceiptAmount {
     /// A positive decimal amount. Use a string to preserve its exact precision.
     pub value: serde_json::Value,
+    /// Its unit, in UCUM, such as `uL` or `mg`.
     pub unit: String,
 }
 
 /// What an action's command writes to output.json: the entities it changes and creates, within what its action declares. Iki writes all of it in one transaction, or none of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutput {
+    /// The spec version this document follows.
     #[serde(rename = "apiVersion")]
     pub api_version: RunOutputApiVersion,
+    /// What this document is: `RunOutput`.
     pub kind: RunOutputKind,
     /// By input name (one the action declares it updates): the entities it was given there, and the new values of fields the action declares.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -455,12 +522,14 @@ pub struct RunOutput {
     pub messages: Option<Vec<RunOutputMessagesItem>>,
 }
 
+/// The spec version this document follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunOutputApiVersion {
     #[serde(rename = "iki/v1")]
     IkiV1,
 }
 
+/// What this document is: `RunOutput`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunOutputKind {
     #[serde(rename = "RunOutput")]
@@ -471,6 +540,7 @@ pub enum RunOutputKind {
 pub struct RunOutputUpdatesValueItem {
     /// The input entity's ID, from input.json.
     pub entity: String,
+    /// The fields' new values, by name: only fields the action declares it updates.
     pub values: serde_json::Map<String, serde_json::Value>,
     /// When true, write this output only if the record is still at the revision this input read. Any intervening revision rejects the entire result, including its creates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -480,6 +550,7 @@ pub struct RunOutputUpdatesValueItem {
 /// Wait on an outside API's job without holding a worker (ADR 0130): the API (one of the action's, with `jobs`), the job's ID as the API gave it, and what to pick up from. Iki polls the job, and once it's done runs the command again with `resume` in its input.json. Nothing is written now: give no `creates`, `creates_file` or `updates` with it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputPark {
+    /// The API's name in its plugin: one of the action's, with `jobs`.
     pub api: String,
     /// The API's ID for the job.
     pub job: String,
@@ -490,13 +561,16 @@ pub struct RunOutputPark {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunOutputMessagesItem {
+    /// How serious it is.
     pub level: RunOutputMessagesItemLevel,
+    /// What it says.
     pub text: String,
     /// The input entity it's about, from input.json. A job that runs several runs of a batch at once gives each run the messages about its entity, and those about none. An `error` about an entity fails its run, which then writes nothing: a command can fail one entity and go on with the rest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entity: Option<String>,
 }
 
+/// How serious it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RunOutputMessagesItemLevel {
     #[serde(rename = "info")]
@@ -513,9 +587,12 @@ pub enum RunOutputMessagesItemLevel {
 /// What iki-worker gets when it leases an environment's setup build (ADR 0075): the script to run, the volumes it fills (each already mounted, writable, where the environment says), and the lease it holds. The script writes its volumes; it may write `{"data_version": "…"}` to IKI_OUTPUT to say what the data is.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupInput {
+    /// The spec version this document follows.
     #[serde(rename = "apiVersion")]
     pub api_version: SetupInputApiVersion,
+    /// What this document is: `SetupInput`.
     pub kind: SetupInputKind,
+    /// The setup build: which, the version it makes, and the environment and plugin it's for.
     pub setup: SetupInputSetup,
     /// For iki-worker: the lease it holds, and its limits.
     pub job: SetupInputJob,
@@ -528,20 +605,24 @@ pub struct SetupInput {
     pub settings: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+/// The spec version this document follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SetupInputApiVersion {
     #[serde(rename = "iki/v1")]
     IkiV1,
 }
 
+/// What this document is: `SetupInput`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SetupInputKind {
     #[serde(rename = "SetupInput")]
     SetupInput,
 }
 
+/// The setup build: which, the version it makes, and the environment and plugin it's for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupInputSetup {
+    /// The setup build's ID.
     pub id: String,
     /// Such as SETUP-000012.
     pub hrid: String,
@@ -549,12 +630,16 @@ pub struct SetupInputSetup {
     pub version: i64,
     /// The plugin and the environment, such as `iki/protein.structure-tools`.
     pub environment: String,
+    /// The plugin the environment is from, at the version installed when the build was asked for.
     pub plugin: SetupInputSetupPlugin,
 }
 
+/// The plugin the environment is from, at the version installed when the build was asked for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupInputSetupPlugin {
+    /// Its qualified name, such as `iki/protein`.
     pub name: String,
+    /// Its version.
     pub version: String,
     /// The plugin's commit, when the deployment was built from a lockfile.
     pub sha: Option<String>,
@@ -563,8 +648,11 @@ pub struct SetupInputSetupPlugin {
 /// For iki-worker: the lease it holds, and its limits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupInputJob {
+    /// The ID the worker API names the build by: the same as `setup.id`.
     pub id: String,
+    /// What the worker gives with every report on the build, to show it holds the lease. Each lease has a new one.
     pub lease_token: String,
+    /// When the lease ends unless the worker renews it, in UTC.
     pub lease_expires_at: String,
     /// Seconds.
     pub heartbeat_every: i64,
@@ -577,6 +665,7 @@ pub struct SetupInputJob {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetupInputVolumesValue {
+    /// Where it's mounted, writable: an absolute path.
     pub mount: String,
     /// Bytes.
     pub size: i64,
