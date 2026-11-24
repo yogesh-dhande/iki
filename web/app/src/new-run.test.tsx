@@ -123,6 +123,108 @@ describe("starting a run", () => {
     expect(await screen.findByText("Started RUN-000001.")).toBeVisible();
   });
 
+  it("shows the alignment verdict and requires a reason to override it", async () => {
+    onProject();
+    const prep = entity({ hrid: "PREP-000001", type: "iki/lots.PlasmidPrep" });
+    const alignment = entity({
+      id: SECOND_ID,
+      hrid: "ALN-000001",
+      type: "iki/core.Alignment",
+      values: { name: "Synthetic alignment", verdict: "differs" },
+    });
+    const actionName = "iki/lots.record_plasmid_verification";
+    const param = {
+      default: null,
+      min: null,
+      max: null,
+      min_length: null,
+      max_length: null,
+      pattern: null,
+    };
+    answer("GET /api/v1/actions", [
+      {
+        ...ACTION,
+        name: actionName,
+        label: "Record plasmid verification",
+        inputs: [
+          {
+            name: "prep",
+            label: "Physical prep",
+            type: prep.type,
+            optional: false,
+            cardinality: "one",
+            max: null,
+            description: null,
+          },
+          {
+            name: "alignment",
+            label: "Alignment",
+            type: alignment.type,
+            optional: true,
+            cardinality: "one",
+            max: null,
+            description: null,
+          },
+        ],
+        params: [
+          {
+            ...param,
+            ...field({
+              name: "outcome",
+              label: "Outcome",
+              type: "enum",
+              values: ["match", "discrepancy", "inconclusive"],
+              required: true,
+            }),
+          },
+          {
+            ...param,
+            ...field({
+              name: "override_reason",
+              label: "Reason for overriding the verdict",
+              type: "string",
+            }),
+          },
+        ],
+        params_schema: {},
+      },
+    ]);
+    answer("POST /api/v1/entities/search", page([prep]));
+    answer("GET /api/v1/entities", page([alignment]));
+    answer("GET /api/v1/entities/" + SECOND_ID, alignment);
+    const launched = "POST /api/v1/actions/" + actionName + "/runs";
+    answer(launched, run({ action: actionName }));
+    answer("GET /api/v1/runs/RUN-000001", run({ action: actionName }));
+    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/runs/new/?entities=PREP-000001&action=" + actionName,
+    );
+    await user.type(await screen.findByRole("combobox", { name: /^Alignment/ }), "synthetic");
+    await user.click(await screen.findByRole("option", { name: /Synthetic alignment/ }));
+    const outcome = screen.getByRole("combobox", { name: "Outcome" });
+    await screen.findByText("The alignment reports “differs”.");
+    expect(outcome).toHaveAccessibleDescription("The alignment reports “differs”.");
+    await user.selectOptions(outcome, "match");
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    expect(screen.getByText(/Give a reason to record a match/)).toBeVisible();
+    expect(calls("POST", "/api/v1/actions/" + actionName + "/runs")).toHaveLength(0);
+
+    await user.type(
+      screen.getByRole("textbox", { name: /^Reason for overriding/ }),
+      "The second report explains this discrepancy.",
+    );
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    await waitFor(() => {
+      expect(calls("POST", "/api/v1/actions/" + actionName + "/runs")[0]?.body).toMatchObject({
+        inputs: { prep: PROTEIN_ID, alignment: SECOND_ID },
+        params: {
+          outcome: "match",
+          override_reason: "The second report explains this discrepancy.",
+        },
+      });
+    });
+  });
+
   it("offers to add inputs from other projects to this one, then starts the run", async () => {
     onProject();
     answer(
