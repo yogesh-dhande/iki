@@ -14,9 +14,12 @@ why. Completing a receipt waits for the box its tubes go in, puts each where it 
 and keeps one in custody only when that's chosen for it, which Storage then lists as
 awaiting put-away. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
+import json
 import re
 from itertools import pairwise
+from time import monotonic
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import pytest
@@ -193,15 +196,70 @@ def test_from_a_freezer_to_a_box_by_keyboard_and_a_bulk_move(
     page.context.close()
 
 
-def scan_label(page: Page, code: str) -> None:
-    # Playwright types a carriage return as the Enter key. Send the entire label in one
-    # keyboard call so there is no artificial delay or round trip before its terminator.
-    page.keyboard.type(code + "\r")
+def scan_label(page: Page, code: str, *, prefix_gap_ms: int = 5) -> None:
+    """Send a trusted keyboard burst, fixing only the intervals seen by the scanner."""
+    gaps = [prefix_gap_ms if i == 0 else 5 for i in range(len(code))]
+    prefix = "Storage scanner keydowns: "
+    # Window capture runs before the app's document listener. Keep the native target,
+    # modifiers and button activation. Report the sequence before Enter can navigate.
+    page.evaluate(
+        """({gaps, prefix}) => {
+            const events = [];
+            let at = Math.ceil(performance.now());
+            function stamp(event) {
+                if (event.key === "Shift") return;
+                if (events.length) at += gaps[events.length - 1] ?? 5;
+                const raw = event.timeStamp;
+                Object.defineProperty(event, "timeStamp", {value: at});
+                events.push({
+                    key: event.key, trusted: event.isTrusted, raw, at: event.timeStamp,
+                    target: event.target instanceof Element ? event.target.localName : null,
+                });
+                if (event.key === "Enter") {
+                    window.removeEventListener("keydown", stamp, true);
+                    console.debug(prefix + JSON.stringify(events));
+                }
+            }
+            window.addEventListener("keydown", stamp, true);
+        }""",
+        {"gaps": gaps, "prefix": prefix},
+    )
+    with page.expect_event(
+        "console", predicate=lambda message: message.text.startswith(prefix)
+    ) as log:
+        if prefix_gap_ms == 5:
+            page.keyboard.type(code + "\r")
+        else:
+            page.keyboard.type(code[0])
+            page.wait_for_timeout(prefix_gap_ms)
+            page.keyboard.type(code[1:] + "\r")
+    events = json.loads(log.value.text.removeprefix(prefix))
+    assert [event["key"] for event in events] == [*code, "Enter"], events
+    assert all(event["trusted"] for event in events), events
+    assert [b["at"] - a["at"] for a, b in pairwise(events)] == gaps, events
 
 
 def test_a_scanner_finds_a_tube_wherever_focus_is(open_as: Any, world: World) -> None:
     kept = a_freezer(world)
-    page = open_as("admin", f"/storage/{kept['retains']['hrid']}/")
+    page: Page = open_as("admin", f"/storage/{kept['retains']['hrid']}/")
+    started = monotonic()
+
+    def log(message: str) -> None:
+        print(f"Storage scan +{monotonic() - started:.3f}s {message}")  # noqa: T201
+
+    def log_request(request: Request, status: str) -> None:
+        path = urlsplit(request.url).path
+        if path in {"/api/v1/storage/scan", "/api/v1/storage/scan/resolve"}:
+            log(f"{request.method} {path} {status}")
+
+    page.on("request", lambda req: log_request(req, "sent"))
+    page.on("response", lambda response: log_request(response.request, str(response.status)))
+    page.on("requestfailed", lambda req: log_request(req, f"failed: {req.failure}"))
+    page.on(
+        "framenavigated",
+        lambda frame: log(f"navigated {frame.url}") if frame == page.main_frame else None,
+    )
+    log(f"opened {page.url}")
     grid = page.get_by_role("grid", name="Kinase retains’s positions")
     grid.wait_for()
     # Focus on a button, not the scan box: a keyboard-mode scanner types fast, then Enter,
@@ -329,37 +387,8 @@ def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(
         assert outcomes == dict(receipt.lines.values_list("code", "outcome"))
         return outcomes
 
-    def scan_with_prefix_gap(code: str, gap_ms: int) -> None:
-        # Keep the browser's genuine key events and native button activation. Only the
-        # intervals seen by the detector are fixed, so runner load cannot add a second stall.
-        keys = [*code, "Enter"]
-        seen = page.evaluate_handle(
-            """({keys, gap}) => {
-                const seen = [];
-                let at = Math.ceil(performance.now());
-                function stamp(event) {
-                    if (event.key !== keys[seen.length]) return;
-                    at += seen.length === 1 ? gap : 5;
-                    Object.defineProperty(event, "timeStamp", {value: at});
-                    seen.push([event.isTrusted ? event.key : null, event.timeStamp]);
-                    if (event.key === "Enter") window.removeEventListener("keydown", stamp, true);
-                }
-                window.addEventListener("keydown", stamp, true);
-                return seen;
-            }""",
-            {"keys": keys, "gap": gap_ms},
-        )
-        page.keyboard.type(code[0])
-        page.wait_for_timeout(gap_ms)
-        scan_label(page, code[1:])
-        events = seen.json_value()
-        assert [key for key, _ in events] == keys
-        intervals = [b[1] - a[1] for a, b in pairwise(events)]
-        assert intervals == [gap_ms] + [5] * (len(keys) - 2)
-        seen.dispose()
-
     page.on("request", record_scan)
-    scan_with_prefix_gap("XRC000", prefix_gap)
+    scan_label(page, "XRC000", prefix_gap_ms=prefix_gap)
     retry = page.get_by_role("alert").filter(has_text="Scan again or type the code.")
     matched = checklist.get_by_role("button", name=re.compile(r"\bMatched$"), pressed=True)
     retry.or_(matched).first.wait_for()
@@ -367,7 +396,7 @@ def test_receiving_does_not_match_the_suffix_of_a_stalled_scan(
     after_gap = read_outcomes()
     message = retry.inner_text() if retry.is_visible() else None
     if prefix_gap > 250:
-        scan_with_prefix_gap("XRC000", 5)
+        scan_label(page, "XRC000")
     expect(full).to_have_attribute("aria-pressed", "true")
     expect(retry).to_be_hidden()
     final = read_outcomes()
