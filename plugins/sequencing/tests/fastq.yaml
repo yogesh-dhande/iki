@@ -1,0 +1,57 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: archived_yeast_mate_quality
+description: Count the first four complete read pairs in public ENA run SRR8690267.
+action: summarize_fastq
+settings: { review_flow: regulated_qc }
+files:
+  first: tests/data/SRR8690267_1.fastq
+  second: tests/data/SRR8690267_2.fastq
+inputs:
+  reads:
+    - values:
+        read_1: { $file: first }
+        read_2: { $file: second }
+      included:
+        library:
+          - values:
+              sample: 00000000-0000-7000-8003-000000000099
+              sample_accession: SAMN11070697
+expect:
+  output:
+    creates:
+      - type: iki/sequencing.FASTQSummary
+        values:
+          read_set_revision: 1
+          library_revision: 1
+          sample: 00000000-0000-7000-8003-000000000099
+          review_flow: regulated_qc
+          statistics:
+            - mate: 1
+              sha256: 6b24de24501313e95f0597303d570b12bdf2df74317030452f8ae58d6bb22999
+              reads: 4
+              bases: 200
+              mean_phred: 35.27
+              q30_percent: 90.0
+            - mate: 2
+              sha256: 1ab8434e9506286e721ed74b73a8d95b14fa926e19d7095e125d613711e125d7
+              reads: 4
+              bases: 200
+              mean_phred: 6.88
+              q30_percent: 14.0
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: same_mate_is_refused
+action: summarize_fastq
+files: { first: tests/data/SRR8690267_1.fastq }
+inputs:
+  reads:
+    - values:
+        read_1: { $file: first }
+        read_2: { $file: first }
+      included:
+        library:
+          - values: { sample: 00000000-0000-7000-8003-000000000099 }
+expect:
+  error: the two mate files have identical content.

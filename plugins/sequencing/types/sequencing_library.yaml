@@ -1,0 +1,24 @@
+apiVersion: iki/v1
+kind: EntityType
+name: SequencingLibrary
+label: Sequencing library
+schema_version: 1
+hrid: { prefix: SEQL }
+description: A prepared library belonging to one sample or collected material record.
+fields:
+  name: { type: string, required: true, max_length: 200 }
+  sample:
+    type: ref
+    to: iki/core.Entity
+    required: true
+    immutable: true
+    description: Choose the actual sample, tube, or material used to prepare this library.
+  strategy: { type: string, required: true, max_length: 100, description: "For example, RNA-Seq." }
+  preparation: { type: text, max_length: 2000, description: Library preparation protocol or kit. }
+  sample_accession:
+    type: string
+    label: BioSample accession
+    max_length: 32
+    pattern: "^(SAMN|SAMEA|SAMD)[0-9]+$"
+    link: https://www.ebi.ac.uk/biosamples/samples/{value}
+display: { title: "{{ name }}" }
