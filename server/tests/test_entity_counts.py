@@ -6,12 +6,15 @@ The sequences are real ones: the M13 forward (-20) and reverse sequencing primer
 T7 promoter.
 """
 
-import re
+import json
+from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
+from django.db import connection, models
 from org_world import World, build_world
 from test_api_entities import api_as
+from test_preflight_records import nodes as plan_nodes
 
 from iki_server.entities import counts, services
 from iki_server.entities.models import Entity, ProjectLink
@@ -171,24 +174,53 @@ def test_a_count_that_would_be_slow_is_left_out(
     )
 
 
+def _index_lookups(scan: dict[str, Any]) -> Iterator[str]:
+    """The indexes used for lookups on this scan's own relation."""
+    if scan["Node Type"] in {"Index Scan", "Index Only Scan", "Bitmap Index Scan"}:
+        if scan.get("Index Cond"):
+            yield scan["Index Name"]
+    elif scan["Node Type"] in {"Bitmap Heap Scan", "BitmapAnd", "BitmapOr"}:
+        # Bitmap index nodes carry no relation. Only the bitmap inputs belong to the
+        # heap scan's table. A SubPlan or InitPlan may read a different table entirely.
+        for child in scan.get("Plans", []):
+            if child.get("Parent Relationship") not in {"Outer", "Member"}:
+                continue
+            if child["Node Type"] in {"Bitmap Index Scan", "BitmapAnd", "BitmapOr"}:
+                yield from _index_lookups(child)
+
+
 def test_counting_reads_each_readable_project_by_its_links_index(
     world: World, lab: dict[str, Any]
 ) -> None:
-    """With sequential scans off, as Postgres plans when the tables are large, the count
-    finds each project's records by the links' index (project, entity) of ADR 0103, and
-    each record by its key: it reads what the reader can read, not every record."""
-    from django.db import connection
-
+    """The count can look up project links using either key order (ADR 0103)
+    without scanning the entire entity or project-link table."""
     grouped = counts._counted(world.users["viewer"], world.project.pk)
     with connection.cursor() as cursor:
         # Statistics of this test's own rows, not whatever other tests on this database
         # left behind: with those, the plan depended on which tests ran before it.
         cursor.execute("ANALYZE iki_entity, iki_entity_project")
         cursor.execute("SET LOCAL enable_seqscan = off")
-        plan = grouped.explain()
-    # By either of the links' indexes: Postgres 18 can skip-scan the (entity, project) one
-    # for a project, and on a test's few rows it may. What matters is that neither table is
-    # read whole (an index or bitmap scan, never a sequential one), and that the links are
-    # found by their project.
-    assert "Seq Scan on iki_entity" not in plan, plan
-    assert re.search(r"Index Cond: \(project_id = ", plan), plan
+        plan = json.loads(grouped.explain(format="json"))[0]["Plan"]
+
+    links = ProjectLink._meta
+    # A unique constraint also creates an index. Only key fields can serve a lookup;
+    # Django records any INCLUDE columns separately.
+    project_indexes = {
+        index.name
+        for index in [*links.indexes, *links.constraints]
+        if isinstance(index, (models.Index, models.UniqueConstraint))
+        and any(field.removeprefix("-") == "project" for field in index.fields)
+    }
+    steps = list(plan_nodes(plan))
+    assert not any(
+        step["Node Type"] == "Seq Scan"
+        and step.get("Relation Name") in {Entity._meta.db_table, links.db_table}
+        for step in steps
+    ), plan
+    lookups = {
+        name
+        for step in steps
+        if step.get("Relation Name") == links.db_table
+        for name in _index_lookups(step)
+    }
+    assert lookups & project_indexes, plan
