@@ -189,19 +189,16 @@ def _index_lookups(scan: dict[str, Any]) -> Iterator[str]:
                 yield from _index_lookups(child)
 
 
-def test_counting_reads_each_readable_project_by_its_links_index(
-    world: World, lab: dict[str, Any]
-) -> None:
-    """The count can look up project links using either key order (ADR 0103)
-    without scanning the entire entity or project-link table."""
+def _count_plan(world: World) -> dict[str, Any]:
     grouped = counts._counted(world.users["viewer"], world.project.pk)
     with connection.cursor() as cursor:
         # Statistics of this test's own rows, not whatever other tests on this database
         # left behind: with those, the plan depended on which tests ran before it.
         cursor.execute("ANALYZE iki_entity, iki_entity_project")
-        cursor.execute("SET LOCAL enable_seqscan = off")
-        plan = json.loads(grouped.explain(format="json"))[0]["Plan"]
+    return cast("dict[str, Any]", json.loads(grouped.explain(format="json"))[0]["Plan"])
 
+
+def _assert_links_index(plan: dict[str, Any]) -> None:
     links = ProjectLink._meta
     # A unique constraint also creates an index. Only key fields can serve a lookup;
     # Django records any INCLUDE columns separately.
@@ -212,11 +209,13 @@ def test_counting_reads_each_readable_project_by_its_links_index(
         and any(field.removeprefix("-") == "project" for field in index.fields)
     }
     steps = list(plan_nodes(plan))
-    assert not any(
-        step["Node Type"] == "Seq Scan"
-        and step.get("Relation Name") in {Entity._meta.db_table, links.db_table}
+    sequential = {
+        step["Relation Name"]
         for step in steps
-    ), plan
+        if step["Node Type"] == "Seq Scan"
+        and step.get("Relation Name") in {Entity._meta.db_table, links.db_table}
+    }
+    assert not sequential, f"Sequential scan on {', '.join(sorted(sequential))}"
     lookups = {
         name
         for step in steps
@@ -224,3 +223,28 @@ def test_counting_reads_each_readable_project_by_its_links_index(
         for name in _index_lookups(step)
     }
     assert lookups & project_indexes, plan
+
+
+def test_counting_reads_each_readable_project_by_its_links_index(
+    world: World, lab: dict[str, Any]
+) -> None:
+    """The count can look up project links using either key order (ADR 0103)
+    without scanning the entire entity or project-link table."""
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_seqscan = off")
+    _assert_links_index(_count_plan(world))
+
+
+def test_count_plan_rejects_a_sequential_scan_of_project_links(
+    world: World, lab: dict[str, Any]
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL enable_seqscan = on")
+        cursor.execute("SET LOCAL enable_indexscan = off")
+        cursor.execute("SET LOCAL enable_indexonlyscan = off")
+        cursor.execute("SET LOCAL enable_bitmapscan = off")
+    plan = _count_plan(world)
+    with pytest.raises(
+        AssertionError, match=rf"Sequential scan on .*\b{ProjectLink._meta.db_table}\b"
+    ):
+        _assert_links_index(plan)
