@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 from iki_spec import naming
+from iki_spec.formula import LOSS_PATTERN
 
 __all__ = [
     "APPROVAL_ROLES",
@@ -82,6 +83,7 @@ FORMATS: dict[str, str] = {
     # HELM 2 (ADR 0144): the database checks its shape, its four sections and version;
     # iki-wasm reads the rest, as `value_problems` does.
     "helm": r"^(PEPTIDE|RNA|CHEM|BLOB)[0-9]+[{].*[$].*[$].*[$].*[$](V2[.]0)?$",
+    "atom_loss_formula": LOSS_PATTERN,
     "email": r"^[^@\s]+@[^@\s]+\.[^@\s]+$",
     "uri": r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s]+$",
     # A DNS name in lower case, such as lims.example.com: what an action's `network`

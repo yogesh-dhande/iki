@@ -57,6 +57,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from iki_spec.formula import canonical_loss
+
 if TYPE_CHECKING:
     from iki_spec.model import Field
 
@@ -115,8 +117,8 @@ def kind_of(f: Field, values: Mapping[str, Any]) -> Kind:
                 items=Kind("row", row=tuple((n, kind_of(item.fields[n], {})) for n in names)),
             )
         return Kind("list", items=kind_of(item, {}))
-    if f.format == "helm":
-        return Kind(f.type, format="helm")
+    if f.format in ("helm", "atom_loss_formula"):
+        return Kind(f.type, format=f.format)
     if f.format in SEQUENCE_FORMATS:
         return Kind(
             f.type,
@@ -219,6 +221,8 @@ def canonical(kind: str | Kind, value: Any) -> Encoded:  # noqa: ANN401 - any va
         if kind.format is not None and value is not None:
             if not isinstance(value, str):
                 raise ValueError(f"a sequence identity value must be text, not {value!r}")
+            if kind.format == "atom_loss_formula":
+                return canonical_loss(value)
             if kind.format == "helm":
                 from iki_spec import helm  # iki-wasm, loaded only for HELM
 
