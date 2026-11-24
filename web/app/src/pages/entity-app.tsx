@@ -13,11 +13,11 @@ import { apiRef, entityQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { Loading, ProblemAlert } from "../ui";
 import { AppPanel } from "./app";
-import { EntityTabs, useEntity } from "./entity";
-import { NotFound } from "./errors";
+import { useEntity } from "./entity";
+import { NoSuchTab } from "./errors";
 
 export function EntityApp() {
-  const { entity, type, types } = useEntity();
+  const { entity, types } = useEntity();
   const { app: ref } = useParams({ from: "/entities/$ref/apps/$app" });
   const listed = useQuery(entityAppsQuery(apiRef(entity)));
   const tab = listed.data?.find((a) => a.hrid === ref.toUpperCase());
@@ -26,7 +26,7 @@ export function EntityApp() {
   let body: React.ReactNode;
   if (listed.isError) body = <ProblemAlert problem={problemOf(listed.error)} />;
   else if (!listed.data) body = <Loading label="Finding its apps…" />;
-  else if (!tab) body = <NotFound />;
+  else if (!tab) body = <NoSuchTab />;
   else if (app.isError) body = <ProblemAlert problem={problemOf(app.error)} />;
   else if (!app.data) body = <Loading label="Opening the app…" />;
   else {
@@ -43,10 +43,5 @@ export function EntityApp() {
       </>
     );
   }
-  return (
-    <>
-      <EntityTabs entity={entity} type={type} />
-      {body}
-    </>
-  );
+  return <>{body}</>;
 }

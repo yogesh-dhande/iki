@@ -8,7 +8,15 @@
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
+import {
+  Link,
+  Outlet,
+  useMatches,
+  useNavigate,
+  useParams,
+  useRouterState,
+  useSearch,
+} from "@tanstack/react-router";
 import { lazy, Suspense, useId, useState } from "react";
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
@@ -78,6 +86,31 @@ declare module "@tanstack/react-router" {
   interface HistoryState {
     moved?: MovedState;
   }
+}
+
+/**
+ * A record's pages: its header and tabs, then the tab that's open. The header and tabs are
+ * drawn here, once for all its tabs, not by each tab: a tab's page can wait on what it
+ * reads (the record again, under the `?project=` its tabs' links carry, or its code) after
+ * the address has changed, and a strip each tab drew afresh was replaced under the reader
+ * when the new tab came, with whatever they were pressing or reading. Its edit page has a
+ * header of its own and no tabs.
+ */
+export function RecordPages() {
+  const editing = useMatches({
+    select: (matches) => matches.some((m) => m.routeId === "/entities/$ref/edit"),
+  });
+  return (
+    <>
+      {editing ? null : <RecordTabs />}
+      <Outlet />
+    </>
+  );
+}
+
+function RecordTabs() {
+  const { entity, type } = useEntity();
+  return <EntityTabs entity={entity} type={type} />;
 }
 
 /** The most lines of a JSON value an entity's page shows unfolded. */
@@ -1314,7 +1347,6 @@ export function EntityOverview() {
       : null;
   return (
     <>
-      <EntityTabs entity={entity} type={type} />
       <div className="record-body">
         <div className="record-main">
           {moved?.to === entity.hrid ? <MovedNote moved={moved} entity={entity} /> : null}

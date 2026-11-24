@@ -57,7 +57,7 @@ import {
   ProblemAlert,
   SelectField,
 } from "../ui";
-import { EntityTabs, useEntity } from "./entity";
+import { useEntity } from "./entity";
 
 /** How the page names things: types and actions by their labels. */
 interface Names {
@@ -69,7 +69,7 @@ interface Names {
 const ROUTE = "/entities/$ref/lineage/";
 
 export function EntityLineage() {
-  const { entity, type, types } = useEntity();
+  const { entity, types } = useEntity();
   usePageTitle(`Lineage of ${entity.title} (${entity.hrid})`);
   const search = useSearch({ from: "/entities/$ref/lineage" });
   const actions = useQuery(actionsQuery).data;
@@ -83,7 +83,6 @@ export function EntityLineage() {
   const at = (change: Partial<LineageSearch>): LineageSearch => ({ ...search, ...change });
   return (
     <>
-      <EntityTabs entity={entity} type={type} />
       <p className="muted">
         What {entity.title} was derived from, and what was derived from it: through what its fields
         name, the runs that made things from it, and the files they read. Only what you can read is

@@ -1468,7 +1468,11 @@ def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
     be pressed, and lets go after they arrive; "after" clicks, once they have, where it was
     first drawn. Either opens its audit trail. It didn't: drawn before them, Audit trail
     moved 31 px right as Lineage's count arrived, so a press near its start that began on
-    it ended on Lineage, and a click there opened Lineage."""
+    it ended on Lineage, and a click there opened Lineage.
+
+    Then the tabs stay as they are while the audit trail opens. Its tab's link carries the
+    record's project, so the record is read again under it, held back here: each tab drew
+    its own strip, so the one pressed was replaced when the audit trail came."""
     from iki_server.entities import services as entities
 
     made = entities.create(
@@ -1522,6 +1526,10 @@ def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
         tabs.get_by_role("link", name=re.compile(r"^Lineage\W+\d")).wait_for()
         page.evaluate(NEXT_FRAMES)
 
+    # The record, read again under its project once the audit trail is asked for.
+    again = re.compile(rf"/api/v1/entities/{hrid}\?project=")
+    record: list[Route] = []
+    page.route(again, lambda route: record.append(route))
     if press == "across":
         page.mouse.move(x, y)
         page.mouse.down()
@@ -1544,7 +1552,19 @@ def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
             + what_happened(page)
         ) from error
     assert settled == first
-    assert holding == tabs.bounding_box()
+    # The strip on screen while the record is read again is the one the audit trail has.
+    deadline = time.monotonic() + 10
+    while not record and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert record
+    strip = tabs.element_handle()
+    for route in record:
+        route.continue_()
+    page.unroute(again)
+    page.get_by_role("group", name="Show").get_by_role("button", name="Timeline").wait_for()
+    page.evaluate(NEXT_FRAMES)
+    assert strip.evaluate("(nav) => nav.isConnected")
+    assert holding == strip.bounding_box() == tabs.bounding_box()
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
     assert_clean(page)
     page.context.close()
