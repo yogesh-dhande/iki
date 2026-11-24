@@ -72,6 +72,7 @@ class ActionTest:
     output: dict[str, Any] | None = None
     error: str | None = None
     tolerance: float = TOLERANCE
+    upgrade: bool = False
 
 
 @dataclass
@@ -229,6 +230,7 @@ class _Check:
             output=expect.get("output"),
             error=expect.get("error"),
             tolerance=float(expect.get("tolerance", TOLERANCE)),
+            upgrade=data.get("upgrade", False),
         )
 
     def _inputs(

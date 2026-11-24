@@ -2374,6 +2374,11 @@ expect:
   `included: { chains: [{ values: { sequence: EVQ… } }] }`. Each gets
   an ID, which the reference holds; for a list of rows' references
   (`components.part`), each row's, in order.
+- `upgrade: true` marks a fixture with complete records for
+  `iki plugin test --upgrade-from`. Its inputs and included records are
+  created in the earlier build. The probe prefers marked fixtures from
+  the earlier commit. A plugin can supply current marked fixtures for
+  commits whose worker fixtures describe partial input snapshots (ADR 0094).
 - `files` names files in the plugin. A value or param uses one as
   `{"$file": "name"}`.
 - `expect.output` is compared by what it gives: every key in a mapping,

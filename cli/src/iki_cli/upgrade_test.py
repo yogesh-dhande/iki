@@ -29,7 +29,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from iki_codegen import build as build_apps
 from iki_spec import action_tests
-from iki_spec.model import EntityType, Field, Plugin
+from iki_spec.model import EntityType, Field, Plugin, included_reference
 from iki_spec.yamlsource import read_documents
 
 #: How much of a failing step's log is shown.
@@ -81,7 +81,12 @@ def run(
         current = _built(directory, dependencies, work / "build-current", err)
         if earlier is None or current is None:
             return False
-        samples = _samples(earlier_dir, earlier, types)
+        marked = _samples(earlier_dir, earlier, types, marked_only=True)
+        sample_source = "earlier"
+        if not marked:
+            marked = _samples(directory, plugin, types, marked_only=True)
+            sample_source = "current"
+        samples = marked or _samples(earlier_dir, earlier, types)
         steps = [
             (
                 "before",
@@ -105,6 +110,10 @@ def run(
                 f"{plugin.version} on the scratch database {scratch.name}, with "
                 f"{len(samples)} sample(s):\n"
             )
+            if marked:
+                out.write(
+                    f"          Using fixtures marked upgrade in the {sample_source} plugin.\n"
+                )
             if not samples:
                 out.write(
                     f"          The earlier commit has no action tests with entities in "
@@ -267,22 +276,53 @@ def _built(
     return loaded[0][0]
 
 
-def _samples(directory: Path, plugin: Plugin, types: dict[str, EntityType]) -> list[dict[str, Any]]:
-    """The earlier commit's action tests' input entities, without values that name files."""
+def _samples(
+    directory: Path,
+    plugin: Plugin,
+    types: dict[str, EntityType],
+    *,
+    marked_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Earlier worker inputs, or complete fixtures marked for database seeding."""
     loaded = action_tests.load_tests(directory, plugin, types)
-    out = []
+    every = {**types, **{t.qualified_name: t for t in plugin.types.values()}}
+    samples = []
     for test in loaded.tests:
+        if marked_only and not test.upgrade:
+            continue
         for name, entities in test.inputs.items():
             for n, entity in enumerate(entities, start=1):
-                values = {k: v for k, v in entity["values"].items() if not _names_a_file(v)}
-                out.append(
-                    {
-                        "type": entity.get("type") or test.action.inputs[name].type,
-                        "values": values,
-                        "from": f"{test.name}'s {name} {n}",
-                    }
-                )
-    return out
+                type_name = entity.get("type") or test.action.inputs[name].type
+                label = f"{test.name}'s {name} {n}"
+                sample = _sample(type_name, entity, label)
+                if marked_only and entity.get("included"):
+                    fields = action_tests.fields_of(every[type_name], every)
+                    included = {}
+                    for reference, named in entity["included"].items():
+                        field = included_reference(fields, reference)
+                        assert field is not None  # noqa: S101 - validated by load_tests
+                        targets = action_tests.targets_of(field)
+                        included[reference] = [
+                            _sample(
+                                other.get("type") or targets[0],
+                                other,
+                                f"{label}'s {reference} {index}",
+                            )
+                            for index, other in enumerate(named, 1)
+                        ]
+                    sample["included"] = included
+                samples.append(sample)
+    return samples
+
+
+def _sample(type_name: str, entity: dict[str, Any], label: str) -> dict[str, Any]:
+    return {
+        "type": type_name,
+        "values": {
+            name: value for name, value in entity["values"].items() if not _names_a_file(value)
+        },
+        "from": label,
+    }
 
 
 def _names_a_file(value: Any) -> bool:  # noqa: ANN401 - YAML data

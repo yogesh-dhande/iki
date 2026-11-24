@@ -2561,23 +2561,27 @@ def git(repo: Path, *args: str) -> None:
     )
 
 
-@pytest.fixture
-def versioned(lab: Path) -> Path:
+def commit_weighing_fixture(lab: Path, action: str = WEIGH, fixture: str = WEIGHED) -> Path:
     """The lab plugin, with an action and a test, committed at its first migration."""
     (lab / "actions").mkdir()
-    (lab / "actions" / "weigh.yaml").write_text(WEIGH)
+    (lab / "actions" / "weigh.yaml").write_text(action)
     (lab / "environments").mkdir()
     (lab / "environments" / "tools.yaml").write_text(TOOLS)
     (lab / "requirements.txt").write_text("")
     (lab / "weigh.py").write_text("")
     (lab / "tests").mkdir()
-    (lab / "tests" / "weighed.yaml").write_text(WEIGHED)
+    (lab / "tests" / "weighed.yaml").write_text(fixture)
     made("lab", "--no-input", cwd=lab.parent)
     repo = lab.parent
     git(repo, "init", "-q", "-b", "main")
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "v1")
     return lab
+
+
+@pytest.fixture
+def versioned(lab: Path) -> Path:
+    return commit_weighing_fixture(lab)
 
 
 def upgrade(lab: Path, server: str, *args: str) -> subprocess.CompletedProcess[str]:
@@ -2611,6 +2615,61 @@ def test_an_upgrade_keeps_the_samples_and_rolls_back(versioned: Path, _postgres_
             "SELECT datname FROM pg_database WHERE datname = %s", [header.group(1)]
         ).fetchall()
     assert left == []  # the scratch database is dropped
+
+
+@pytest.mark.parametrize("earlier_marked", [False, True])
+def test_upgrade_uses_complete_fixtures_with_included_references(
+    lab: Path, _postgres_url: str, earlier_marked: bool
+) -> None:
+    material = """
+apiVersion: iki/v1
+kind: EntityType
+name: Material
+schema_version: 1
+hrid: { prefix: MAT }
+identity: [code]
+fields:
+  code: { type: string, required: true, immutable: true, max_length: 20 }
+  description: { type: text }
+"""
+    (lab / "types" / "material.yaml").write_text(material)
+    material_ref = (
+        "  count: { type: int }",
+        "  count: { type: int }\n  material: { type: ref, to: Material, required: true }",
+    )
+    write_sample(lab, material_ref, ("schema_version: 1", "schema_version: 2"))
+    action = WEIGH.replace('schema: ">=1"', 'schema: ">=1", include: [material]')
+    earlier = (
+        WEIGHED
+        + """
+      included:
+        material:
+          - values: { description: A worker only reads this description. }
+"""
+    )
+    marked = earlier.replace(
+        "action: weigh", "name: complete_weight_sample\nupgrade: true\naction: weigh"
+    )
+    complete = marked.replace(
+        "description: A worker only reads this description.", "code: M1, description: Sample"
+    )
+    commit_weighing_fixture(lab, action, complete if earlier_marked else earlier)
+    tests = lab / "tests" / "weighed.yaml"
+    tests.write_text(earlier + "---\n" + (marked if earlier_marked else complete))
+    write_sample(
+        lab,
+        material_ref,
+        ("  old: { type: string }", "  old: { type: string }\n  notes: { type: text }"),
+        ("schema_version: 1", "schema_version: 3"),
+    )
+    made("lab", "--no-input", cwd=lab.parent)
+    result = upgrade(lab, _postgres_url, "-k", "none")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "with 1 sample(s)" in result.stdout
+    source = "earlier" if earlier_marked else "current"
+    assert f"Using fixtures marked upgrade in the {source} plugin." in result.stdout
+    assert "upgraded: the samples and their history are intact" in result.stdout
+    assert "rolled back: the samples have their values" in result.stdout
 
 
 def test_a_type_that_changes_needs_a_higher_schema_version(
