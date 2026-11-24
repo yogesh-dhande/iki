@@ -1,0 +1,215 @@
+---
+title: Keep how much of each thing there is
+description: Give a type of physical thing an amount that Iki keeps as a ledger, draw, transfer and split it, hold it in a state, say where records are kept, and list a catalogue's stock and reorders.
+audience: build
+order: 90
+reference:
+  - { label: "Entity type: amount", href: /reference/plugin-spec/entity-type/#amount }
+  - { label: "Entity type: storage", href: /reference/plugin-spec/entity-type/#storage }
+  - { label: "Entity type: stock_catalogue", href: /reference/plugin-spec/entity-type/#stock_catalogue }
+---
+
+A type whose records are things in the lab, such as a sample, a lot or a tube, can keep how much
+of each there is: its [`amount`](/reference/plugin-spec/entity-type/#amount). Iki keeps it, never
+below zero, and changes it only by its own operations: recorded when a record is made, then drawn
+(used up), transferred to another record, split into aliquots, or adjusted to what it was found to
+be, with a reason.
+
+Each change is a movement of the record's ledger, with who made it, how, when and why; two people
+drawing at once take turns. The amount isn't one of the record's values, so it isn't in its
+revisions, and a state that locks the record doesn't stop it being drawn.
+
+The LIMS example's sample is drawn by volume, or by protein mass at its concentration, and split
+into aliquots:
+
+```yaml
+name: Sample
+amount:
+  unit: uL
+  label: Volume
+  description: How much of the sample is left.
+  display_unit: mL
+  concentration: concentration
+  aliquots: { type: Aliquot, of: sample }
+fields:
+  concentration:
+    type: quantity
+    unit: mg/mL
+    min: 0
+    description: Its protein concentration.
+```
+
+## Units and concentrations
+
+- [`unit`](/reference/plugin-spec/entity-type/#amount.unit) measures how much there is of
+  something: a volume, a mass, an amount of substance or a count such as `{vial}`, never a
+  temperature or a ratio (`amount-unit`). An amount is given in its unit or any that converts to
+  it, and kept exactly, as a decimal; each movement keeps what was asked for as it was given, to 40
+  places either side of its point.
+  [`display_unit`](/reference/plugin-spec/entity-type/#amount.display_unit) measures the same
+  thing (`amount-unit`).
+- [`whole_units: true`](/reference/plugin-spec/entity-type/#amount.whole_units) requires a whole
+  number in the ledger's unit after conversion, for a lot of individual consumables: its starting
+  stock, draws, transfers, splits and adjustments. The inventory plugin's count lots:
+  `amount: { unit: "1", label: Consumable count, material: item, whole_units: true }`.
+- [`concentration`](/reference/plugin-spec/entity-type/#amount.concentration) names a quantity
+  field of the type whose unit, times a volume, is a mass or an amount of substance (mg/mL,
+  mmol/L), or the other way about (`amount-concentration`). An amount in a volume is then drawn as
+  a mass at the record's concentration, and an amount in a mass as a volume: 50 ug of a 2 mg/mL
+  sample is 25 uL.
+
+## Splits, transfers and what they're of
+
+- A split makes each aliquot a new record in the same project, holding its share, and takes
+  exactly what they hold: nothing is made or lost, and it's all of them or none. An aliquot is of
+  the type's own type by default, with its values but not its unique ones or its states. Or
+  [`aliquots`](/reference/plugin-spec/entity-type/#amount.aliquots) names another type with an
+  amount in the same kind of unit, and [`of`](/reference/plugin-spec/entity-type/#amount.aliquots.of)
+  its reference to the type, which names the record each was split from (`amount-aliquots`).
+- Each aliquot depends on what it was split from, and a record transferred into depends on what
+  was moved into it. A draw with `used_in` links the receiving record to the stock it used.
+  Lineage walks can follow or filter these edges as `aliquot`, `transfer` or `used`.
+- [`material`](/reference/plugin-spec/entity-type/#amount.material) names a required, immutable
+  reference of the type to what its amount is of, such as a lot's catalogue item
+  (`amount-material`). A transfer into one of its records takes only material of that entity, from
+  a record whose type says so too (a reference to a registry entry and one to a project's record of
+  it are the same entity), and its aliquots are of it too, whatever they're given. Pooling different
+  materials makes a mixture: a record of its own.
+- A transfer into a record a state locks, such as a released lot, takes only material from a
+  record in that same state, so nothing that wasn't released becomes part of what was.
+- [`follows`](/reference/plugin-spec/entity-type/#amount.follows) names references whose records'
+  eligibility a draw also meets, such as a tube's lot: a state holding the lot's amount holds the
+  tube's, and the lot's draw guards are checked too. The LIMS example's tubes follow
+  `[lot, sample]`.
+
+## Holds and locks
+
+[`holds_amount: true`](/reference/plugin-spec/field/#states.holds_amount) on a state stops any of
+the amount being drawn, transferred or split off while the record's in it, as a quarantine does. It
+can still be adjusted. Only a type with an amount has a state that holds it
+(`holds-without-amount`), or an abstract type whose subtypes each keep their own, in their own
+units, as every kind of lot shares one disposition; a concrete subtype of it without an amount is
+refused.
+
+Draws can be narrowed further:
+
+- [`draw_guards`](/reference/plugin-spec/entity-type/#draw_guards) are conditions on taking an
+  amount, by a draw, a transfer or a split, in CEL as guards are. They read `record`, `now`,
+  `today`, `operation` and `purpose`, and each subtype keeps its ancestors'.
+- [`draw_purposes`](/reference/plugin-spec/entity-type/#draw_purposes) names the lab roles that may
+  draw for each purpose, `routine` or `qa_sampling`, in the record's project. Routine draws are
+  open to Editors unless restricted, and QA sampling requires a declaration.
+
+## Receiving a draw into a record
+
+A destination type can record each draw made into it: declare
+[`draws_received`](/reference/plugin-spec/entity-type/#draws_received) naming a computed JSON
+field among its fields, such as `material_draws: { type: json, computed: true }`.
+
+- Each draw whose `used_in` is the record appends the movement's ID, the drawn record's ID and
+  revision, the positive quantity in the ledger's unit, the person and the time. A tube's upstream
+  lot ID and revision are included when the person can refer to that lot in the receiving project.
+- The debit and the receiving record's revision commit together. The person must be able to edit
+  the destination and draw from the material, and a state lock on the destination prevents the
+  draw.
+- Signatures cover the receipts on the revision they sign, and subtypes inherit the field.
+
+## One amount per record
+
+A record has one amount: a subtype has its parent's (`amount-twice`). A type with an identity has
+none, since each project has one record of each entry, which isn't a thing in the lab
+(`amount-on-identity`).
+
+The REST API's `POST /api/v1/entities` takes an `amount`; `/entities/{ref}/amount` draws,
+transfers and adjusts it and lists its ledger, and `/entities/{ref}/aliquots` splits it. Each
+change is in the audit log, and the webhook event `entity.amount_moved` says so.
+
+## Where things are kept
+
+A type with [`storage`](/reference/plugin-spec/entity-type/#storage) has records that are kept
+somewhere, or that keep others. Iki keeps where each is, in which container and position, who has
+it, and every move, as a ledger of its own. The inventory plugin's stock location is a shelf or
+rack of lots:
+
+```yaml
+name: StockLocation
+label: Stock location
+schema_version: 1
+hrid: { prefix: SLC }
+storage:
+  holds: [StockLot]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+fields:
+  name: { type: string, required: true, max_length: 160, indexed: true }
+  rows: { type: int, required: true, immutable: true, min: 1, max: 26, default: 1 }
+  columns: { type: int, required: true, immutable: true, min: 1, max: 48, default: 12 }
+```
+
+- [`holds`](/reference/plugin-spec/entity-type/#storage.holds) names the types that can be kept
+  in it, and [`grid`](/reference/plugin-spec/entity-type/#storage.grid) its positions in rows and
+  columns, each holding one record.
+- [`barcode`](/reference/plugin-spec/entity-type/#storage.barcode) names a unique string field
+  holding the code on it already, and
+  [`confirm`](/reference/plugin-spec/entity-type/#storage.confirm) what needs that code scanned
+  first, a `draw` or a `move`. The LIMS example's tubes are scanned before each draw.
+- A type kept in storage declares `storage: {}`, as the inventory plugin's stock lots do.
+
+## Stock and reorders
+
+A catalogue type opts into the project's stock view and reorder list with
+[`stock_catalogue`](/reference/plugin-spec/entity-type/#stock_catalogue). A lab declares its item,
+lot, order and recipient fields on its own types. The inventory plugin's stock item:
+
+```yaml
+name: StockItem
+hrid: { prefix: SCI }
+stock_catalogue:
+  name: name
+  unit: stock_unit
+  threshold: low_stock_at
+  notify: [stock_manager]
+  lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
+  orders:
+    {
+      type: ReorderLine,
+      item: item,
+      ordered: ordered_packs,
+      received: received_packs,
+      reference: order_reference,
+    }
+fields:
+  stock_unit:
+    type: enum
+    values: [mg, mL, "1"]
+    required: true
+    immutable: true
+    description: The stock ledger unit. Use 1 for a count of individual consumables.
+  low_stock_at:
+    type: float
+    label: Low-stock threshold
+    required: true
+    min: 0
+```
+
+- The item's [`unit`](/reference/plugin-spec/entity-type/#stock_catalogue.unit) is a required,
+  immutable enum that gives its ledger unit, and its
+  [`threshold`](/reference/plugin-spec/entity-type/#stock_catalogue.threshold) a required number
+  with a minimum of zero or more.
+- Each [lot](/reference/plugin-spec/entity-type/#stock_catalogue.lots) and
+  [order](/reference/plugin-spec/entity-type/#stock_catalogue.orders) refers to an active catalogue
+  item owned by the same project, with a required, immutable reference. Every concrete lot type's
+  amount uses that reference as its `material`, and matches the item's unit.
+- An open order counts its ordered packs less the packs already received; a missing received count
+  means none.
+
+A project's reader can page through `GET /api/v1/projects/{project_id}/stock`, an item's
+`/stock/{item_id}/lots` and the project's `/stock/orders`:
+
+- Physical stock is the current ledger balance of the item's lots. Stored stock is in a container
+  and checked in. Available stock also passes routine draw guards and hold, archive and expiry
+  checks.
+- A reader sees a container's ID and position only when they can read it.
+- The low-stock list (`low_only=true`) has the items whose available stock is at or below their
+  threshold, including items without lots. The periodic stock check tells the
+  [`notify`](/reference/plugin-spec/entity-type/#stock_catalogue.notify) lab roles in the project
+  once each time an item runs low.
