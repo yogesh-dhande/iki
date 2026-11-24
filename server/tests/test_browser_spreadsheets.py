@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 from org_world import World
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Locator, Page, Request, Response, expect
 from real_server import Server
 from test_browser import (  # noqa: F401 - fixtures
     PAGE_ERRORS,
@@ -30,6 +30,7 @@ from workbook_files import Date, xlsx
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.runs.models import ActionRun, ExternalOrigin
+from iki_server.spreadsheets.models import SavedMapping, SpreadsheetImport
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -454,3 +455,242 @@ def test_a_change_made_in_another_tab_is_shown_not_overwritten(
     shown = on_screen(page)
     assert shown == saved(page, import_id)
     assert (shown["first_row"], shown["skip"]) == ("5", "11")
+
+
+def csv_columns(open_as: Any, filename: str, content: bytes) -> Page:
+    page: Page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}")
+    page.get_by_label("Upload a workbook").set_input_files(
+        {"name": filename, "mimeType": "text/csv", "buffer": content}
+    )
+    page.get_by_role("heading", name="Sheet and rows").wait_for(timeout=60_000)
+    page.get_by_role("button", name="Next: columns").click()
+    return page
+
+
+def csrf_headers(page: Page) -> dict[str, str]:
+    token = page.locator('meta[name="csrf-token"]').get_attribute("content")
+    assert token
+    return {"X-CSRFToken": token}
+
+
+def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
+    open_as: Any, world: World, tasks: Server
+) -> None:
+    name = "Dispatch format"
+    manifest = b"Label,Tags\nParcel,Inbound\n"
+
+    def submit(button: Locator) -> Response:
+        with button.page.expect_response("**/spreadsheet-imports/*/mappings") as response:
+            button.click()
+        return response.value
+
+    def omit_tags(tab: Page) -> int:
+        with tab.expect_response(lambda r: r.request.method == "PATCH") as response:
+            tab.get_by_role("combobox", name="Field for B: Tags").select_option("")
+        assert response.value.ok, response.value.text()
+        return int(response.value.json()["revision"])
+
+    page = csv_columns(open_as, "dispatch.csv", manifest)
+    dialog = page.get_by_role("alertdialog", name="Save this mapping")
+    open_review = page.get_by_role("button", name="Save this mapping…")
+    open_review.click()
+    dialog.get_by_role("textbox", name="Name").fill(name)
+    created = submit(dialog.get_by_role("button", name="Save", exact=True))
+    assert created.status == 201, created.text()
+    target = created.json()
+    expect(dialog).to_have_count(0)
+    assert [c["header"] for c in target["columns"]] == ["Label", "Tags"]
+
+    # A different import of the same format replaces the same saved template.
+    other = csv_columns(open_as, "labels-only.csv", manifest)
+    other_import = other.url.rstrip("/").rsplit("/", 1)[-1]
+    omit_tags(other)
+    other.get_by_role("button", name="Save this mapping…").click()
+    other_save = other.get_by_role("alertdialog").get_by_role("button", name="Save changes")
+    expect(other_save).to_be_enabled()
+    import_id = page.url.rstrip("/").rsplit("/", 1)[-1]
+    with page.expect_response(f"**/spreadsheet-imports/{import_id}") as source:
+        page.reload()
+    page.get_by_role("button", name="Next: columns").click()
+    open_review.click()
+    save = dialog.get_by_role("button", name="Save changes")
+    expect(save).to_be_enabled()
+    first_etag = source.value.headers["etag"]
+    changed_target = submit(other_save)
+    assert changed_target.status == 201, changed_target.text()
+    newer = changed_target.json()
+    assert newer["id"] == target["id"]
+    assert [c["header"] for c in newer["columns"]] == ["Label"]
+
+    stale = submit(save)
+    assert stale.status == 409, (stale.request.post_data_json, stale.text())
+    reviewed = {"name": name, "replace": target["id"], "target_revision": target["revision"]}
+    assert stale.request.post_data_json == reviewed
+    assert stale.request.header_value("if-match") == first_etag
+    expect(dialog.get_by_role("alert")).to_contain_text(stale.json()["detail"])
+    expect(save).to_be_disabled()
+    assert SavedMapping.objects.get(pk=target["id"]).columns == newer["columns"]
+
+    review_latest = dialog.get_by_role("button", name="Review latest mapping")
+    current = dialog.get_by_role("region", name="Current saved mapping")
+    proposed = dialog.get_by_role("region", name="Mapping to save")
+    review_latest.click()
+    expect(current.get_by_role("row").filter(has_text="Label")).to_be_visible()
+    expect(current.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    retried = submit(save)
+    assert retried.status == 201, retried.text()
+    assert retried.request.header_value("if-match") == first_etag
+    assert retried.request.post_data_json == {**reviewed, "target_revision": newer["revision"]}
+    restored = retried.json()
+    assert restored["columns"] == target["columns"]
+    expect(dialog).to_have_count(0)
+
+    # The template now stays put, but a different tab edits this review's source.
+    open_review.click()
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    other.goto(page.url)
+    other.get_by_role("button", name="Next: columns").click()
+    revision = omit_tags(other)
+    stale = submit(save)
+    assert stale.status == 412, stale.text()
+    assert stale.request.header_value("if-match") == first_etag
+    reviewed = {**reviewed, "target_revision": restored["revision"]}
+    assert stale.request.post_data_json == reviewed
+    expect(save).to_be_disabled()
+    assert SavedMapping.objects.get(pk=target["id"]).revision == restored["revision"]
+    review_latest.click()
+    expect(current.get_by_role("row").filter(has_text="Tags")).to_be_visible()
+    expect(proposed.get_by_role("row").filter(has_text="Label")).to_be_visible()
+    expect(proposed.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
+    accepted = submit(save)
+    assert accepted.status == 201, accepted.text()
+    assert accepted.request.header_value("if-match") == f'"{revision}"'
+    assert accepted.request.post_data_json == reviewed
+    assert accepted.json()["columns"] == newer["columns"]
+    expect(dialog).to_have_count(0)
+
+    # A new template with the same name must never receive the old template's write.
+    open_review.click()
+    expect(save).to_be_enabled()
+    api = other.context.request
+    removed = api.delete(
+        f"/api/v1/spreadsheet-mappings/{target['id']}", headers=csrf_headers(other)
+    )
+    assert removed.status == 204, removed.text()
+    other_detail = f"/api/v1/spreadsheet-imports/{other_import}"
+    source_now = api.get(other_detail)
+    assert source_now.ok, source_now.text()
+    duplicate = api.post(
+        other_detail + "/mappings",
+        headers={**csrf_headers(other), "If-Match": source_now.headers["etag"]},
+        data={"name": name},
+    )
+    assert duplicate.status == 201, duplicate.text()
+    homonym = duplicate.json()
+    assert homonym["id"] != target["id"]
+    gone = submit(save)
+    # Removing the template leaves the import's saved attribution and revision intact.
+    assert gone.status == 404, gone.text()
+    assert gone.request.post_data_json == {
+        **reviewed,
+        "target_revision": accepted.json()["revision"],
+    }
+    review_latest.click()
+    expect(dialog.get_by_role("alert")).to_contain_text("no longer available")
+    expect(save).to_be_disabled()
+    assert (
+        SavedMapping.objects.get(project=world.project, name=name).revision == homonym["revision"]
+    )
+
+    fresh_name = "Revised dispatch format"
+    current_source = api.get(f"/api/v1/spreadsheet-imports/{import_id}")
+    assert current_source.ok, current_source.text()
+    assert gone.request.header_value("if-match") == current_source.headers["etag"]
+    dialog.get_by_role("button", name="Save as a new mapping").click()
+    dialog.get_by_role("textbox", name="Name").fill(fresh_name)
+    created = submit(dialog.get_by_role("button", name="Save", exact=True))
+    assert created.status == 201, created.text()
+    assert created.request.post_data_json == {"name": fresh_name}
+    assert created.request.header_value("if-match") == current_source.headers["etag"]
+    assert created.json()["id"] not in (target["id"], homonym["id"])
+    assert created.json()["columns"] == accepted.json()["columns"]
+    expect(dialog).to_have_count(0)
+    remaining = SavedMapping.objects.get(project=world.project, name=name)
+    assert (str(remaining.pk), remaining.revision, remaining.columns) == (
+        homonym["id"],
+        homonym["revision"],
+        homonym["columns"],
+    )
+
+
+def test_rechecking_unchanged_rows_requires_fresh_approval_and_reason(
+    open_as: Any, world: World, tasks: Server
+) -> None:
+    page = csv_columns(open_as, "dispatch.csv", b"Label,Purity\nParcel,75\nBad,150\n")
+    import_id = page.url.rstrip("/").rsplit("/", 1)[-1]
+    path = f"/api/v1/spreadsheet-imports/{import_id}"
+    row_etags: list[str | None] = []
+
+    def record_rows(request: Request) -> None:
+        if path + "/rows" in request.url:
+            row_etags.append(request.headers.get("if-match"))
+
+    page.on("request", record_rows)
+    with page.expect_response(f"**{path}/preview") as first:
+        page.get_by_role("button", name="Check every row").click()
+    assert first.value.status == 202, first.value.text()
+    reviewed = first.value.headers["etag"]
+    leave_out = page.get_by_role("checkbox", name="Leave out the 1 row with problems")
+    leave_out.check(timeout=60_000)
+    why = page.get_by_role("textbox", name="Why")
+    why.fill("Approved the original preview")
+    approve = page.get_by_role("button", name="Import 1 row", exact=True)
+    expect(approve).to_be_enabled()
+
+    # An API client can repeat the preview directly, without changing even one setting.
+    # This tab is still showing its original approval and has no pending row reads.
+    newer = page.context.request.post(
+        path + "/preview", headers={**csrf_headers(page), "If-Match": reviewed}
+    )
+    assert newer.status == 202, newer.text()
+    current = newer.headers["etag"]
+    assert current != reviewed
+    imported = SpreadsheetImport.objects.get(pk=import_id)
+    deadline = time.monotonic() + 60
+    while imported.state == "previewing" and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+        imported.refresh_from_db()
+    assert imported.state == "previewed"
+
+    with page.expect_response(f"**{path}/commit") as stale:
+        approve.click()
+    assert stale.value.status == 412, stale.value.text()
+    assert stale.value.request.header_value("if-match") == reviewed
+    assert stale.value.request.post_data_json == {
+        "reason": "Approved the original preview",
+        "skip_problems": True,
+    }
+    imported.refresh_from_db()
+    assert imported.run_id is None
+    assert not Entity.objects.filter(type=SAMPLE, owner_project=world.project).exists()
+    review = page.get_by_role("button", name="Review current preview")
+    expect(review).to_be_visible()
+    expect(approve).to_have_count(0)
+    review.click()
+    expect(why).to_have_value("")
+    expect(leave_out).not_to_be_checked()
+    expect(approve).to_be_disabled()
+    leave_out.check()
+    why.fill("Approved the rechecked rows")
+    with page.expect_response(f"**{path}/commit") as committed:
+        approve.click()
+    assert committed.value.status == 202, committed.value.text()
+    assert committed.value.request.header_value("if-match") == current
+    assert reviewed in row_etags and current in row_etags and None not in row_etags
+    page.get_by_text("Imported 1 row of dispatch.csv into", exact=False).wait_for(timeout=90_000)
+    imported.refresh_from_db()
+    run = ActionRun.objects.get(project=world.project)
+    assert run.pk == imported.run_id and run.reason == "Approved the rechecked rows"
+    [sample] = Entity.objects.filter(type=SAMPLE, owner_project=world.project)
+    assert entities.current_values(entities.specific(sample))["label"] == "Parcel"

@@ -1877,6 +1877,36 @@
         "title": "AttemptVolumeOut",
         "type": "object"
       },
+      "AvailableMapping": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "match": {
+            "description": "The share of its headers the sheet has.",
+            "title": "Match",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "match",
+          "revision"
+        ],
+        "title": "AvailableMapping",
+        "type": "object"
+      },
       "BatchCan": {
         "properties": {
           "cancel": {
@@ -21719,6 +21749,19 @@
             ],
             "description": "A saved mapping to change, rather than add.",
             "title": "Replace"
+          },
+          "target_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reviewed saved template revision, with replace.",
+            "title": "Target Revision"
           }
         },
         "required": [
@@ -21788,6 +21831,10 @@
             "title": "Name",
             "type": "string"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -21803,6 +21850,7 @@
         },
         "required": [
           "id",
+          "revision",
           "name",
           "type",
           "headers",
@@ -25941,7 +25989,7 @@
           "mappings": {
             "description": "The project's saved mappings for the type, best matched first.",
             "items": {
-              "$ref": "#/components/schemas/SavedMappingMatch"
+              "$ref": "#/components/schemas/AvailableMapping"
             },
             "title": "Mappings",
             "type": "array"
@@ -25973,7 +26021,7 @@
             "$ref": "#/components/schemas/PersonRef"
           },
           "revision": {
-            "description": "One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.",
+            "description": "Advances for each change to what it imports and each new preview. Send it as If-Match to change, preview, commit or save its mapping.",
             "title": "Revision",
             "type": "integer"
           },
@@ -45531,7 +45579,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/mappings": {
       "post": {
-        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept.",
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept. To replace a template send its ID and reviewed\ntarget_revision. A stale template returns 409; a stale import returns 412.",
         "operationId": "iki_server_api_spreadsheets_save_mapping",
         "parameters": [
           {
@@ -45599,7 +45647,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/preview": {
       "post": {
-        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Send the revision you read\n(If-Match): it's what's checked. Poll it until it's ``previewed``.",
+        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Send the revision you read\n(If-Match). Each preview starts a new revision. Poll until that revision is previewed.",
         "operationId": "iki_server_api_spreadsheets_preview_import",
         "parameters": [
           {
@@ -45657,7 +45705,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/rows": {
       "get": {
-        "description": "In the sheet's order; ``outcome`` narrows them to those with problems, say.",
+        "description": "Read its rows in sheet order. Send the preview's If-Match on each page to read\nthat revision; a superseded preview returns 412. ``outcome`` filters its rows.",
         "operationId": "iki_server_api_spreadsheets_import_rows",
         "parameters": [
           {
@@ -45729,6 +45777,22 @@
               ],
               "description": "Only rows with these outcomes.",
               "title": "Outcome"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
