@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tarfile
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from threading import Thread
@@ -15,6 +16,7 @@ import pytest
 import yaml
 
 from iki_cli.main import build_parser
+from iki_cli.workers import bundle
 
 ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = ROOT / "plugin-template"
@@ -27,7 +29,7 @@ MAIN_LINK = re.compile(r"https://github\.com/yogesh-dhande/iki/(?:blob|tree)/mai
 def test_skill_commands_and_paths_exist(operation: str) -> None:
     name = f"iki-{operation}-plugin"
     skill = SKILLS / name
-    for root in (ROOT / ".agents/skills", ROOT / ".claude/skills", TEMPLATE / ".claude/skills"):
+    for root in (ROOT / ".agents/skills", ROOT / ".claude/skills"):
         assert (root / name).resolve() == skill
 
     text = (skill / "SKILL.md").read_text(encoding="utf-8")
@@ -36,6 +38,10 @@ def test_skill_commands_and_paths_exist(operation: str) -> None:
     metadata = yaml.safe_load(frontmatter)
     assert metadata["name"] == name
     assert metadata["description"].strip()
+    entry = TEMPLATE / ".claude/skills" / name / "SKILL.md"
+    _, entry_frontmatter, entry_body = entry.read_text(encoding="utf-8").split("---\n", 2)
+    assert yaml.safe_load(entry_frontmatter) == metadata
+    assert f"](../../../.agents/skills/{name}/SKILL.md)" in entry_body
 
     for path in MAIN_LINK.findall(body):
         assert (ROOT / path).exists(), f"{name} links to a missing path on main: {path}"
@@ -74,6 +80,19 @@ def test_skill_commands_and_paths_exist(operation: str) -> None:
 @pytest.fixture
 def template(tmp_path: Path) -> Path:
     return shutil.copytree(TEMPLATE, tmp_path / "my lab plugin", symlinks=True)
+
+
+def test_template_packages_the_agent_skills(template: Path, tmp_path: Path) -> None:
+    archive = tmp_path / "plugin.tar.gz"
+    bundle(template, archive)
+    with tarfile.open(archive, "r:gz") as packaged:
+        members = set(packaged.getnames())
+    for guide in SKILLS.glob("*/SKILL.md"):
+        skill = guide.parent
+        assert guide.relative_to(TEMPLATE).as_posix() in members
+        assert f".claude/skills/{skill.name}/SKILL.md" in members
+        for script in (skill / "scripts").glob("*.sh"):
+            assert script.relative_to(TEMPLATE).as_posix() in members
 
 
 def run_skill(
