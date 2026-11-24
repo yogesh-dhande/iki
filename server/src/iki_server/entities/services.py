@@ -805,6 +805,8 @@ def prepare(
         from iki_server.amounts import stock
 
         errors = stock.check_item(type_name, project, given)
+    if not errors:
+        errors = requests.check_work_item(project, type_name, given)
     if not errors and not defer_result_check:
         errors = requests.check_result(project, type_name, given)
     if not errors:
@@ -1258,6 +1260,8 @@ def unshareable(user: User, entity: Entity, project: Project) -> str:
     """Why ``project`` may not use an entity the user reads (:func:`access.why_held`)."""
     owner = owner_of(entity)
     match access.why_held(user, entity, project):
+        case "work_item":
+            return f"{entity.hrid} stays in {owner.name}: it's an internal work item."
         case "unreleased":
             return not_released(entity, project)
         case "registry":

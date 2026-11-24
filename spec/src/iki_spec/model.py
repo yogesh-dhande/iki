@@ -732,6 +732,13 @@ class RequestSpec:
 
 
 @dataclass(frozen=True)
+class WorkItemSpec:
+    """The reference to the request this service-project work item is for (ADR 0132)."""
+
+    of: str
+
+
+@dataclass(frozen=True)
 class ResultSpec:
     """What makes a type's records the results of a request (ADR 0132): the service owns
     them, and each goes back to the asking project once its state says it's released."""
@@ -912,6 +919,7 @@ class EntityType:
     request: RequestSpec | None = None
     #: Its records are a request's results (ADR 0132).
     result: ResultSpec | None = None
+    work_item: WorkItemSpec | None = None
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
     #: Optional record field maintained by the amounts ledger when a draw goes into this record.
@@ -1664,6 +1672,7 @@ _DATACLASSES = (
     TypeNotification,
     RequestSpec,
     ResultSpec,
+    WorkItemSpec,
     EntityType,
     Export,
     ReportExport,
@@ -1727,6 +1736,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 isinstance(value, ResultSpec) and f.name == "material" and value.material is None
             )
             and not (
+                isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
+            )
+            and not (
                 f.name == "customer_image_required"
                 and isinstance(value, Environment)
                 and not value.customer_image_required
@@ -1779,6 +1791,7 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         # ...or requests.
                         "request": _request(v.get("request")),
                         "result": _result(v.get("result")),
+                        "work_item": WorkItemSpec(**v["work_item"]) if v.get("work_item") else None,
                         "stock_catalogue": StockCatalogue.read(v["stock_catalogue"], data["name"])
                         if v.get("stock_catalogue")
                         else None,

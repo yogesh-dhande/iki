@@ -673,6 +673,11 @@ fields:
   It releases the revision that completed review. The requester receives the
   result with those reviewed values.
 
+Declare `work_item: { of: request }` for work the service keeps in its own
+project. The named field is a required, immutable reference to a request sent
+to that project. Other projects cannot link or reference the work item.
+A work item cannot also declare or inherit a request, result, or registry identity.
+
 ### Amounts
 
 A type whose records are things in the lab (a sample, a lot, a tube) can

@@ -2472,6 +2472,53 @@ def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Pa
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
+WORK_ITEM = """\
+apiVersion: iki/v1
+kind: EntityType
+name: WorkItem
+schema_version: 1
+hrid: { prefix: WRK }
+work_item: { of: request }
+fields:
+  request: { type: ref, to: AssayRequest, required: true, immutable: true }
+"""
+
+
+def test_work_items_round_trip_without_a_release_policy(tmp_path: Path) -> None:
+    result = make(tmp_path, requests() | {"types/work_item.yaml": WORK_ITEM}, ROLES)
+    assert result.problems == []
+    assert result.plugin is not None
+    found = result.plugin.types["acme/lab.WorkItem"]
+    assert found.work_item is not None and found.work_item.of == "request"
+    assert found.result is None
+    assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        (
+            WORK_ITEM.replace(REQUEST_REF, "to: Sample, required: true, immutable: true"),
+            "work-item-of-not-a-request",
+        ),
+        (WORK_ITEM.replace(REQUEST_REF, "to: AssayRequest"), "work-item-of-changes"),
+        (
+            WORK_ITEM.replace(
+                "work_item: { of: request }", "extends: AssayResult\nwork_item: { of: request }"
+            ).replace(
+                f"fields:\n  request: {{ type: ref, {REQUEST_REF} }}\n",
+                "",
+            ),
+            "work-item-conflict",
+        ),
+    ],
+)
+def test_work_items_require_one_request_and_cannot_be_results(
+    tmp_path: Path, body: str, code: str
+) -> None:
+    assert only(make(tmp_path, requests() | {"types/work_item.yaml": body}, ROLES), code)
+
+
 @pytest.mark.parametrize(
     ("old", "new", "code", "message"),
     [

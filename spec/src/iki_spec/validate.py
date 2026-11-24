@@ -70,6 +70,7 @@ from iki_spec.model import (
     TypeNotification,
     Viewer,
     Workflow,
+    WorkItemSpec,
     lab_role_name,
     matches_format,
     names_people,
@@ -773,6 +774,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             if isinstance(x, dict)
         },
         request=_request(body.get("request"), plugin),
+        work_item=WorkItemSpec(**body["work_item"]) if "work_item" in body else None,
         result=ResultSpec(
             of=body["result"]["of"],
             material=body["result"].get("material"),
@@ -1384,6 +1386,7 @@ class _Semantics:
             self.request(entity_type, source, every)
         if entity_type.result is not None:
             self.result(entity_type, source, every)
+        self.work_item(entity_type, source, every)
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
         self.stock_catalogue(entity_type, source)
@@ -1939,6 +1942,69 @@ class _Semantics:
             for ancestor in [target, *self.ancestors(target)]
         )
 
+    def work_item(
+        self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
+    ) -> None:
+        lineage = [entity_type, *self.ancestors(entity_type)]
+        if not any(t.work_item is not None for t in lineage):
+            return
+        if any(t.identity or t.request is not None or t.result is not None for t in lineage):
+            self.add(
+                "work-item-conflict",
+                "A work item belongs to the service project. It can't be a request, a result "
+                "or a registry record.",
+                source,
+                ("work_item",),
+                key=True,
+            )
+            return
+        spec = entity_type.work_item
+        if spec is not None:
+            self._request_reference(entity_type, source, every, "work_item", spec.of)
+
+    def _request_reference(
+        self,
+        entity_type: EntityType,
+        source: Document,
+        every: dict[str, tuple[Field, EntityType]],
+        section: str,
+        name: str,
+    ) -> None:
+        """A service record names one request with an immutable, required reference."""
+        kind = section.replace("_", " ")
+        code = section.replace("_", "-")
+        found = every.get(name)
+        if found is None or found[0].removed:
+            present = [n for n, (f, _) in every.items() if not f.removed]
+            self.add(
+                "unknown-field",
+                f"`{name}` isn't a field of `{entity_type.name}`.",
+                source,
+                (section, "of"),
+                hint=schemas._did_you_mean(name, present),
+            )
+            return
+        f = found[0]
+        targets = [self.types.get(t) for t in f.to] if f.type == "ref" else []
+        if any(t is None for t in targets):
+            return  # reported with the field
+        if not targets or any(t is None or self.request_of(t) is None for t in targets):
+            self.add(
+                f"{code}-of-not-a-request",
+                f"`{name}` must refer to a request type, one with `request:`, as the "
+                f"request this is a {kind} of.",
+                source,
+                (section, "of"),
+            )
+        elif not (f.required and f.immutable):
+            self.add(
+                f"{code}-of-changes",
+                f"`{name}` must be `required` and `immutable`: a {kind} is of one request, "
+                "for good.",
+                source,
+                (section, "of"),
+            )
+
     def result(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
@@ -1946,7 +2012,6 @@ class _Semantics:
         to the asking project in."""
         spec = entity_type.result
         assert spec is not None  # noqa: S101 - only called with one
-        present = [n for n, (f, _) in every.items() if not f.removed]
         if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
             self.add(
                 "result-with-identity",
@@ -1957,37 +2022,7 @@ class _Semantics:
                 key=True,
             )
             return
-        found = every.get(spec.of)
-        if found is None or found[0].removed:
-            self.add(
-                "unknown-field",
-                f"`{spec.of}` isn't a field of `{entity_type.name}`.",
-                source,
-                ("result", "of"),
-                hint=schemas._did_you_mean(spec.of, present),
-            )
-        else:
-            f = found[0]
-            # Each of the types it may name is a request type (ADR 0136).
-            targets = [self.types.get(t) for t in f.to] if f.type == "ref" else []
-            if any(t is None for t in targets):
-                pass  # reported with the field
-            elif not targets or any(t is None or self.request_of(t) is None for t in targets):
-                self.add(
-                    "result-of-not-a-request",
-                    f"`{spec.of}` must refer to a request type, one with `request:`, as the "
-                    "request this is a result of.",
-                    source,
-                    ("result", "of"),
-                )
-            elif not (f.required and f.immutable):
-                self.add(
-                    "result-of-changes",
-                    f"`{spec.of}` must be `required` and `immutable`: a result is of one "
-                    "request, for good.",
-                    source,
-                    ("result", "of"),
-                )
+        self._request_reference(entity_type, source, every, "result", spec.of)
         if spec.material is not None:
             material = every.get(spec.material)
             if material is None or not (

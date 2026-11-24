@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Deliverable
+label: Deliverable
+extends: CoreDeliverable
+schema_version: 1
+hrid: { prefix: DLV }
+description: A result the service project can return to the team that asked without a signature.
+result: { of: request, released: { field: status, states: [delivered] } }
+fields:
+  request:
+    type: ref
+    to: ResearchCoreRequest
+    required: true
+    immutable: true
+    description: The request this deliverable answers.
+  status:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+      delivered:
+        label: Delivered
+        set_by: [reviewer]
+        locks: true
+        guards:
+          recorded:
+            check: state.from == "recorded"
+            message: Deliver a recorded result.

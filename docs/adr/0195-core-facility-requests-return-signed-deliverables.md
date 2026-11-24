@@ -21,8 +21,8 @@ permissions, and delivery notifications. A service admin chooses Research or
 Regulated QC in the service project's request intake by accepting the
 corresponding request type. Intake for the parent `AnalysisRequest` also
 accepts its subtypes under ADR 0132. The type chosen for each sent request
-fixes its flow. Each deliverable type requires an immutable reference to the
-matching concrete request type.
+sets the deliveries it can receive. Each deliverable type requires an immutable
+reference to the matching concrete request type.
 
 Protein production requests name a registered protein and a positive
 requested mass. A successful deliverable records the same protein and the
@@ -46,6 +46,11 @@ that releases it. The requesting project then receives the locked signed
 result and the release receipt under ADR 0149. The service marks the request
 Delivered after the intended individual deliverables have come back. The
 status describes the request as a whole and its assignment queue.
+
+The service project can track internal work with a `WorkItem` (ADR 0132).
+For a Research request it can also record a plain `Deliverable`. A reviewer
+sets it to Delivered without a signature and the team that asked receives
+the result. The Regulated QC request continues to use its signed delivery.
 
 ## Consequences
 

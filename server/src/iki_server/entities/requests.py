@@ -60,7 +60,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import RequestSpec, ResultSpec, amount_of
+from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec, amount_of
 
 __all__ = [
     "ASKER",
@@ -116,6 +116,23 @@ def result_spec(type_name: str) -> ResultSpec | None:
         if t.result is not None:
             return t.result
     return None
+
+
+@cache
+def work_item_spec(type_name: str) -> WorkItemSpec | None:
+    """What makes this type an internal work item, including an inherited declaration."""
+    entity_type = registry.types().get(type_name)
+    if entity_type is None:
+        return None
+    return next(
+        (t.work_item for t in [entity_type, *registry.ancestors(entity_type)] if t.work_item),
+        None,
+    )
+
+
+def work_item_types() -> list[str]:
+    """Every installed type whose records are work items, including subtypes."""
+    return sorted(n for n in registry.types() if work_item_spec(n) is not None)
 
 
 def request_types() -> list[str]:
@@ -632,6 +649,22 @@ def _declared_parents(child_id: uuid.UUID) -> list[uuid.UUID]:
         and spec.aliquots_of in names
         and values.get(spec.aliquots_of) == parent.pk
     ]
+
+
+def check_work_item(
+    project: Project, type_name: str, given: Mapping[str, Any]
+) -> dict[str, list[str]]:
+    """The work item belongs to the project the request was sent to."""
+    spec = work_item_spec(type_name)
+    if spec is None:
+        return {}
+    reference = given.get(spec.of)
+    if (
+        isinstance(reference, (str, uuid.UUID))
+        and Request.objects.filter(entity_id=reference, service=project).exists()
+    ):
+        return {}
+    return {spec.of: [f"isn't a request sent to {project.name}: work items are the service's."]}
 
 
 def check_result(
