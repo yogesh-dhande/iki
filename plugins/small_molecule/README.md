@@ -329,8 +329,8 @@ fields as downloads, and a component can't read files. A drawing kept in a
 text field would show as its markup.
 
 The module (`components/depiction.js`, 3.2 MiB) is built by `web/build.js`
-from `web/src/depiction.js` and the `@rdkit/rdkit` package that the plugin's
-`web` workspace package pins (2026.9.2, BSD-3-Clause). It holds RDKit.js's
+from the shared `@ikisci/science/chemical-depiction` element, its pinned
+RDKit.js (2026.9.2, BSD-3-Clause), and the field adapter in `web/src/depiction.js`. It holds RDKit.js's
 loader, then its WebAssembly, gzipped and in base64, then the component. The
 frame unpacks the WebAssembly with the browser's `DecompressionStream` and
 hands it to RDKit.js, so RDKit.js fetches nothing. Rebuild it with
@@ -341,7 +341,7 @@ One change is made to RDKit.js, because the frame's policy rightly allows no
 `eval`. The Emscripten release RDKit.js was built with writes the JavaScript
 side of each function embind binds as source and compiles it with
 `new Function`, and emval does the same for its method callers. The policy
-refuses that in each browser, as the plugin's test found. `web/no-eval.js`
+refuses that in each browser, as the plugin's test found. `web/packages/science/tools/rdkit-no-eval.mjs`
 swaps those two places for closures that do what their source did, much as
 Emscripten itself does without dynamic code: emval takes a closure under
 `-sDYNAMIC_EXECUTION=0`, and newer releases build embind's invokers ahead of

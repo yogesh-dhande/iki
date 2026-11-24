@@ -27,6 +27,7 @@ from jsonschema.exceptions import best_match
 from iki_server.core.sizes import human_size
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
+from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
 from iki_spec.model import EntityType, Field, refined, refinement, split_entry
 from iki_spec.validate import value_problems
@@ -98,6 +99,16 @@ class Part:
 class Shape:
     entity_type: EntityType
     parts: tuple[Part, ...]
+    vendor_barcode: str | None = None
+
+    def field_value(self, field: Field, value: Any, refs: Refs) -> Any:  # noqa: ANN401 - JSON
+        """Convert an entity field under its concrete type's storage declaration."""
+        if self.is_reserved_vendor_code(field.name, value):
+            raise ValueError(RESERVED_VENDOR_MESSAGE)
+        return to_db(field, value, refs)
+
+    def is_reserved_vendor_code(self, name: str, value: object) -> bool:
+        return name == self.vendor_barcode and isinstance(value, str) and has_iki_prefix(value)
 
     @property
     def model(self) -> type[Entity]:
@@ -208,7 +219,8 @@ def shape(qualified: str) -> Shape:
                     entry=True,
                 )
             )
-    return Shape(entity_type, tuple(parts + entries))
+    storage = next((t.storage for t in lineage if t.storage is not None), None)
+    return Shape(entity_type, tuple(parts + entries), storage.barcode if storage else None)
 
 
 #: Kinds of field stored as a foreign key, in a column named ``<field>_id``: an entity,

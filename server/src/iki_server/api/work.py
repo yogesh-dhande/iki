@@ -4,7 +4,7 @@ you, taking a record, and reassigning many at once."""
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
@@ -17,7 +17,7 @@ from iki_server.api.entities import EntityOut, _expected, _find, _invalid, _one,
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page
-from iki_server.entities import access, assignments, people, registry, services
+from iki_server.entities import assignments, people, registry, services
 from iki_server.entities.values import Invalid, shape
 from iki_server.org import lab_roles
 from iki_server.org.permissions import Action
@@ -229,6 +229,10 @@ def take(
 
 class AssignIn(Schema):
     entities: list[UUID] = Field(min_length=1, max_length=assignments.MAX_REASSIGN)
+    expected_revisions: dict[UUID, Annotated[int, Field(ge=1, strict=True)]] | None = Field(
+        None,
+        description="Required. Each selected entity's observed revision, by entity ID.",
+    )
     field: str = Field(description="An assignment field of theirs.")
     person: str | None = Field(
         description="Whom to name: an ID or email address; null to empty the field."
@@ -261,22 +265,63 @@ def assign(request: HttpRequest, payload: AssignIn) -> dict[str, Any]:
     grid's selection: each record you may edit changes as its own revision, and each person
     is told once. Records that can't change are skipped, with why: you can't edit them,
     their state locks them, their people with them, or the person can't be named
-    in their project. A record you can't read is 404, and changes nothing."""
+    in their project. Send an observed revision in `expected_revisions` for every selected
+    entity. A stale selection answers 412 and identifies the changed records. A record
+    you can't read answers 404. Neither refusal changes any records."""
     me = caller(request)
-    # Naming a record you can't read is a mistake to say, as for one record: not a skip,
-    # which would answer as if it might exist.
-    wanted = set(payload.entities)
-    readable = set(access.visible(me).filter(pk__in=wanted).values_list("pk", flat=True))
-    if missing := wanted - readable:
+    revisions = payload.expected_revisions
+    if revisions is None:
+        raise Problem(
+            428,
+            "Send the revision you observed for each entity in expected_revisions.",
+            code="precondition_required",
+        )
+    if set(revisions) != set(payload.entities):
+        raise Problem(
+            422,
+            "The revisions must match the selection.",
+            errors=[
+                {
+                    "pointer": "#/expected_revisions",
+                    "detail": "Send the observed revision for exactly the selected entities.",
+                }
+            ],
+        )
+    try:
+        done = assignments.reassign(
+            me,
+            {pk: revisions[pk] for pk in payload.entities},
+            payload.field,
+            payload.person,
+            op=payload.op,
+            reason=payload.reason,
+        )
+    except assignments.MissingAssignmentRecordsError as missing:
         raise Problem(
             404,
             "No such entities, or you can't read them: "
-            + ", ".join(sorted(str(m) for m in missing))
+            + ", ".join(sorted(str(pk) for pk in missing.ids))
             + ".",
-        )
-    done = assignments.reassign(
-        me, payload.entities, payload.field, payload.person, op=payload.op, reason=payload.reason
-    )
+        ) from None
+    except assignments.StaleAssignmentsError as stale:
+        raise Problem(
+            412,
+            "These records changed since you read them: "
+            + ", ".join(record.hrid for record in stale.records)
+            + ". Refresh the selection and review it before reassigning.",
+            code="stale",
+            extensions={
+                "stale": [
+                    {
+                        "id": str(record.pk),
+                        "hrid": record.hrid,
+                        "expected_revision": revisions[record.pk],
+                        "current_revision": record.revision,
+                    }
+                    for record in stale.records
+                ]
+            },
+        ) from None
     return {
         "changed": [e.pk for e in done.changed],
         "skipped": [{"entity": s.entity, "hrid": s.hrid, "why": s.why} for s in done.skipped],

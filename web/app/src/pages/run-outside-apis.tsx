@@ -20,13 +20,14 @@ export function apiCallsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...RUNS, "api-calls", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/runs/{ref}/api-calls", {
           params: {
             path: { ref },
             query: { limit: 100, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (page) => page.next_cursor ?? undefined,

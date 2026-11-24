@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en" class="viewer-story">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Circular and linear maps</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/viewer-theme.css" />
+    <style>
+      body {
+        max-width: 65rem;
+        margin: 1rem auto;
+        padding: 0 0.75rem;
+        font:
+          1rem system-ui,
+          sans-serif;
+      }
+      output {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Circular and linear maps</h1>
+      <p>Synthetic feature coordinates on an illustrative 400 bp circle.</p>
+      <iki-plasmid-map></iki-plasmid-map>
+      <output aria-live="polite"></output>
+    </main>
+    <script type="module">
+      import "../dist/plasmid-map.js";
+      const map = document.querySelector("iki-plasmid-map");
+      map.data = {
+        name: "Example circle",
+        topology: "circular",
+        length: 400,
+        parts: {
+          items: [
+            { type: "misc_feature", name: "Segment A", start: 350, end: 30, strand: "forward" },
+            { type: "misc_feature", name: "Segment B", start: 80, end: 130, strand: "reverse" },
+          ],
+        },
+      };
+      map.addEventListener("view-change", ({ detail }) => {
+        document.querySelector("output").textContent =
+          detail.view === "line" ? "Showing the linear view" : "Showing the circular view";
+      });
+    </script>
+  </body>
+</html>

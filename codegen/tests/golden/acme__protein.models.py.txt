@@ -1211,6 +1211,93 @@ class Rack_History(models.Model):
         db_table = 'acme__protein_rack__history'
 
 
+class Tube(Entity):
+    """Tube (acme/protein.Tube), schema version 1. A tube of a sample, whose volume is drawn at the bench (ADR 0180): the sample's holds and purposes apply to it, and a draw needs its barcode scanned."""
+
+    IKI_TYPE = 'acme/protein.Tube'
+
+    entity = models.OneToOneField(
+        Entity,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+    barcode = models.CharField(max_length=64, null=True, db_index=True)
+    sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
+    lot = models.ForeignKey('Lot', models.PROTECT, related_name='+', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_tube'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('barcode'), 1),
+                name='acme__protein_tube__barcode__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(barcode__regex='[\\r\\n]'),
+                name='acme__protein_tube__barcode__one_line',
+            ),
+        ]
+        indexes = [
+            GinIndex(
+                fields=['barcode'],
+                opclasses=['gin_trgm_ops'],
+                name='barcode_trgm_6ca5cef1390b3ec9a',
+            ),
+        ]
+
+
+class Tube_History(models.Model):
+    """The history of acme__protein_tube: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'Tube'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+    barcode = models.TextField(null=True)
+    sample = models.UUIDField(db_column='sample_id', null=True)
+    lot = models.UUIDField(db_column='lot_id', null=True)
+
+    class Meta:
+        db_table = 'acme__protein_tube__history'
+
+
+class RetainTube(Tube):
+    """Retain tube (acme/protein.RetainTube), schema version 1. A sample kept in reserve, with its tube scanned before a draw or a move."""
+
+    IKI_TYPE = 'acme/protein.RetainTube'
+
+    tube_ptr = models.OneToOneField(
+        Tube,
+        models.PROTECT,
+        parent_link=True,
+        primary_key=True,
+        db_column='entity_id',
+        related_name='+',
+    )
+
+    class Meta:
+        db_table = 'acme__protein_retaintube'
+
+
+class RetainTube_History(models.Model):
+    """The history of acme__protein_retaintube: its values at each revision of each entity."""
+
+    IKI_HISTORY_OF = 'RetainTube'
+    APPEND_ONLY = True
+
+    pk = models.CompositePrimaryKey('entity_id', 'revision')
+    entity_id = models.UUIDField()
+    revision = models.PositiveIntegerField()
+
+    class Meta:
+        db_table = 'acme__protein_retaintube__history'
+
+
 class Sample(Entity):
     """Sample (acme/protein.Sample), schema version 1."""
 
@@ -1405,58 +1492,3 @@ class Sample_helpers(models.Model):
                 name='acme__protein_sample__helpers__position__max_items',
             ),
         ]
-
-
-class Tube(Entity):
-    """Tube (acme/protein.Tube), schema version 1. A tube of a sample, whose volume is drawn at the bench (ADR 0180): the sample's holds and purposes apply to it, and a draw needs its barcode scanned."""
-
-    IKI_TYPE = 'acme/protein.Tube'
-
-    entity = models.OneToOneField(
-        Entity,
-        models.PROTECT,
-        parent_link=True,
-        primary_key=True,
-        db_column='entity_id',
-        related_name='+',
-    )
-    barcode = models.CharField(max_length=64, null=True, db_index=True)
-    sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
-    lot = models.ForeignKey('Lot', models.PROTECT, related_name='+', null=True)
-
-    class Meta:
-        db_table = 'acme__protein_tube'
-        constraints = [
-            models.CheckConstraint(
-                condition=GreaterThanOrEqual(Length('barcode'), 1),
-                name='acme__protein_tube__barcode__not_empty',
-            ),
-            models.CheckConstraint(
-                condition=~Q(barcode__regex='[\\r\\n]'),
-                name='acme__protein_tube__barcode__one_line',
-            ),
-        ]
-        indexes = [
-            GinIndex(
-                fields=['barcode'],
-                opclasses=['gin_trgm_ops'],
-                name='barcode_trgm_6ca5cef1390b3ec9a',
-            ),
-        ]
-
-
-class Tube_History(models.Model):
-    """The history of acme__protein_tube: its values at each revision of each entity."""
-
-    IKI_HISTORY_OF = 'Tube'
-    APPEND_ONLY = True
-
-    pk = models.CompositePrimaryKey('entity_id', 'revision')
-    entity_id = models.UUIDField()
-    revision = models.PositiveIntegerField()
-    barcode = models.TextField(null=True)
-    sample = models.UUIDField(db_column='sample_id', null=True)
-    lot = models.UUIDField(db_column='lot_id', null=True)
-
-    class Meta:
-        db_table = 'acme__protein_tube__history'

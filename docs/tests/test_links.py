@@ -6,8 +6,8 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-#: ``[text](target)``, not images, and not inside inline code.
-LINK = re.compile(r"(?<!!)\[[^\]\n]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
+#: Inline links, excluding images. Angle-bracket destinations can contain spaces and parentheses.
+LINK = re.compile(r'(?<!!)\[[^\]\n]*\]\((?:<([^<>\r\n]*)>|([^)\s]+))(?:\s+"[^"]*")?\)')
 CODE = re.compile(r"`[^`\n]*`")
 FENCE = re.compile(r"^(```|~~~).*?^\1", re.S | re.M)
 
@@ -24,19 +24,32 @@ def markdown() -> list[Path]:
     return [ROOT / name for name in listed if (ROOT / name).is_file()]
 
 
-def broken(path: Path) -> list[str]:
+def broken(path: Path, *, root: Path = ROOT) -> list[str]:
     text = CODE.sub("", FENCE.sub("", path.read_text(encoding="utf-8")))
     found = []
-    for target in LINK.findall(text):
-        if re.match(r"^[a-z][a-z0-9+.-]*:", target) or target.startswith("#"):
+    for bracketed, bare in LINK.findall(text):
+        target = bracketed or bare
+        if re.match(r"^[a-z][a-z0-9+.-]*:", target, re.I) or target.startswith(("#", "//")):
             continue  # a URL, or a place in this file
         file = target.split("#", 1)[0]
-        resolved = ROOT / file.lstrip("/") if file.startswith("/") else path.parent / file
-        if not resolved.resolve().is_relative_to(ROOT):
+        resolved = root / file.lstrip("/") if file.startswith("/") else path.parent / file
+        if not resolved.resolve().is_relative_to(root):
             continue  # GitHub's own pages, such as ../../issues/new from the root
         if not resolved.exists():
             found.append(target)
     return found
+
+
+def test_angle_bracket_link_destinations(tmp_path: Path) -> None:
+    page = tmp_path / "guide.md"
+    (tmp_path / "Guide (v2).md").touch()
+    page.write_text(
+        "[Article](<https://doi.org/10.1016/0076-6879(89)80108-9>)\n"
+        "[Elsewhere](<//example.com/path>)\n"
+        '[Guide](<Guide (v2).md#example> "Guide")\n'
+        "[Missing](<Missing guide (v2).md>)\n"
+    )
+    assert broken(page, root=tmp_path) == ["Missing guide (v2).md"]
 
 
 def test_relative_links_go_to_files_that_are_there() -> None:

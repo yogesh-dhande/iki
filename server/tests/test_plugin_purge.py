@@ -90,7 +90,7 @@ def test_only_a_detached_plugin_not_on_hold_can_be_purged(
     )
     with pytest.raises(Refused, match="legal hold"):
         purge.request(world.users["org_admin"], "acme/dna", "Retention over", "acme/dna")
-    holds.release(world.users["org_admin"], hold)
+    holds.release(world.users["org_admin"], hold, reason="Matter resolved")
     assert purge.why_not("acme/dna") is None
     assert purge.why_not("nothing") == "There’s no plugin nothing installed."
 
@@ -232,7 +232,7 @@ def test_a_hold_placed_during_the_wait_stops_it(
     hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
     assert purge.tombstone_due() == 0
     assert not Tombstone.objects.exists()
-    holds.release(world.users["org_admin"], hold)
+    holds.release(world.users["org_admin"], hold, reason="Matter resolved")
     assert purge.tombstone_due() == 4
 
 

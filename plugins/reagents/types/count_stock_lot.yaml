@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: EntityType
+name: CountStockLot
+label: Consumable count lot
+schema_version: 1
+extends: StockLot
+hrid: { prefix: RUC }
+amount: { unit: "1", label: Consumable count, material: item, whole_units: true }
+rules:
+  catalogue_unit:
+    check: record.item.stock_unit == "1"
+    message: This lot requires a catalogue pack measured in 1.
+    fields: [item]
