@@ -3507,7 +3507,7 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
         assert_clean(page)
         return
     page.get_by_role("button", name="Superpose on first").click()
-    said = page.locator(".messages").get_by_text(re.compile(r"^moved"))
+    said = page.locator(".notices").get_by_text(re.compile(r"^moved"))
     said.wait_for(timeout=60_000)
     assert said.inner_text() == "moved: RMSD 0.00 Å over 6 residues."
     page.get_by_role("button", name="Save the view").click()

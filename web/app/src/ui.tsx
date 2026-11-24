@@ -18,7 +18,9 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 
@@ -31,6 +33,7 @@ import { buttonState, type ButtonOptions } from "@ikisci/ui/button";
 export { buttonClass } from "@ikisci/ui/button";
 
 import { TopBar, usePhone } from "./page-top";
+import { useSteady } from "./steady";
 
 // --- Buttons ---------------------------------------------------------------------
 
@@ -70,6 +73,80 @@ function describedBy(...ids: (string | false | undefined)[]): string | undefined
   return joined || undefined;
 }
 
+/** Whether focus is in the field `anchor` is in. */
+function useInField(anchor: RefObject<HTMLElement | null>): boolean {
+  const subscribe = useCallback((changed: () => void) => {
+    document.addEventListener("focusin", changed);
+    document.addEventListener("focusout", changed);
+    return () => {
+      document.removeEventListener("focusin", changed);
+      document.removeEventListener("focusout", changed);
+    };
+  }, []);
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      const field = anchor.current?.parentElement;
+      return Boolean(field && document.activeElement && field.contains(document.activeElement));
+    },
+    () => false,
+  );
+}
+
+/**
+ * A field's error, under its label and over its control, as the server's forms put it.
+ *
+ * Its control, and the fields and buttons after it, mustn't move under the person working
+ * in it. So it changes between presses, not during one (`useSteady`); and once it's put
+ * right, it keeps its room while focus is still in the field, and gives it up once they
+ * leave, by a key or, after its click, by a press.
+ */
+export function FieldError({
+  id,
+  error,
+  alert = false,
+}: {
+  /** Its own ID, for the control's `aria-describedby`. */
+  id: string;
+  error: string | undefined;
+  /** Announced as it comes: for an error that comes without focus moving to its field. */
+  alert?: boolean;
+}) {
+  const anchor = useRef<HTMLDivElement>(null);
+  const shown = useSteady(error);
+  const inField = useSteady(useInField(anchor));
+  // How much room it took: kept while it's put right in the field.
+  const [room, setRoom] = useState<number>();
+  if (!shown && !inField && room !== undefined) setRoom(undefined);
+  const measure = useCallback((node: HTMLParagraphElement | null) => {
+    if (!node) return;
+    const margin = parseFloat(getComputedStyle(node).marginBottom) || 0;
+    setRoom(node.getBoundingClientRect().height + margin);
+  }, []);
+  return (
+    <div className="field-message" ref={anchor}>
+      {shown ? (
+        // Its own element for each error, so each is measured as it's drawn.
+        <p
+          className="field-error"
+          id={id}
+          key={shown}
+          ref={measure}
+          role={alert ? "alert" : undefined}
+        >
+          {shown}
+        </p>
+      ) : inField && room ? (
+        <div
+          className="field-error-room"
+          aria-hidden="true"
+          style={{ height: `${String(room)}px` }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export function TextField({
   label,
   value,
@@ -104,11 +181,7 @@ export function TextField({
         {label}
         {optional ? <span className="optional"> (optional)</span> : null}
       </label>
-      {error ? (
-        <p className="field-error" id={errorId}>
-          {error}
-        </p>
-      ) : null}
+      <FieldError id={errorId} error={error} />
       {multiline ? (
         <textarea rows={3} {...shared} />
       ) : (
@@ -151,11 +224,7 @@ export function RadioField<T extends string>({
       aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
     >
       <legend>{label}</legend>
-      {error ? (
-        <p className="field-error" id={`${id}-error`}>
-          {error}
-        </p>
-      ) : null}
+      <FieldError id={`${id}-error`} error={error} />
       {help ? (
         <p className="field-help" id={`${id}-help`}>
           {help}
@@ -212,11 +281,7 @@ export function CheckboxesField<T extends string>({
       aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
     >
       <legend>{label}</legend>
-      {error ? (
-        <p className="field-error" id={`${id}-error`}>
-          {error}
-        </p>
-      ) : null}
+      <FieldError id={`${id}-error`} error={error} />
       {help ? (
         <p className="field-help" id={`${id}-help`}>
           {help}
@@ -268,24 +333,31 @@ export function CheckboxField({
   checked,
   onChange,
   help,
+  error,
+  announce = false,
   disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   help?: string;
+  error?: string | undefined;
+  /** Its error is announced as it comes: where focus doesn't move to it, as in a dialog. */
+  announce?: boolean;
   disabled?: boolean;
 }) {
   const id = useId();
   return (
-    <div className="field field-choices">
+    <div className={error ? "field field-choices field-invalid" : "field field-choices"}>
+      <FieldError id={`${id}-error`} error={error} alert={announce} />
       <label className="choice" htmlFor={id}>
         <input
           type="checkbox"
           id={id}
           checked={checked}
           disabled={disabled}
-          aria-describedby={help ? `${id}-help` : undefined}
+          aria-invalid={error ? "true" : undefined}
+          aria-describedby={describedBy(error && `${id}-error`, help && `${id}-help`)}
           onChange={(event) => {
             onChange(event.target.checked);
           }}
@@ -423,11 +495,7 @@ export function SelectField<T extends string>({
   return (
     <div className={error ? "field field-invalid" : "field"}>
       <label htmlFor={id}>{label}</label>
-      {error ? (
-        <p className="field-error" id={`${id}-error`}>
-          {error}
-        </p>
-      ) : null}
+      <FieldError id={`${id}-error`} error={error} />
       {select}
       {help ? (
         <p className="field-help" id={`${id}-help`}>
@@ -440,14 +508,46 @@ export function SelectField<T extends string>({
 
 // --- Feedback --------------------------------------------------------------------
 
-/** A form's problem: what went wrong, said once at the top of the form. */
-export function ProblemAlert({ problem }: { problem: Problem | undefined }) {
-  if (!problem) return null;
-  // Errors about particular fields show next to them; the alert points there.
-  const message = problem.errors?.length ? "Check the highlighted fields." : problem.detail;
+/** What a problem says at the top of a form: errors about particular fields show next to
+ * them, and it points there. */
+export function problemMessage(problem: Problem | undefined): string | undefined {
+  if (!problem) return undefined;
+  return problem.errors?.length ? CHECK_FIELDS : problem.detail;
+}
+
+export const CHECK_FIELDS = "Check the highlighted fields.";
+
+/**
+ * A form's problem: what went wrong, said once at the top of the form, and announced.
+ *
+ * It's above the form's fields and buttons, so it doesn't change during a press
+ * (`useSteady`); and while the form is sent again (`pending`) it says what it said till the
+ * answer comes, as a server form's page stays till the next one loads, rather than going
+ * and coming back.
+ */
+export function ProblemAlert({
+  problem,
+  pending = false,
+}: {
+  problem: Problem | undefined;
+  pending?: boolean;
+}) {
+  return <ErrorSummary message={problemMessage(problem)} pending={pending} />;
+}
+
+/** The alert at the top of a form (`ProblemAlert`), for a message of its own. */
+export function ErrorSummary({
+  message,
+  pending = false,
+}: {
+  message: string | undefined;
+  pending?: boolean;
+}) {
+  const shown = useSteady(message, pending);
+  if (shown === undefined) return null;
   return (
     <div className="alert alert-error" role="alert">
-      <p>{message}</p>
+      <p>{shown}</p>
     </div>
   );
 }
@@ -466,15 +566,25 @@ function visitOf(location: Location): string {
   return location.state.__TSR_key ?? location.href;
 }
 
+interface Message {
+  id: number;
+  visit: string;
+  text: string;
+}
+
 /**
  * Confirmations show on the page they're said on, like the server's messages
  * after a redirect: say them once a navigation has finished, and they go when
- * the person moves on.
+ * the person moves on, or dismisses them.
+ *
+ * They come after something's done, while the page can be pressed, so they take no room
+ * from it: they're at the foot of the page, held at the foot of the window over what's
+ * there. Nothing on the page moves for one.
  */
 export function MessagesProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const visit = useRouterState({ select: (state) => visitOf(state.location) });
-  const [messages, setMessages] = useState<{ id: number; visit: string; text: string }[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const nextId = useRef(0);
   const say = useCallback(
     (text: string) => {
@@ -487,20 +597,69 @@ export function MessagesProvider({ children }: { children: ReactNode }) {
     },
     [router],
   );
-  const shown = messages.filter((m) => m.visit === visit);
+  const dismiss = useCallback((id: number) => {
+    setMessages((current) => current.filter((m) => m.id !== id));
+  }, []);
+  const here = useMemo(() => messages.filter((m) => m.visit === visit), [messages, visit]);
   const value = useMemo(() => ({ say }), [say]);
   return (
     <MessagesContext.Provider value={value}>
+      {children}
+      <Notices messages={here} visit={visit} dismiss={dismiss} />
+    </MessagesContext.Provider>
+  );
+}
+
+/** The confirmations at the foot of the page (`MessagesProvider`). */
+function Notices({
+  messages,
+  visit,
+  dismiss,
+}: {
+  messages: readonly Message[];
+  visit: string;
+  dismiss: (id: number) => void;
+}) {
+  // One said during a press comes once it's let go: it could come over what's pressed.
+  const shown = useSteady(messages);
+  // The most room they've taken on this visit, kept as one is dismissed: at the end of a
+  // page scrolled to its foot, the page would otherwise move down as one goes.
+  const [room, setRoom] = useState({ visit, height: 0 });
+  const list = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = list.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const height = node.offsetHeight;
+      setRoom((now) =>
+        now.visit !== visit ? { visit, height } : height > now.height ? { visit, height } : now,
+      );
+    });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, [visit]);
+  const height = room.visit === visit ? room.height : 0;
+  return (
+    <div className="notices" style={height ? { minHeight: `${String(height)}px` } : undefined}>
       {/* Always rendered, so screen readers announce what is added to it. */}
-      <div className="messages" role="status">
+      <div className="notices-list" role="status" ref={list}>
         {shown.map((message) => (
-          <div className="alert alert-success" key={message.id}>
+          <div className="alert alert-success notice" key={message.id}>
             <p>{message.text}</p>
+            <Button
+              variant="quiet"
+              onClick={() => {
+                dismiss(message.id);
+              }}
+            >
+              Dismiss
+            </Button>
           </div>
         ))}
       </div>
-      {children}
-    </MessagesContext.Provider>
+    </div>
   );
 }
 
@@ -553,7 +712,8 @@ export function ConfirmDialog({
           <Heading slot="title" className="section-title">
             {title}
           </Heading>
-          <ProblemAlert problem={problem} />
+          {/* Busy, it's being sent again: what it said stays till the answer comes. */}
+          <ProblemAlert problem={problem} pending={busy} />
           {children}
           <div className="actions">
             <Button

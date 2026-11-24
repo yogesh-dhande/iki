@@ -98,7 +98,7 @@ export function Exports({ project }: { project: Project }) {
       ),
     [["projects", project.id, "bundles"]],
   );
-  const form = useForm(start.error);
+  const form = useForm(start.error, start.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

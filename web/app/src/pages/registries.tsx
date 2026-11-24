@@ -421,7 +421,7 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
     [ENTITIES],
   );
   const stale = save.error instanceof ApiError && save.error.problem.code === "stale";
-  const form = useForm(stale ? null : save.error);
+  const form = useForm(stale ? null : save.error, save.isPending);
   if (!facts.length) return null;
   if (!open) {
     return (
@@ -559,7 +559,7 @@ function Supersede({ entry }: { entry: Entry }) {
       ),
     [ENTITIES],
   );
-  const form = useForm(confirming ? null : supersede.error);
+  const form = useForm(confirming ? null : supersede.error, supersede.isPending);
   return (
     <section className="card" aria-labelledby="supersede-title">
       <h2 className="section-title" id="supersede-title">
