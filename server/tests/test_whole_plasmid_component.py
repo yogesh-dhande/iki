@@ -78,6 +78,10 @@ def test_public_puc19_reads_are_drawn_on_the_plasmid(
             == 1
         )
         assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
+        # Whatever font the machine has: a wide, large one mustn't push anything past the edge.
+        page.locator("whole-plasmid-map").evaluate("e => { e.style.font = '20px/1.45 monospace'; }")
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
+        page.locator("whole-plasmid-map").evaluate("e => { e.style.font = ''; }")
         page.evaluate(AXE.read_text())
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
 
