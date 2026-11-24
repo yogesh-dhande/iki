@@ -165,12 +165,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { python: "3.12", kind: plain, shard: 1, shards: 3 }
-          - { python: "3.12", kind: plain, shard: 2, shards: 3 }
-          - { python: "3.12", kind: plain, shard: 3, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 1, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 2, shards: 3 }
-          - { python: "3.14", kind: plain, shard: 3, shards: 3 }
+          - { python: "3.12", kind: plain, shard: 1, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 2, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 3, shards: 4 }
+          - { python: "3.12", kind: plain, shard: 4, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 1, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 2, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 3, shards: 4 }
+          - { python: "3.14", kind: plain, shard: 4, shards: 4 }
           - { python: "3.14", kind: worker, shard: 1, shards: 1 }
           - { python: "3.14", kind: browser, shard: 1, shards: 2 }
           - { python: "3.14", kind: browser, shard: 2, shards: 2 }
