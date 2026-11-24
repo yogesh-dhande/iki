@@ -195,6 +195,20 @@ version = "0.1.0-dev.0"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
+# The plasmid plugin's molecular module, compiled from iki-wasm's own crates for the
+# plugin's action archive (ADR 0200). Apache-2.0, like the rest of the workspace.
+[[PackageOverrides]]
+name = "iki-plasmid-tools-wasm"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
+# The DNA plugin's primer checks, compiled from the same crates for its action archive
+# (ADR 0201). Apache-2.0, like the rest of the workspace.
+[[PackageOverrides]]
+name = "iki-oligo-checks-wasm"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
 # --- License exceptions --------------------------------------------------------
 # psycopg (LGPL-3.0) is the PostgreSQL driver Django supports; there is no
 # non-LGPL alternative. Iki uses it unmodified as a dynamically imported
