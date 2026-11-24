@@ -386,13 +386,15 @@ def test_every_page_has_the_same_navigation_but_for_the_page_it_marks() -> None:
 
 def test_use_cases_concepts_and_guides_link_only_to_the_site_and_its_sources() -> None:
     """What a page says is on the site: no use case, concept or guide sends its reader to
-    GitHub. Only the header's link to the repository leaves for it."""
+    GitHub. Only the header's link to the repository leaves for it; a lockfile in a code
+    block may still name a git URL."""
     main = re.compile(r"<main\b.*?</main>", re.S)
+    link = re.compile(r'href="[^"]*github\.com[^"]*"')
     found = [
         str(page.relative_to(DIST))
         for page in built_pages()
         if page.relative_to(DIST).parts[0] in {"use-cases", "concepts", "guides"}
-        and "github.com" in "".join(main.findall(page.read_text(encoding="utf-8")))
+        and link.search("".join(main.findall(page.read_text(encoding="utf-8"))))
     ]
     assert found == []
 

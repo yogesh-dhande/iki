@@ -88,3 +88,14 @@ export interface WholePlasmid {
 
 export const doseResponse = example("dose-response") as DoseResponse;
 export const puc19 = example("puc19-reads") as WholePlasmid;
+
+/** The repository files the worked examples read, by the name the site serves each under,
+ * so a reader can download what a figure shows. */
+export const exampleFiles = new Map([
+  [doseResponse.data.file.split("/").at(-1) ?? "", doseResponse.data.file],
+]);
+
+/** Where the site serves one of the worked examples' files. */
+export function exampleHref(path: string): string {
+  return `/examples/${path.split("/").at(-1) ?? ""}`;
+}

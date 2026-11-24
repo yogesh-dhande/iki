@@ -2,9 +2,8 @@
 // The worked plate, live: its plate map, and the fit the plugin recorded with every sample
 // well and with the guide's exclusion. Choosing a well shows its reading; the toggle switches
 // between the two recorded fits. The browser fits nothing.
-import type { DoseResponse, Fit } from "../../lib/examples.ts";
+import { exampleHref, type DoseResponse, type Fit } from "../../lib/examples.ts";
 import { curve, FRAME, level, nM, ticks, x, y } from "../../lib/dose.ts";
-import { github } from "../../lib/repo.ts";
 
 interface Props {
   data: DoseResponse;
@@ -215,7 +214,7 @@ const initial = exclusion.well;
   </div>
   <figcaption>
     Both fits are the plate assays plugin's results for this plate's{" "}
-    <a class="out" href={github(data.data.file)}>
+    <a href={exampleHref(data.data.file)} download>
       MARS export
     </a>
     : once with all {samples.length} sample wells, and once without {exclusion.well}. Each curve is
