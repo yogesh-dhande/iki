@@ -15,6 +15,7 @@ def test_remote_pytest_refuses_the_partial_local_opt_out(tmp_path: Path) -> None
     case.write_text("def test_plain(): pass\n")
     env = {**os.environ, "IKI_SKIP_BROWSER_TESTS": "1", "IKI_GATE": "0"}
     env.pop("CI", None)
+    env.pop("IKI_VM_RUN", None)
     run = subprocess.run(  # noqa: S603 - the checked-in wrapper and this interpreter
         [
             str(ROOT / WRAPPER),

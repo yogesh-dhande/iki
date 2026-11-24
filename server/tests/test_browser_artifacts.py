@@ -18,7 +18,7 @@ def run_probe(tmp_path: Path, *args: str, gate: bool = False) -> subprocess.Comp
     (tmp_path / "conftest.py").symlink_to(tests / "conftest.py")
     target = tmp_path / "artifacts"
     env = os.environ.copy()
-    for key in ("IKI_GATE", "CI", "IKI_SKIP_BROWSER_TESTS"):
+    for key in ("IKI_GATE", "CI", "IKI_VM_RUN", "IKI_SKIP_BROWSER_TESTS"):
         env.pop(key, None)
     if gate:
         env["IKI_GATE"] = "1"

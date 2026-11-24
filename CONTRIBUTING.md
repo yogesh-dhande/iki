@@ -117,7 +117,8 @@ browser-shard tests skipped by this opt-out. Use pytest
 with `-rs` to list skip reasons. Direct pytest otherwise fails when
 a required browser is missing and reports the install command. CI,
 `make check`, and `make check-python` reject the opt-out even when all browsers
-are installed. A gate failure lists each unexpected pytest skip. When a
+are installed. The test VM sets `IKI_VM_RUN`, so running pytest directly there
+enforces the same rules. A gate failure lists each unexpected pytest skip. When a
 new capability or opt-in suite warrants a skip, record its exact reason and
 the tests it applies to in `scripts/ci/pytest_gate_skips.py`.
 

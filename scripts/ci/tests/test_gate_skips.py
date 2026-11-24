@@ -13,7 +13,7 @@ CONFIG = Path(__file__).resolve().parents[3] / "pyproject.toml"
 def run_suite(tmp_path: Path, *args: str, gate: str | None) -> subprocess.CompletedProcess[str]:
     env = {"PATH": os.environ["PATH"]}
     if gate:
-        env[gate] = "1"
+        env[gate] = "vm-test-job" if gate == "IKI_VM_RUN" else "1"
     return subprocess.run(  # noqa: S603 - fixed Python and pytest
         [
             sys.executable,
@@ -41,6 +41,7 @@ def run_suite(tmp_path: Path, *args: str, gate: str | None) -> subprocess.Comple
     ("gate", "workers", "selection"),
     [
         ("IKI_GATE", "0", "test_missing_tool or test_passes"),
+        ("IKI_VM_RUN", "0", "test_missing_tool or test_passes"),
         ("CI", "2", "not test_missing_tool"),
         (None, "0", ""),
     ],
@@ -64,7 +65,7 @@ def test_gate_rejects_an_unknown_skip_among_passing_tests(
     run = run_suite(tmp_path, "-n", workers, "-k", selection, gate=gate)
     output = run.stdout + run.stderr
     assert run.returncode == (1 if gate else 0), output
-    if gate == "IKI_GATE":
+    if gate in {"IKI_GATE", "IKI_VM_RUN"}:
         # Everything else passed; this one fixture skip must turn the entire run red.
         assert "1 passed" in output and "1 error" in output, output
         assert "Unexpected skip in gate: new missing tool" in output, output

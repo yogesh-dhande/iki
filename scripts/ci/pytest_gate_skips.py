@@ -103,12 +103,12 @@ class _LocalBrowserOptOut:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    gate = os.environ.get("IKI_GATE") == "1" or os.environ.get("CI")
+    gate = os.environ.get("IKI_GATE") == "1" or os.environ.get("CI") or os.environ.get("IKI_VM_RUN")
     if os.environ.get("IKI_SKIP_BROWSER_TESTS") == "1":
         if gate:
             raise pytest.UsageError(
                 "IKI_SKIP_BROWSER_TESTS=1 is refused by the full gate. "
-                "For a partial local run use IKI_SKIP_BROWSER_TESTS=1 uv run pytest outside CI."
+                "For a partial local run use IKI_SKIP_BROWSER_TESTS=1 uv run pytest."
             )
         config.pluginmanager.register(_LocalBrowserOptOut())
     if gate:

@@ -65,18 +65,19 @@ def test_browser_shards_follow_the_real_cases_and_their_fixtures(tmp_path: Path)
         (None, True),
         ("CI", True),
         ("IKI_GATE", True),
+        ("IKI_VM_RUN", True),
     ],
 )
 def test_browser_coverage_with_an_empty_installation(
     tmp_path: Path, gate: str | None, opt_out: bool
 ) -> None:
     env = dict(os.environ, PLAYWRIGHT_BROWSERS_PATH=str(tmp_path), PYTEST_ADDOPTS="")
-    for key in ("CI", "IKI_GATE", "IKI_SKIP_BROWSER_TESTS"):
+    for key in ("CI", "IKI_GATE", "IKI_VM_RUN", "IKI_SKIP_BROWSER_TESTS"):
         env.pop(key, None)
     if opt_out:
         env["IKI_SKIP_BROWSER_TESTS"] = "1"
     if gate:
-        env[gate] = "1"
+        env[gate] = "vm-test-job" if gate == "IKI_VM_RUN" else "1"
     args = [sys.executable, "-m", "pytest", "-q", "-rN", "-c", str(ROOT / "pyproject.toml"), CASE]
     if opt_out:
         # This test launches a disposable browser in a subprocess without a browser fixture.
@@ -157,6 +158,7 @@ def test_make_runs_the_locked_browsers_and_retains_failures(tmp_path: Path) -> N
     env = {**os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.defpath}"}
     env.pop("CI", None)
     env.pop("IKI_GATE", None)
+    env.pop("IKI_VM_RUN", None)
     env.pop("IKI_SKIP_BROWSER_TESTS", None)
     env.pop("IKI_BROWSER_ARTIFACTS", None)
     args = ["make", "-f", str(ROOT / "Makefile"), "-k", "check-python", "PYTEST_PARALLEL="]
