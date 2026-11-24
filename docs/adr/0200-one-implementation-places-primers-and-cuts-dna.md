@@ -54,7 +54,8 @@ for the first time, and REBASE's own terms do not clearly permit that:
   all, by the unified nearest-neighbour model (SantaLucia, _PNAS_ 95:1460-1465,
   1998, <https://doi.org/10.1073/pnas.95.4.1460>), with Allawi and SantaLucia's
   Watson-Crick stacks and internal mismatches, SantaLucia and Peyret's terminal
-  mismatches, and the monovalent salt correction of equation 7;
+  mismatches, Table 2’s initiation and symmetry terms, equation 3 for the
+  temperature, and equation 8 for the monovalent salt correction;
 - `priming`: where primers bind, on both strands, round a circle's origin and
   never past a linear end, placed by their 3' ends with a position-weighted
   mismatch penalty, and what a pair of facing sites amplifies;
