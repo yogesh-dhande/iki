@@ -42,7 +42,7 @@ export const collections = {
         .enum(["registry-and-inventory", "data-tracking", "analysis", "collaboration"])
         .optional(),
       order: z.number().default(100),
-      /** What the reader needs before its steps: "Before you start", if it says. The plugins
+      /** What the reader needs before its steps: "This example uses", if it says. The plugins
        * it names are Iki's, so their links into the reference resolve. */
       prerequisites: prerequisites
         .superRefine((given, context) => {

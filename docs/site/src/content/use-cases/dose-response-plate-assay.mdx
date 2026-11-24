@@ -31,7 +31,7 @@ aside:
 ---
 
 import PlateAssay from "../../components/assay/PlateAssay.astro";
-import BeforeYouStart from "../../components/BeforeYouStart.astro";
+import ExampleUses from "../../components/ExampleUses.astro";
 import Step from "../../components/assay/Step.astro";
 import { doseResponse } from "../../lib/examples.ts";
 import { nM } from "../../lib/dose.ts";
@@ -50,7 +50,7 @@ IC50 of 12 nM), so the fit can be checked against the answer; the export ships w
 The seeded development deployment's **Research plate assays** and **QC plate assays** projects each
 hold this assay, completed.
 
-<BeforeYouStart prerequisites={frontmatter.prerequisites} />
+<ExampleUses prerequisites={frontmatter.prerequisites} />
 
 <Step n={1} id="setup" title="Set up the two projects" role="Admin">
 

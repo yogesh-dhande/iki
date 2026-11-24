@@ -30,7 +30,7 @@ reference:
 
 import Differences from "../../components/sequence/Differences.astro";
 import Stats from "../../components/sequence/Stats.astro";
-import BeforeYouStart from "../../components/BeforeYouStart.astro";
+import ExampleUses from "../../components/ExampleUses.astro";
 import Step from "../../components/assay/Step.astro";
 import Viewer from "../../components/Viewer.astro";
 import { puc19 } from "../../lib/examples.ts";
@@ -54,7 +54,7 @@ The prep is a **Plasmid prep** record in the lots plugin, made from the plasmid 
 registered, and the analyst and reviewer have the lots plugin's **Verification analyst** and
 **Verification reviewer** roles in the project.
 
-<BeforeYouStart prerequisites={frontmatter.prerequisites} />
+<ExampleUses prerequisites={frontmatter.prerequisites} />
 
 <Step n={1} id="reads" title="Register the reads" role="Verification analyst">
 

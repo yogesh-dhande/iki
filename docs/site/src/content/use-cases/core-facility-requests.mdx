@@ -21,7 +21,8 @@ reference:
   - { label: "EntityType: result", href: /reference/plugin-spec/entity-type/#result }
 ---
 
-import BeforeYouStart from "../../components/BeforeYouStart.astro";
+import ExampleUses from "../../components/ExampleUses.astro";
+import RecordCard from "../../components/RecordCard.astro";
 import RequestFlow from "../../components/usecase/RequestFlow.astro";
 
 ## In short
@@ -31,38 +32,73 @@ project, names the tubes it's sending and the sequencing it wants, and sends it 
 core accepts or declines it, receives the tubes, sequences them, and returns a result for each
 tube with its report and files. The project that asked sees each result as it comes back.
 
-<BeforeYouStart prerequisites={frontmatter.prerequisites} />
-
 <RequestFlow />
 
-## Built from
+<ExampleUses prerequisites={frontmatter.prerequisites}>
 
-- **A request type**, like the example LIMS plugin's
-  [Core facility request](/reference/plugins/example-lims/#CoreFacilityRequest). It has the
-  service, the sequencing method and the tubes. Its [request](/reference/plugin-spec/entity-type/#request)
-  settings say which fields are the core's (status, priority, schedule, analyst and notes), what
-  goes to the core with it (its samples and tubes), and who receives the tubes.
-- **A deliverable type**, like the plugin's [Core deliverable](/reference/plugins/example-lims/#CoreDeliverable):
-  the outcome, a report, the tube, and the sequencing files or a public run accession. Its
-  [result](/reference/plugin-spec/entity-type/#result) settings return it to the requesting
-  project when it reaches the state this lab chose for it.
-- **The states this lab chose**: Submitted, Accepted, In progress, Delivered and Declined, each
-  [set by a lab role](/reference/plugin-spec/field/#states.set_by). The requesting project keeps
-  its own state, Open or Withdrawn.
-- **A rule**: a sequencing request names its method and the tubes the core will receive, or it
-  can't be saved.
-- **The roles**: Coordinator, Analyst and Reviewer, given to people in the core's project. A
-  Reviewer returns each result and sets Delivered; neither takes a signature in this lab.
+The request is the requesting project's record, sent to the core. The fields the core sets are
+its own: the project that asked can read them but not change them.
 
-## The same everywhere
+<RecordCard
+  label="Core facility request"
+  name="iki/example_lims.CoreFacilityRequest"
+  href="/reference/plugins/example-lims/#CoreFacilityRequest"
+  fields={[
+    { name: "Title", type: "text", value: "Clones 3-8 insert check" },
+    { name: "Service requested", type: "choice", value: "Sequencing" },
+    { name: "Sequencing method", type: "choice", value: "Sanger" },
+    { name: "Tubes", type: "list of tubes", value: "TUB-000412, TUB-000413" },
+    {
+      name: "Standing",
+      type: "state",
+      value: "Open",
+      note: "Set by the requesting project: Open, or Withdrawn with a reason.",
+    },
+    {
+      name: "Status",
+      type: "state",
+      value: "In progress",
+      note: "Set by the core. This lab's states are Submitted, Accepted, In progress, Delivered and Declined, each set by a lab role.",
+    },
+    { name: "Analyst", type: "person", value: "Maya Okafor" },
+  ]}
+  rules={[
+    "A sequencing request names its method and the tubes the core will receive, or it can't be saved.",
+  ]}
+/>
 
-- Every change to a request or a result is a revision, with who made it, through what and when,
-  and the earlier values stay in its history.
-- The core reads a request and the samples and tubes sent with it, and nothing else of the
-  requesting project's. Each requesting project sees only its own requests.
-- Each record's audit trail can be read, and exported as CSV.
+The core records one deliverable for each tube. When a Reviewer sets it to Returned, it goes back to
+the requesting project as a result of the request.
 
-## Change it
+<RecordCard
+  label="Core deliverable"
+  name="iki/example_lims.CoreDeliverable"
+  href="/reference/plugins/example-lims/#CoreDeliverable"
+  fields={[
+    { name: "Request", type: "request", value: "REQ-000031" },
+    { name: "Tube", type: "tube", value: "TUB-000412" },
+    { name: "Outcome", type: "choice", value: "Fulfilled" },
+    { name: "Report", type: "file", value: "TUB-000412-report.pdf" },
+    { name: "Sequencing files", type: "list of files", value: "TUB-000412_F.ab1, TUB-000412_R.ab1" },
+    {
+      name: "Status",
+      type: "state",
+      value: "Returned",
+      note: "This lab's states are Recorded, then Returned, which a Reviewer sets without a signature.",
+    },
+  ]}
+/>
+
+</ExampleUses>
+
+## What Iki records along the way
+
+Every change to a request or a result is kept as a revision, with who made it, through what and
+when, and each record's audit trail can be exported as CSV. The core sees a request and the samples
+and tubes sent with it, and nothing else of the requesting project's, and each project sees only
+its own requests.
+
+## Variations of the workflow
 
 - To require a signed review before a result goes back, give the deliverable's returned state a
   signature, as the example plugin's

@@ -1,0 +1,133 @@
+---
+// One record type as an example uses it: its name, linked to its reference entry, and only
+// the fields the example's flow uses, each with its type and a value from the example.
+interface Field {
+  /** The field's label, as the app shows it. */
+  name: string;
+  /** Its type, in words: "list of tubes", "state", "file". */
+  type: string;
+  /** A value from the example, as the app shows it. */
+  value: string;
+  /** Anything the reader needs about this field in this example, such as its states. */
+  note?: string;
+}
+
+interface Props {
+  /** The type's label: "Core facility request". */
+  label: string;
+  /** Its qualified name: "iki/example_lims.CoreFacilityRequest". */
+  name: string;
+  /** Its reference entry. */
+  href: string;
+  fields: Field[];
+  /** Rules the example relies on, in words. */
+  rules?: string[];
+}
+
+const { label, name, href, fields, rules = [] } = Astro.props;
+---
+
+<section class="record-card" aria-label={label}>
+  <p class="type">
+    <a href={href}>{label}</a>
+    <code>{name}</code>
+  </p>
+  <dl>
+    {fields.map((field) => (
+      <div class="field">
+        <dt>{field.name}</dt>
+        <dd class="kind">{field.type}</dd>
+        <dd class="value">
+          <code>{field.value}</code>
+        </dd>
+        {field.note && <dd class="note">{field.note}</dd>}
+      </div>
+    ))}
+  </dl>
+  {rules.map((rule) => (
+    <p class="rule">
+      <span>Rule:</span> {rule}
+    </p>
+  ))}
+</section>
+
+<style>
+  .record-card {
+    margin: 16px 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    font-size: 14px;
+    min-width: 0;
+  }
+  .type {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 12px;
+    margin: 0;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .type a {
+    font-weight: 600;
+  }
+  .type code {
+    font-size: 12.5px;
+    color: var(--muted);
+    background: none;
+    padding: 0;
+    overflow-wrap: anywhere;
+  }
+  dl {
+    margin: 0;
+    padding: 4px 14px;
+  }
+  .field {
+    display: grid;
+    grid-template-columns: minmax(0, 9rem) minmax(0, 8.5rem) minmax(0, 1fr);
+    gap: 2px 14px;
+    padding: 7px 0;
+  }
+  .field + .field {
+    border-top: 1px solid var(--border);
+  }
+  dt {
+    font-weight: 600;
+  }
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+  .kind {
+    color: var(--muted);
+  }
+  .value code {
+    font-size: 13px;
+    background: none;
+    padding: 0;
+    overflow-wrap: anywhere;
+  }
+  .note {
+    grid-column: 1 / -1;
+    color: var(--muted);
+  }
+  .rule {
+    margin: 0;
+    padding: 9px 14px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .rule span {
+    font-weight: 600;
+    color: var(--text);
+  }
+  @media (max-width: 560px) {
+    .field {
+      grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    }
+    .value,
+    .note {
+      grid-column: 1 / -1;
+    }
+  }
+</style>
