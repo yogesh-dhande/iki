@@ -1,0 +1,279 @@
+---
+title: Restore a deployment from a backup
+description: Bring a production deployment on AWS or Google Cloud back after losing data or its region, check that the restore is whole, and prove with drills that it would work.
+audience: run
+order: 70
+reference:
+  - { label: Deploy on AWS, href: /guides/deploy-on-aws/ }
+  - { label: Deploy on Google Cloud, href: /guides/deploy-on-google-cloud/ }
+---
+
+A production deployment made with Iki's reference infrastructure
+([AWS](/guides/deploy-on-aws/) or [Google Cloud](/guides/deploy-on-google-cloud/)) comes back
+from lost data or a lost region within these targets: at most **5 minutes of data lost** (RPO),
+and Iki serving again **within 4 hours** (RTO). On AWS, commands run from the repository's root,
+with the deployment's helper:
+
+```console
+out() { tofu -chdir=deploy/aws/production output -raw "$1"; }
+```
+
+## What's kept, and where
+
+| What                      | Kept                                                      | Copied to the DR region                                |
+| ------------------------- | --------------------------------------------------------- | ------------------------------------------------------ |
+| The database              | Multi-AZ; point-in-time recovery for 35 days              | Automated backups and transaction logs, minutes behind |
+| Files and runs' artifacts | Every version, in a versioned bucket                      | Every version, by S3 replication, seconds behind       |
+| Secrets                   | Secrets Manager, with a key of their own                  | Replicas, with a key there                             |
+| The infrastructure        | Your repository's OpenTofu, and its state in the region   | Rebuilt from the same code                             |
+
+That's AWS. On Google Cloud the database has a replica in the DR region that follows it, and the
+files bucket and each secret are in both regions at once.
+
+## Check a restore
+
+`iki-server check_restore` decides whether a restore is whole, however it was made. It checks that
+every migration is applied, every encrypted value decrypts, and every file and artifact is in
+storage at its size. It also says how far the data reaches, as "Data until". Run it before anyone
+signs in:
+
+```console
+kubectl -n iki exec deploy/iki-web -- iki-server check_restore
+```
+
+## Be ready before you need it
+
+- **A certificate in the DR region.** ACM certificates are regional: issue one there for Iki's host
+  name, and note its ARN.
+- **A short DNS TTL** on Iki's host name, such as 60 seconds, so switching takes effect quickly.
+- **Your OpenTofu repository and its `terraform.tfvars` somewhere the region's loss doesn't take**,
+  such as your Git host.
+- **Replication watched.** S3 reports the files' replication lag (`ReplicationLatency`, with
+  `replication_time_control`), and RDS the backups' (`describe-db-instance-automated-backups`,
+  `RestoreWindow`).
+- **A drill every quarter**, timed against the RTO: see [Drills](#drills).
+
+## Restore in the same region on AWS
+
+For data lost or damaged while the region still stands, such as a mistaken bulk change or a bad
+migration:
+
+1. Stop writes: `kubectl -n iki scale deploy --all --replicas=0`.
+2. Restore the database to just before the damage, as a new instance beside it:
+
+   ```console
+   aws rds restore-db-instance-to-point-in-time \
+     --source-db-instance-identifier iki-production \
+     --target-db-instance-identifier iki-production-restored \
+     --restore-time 2026-11-16T09:41:00Z \
+     --db-subnet-group-name iki-production \
+     --vpc-security-group-ids "$(out database_security_group_id)" \
+     --db-parameter-group-name iki-production-postgres17 \
+     --multi-az --no-publicly-accessible --deletion-protection
+   ```
+
+3. Swap their names, so the restored one answers at the host name the secrets already hold.
+   Rename the damaged one, wait for it, then rename the restored one:
+
+   ```console
+   aws rds modify-db-instance --db-instance-identifier iki-production \
+     --new-db-instance-identifier iki-production-damaged --apply-immediately
+   aws rds modify-db-instance --db-instance-identifier iki-production-restored \
+     --new-db-instance-identifier iki-production --apply-immediately
+   ```
+
+4. Bring Iki back with the `helm upgrade` you install it with, and run `check_restore`. Its "Data
+   until" is the last change kept.
+5. Hand the restored instance to OpenTofu, which puts back what a restore doesn't carry over
+   (monitoring, logs' export, the master password in Secrets Manager):
+
+   ```console
+   tofu state rm module.database.aws_db_instance.this
+   tofu import module.database.aws_db_instance.this iki-production
+   tofu apply
+   ```
+
+6. Keep the damaged instance while you investigate, then lift its deletion protection and delete
+   it.
+
+Files need no restoring: Iki never overwrites a stored object, and every version is kept.
+
+## Restore in the same region on Google Cloud
+
+The same steps apply, with the database restored to any minute of the last 35 days by cloning it:
+`gcloud sql instances clone --point-in-time`. Then run `check_restore` before anyone signs in.
+
+## Recover from a lost region on AWS
+
+The deployment is stood up again in the DR region from the same code, with another name,
+`iki-production-r1` here. Bucket and IAM role names are global, and the lost deployment's still
+exist.
+
+- Its database is restored from the replicated backups.
+- Its secrets are copied from their replicas, so the same keys decrypt the same values.
+- Its files bucket is the lost deployment's replica, which already holds every file and artifact.
+  The records still name the lost bucket, so the chart is told the replica is now where its
+  objects are (`files.bucketAliases`).
+
+Keep a record as you go: who decided, when each step started and ended, and what `check_restore`
+said. It's your evidence of the recovery.
+
+### 1. Fence the lost deployment
+
+If any of it still answers, stop it, so two deployments never write at once:
+`kubectl -n iki scale deploy --all --replicas=0` against its cluster. When the region is down, do
+it as soon as it's back, before it restarts on its own.
+
+### 2. Make state for the new deployment
+
+The lost deployment's state is in the lost region. The new one's goes in this region, in a
+workspace of its own:
+
+```console
+export AWS_REGION=eu-central-1    # the DR region
+cd deploy/aws/bootstrap
+tofu init
+tofu workspace new r1
+tofu apply -var region=$AWS_REGION -var name=iki-production-r1
+tofu output -raw backend_hcl > ../production/backend-r1.hcl
+```
+
+### 3. Make the infrastructure
+
+Find the database's replicated backups, and the latest moment they reach:
+
+```console
+aws rds describe-db-instance-automated-backups --db-instance-identifier iki-production \
+  --query 'DBInstanceAutomatedBackups[0].[DBInstanceAutomatedBackupsArn,RestoreWindow.LatestTime]'
+```
+
+Copy `terraform.tfvars` to `recovery.tfvars`, and change:
+
+```hcl
+name            = "iki-production-r1"
+region          = "eu-central-1"       # the DR region
+dr_region       = "eu-north-1"         # where this deployment's own copies go
+zones           = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
+certificate_arn = "arn:aws:acm:eu-central-1:…"
+
+recovery = {
+  name                 = "iki-production"   # the lost deployment
+  database_backups_arn = "arn:aws:rds:eu-central-1:…:auto-backup:ab-…"
+  # restore_time       = "2026-11-16T09:41:00Z"   # unset: the latest it can
+}
+```
+
+```console
+cd deploy/aws/production
+tofu init -reconfigure -backend-config=backend-r1.hcl
+tofu apply -var-file=recovery.tfvars
+```
+
+It takes about 40 minutes, as an apply that makes everything does. Keep `recovery` set for as
+long as this deployment runs: it's how its state knows the database was restored and the bucket
+taken on, not made.
+
+### 4. Copy the secrets and the database's roles
+
+```console
+deploy/aws/scripts/recover-secrets.sh iki-production iki-production-r1 "$(out database_address)"
+deploy/aws/scripts/create-database-roles.sh iki-production-r1 "$(out database_master_secret_arn)"
+out external_secrets | kubectl apply -f -
+```
+
+`recover-secrets.sh` copies each secret from its replica into the new deployment's, pointing the database's
+at the new host. `create-database-roles.sh` finds the roles already there, with their passwords, and stores this
+region's RDS CA.
+
+### 5. Install the cluster's controllers and Iki
+
+As in [Deploy on AWS](/guides/deploy-on-aws/#install-the-clusters-controllers), installing the
+controllers and then [Iki](/guides/deploy-on-aws/#install-iki). `helm_values` names the replica as
+the files bucket, with the lost bucket aliased to it. Don't point DNS at it yet.
+
+### 6. Check it
+
+```console
+kubectl -n iki exec deploy/iki-web -- iki-server check_restore --external
+```
+
+It must pass. Its "Data until", against the time the region was lost, is the data actually lost:
+record it. On a large deployment, add `--sample 1000` to decide quickly, then run it in full
+afterwards.
+
+### 7. Switch over
+
+Point Iki's host name at the new ALB (`kubectl -n iki get ingress iki-web`). People sign in as
+before. Self-hosted workers and those on the VM tier reconnect by the host name. Tell people what
+time their work was kept to.
+
+### Fail back
+
+The recovered deployment is production now, with its own copies in its own DR region. To return
+to the original region, recover again in the other direction, in a planned window, with step 1
+fencing the current one. The lost region's old resources stay until you delete them, protected
+from deletion until you lift that.
+
+## Recover from a lost region on Google Cloud
+
+The deployment is stood up again in its DR region from the same code, under another name
+(`iki-production-r1` here), with a third region as its DR region, since nothing can be made in the
+lost one. The lost deployment's service accounts, keys and secrets still exist, so names can't be
+reused. Nothing is restored:
+
+- the database is its replica, promoted, minutes behind at most;
+- the files bucket is the same bucket, which is in both regions;
+- the secrets are copied from their replicas, so the same keys decrypt the same values.
+
+Keep a record as you go: who decided, when each step started and ended, and what `check_restore`
+said. On Google Cloud, the helper is
+`out() { tofu -chdir=deploy/gcp/production output -raw "$1"; }`.
+
+1. **Fence the lost deployment**, so two deployments never write at once. If its cluster answers,
+   `kubectl -n iki scale deploy --all --replicas=0`. Then disable its server's service account,
+   which is how its pods reach the bucket, wherever they run:
+   `gcloud iam service-accounts disable <lost deployment>-server@<project>.iam.gserviceaccount.com`.
+2. **Promote the replica** into a database of its own:
+   `gcloud sql instances promote-replica iki-production-dr`.
+3. **Make state for the new deployment**, in the same multi-regional bucket, in a workspace of its
+   own: `tofu init -backend-config=backend.hcl`, then `tofu workspace new r1`.
+4. **Make the infrastructure**, with these in `terraform.tfvars`:
+
+   ```hcl
+   name      = "iki-production-r1"
+   region    = "europe-west4"   # the lost deployment's DR region
+   dr_region = "europe-west3"   # a third
+   recovery  = { name = "iki-production", lost_region = "europe-west1" }
+   ```
+
+   `tofu apply` imports the promoted database and the bucket, rather than making new ones, then
+   makes the database regional and backed up as a new one would be.
+
+5. **Copy the secrets**, then set a new `postgres` password. The database's roles came with it:
+
+   ```console
+   deploy/gcp/scripts/recover-secrets.sh <project> iki-production iki-production-r1 "$(out database_address)"
+   eval "$(out put_secrets)"
+   ```
+
+6. **Install the cluster's controllers and Iki**, as in
+   [Deploy on Google Cloud](/guides/deploy-on-google-cloud/#install-the-clusters-controllers),
+   with the CA Secret from `create_database_roles`. The records still name the same bucket, so the
+   chart needs no `files.bucketAliases`.
+7. **Check it**, before anyone signs in:
+   `kubectl -n iki exec deploy/iki-web -- iki-server check_restore`. Then point your DNS name at
+   the new address.
+
+## Drills
+
+Every change to Iki runs a restore in CI (`deploy/dev/restore-test.sh`): it backs up the dev
+cluster's database, restores it into a new one, and fails unless `check_restore` passes and nothing
+was lost. Production's procedure is proven by drills:
+
+- **Every quarter**: restore the database in the same region to a new instance, point a staging
+  install of Iki at it, run `check_restore`, and time it.
+- **Every year**: recover into the DR region as above, in a separate account or project, or under
+  another name, short of switching DNS, and time it against the RTO.
+
+Record each drill's date, timings, `check_restore`'s report and what you changed after it, for
+your validation file.
