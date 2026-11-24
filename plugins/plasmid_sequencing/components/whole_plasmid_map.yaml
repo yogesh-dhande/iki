@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# The comparison drawn on the plasmid's map (ADR 0208), from the result's own values:
+# Iki sets `entity` to the whole-plasmid alignment, as the person viewing it may read it.
+apiVersion: iki/v1
+kind: Component
+name: whole_plasmid_map
+label: Map
+description: >-
+  The plasmid drawn round a ring, or along a line, with the depth of reads along it, the
+  stretches under the minimum depth dashed on its backbone, and a mark at each difference
+  from its record, over the features it was compared with. Each difference is in a table
+  beneath with its HGVS name, the features it lies in, and the reads that agree with it on
+  each strand.
+module: ./components/whole-plasmid-map.js
+element: whole-plasmid-map
+slots:
+  - slot: entity.tab
+    type: WholePlasmidAlignment
+    label: Map
