@@ -18,6 +18,7 @@ const labels = {
   spectrum_match: "Peptide-spectrum matches",
   precursor: "Precursors",
 };
+const exclusionLabels = { decoy: "Decoy", contaminant: "Contaminant", site_only: "Site-only" };
 const number = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 8 });
 
 function node(tag, ...children) {
@@ -56,7 +57,16 @@ class ProteomicsSearchResults extends HTMLElement {
       content.push(
         facts([
           ["Source version", version],
-          ...Object.entries(summary.counts).map(([key, count]) => [labels[key], count]),
+          ...Object.entries(summary.counts).map(([level, count]) => [
+            summary.excluded_counts ? `Target ${labels[level].toLowerCase()}` : labels[level],
+            count,
+          ]),
+          ...Object.entries(summary.excluded_counts ?? {}).flatMap(([kind, counts]) =>
+            Object.entries(counts).map(([level, count]) => [
+              `${exclusionLabels[kind]} ${labels[level].toLowerCase()}`,
+              count,
+            ]),
+          ),
         ]),
       );
       if (summary.unmatched_accessions.length) {
@@ -65,18 +75,24 @@ class ProteomicsSearchResults extends HTMLElement {
         );
       }
       content.push(node("h2", "Identification preview"));
-      const rows = summary.preview.map((row) =>
-        node(
+      const rows = summary.preview.map((row) => {
+        const flags = row.flags?.length ? row.flags : row.decoy ? ["Decoy"] : [];
+        const quantities = Object.entries(row.quantities).slice(0, 6);
+        return node(
           "li",
           facts([
             ["Identification", row.sequence || row.accessions.join(", ")],
             ...(row.sequence && row.accessions.length
               ? [["Proteins", row.accessions.join(", ")]]
               : []),
-            ...Object.entries(row.quantities).slice(0, 6),
+            ...(flags.length ? [["Flags", flags.join(", ")]] : []),
+            ...quantities.map(([column, value]) => [
+              column,
+              value === "NaN" ? "Calculation error (NaN)" : value,
+            ]),
           ]),
-        ),
-      );
+        );
+      });
       content.push(node("ol", ...rows));
     } else {
       content.push(node("p", "No search report imported."));

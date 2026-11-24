@@ -21,13 +21,21 @@ proteins.
 | [DIA-NN](https://github.com/vdemichev/DiaNN)                                                                                                              | Main tab-separated report with run, group and precursor columns                         | Precursor quantities and one protein-group quantity per run and channel |
 | [FragPipe](https://fragpipe.nesvilab.org/docs/tutorial_fragpipe_outputs.html)                                                                             | Protein and peptide reports with a Protein ID column, including the combined reports    | Intensity, MaxLFQ and spectral-count columns                            |
 
-The result preserves identification levels and the original quantity column
-names. Missing values stay separate from zero. Imported scores and
-annotations remain evidence from the search engine. Iki keeps the report
-files and hashes, pins the dataset revision, and records references to the
-raw files. The action stages the reports alone. It writes all imported rows
-to the `identifications.jsonl` run artifact. The result tab previews the
-first twelve rows and the counts by identification level.
+FragPipe spectrum-match and ion tables are a different identification level and
+are refused. DIA-NN group quantities come from target precursor rows. mzTab
+calculation errors are shown as NaN, distinct from missing values and numeric
+zero. MaxQuant uses zero for unquantified Intensity, LFQ intensity and iBAQ
+values. Iki displays those values as missing and retains the original reports.
+
+The result keeps the original quantity column names and search-engine scores,
+pins the dataset revision and records the raw-file references. The action
+stages the selected reports and writes their normalized rows to the
+`identifications.jsonl` run artifact. On the result tab, mzTab PSMs are counted
+once per PSM ID per report. Peptides are counted by sequence and modifications.
+The preview combines accessions for these repeated identifications, while the
+artifact keeps each reported observation. Counts show target identifications
+and separate totals for flagged evidence. The preview shows decoy,
+contaminant and site-only flags when present.
 
 Support for an engine's export uses its files. Deployments that run an
 external search tool supply the tool and licence in their own environment.

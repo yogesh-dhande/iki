@@ -45,3 +45,41 @@ def test_protein_abundance_and_peptide_are_visible(browser: Browser, scheme: str
         page.evaluate(AXE.read_text())
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         page.context.close()
+
+
+def test_preview_shows_target_counts_exclusions_and_calculation_errors(browser: Browser) -> None:
+    report = {
+        "counts": {"protein_group": 1},
+        "excluded_counts": {"contaminant": {"protein_group": 1}},
+        "unmatched_accessions": [],
+        "preview": [
+            {
+                "accessions": ["P00330"],
+                "quantities": {"Assay A": "NaN", "Assay B": None, "Assay C": 0.0},
+            },
+            {
+                "accessions": ["CON__P12345"],
+                "quantities": {},
+                "flags": ["Potential contaminant"],
+            },
+        ],
+    }
+    with serving(PLUGIN / "components", {MODULE: "proteomics-search-results"}) as origin:
+        page = open_frame(
+            browser,
+            origin,
+            MODULE,
+            {"values": {"version": "synthetic", "summary": report}},
+            viewport={"width": 390, "height": 844},
+            bypass_csp=True,
+        )
+        for text in (
+            "Target protein groups",
+            "Contaminant protein groups",
+            "Potential contaminant",
+            "Calculation error (NaN)",
+            "Missing",
+            "0",
+        ):
+            expect(page.get_by_text(text, exact=True)).to_be_visible()
+        page.context.close()
