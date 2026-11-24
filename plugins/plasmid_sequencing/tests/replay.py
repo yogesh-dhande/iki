@@ -204,4 +204,19 @@ def edited(reference: str) -> dict[str, tuple[str, str]]:
         ),
         "insertion": (inserted[2000:] + inserted[:2000], "circular"),
         "linear-short": (reference[: len(reference) - 50], "linear"),
+        # The whole plasmid twice over, as a dimer's consensus would be: every base is in it,
+        # but each is there twice.
+        "two-laps": (reference + reference, "circular"),
+        # 450 bases that aren't pUC19's past the end of a linear copy of it.
+        "linear-longer": (reference + unrelated(450), "linear"),
     }
+
+
+def unrelated(n: int) -> str:
+    """Synthetic bases, the same each time: a linear congruential generator's (Knuth's
+    MMIX constants), two bits a base."""
+    state, out = 1, []
+    for _ in range(n):
+        state = (6364136223846793005 * state + 1442695040888963407) % 2**64
+        out.append("ACGT"[state >> 62])
+    return "".join(out)

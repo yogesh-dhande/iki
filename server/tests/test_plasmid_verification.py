@@ -256,10 +256,12 @@ def exercise_review(blob: Blob) -> None:
 
     # The earlier result had an agreement only. Copy it into the new field of
     # every parent revision, including one where only the alignment name changed.
+    # The data migration runs alone, on today's tables, so later migrations that
+    # change the type's columns don't stand in its way.
     app = "iki__plasmid_sequencing"
-    executor = MigrationExecutor(connection)
-    [head] = executor.loader.graph.leaf_nodes(app)
-    executor.migrate([(app, "0001_initial")])
+    name = "0002_project_agreement_to_alignment_verdict"
+    loader = MigrationExecutor(connection).loader
+    copying = loader.get_migration(app, name)
     legacy = create(
         "iki/plasmid_sequencing.WholePlasmidAlignment",
         {
@@ -276,12 +278,14 @@ def exercise_review(blob: Blob) -> None:
     legacy.refresh_from_db()
     before = [services.values_at(legacy, number) for number in range(1, legacy.revision + 1)]
     assert all(row["verdict"] is None for row in before)
-    MigrationExecutor(connection).migrate([head])
+    with connection.schema_editor() as editor:
+        copying.apply(loader.project_state((app, name), at_end=False), editor)
     assert services.current_values_of([legacy])[legacy.pk]["verdict"] == "incomplete"
     for number, row in enumerate(before, 1):
         assert services.values_at(legacy, number) == row | {"verdict": "incomplete"}
     with pytest.raises(ValueError, match="Give a reason"):
         values("regulated_qc", legacy)
-    MigrationExecutor(connection).migrate([(app, "0001_initial")])
+    with connection.schema_editor() as editor:
+        copying.unapply(loader.project_state((app, name)), editor)
     for number, row in enumerate(before, 1):
         assert services.values_at(legacy, number) == row

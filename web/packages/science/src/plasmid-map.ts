@@ -4,7 +4,9 @@ import { rangesOf, stretchLength } from "./sequence.js";
 export interface MapSpan {
   start: number;
   end: number;
-  strand?: "forward" | "reverse" | "none";
+  /** `none` has no strand, and `mixed` has parts on both: neither is drawn with an
+   * arrowhead. Unsaid, it's forward. */
+  strand?: "forward" | "reverse" | "none" | "mixed";
   qualifiers?: { label?: string; role?: string; identity?: string };
 }
 export interface MapFeature extends MapSpan {
@@ -32,7 +34,8 @@ export interface MapBindingSite extends MapSpan {
  * reference bases from `start` to `end` (an insertion's are the two bases either side). */
 export interface MapDifference extends MapSpan {
   hgvs: string;
-  kind: "substitution" | "deletion" | "insertion" | "deletion_insertion";
+  kind:
+    "substitution" | "deletion" | "insertion" | "duplication" | "inversion" | "deletion_insertion";
   reference: string;
   observed: string;
   length_change: number;
@@ -81,6 +84,8 @@ export interface PlasmidMapData {
   linkedPrimerIds?: readonly string[];
   emptyMessage?: string;
   emptyAction?: string;
+  /** What else to say beneath the description, a paragraph each. */
+  notes?: readonly string[];
 }
 type View = "line" | "ring";
 type LayerKey = "parts" | "orfs" | "primers" | "coverage" | "differences";
@@ -243,6 +248,29 @@ function spanOf(feature: MapSpan, length: number) {
   return stretchLength(feature.start, feature.end, length);
 }
 
+/** Whether a strand has a direction to draw: not `none`, nor `mixed`. */
+function directed(strand?: MapSpan["strand"]) {
+  return strand !== "none" && strand !== "mixed";
+}
+
+/** A strand in words: as a table writes it, and as a sentence does. */
+function strandWord(strand?: MapSpan["strand"]) {
+  return strand === "reverse"
+    ? "reverse"
+    : strand === "none"
+      ? "neither"
+      : strand === "mixed"
+        ? "both"
+        : "forward";
+}
+function onStrand(strand?: MapSpan["strand"]) {
+  return strand === "none"
+    ? "on neither strand"
+    : strand === "mixed"
+      ? "on both strands"
+      : `on the ${strandWord(strand)} strand`;
+}
+
 /** An arc from base `from` for `span` bases, as an SVG path, with an arrowhead at the end
  * it runs to. */
 function arc(
@@ -252,7 +280,7 @@ function arc(
   radius: number,
   strand?: MapSpan["strand"],
 ): [string, string] {
-  const head = Math.min(span / 2, (14 * length) / (2 * Math.PI * radius));
+  const head = directed(strand) ? Math.min(span / 2, (14 * length) / (2 * Math.PI * radius)) : 0;
   const forward = strand !== "reverse";
   const bodyFrom = forward ? from : from + head;
   const bodySpan = span - head;
@@ -265,7 +293,7 @@ function arc(
   const [bx, by] = point(forward ? from + bodySpan : from + head, length, radius - 5);
   const [cx, cy] = point(forward ? from + bodySpan : from + head, length, radius + 5);
   const head3 = `M ${bx.toFixed(2)} ${by.toFixed(2)} L ${tx.toFixed(2)} ${ty.toFixed(2)} L ${cx.toFixed(2)} ${cy.toFixed(2)} Z`;
-  return [body, head3];
+  return [body, head ? head3 : ""];
 }
 
 /** Ticks every 500, 1,000, 2,000 bases and so on: the first step that gives at most ten
@@ -664,7 +692,7 @@ function lineDrawing(
       const y = forward ? spine - 20 - lane * LANE : spine + 34 + lane * LANE;
       const colour = layer.colour ? colourOf(layer.colour) : colourOf(item.qualifiers?.role);
       // The arrowhead goes on the stretch that holds its 3' end.
-      const tipped = forward ? pieces.length - 1 : 0;
+      const tipped = !directed(item.strand) ? -1 : forward ? pieces.length - 1 : 0;
       pieces.forEach(([from, to], i) => {
         for (const drawn of bar(from, to, length, y, forward, i === tipped)) {
           drawn.setAttribute(drawn.tagName === "line" ? "stroke" : "fill", colour);
@@ -707,7 +735,7 @@ function table(features: MapFeature[], length: number, own = false) {
       element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name),
       element("td", { className: "where" }, where),
       element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`),
-      element("td", {}, feature.strand === "reverse" ? "reverse" : "forward"),
+      element("td", {}, strandWord(feature.strand)),
       element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type),
       ...(own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]),
     );
@@ -997,7 +1025,7 @@ function eachOf<T extends MapSpan>(items: T[], how: (item: T) => string) {
   return items
     .map(
       (i) =>
-        `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand`,
+        `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} ${onStrand(i.strand)}`,
     )
     .join("; ");
 }
@@ -1239,6 +1267,7 @@ export class PlasmidMap extends HTMLElement {
     );
     children.push(
       element("p", {}, describe(length, layers, circular, this.#view)),
+      ...(data.notes ?? []).map((note) => element("p", { className: "note" }, note)),
       element(
         "div",
         { className: "map" },

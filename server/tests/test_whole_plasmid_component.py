@@ -61,14 +61,14 @@ def test_public_puc19_reads_are_drawn_on_the_plasmid(
         expect(page.get_by_role("heading", name="Map")).to_be_visible()
         said = page.get_by_text("A circle of 2,686 base pairs")
         expect(said).to_contain_text("with 3 features of its own: lac promoter, 508 to 591")
-        expect(said).to_contain_text("55 reads deep on average, 46 at the least")
-        expect(said).to_contain_text("6 differences from the record")
+        expect(said).to_contain_text("35.9 reads deep on average, 33 at the least")
+        expect(said).to_contain_text("5 differences from the record")
         expect(said).to_contain_text("o.887del at 887 in ori (rep_origin)")
         differences = page.get_by_role("region", name="Differences")
-        expect(differences.get_by_role("row")).to_have_count(7)
+        expect(differences.get_by_role("row")).to_have_count(6)
         expect(
-            differences.get_by_role("cell", name="54 of 54, 100% (32 forward, 22 reverse)")
-        ).to_have_count(2)
+            differences.get_by_role("cell", name="35 of 35, 100% (20 forward, 15 reverse)")
+        ).to_have_count(1)
         expect(differences.get_by_role("cell", name="7 bases")).to_be_visible()
         expect(page.get_by_role("region", name="Read depth")).to_contain_text("10 reads or more")
         assert (
@@ -114,6 +114,29 @@ def test_a_linear_consensus_that_stops_short_shows_where(browser: Browser, tmp_p
         expect(said).to_contain_text("with no differences from the record")
         # A linear molecule has no ring to draw.
         expect(page.get_by_role("button", name="Circular")).to_have_count(0)
+        page.evaluate(AXE.read_text())
+        assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
+        assert ERRORS[page] == []
+        page.context.close()
+
+
+def test_a_consensus_twice_over_says_why_it_differs(browser: Browser, tmp_path: Path) -> None:
+    entity = result("two-laps", tmp_path)
+    with serving(PLUGIN / "components", {MODULE: "whole-plasmid-map"}) as origin:
+        page = open_frame(
+            browser, origin, MODULE, entity, viewport={"width": 390, "height": 844}, bypass_csp=True
+        )
+        # No single difference, but the second lap is said, beneath the description.
+        expect(page.get_by_text("A circle of 2,686 base pairs")).to_contain_text(
+            "with no differences from the record"
+        )
+        expect(
+            page.get_by_text(
+                "The consensus's bases 2,687 to 5,372 of its 5,372 repeat bases already placed "
+                "on the plasmid, such as a second lap of it."
+            )
+        ).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
         page.evaluate(AXE.read_text())
         assert page.evaluate(RUN_AXE, WCAG_22_AA) == []
         assert ERRORS[page] == []
