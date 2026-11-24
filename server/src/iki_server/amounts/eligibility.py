@@ -49,10 +49,7 @@ def purpose_refusal(
         project is None or not limits.allows(permissions.Action.PROJECT_EDIT, project)
     ):
         return f"This token cannot use {purpose.label} in the record's owning project."
-    principals = (user, limits.alongside) if limits is not None and limits.alongside else (user,)
-    if project is not None and all(
-        not permissions.lab_roles(principal, project).isdisjoint(roles) for principal in principals
-    ):
+    if project is not None and not permissions.lab_roles(user, project).isdisjoint(roles):
         return None
     named = " or ".join(lab_roles.label(role) for role in roles)
     return f"{purpose.label} requires the {named} role in the record's owning project."

@@ -337,6 +337,17 @@ def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
 
 
 def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
+    """The lab roles this request can use in the project (ADRs 0116 and 0210)."""
+    limits = token_limits(user)
+    if limits is not None and limits.projects is not None and project.pk not in limits.projects:
+        return frozenset()
+    roles = _held_lab_roles(user, project)
+    if roles and limits is not None and limits.alongside is not None:
+        return roles & _held_lab_roles(limits.alongside, project)
+    return roles
+
+
+def _held_lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
     """The lab roles an active user holds in the project (ADR 0116), by qualified name: their
     own membership's and their teams', while they have a role there to read it with. Only
     roles an installed plugin declares count."""

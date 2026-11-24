@@ -158,6 +158,7 @@ ACTIONS: dict[str, str] = {
     "entity.amount_moved": "Drew, transferred, split or adjusted a record's amount",
     "storage.moved": "Put a record away, moved it, took it out of storage, or checked it out or in",
     "entity.labelled": "Prepared a record's label for printing",
+    "request.receipt_started": "Started a receipt for a request",
     "request.receipt_completed": "Received a request's material against what it expected",
     "storage.observation_recorded": "Recorded a receiving or reconciliation observation",
     "storage.reconciled": "Reconciled a container's contents with what's recorded in it",

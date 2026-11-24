@@ -153,6 +153,7 @@ def start(user: User, entity: Entity) -> Receipt:
             ReceiptLine(receipt=receipt, entity=e, code=codes[e.pk], expected=True)
             for e in expected
         )
+        log.record("request.receipt_started", actor=user, target=receipt, project=request.service)
         return receipt
 
 

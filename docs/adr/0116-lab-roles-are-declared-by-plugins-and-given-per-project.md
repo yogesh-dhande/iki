@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-17
+- Amended by [0210](0210-delegated-actions-require-a-shared-lab-role.md) for delegated actions
 - Refines: [0003](0003-roles-and-permissions.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)
 
