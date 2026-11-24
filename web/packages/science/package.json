@@ -175,7 +175,7 @@
     "./molecular-properties": 3072,
     "./open-reading-frames": 2304,
     "./restriction-map": 832,
-    "./plasmid-map": 7680,
+    "./plasmid-map": 8192,
     "./plasmid-thumbnail": 3072,
     "./virtual-gel": 3072,
     "./virtual-gel.css": 1152,
