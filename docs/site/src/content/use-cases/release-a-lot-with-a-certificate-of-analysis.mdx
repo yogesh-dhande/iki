@@ -1,0 +1,146 @@
+---
+title: Release a lot with a certificate of analysis
+description: Test a lot against its specification, investigate a result out of specification, issue a signed certificate of analysis and release the lot.
+audience: bench
+topic: Lots and preps
+order: 30
+facts:
+  - { label: Plugins, value: "iki/qc_release, iki/lots", code: true }
+  - { label: Data, value: "USP sodium chloride: assay 99.0–100.5%, loss on drying at most 0.5%" }
+  - { label: Review flow, value: Research or Regulated QC }
+  - { label: Roles, value: "QC analyst, QC reviewer, release testing QA, lot QA" }
+reference:
+  - { label: "POST /actions/{name}/runs", href: /reference/api/post-actions-name-runs/ }
+  - { label: "POST /entities/{ref}/signatures", href: /reference/api/post-entities-ref-signatures/ }
+  - { label: "GET /entities/{ref}/export", href: /reference/api/get-entities-ref-export/ }
+  - { label: iki/qc_release.ReleaseCase, href: "repo:plugins/qc_release/types/release_case.yaml" }
+  - { label: iki/lots.Lot, href: "repo:plugins/lots/types/lot.yaml" }
+---
+
+import Step from "../../components/assay/Step.astro";
+
+The example releases a lot of sodium chloride (PubChem CID 5234) against two criteria from the
+USP sodium chloride monograph, official on 1 December 2015: an assay of 99.0–100.5% NaCl on the
+dried basis by potentiometric titration (USP &lt;541&gt;), and loss on drying of at most 0.5% (USP
+&lt;731&gt;). The specification is a teaching excerpt of the monograph
+([the specification](repo:plugins/qc_release/tests/data/sodium-chloride-specification.json)), and
+the lot, its results and its investigation are synthetic.
+
+The deployment needs the QC release and lots plugins. An admin chooses the **Release testing
+review** setting: **Research**, where one QC reviewer signs, or **Regulated QC**, where an analyst,
+an independent reviewer and QA each sign. A release case keeps the flow it was opened under. The
+material is registered, and the lot is a **Lot** record with its **Lot number**, in
+**Quarantined**.
+
+<Step n={1} id="specification" title="Publish the specification" role="Release testing QA">
+
+Create one **Specification schedule** for the material, and a **Specification version** in it with
+an effective date, its source and one criterion for each attribute. Each criterion names its method
+and unit, and has an **Inclusive lower limit**, an **Inclusive upper limit**, or both.
+
+<div class="table">
+  <table>
+    <thead>
+      <tr><th scope="col">Attribute</th><th scope="col">Method</th><th scope="col">Unit</th><th scope="col">Lower</th><th scope="col">Upper</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Sodium chloride assay</td><td>USP &lt;541&gt; potentiometric silver nitrate titration</td><td>% dried basis</td><td>99.0</td><td>100.5</td></tr>
+      <tr><td>Loss on drying</td><td>USP &lt;731&gt; Loss on Drying</td><td>%</td><td></td><td>0.5</td></tr>
+    </tbody>
+  </table>
+</div>
+
+Sign the version **Approved for publication**, then run **Publish an approved specification
+version** on the schedule. A later version must start on a future date after the one before it,
+and every earlier version is kept.
+
+</Step>
+
+<Step n={2} id="open" title="Open release testing" role="QC analyst">
+
+On the lot's **QC release** tab, run **Open lot release testing** with the material's schedule and
+the **Testing date**. Iki picks the approved version in force on that date, and the new **Lot
+release case** records the lot number and the revisions of the lot, schedule and version it read.
+A lot has one case, which keeps every attempt.
+
+Opening is refused if the lot has no lot number, the testing date is in the future, or no approved
+version was in force on that date.
+
+</Step>
+
+<Step n={3} id="test" title="Record the results" role="QC analyst">
+
+For each criterion, run **Record a release test** with its method, unit and **Observed value**, and
+attach the **Laboratory report**. The method and unit must be the specification's. Limits are
+inclusive, so 99.0 passes a lower limit of 99.0. A result can instead come from a signed plate
+assay result of the same lot; Regulated QC takes only a QA-released one.
+
+The assay reads **98.7**, below the lower limit. Recording it opens an **Out-of-specification
+investigation** for that attempt.
+
+</Step>
+
+<Step n={4} id="investigate" title="Investigate the result" role="QC analyst, QC reviewer">
+
+In the investigation, record the **Resolution**, **confirmed** or **invalidated**, and the
+**Findings**. Invalidating a result needs **Evidence** of the assignable cause. Here the findings
+are "the report ID belongs to a different specimen", and the result is invalidated.
+
+In Research the QC reviewer signs it **Signed off**, with the meaning Review. In Regulated QC the
+analyst signs **Submitted** (Authorship), a QC reviewer who didn't record the result or create,
+submit or edit the investigation signs **Independently reviewed** (Review), and release testing QA,
+someone else again, signs **QA released** (Approval).
+
+A confirmed result out of specification means the lot can't have a passing certificate. QA can put
+the lot **On hold** or reject it.
+
+</Step>
+
+<Step n={5} id="repeat" title="Repeat the test" role="QC analyst">
+
+Run **Record a release test** again for the assay, and choose the attempt it repeats and that
+attempt's signed investigation. The repeat reads **99.9**, and loss on drying reads **0.2**: both
+pass. Once a criterion has a passing attempt, no further attempt is accepted for it.
+
+The original 98.7 stays in the case, with its investigation.
+
+</Step>
+
+<Step n={6} id="certificate" title="Prepare and sign the certificate" role="QC analyst, QC reviewer">
+
+Run **Prepare a certificate of analysis** on the case with every attempt and each signed
+investigation. Iki refuses if an attempt or an investigation is left out, an investigation isn't
+signed, a result out of specification was confirmed, or a criterion has no passing attempt. The
+certificate records the testing date, the lot, the specification version and its criteria, every
+attempt with its value, limits, outcome and report, and each investigation's resolution, findings
+and evidence. Preparing it seals the case.
+
+<div class="table">
+  <table>
+    <thead>
+      <tr><th scope="col">Review flow</th><th scope="col">Who signs</th><th scope="col">State</th><th scope="col">Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Research</td><td>A QC reviewer</td><td>Issued</td><td>Review</td></tr>
+      <tr><td rowspan="3">Regulated QC</td><td>The QC analyst</td><td>Submitted</td><td>Authorship</td></tr>
+      <tr><td>A QC reviewer who isn't one of the case's analysts</td><td>Independently reviewed</td><td>Review</td></tr>
+      <tr><td>Release testing QA, someone else again</td><td>Issued by QA</td><td>Approval (QA issue)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+Use **Export** on the issued certificate to download it as signed HTML, which prints to PDF, or as
+JSON.
+
+</Step>
+
+<Step n={7} id="release" title="Release the lot" role="Lot QA">
+
+Attach the certificate under the lot's **Certificates of analysis**, with any supplier
+certificates, and set its **Disposition** to **Released**. The signature means Approval, labelled
+QA release. A lot can't be released without a certificate attached, by the person who made,
+recorded or edited a lot made in the lab, or through an app or agent.
+
+A released lot is locked. Sending it back to **Quarantined** needs a reason.
+
+</Step>
