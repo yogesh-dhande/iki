@@ -775,6 +775,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         request=_request(body.get("request"), plugin),
         result=ResultSpec(
             of=body["result"]["of"],
+            material=body["result"].get("material"),
             released_field=body["result"]["released"]["field"],
             released_states=tuple(body["result"]["released"]["states"]),
         )
@@ -839,6 +840,7 @@ def _request(data: Any, plugin: str) -> RequestSpec | None:  # noqa: ANN401 - YA
     return RequestSpec(
         service_fields=tuple(data.get("service_fields") or ()),
         sends=tuple(data.get("sends") or ()),
+        materials=tuple(data.get("materials") or ()),
         receives=receives.get("field"),
         receives_by=tuple(lab_role_name(role, plugin) for role in receives.get("by") or ()),
     )
@@ -1789,6 +1791,24 @@ class _Semantics:
                 )
                 continue
             self.service_field(found[0], source, at)
+        for index, name in enumerate(spec.materials):
+            if name not in spec.sends:
+                self.add(
+                    "request-material-not-sent",
+                    f"Request material `{name}` must be one of the fields in `sends`.",
+                    source,
+                    ("request", "materials", index),
+                )
+            if name in every:
+                field = every[name][0]
+                target = field.items if field.type == "list" else field
+                if target and self._refers_to_identity(target):
+                    self.add(
+                        "request-material-identity",
+                        "A material field must identify a physical record.",
+                        source,
+                        ("request", "materials", index),
+                    )
         for index, name in enumerate(spec.sends):
             at = ("request", "sends", index)
             found = every.get(name)
@@ -1911,6 +1931,14 @@ class _Semantics:
                 at,
             )
 
+    def _refers_to_identity(self, field: Field) -> bool:
+        return any(
+            ancestor.identity
+            for name in field.to
+            if (target := self.types.get(name))
+            for ancestor in [target, *self.ancestors(target)]
+        )
+
     def result(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
     ) -> None:
@@ -1959,6 +1987,21 @@ class _Semantics:
                     "request, for good.",
                     source,
                     ("result", "of"),
+                )
+        if spec.material is not None:
+            material = every.get(spec.material)
+            if material is None or not (
+                material[0].type == "ref"
+                and material[0].required
+                and material[0].immutable
+                and not self._refers_to_identity(material[0])
+                and not material[0].removed
+            ):
+                self.add(
+                    "result-material",
+                    "Material must be a required, immutable reference to a physical record.",
+                    source,
+                    ("result", "material"),
                 )
         found = every.get(spec.released_field)
         state = found[0] if found is not None else None

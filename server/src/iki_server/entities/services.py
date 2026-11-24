@@ -269,8 +269,11 @@ def create(
         access.refs_for(user, project),
         by_run=by_run,
         hold_reason=hold_reason,
+        defer_result_check=True,
     )
     with transaction.atomic(), _unique_values():
+        if errors := requests.check_result(project, type_name, given, lock=True):
+            raise Invalid(errors)
         if refused := starter_flows.refused_create(project, [type_name]):
             raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
@@ -740,6 +743,7 @@ def prepare(
     by_run: bool = False,
     hold_reason: str = "",
     check_rules: bool = True,
+    defer_result_check: bool = False,
 ) -> tuple[Shape, dict[str, Any], list[checking.Broken]]:
     """A new entity's values as the database stores them, defaults filled in, checked
     against its type's fields and rules, with the plugins' rules it breaks that hold it
@@ -801,7 +805,7 @@ def prepare(
         from iki_server.amounts import stock
 
         errors = stock.check_item(type_name, project, given)
-    if not errors:
+    if not errors and not defer_result_check:
         errors = requests.check_result(project, type_name, given)
     if not errors:
         errors = rules.check(user, entity_type, project, given.get)

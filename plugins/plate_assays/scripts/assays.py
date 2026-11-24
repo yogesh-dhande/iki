@@ -184,7 +184,11 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
         "concentration_unit": unit,
         "measurements": [m["id"] for m in selected],
     }
-    if request := read_values.get("request"):
+    request = read_values.get("request")
+    if any(
+        item["id"] == request and sample in item.get("covered_materials", [])
+        for item in read.get("included", {}).get("request", [])
+    ):
         result_type = f"Requested{result_type}"
         result["request"] = request
     return {

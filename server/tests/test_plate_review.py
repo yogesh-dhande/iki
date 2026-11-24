@@ -10,7 +10,7 @@ from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
-from test_signatures import begin, ready, signed
+from test_signatures import begin, evidence, ready, signed
 
 from iki_server.entities import registry, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Revision
@@ -23,7 +23,7 @@ from iki_server.runs.services import plugin_settings
 from iki_server.setup import starters
 from iki_server.setup.models import StarterApplication
 from iki_server.signatures.models import Signature
-from iki_server.signatures.services import verify
+from iki_server.signatures.services import finish, verify
 
 __all__ = ["database"]
 
@@ -72,17 +72,22 @@ def _check_inherited_flows(world: World) -> None:
     }
 
 
-def _request(world: World) -> Entity:
+def _request(world: World) -> tuple[Entity, Entity]:
     asking = Project.objects.create(team=world.team, name="Project requesting an assay")
     editor = world.users["editor"]
     ProjectMembership.objects.create(project=asking, user=editor, role=ProjectRole.EDITOR)
     requests.set_intake(
         world.project, types=[REQUEST], from_registry=True, sources=[], by=world.users["admin"]
     )
-    saved = services.create(editor, REQUEST, asking, {"title": "Synthetic plate review"})
+    sample = services.create(
+        editor, "iki/example_lims.Tube", asking, {"name": "Review tube"}
+    ).entity
+    saved = services.create(
+        editor, REQUEST, asking, {"title": "Synthetic plate review", "tubes": [str(sample.pk)]}
+    )
     request = Entity.objects.get(pk=saved.entity.pk)
     requests.submit(editor, request, world.project, expected_revision=request.revision)
-    return request
+    return request, Entity.objects.get(pk=sample.pk)
 
 
 def _sign(world: World, who: str, record: Entity, to: str) -> Signature:
@@ -108,14 +113,8 @@ def exercise_reviews() -> None:
         for role in held:
             LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
 
-    request = _request(world)
+    request, sample = _request(world)
     editor = world.users["editor"]
-    sample = services.create(
-        editor,
-        "iki/protein.Protein",
-        world.project,
-        {"name": "Synthetic plate review fixture", "sequence": "AGAGAGAG"},
-    ).entity
     read_id = _read_evidence(world, str(sample.pk))
 
     def result(type_name: str, flow: str) -> Entity:
@@ -168,6 +167,18 @@ def exercise_reviews() -> None:
     starters.installed_starters.cache_clear()
     with pytest.raises(PermissionDenied):
         begin(world, "viewer", str(research.pk), "signed", field="review")
+    pending = begin(world, "admin", str(research.pk), "signed", field="review")
+    services.update(editor, request, {"tubes": []}, expected_revision=request.revision)
+    refused = finish(pending, evidence(world, "admin"))
+    assert refused.signature_id is None and "sample or tube" in refused.message
+    assert not ProjectLink.objects.filter(entity=research, via_request=request).exists()
+    assert states.values_of(research)["review"] == "recorded"
+    with pytest.raises(Invalid, match="sample or tube"):
+        result("RequestedQCAssayResult", "regulated_qc")
+    request.refresh_from_db()
+    services.update(
+        editor, request, {"tubes": [str(sample.pk)]}, expected_revision=request.revision
+    )
     witness = _sign(world, "admin", research, "signed")
     assert Signature.objects.filter(entity=research).count() == 1
     assert json.loads(witness.content)["values"]["fit_status"] == "unreportable"

@@ -740,6 +740,11 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
         included.setdefault(c.run_id, []).append(
             {
                 "input": c.input,
+                **(
+                    {"covered_materials": c.covered_materials}
+                    if c.covered_materials is not None
+                    else {}
+                ),
                 "position": c.position,
                 "field": c.field,
                 "index": c.index,

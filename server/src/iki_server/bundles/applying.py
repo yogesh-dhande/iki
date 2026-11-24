@@ -1042,6 +1042,7 @@ class _Writer:
             RunInclusion(
                 run=run,
                 input=c["input"],
+                covered_materials=c.get("covered_materials"),
                 position=c["position"],
                 field=c["field"],
                 index=c["index"],

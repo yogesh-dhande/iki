@@ -1146,6 +1146,12 @@
             "type": "object",
             "required": ["entity", "field", "index", "input", "position", "revision"],
             "properties": {
+              "covered_materials": {
+                "description": "Direct input records covered by this included service request at launch.",
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "format": "uuid" }
+              },
               "input": {
                 "type": "string",
                 "maxLength": 63

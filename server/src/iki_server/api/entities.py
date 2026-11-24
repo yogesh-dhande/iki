@@ -2520,17 +2520,7 @@ def search_csv(request: HttpRequest, params: Query[SearchCsvParams]) -> Streamin
             data={
                 "format": "csv",
                 "file": name,
-                "search": {
-                    "type": wanted.type,
-                    "exact_type": wanted.exact_type,
-                    "project": str(wanted.project) if wanted.project else None,
-                    "archived": wanted.archived,
-                    "q": wanted.q,
-                    "collection": wanted.collection,
-                    "where": where,
-                    "sort": wanted.sort,
-                    "descending": wanted.descending,
-                },
+                "search": {**params.model_dump(mode="json", exclude={"columns"}), "where": where},
                 "columns": [c.key for c in table],
             },
         )

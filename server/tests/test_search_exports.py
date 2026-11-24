@@ -18,6 +18,7 @@ from django.db import connection
 from org_world import World, build_world
 from test_api_entities import api_as
 from test_oauth import bearer, signed_in_token
+from test_search_everything import run_on
 
 from iki_server.accounts.models import User
 from iki_server.api import csvs
@@ -216,7 +217,15 @@ def test_a_token_that_only_reads_downloads_it(world: World, lab: dict[str, Any])
 
 def test_each_download_is_in_the_audit_log(world: World, lab: dict[str, Any]) -> None:
     warm = {"field": "temperature_optimum", "op": "gte", "value": 0}
-    download(api_as(world, "viewer"), type=PROTEIN, project=str(world.project.pk), where=warm)
+    run = run_on(world.users["editor"], world.project, lab["insulin"])
+    response, _ = download(
+        api_as(world, "viewer"),
+        type=PROTEIN,
+        project=str(world.project.pk),
+        where=warm,
+        run=run.hrid,
+    )
+    assert response.status_code == 200
     event = AuditEvent.objects.get(action="search.exported")
     assert event.actor == world.users["viewer"]
     assert event.project == world.project
@@ -229,6 +238,7 @@ def test_each_download_is_in_the_audit_log(world: World, lab: dict[str, Any]) ->
         "archived": None,
         "q": None,
         "collection": None,
+        "run": run.hrid,
         "where": warm,
         "sort": None,
         "descending": False,

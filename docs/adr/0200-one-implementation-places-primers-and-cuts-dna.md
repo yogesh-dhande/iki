@@ -131,14 +131,13 @@ platform the worker runs on. A worker needs no Rust toolchain. A module that is
 missing from both places, or that does not match, fails the build rather than
 the first run, and the refusal says which of the two it is.
 
-The CLI compares the bytes where the comparison can hold, on Linux x86-64, and
-elsewhere requires the module to be there without comparing it. That is the
-threat model rather than a concession: the only bytes that ever reach a worker
-are the Linux x86-64 ones, since that is what a worker image is, so those are
-always checked; a developer building a deployment on a Mac is building for a dev
-cluster, and a comparison there could only fail. The dev cluster gets canonical
-bytes anyway, because `deploy/dev/build-wasm.sh` takes both modules out of the
-Docker stage.
+Every pinned plugin build verifies the staged module against the digest from the
+pinned commit, on every build host. Builders on another architecture can use the
+canonical bytes from the Linux x86-64 build. If the installed or staged bytes
+differ, the build fails before publishing either worker distribution. Explicit
+local development plugins may use host-built modules on other architectures.
+The dev cluster can obtain canonical modules from the Docker stage through
+`deploy/dev/build-wasm.sh`.
 
 ## Consequences
 

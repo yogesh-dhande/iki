@@ -211,6 +211,13 @@
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
           }
         },
+        "materials": {
+          "description": "Fields in sends that identify individual physical records. A result may cover those records and their recorded aliquots. A registry entry shared by several records cannot identify the tested material.",
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        },
         "receives": {
           "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
           "type": "object",
@@ -243,6 +250,10 @@
       "properties": {
         "of": {
           "description": "Its reference to the request it's a result of: a required, immutable `ref` to a request type.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "material": {
+          "description": "A required, immutable reference to the tested material covered by the request.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "released": {
@@ -720,6 +731,10 @@
             "sent": {
               "description": "A request's: when it's sent to a service. It tells the service, by the lab roles its people hold there (`tell.roles`), and nobody of the project asking.",
               "const": true
+            },
+            "material": {
+              "description": "A required, immutable reference to the tested material covered by the request.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "released": {
               "description": "A request's: when one of its results is released back to the project that asked, whose people it tells.",

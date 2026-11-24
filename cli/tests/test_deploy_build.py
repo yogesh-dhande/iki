@@ -1,5 +1,6 @@
 import hashlib
 import json
+import platform
 import shutil
 import subprocess
 import tarfile
@@ -10,6 +11,7 @@ import pytest
 
 from iki_cli import fetch
 from iki_cli.main import main
+from iki_spec import modules
 
 PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 URL = "https://git.example/acme/plugins.git"
@@ -82,6 +84,45 @@ def tree_hash(directory: Path) -> str:
     for file in sorted(p for p in directory.rglob("*") if p.is_file()):
         digest.update(file.relative_to(directory).as_posix().encode() + b"\0" + file.read_bytes())
     return digest.hexdigest()
+
+
+@pytest.mark.usefixtures("allow_file")
+def test_a_pinned_build_checks_the_historical_modules_digest_on_arm(
+    tmp_path: Path,
+    upstream: tuple[Path, str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    native = tmp_path / "tool.wasm"
+    native.write_bytes(b"current packaged bytes")
+    monkeypatch.setattr(modules, "module", lambda name: native if name == native.name else None)
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "aarch64")
+    repo = tmp_path / "release"
+    git(tmp_path, "clone", "--quiet", str(upstream[0]), str(repo))
+    git(repo, "config", "user.name", "Release test")
+    git(repo, "config", "user.email", "release@example.org")
+    marker = repo / "plugins/dna/tool.wasm.sha256"
+    previous = hashlib.sha256(b"previous packaged bytes").hexdigest()
+    marker.write_text(previous)
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "Pin the first module")
+    pin = git(repo, "rev-parse", "HEAD")
+    latest = hashlib.sha256(native.read_bytes()).hexdigest()
+    marker.write_text(latest)
+    git(repo, "commit", "-qam", "Pin the current module")
+    (tmp_path / "gitconfig").write_text(f'[url "file://{repo}"]\n\tinsteadOf = {URL}\n')
+    server, workers = tmp_path / "server", tmp_path / "workers"
+    deploy = deployment(tmp_path, pin)
+    command = ["deploy", "build", str(deploy), "-o", str(server), "--workers", str(workers)]
+    assert main(command) == 1
+    error = capsys.readouterr().err
+    assert "tool.wasm" in error and previous in error and latest in error
+    assert not server.exists() and not workers.exists()
+    lock = deploy / "plugins.lock.yaml"
+    lock.write_text(lock.read_text().replace(pin, git(repo, "rev-parse", "HEAD")))
+    assert main(command) == 0, capsys.readouterr().err
+    assert (workers / "plugins/acme__dna/tool.wasm").read_bytes() == native.read_bytes()
 
 
 @pytest.mark.usefixtures("allow_file")

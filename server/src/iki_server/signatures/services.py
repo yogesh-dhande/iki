@@ -785,7 +785,10 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
     after = slots(user, locked, change, given=[*given, signature])
     if all(x.signature is not None for x in after):
         carried = tuple(x.signature.pk for x in after if x.signature is not None)
-        changes.make(locked, change, user, _joined(after, s), carried)
+        try:
+            changes.make(locked, change, user, _joined(after, s), carried)
+        except Refused as refused:
+            raise Failure("refused", str(refused)) from None
         if "reviewed" in document and not _carries_content(signature, locked):
             raise Failure(
                 "review", "The released values differ from the review. Nothing was released."

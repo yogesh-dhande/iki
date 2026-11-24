@@ -20,6 +20,7 @@ from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 
+from iki_server.amounts import services as amounts
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, requests, services
 from iki_server.entities.models import Entity
@@ -187,6 +188,65 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
 
     plate = UUID(ids["plate"])
     sample = UUID(ids["sample"])
+
+    # Two additional wells on this read carry derivatives. Only the first one's
+    # physical parent chain ends at a tube listed by this requester.
+    def portion(value: int) -> amounts.Given:
+        return amounts.Given.of({"value": value, "unit": "uL"})
+
+    split_source = services.create(
+        admin, tube.type, asker, {"name": "Tube for aliquoting"}, amount={"value": 10, "unit": "uL"}
+    )
+    source_tube = Entity.objects.get(pk=split_source.entity.pk)
+    request.refresh_from_db()
+    services.update(
+        admin,
+        request,
+        {"tubes": [str(tube.pk), str(source_tube.pk)]},
+        expected_revision=request.revision,
+    )
+    (first,) = amounts.split(admin, source_tube, 1, portion(5)).aliquots
+    (nested,) = amounts.split(admin, first, 1, portion(2)).aliquots
+    services.link(admin, nested, project)
+    protein = Entity.objects.get(pk=ids["protein"])
+    services.link(admin, protein, other)
+    separate = services.create(
+        admin, "iki/example_lims.Sample", other, {"protein": str(protein.pk)}
+    )
+    requests.set_intake(
+        project, types=[request.type], from_registry=False, sources=[asker, other], by=admin
+    )
+    second = services.create(
+        admin,
+        request.type,
+        other,
+        {"title": "Second assay request", "samples": [str(separate.entity.pk)]},
+    )
+    second_request = Entity.objects.get(pk=second.entity.pk)
+    requests.submit(admin, second_request, project, expected_revision=second_request.revision)
+    derivative = services.create(
+        admin, "iki/example_lims.Aliquot", other, {"sample": str(separate.entity.pk)}
+    )
+    unrelated = Entity.objects.get(pk=derivative.entity.pk)
+    services.link(admin, unrelated, project)
+    plate_record = Entity.objects.get(pk=plate)
+    layout = dose_response._assignments(str(sample))[:8]
+    for well, material in (("A9", nested), ("A10", unrelated)):
+        layout.append(
+            {
+                "well": well,
+                "sample": str(material.pk),
+                "replicate": 1,
+                "concentration": 1,
+                "concentration_unit": "nM",
+            }
+        )
+    services.update(
+        admin,
+        plate_record,
+        {"assignments": layout, "procedure": "SOP-PLATE", "procedure_revision": "2"},
+        expected_revision=plate_record.revision,
+    )
     _worker(world, "preview_reader", {"plate": [plate]}, {}, csv)
     _worker(world, "commit_reader", {"plate": [plate]}, {}, csv)
     read = Entity.objects.get(owner_project=project, type=PREFIX + "PlateRead")
@@ -198,9 +258,19 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         csv,
     )
     name = "RequestedResearchAssayResult" if flow == "research" else "RequestedQCAssayResult"
+    assert (
+        requests.check_result(
+            project, PREFIX + name, {"request": second_request.pk, "sample": unrelated.pk}
+        )
+        == {}
+    )
+    assert "sample" in requests.check_result(
+        project, PREFIX + name, {"request": request.pk, "sample": unrelated.pk}
+    )
     result = Entity.objects.get(owner_project=project, type=PREFIX + name)
     values = services.current_values_of([result])[result.pk]
     assert str(values["request"]) == ids["request"]
+    assert (values["procedure"], values["procedure_revision"]) == ("SOP-PLATE", "2")
     assert values["review_flow"] == flow and values["point_count"] == 7
     assert 11 < values["endpoint_value"] < 13 and values["concentration_unit"] == "nM"
     (excluded,) = [p for p in values["points"] if p["exclusion_reason"]]
@@ -211,6 +281,20 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         if flow == "research"
         else [("editor", "submitted"), ("runner", "reviewed"), ("viewer", "released")]
     )
+    for material, kind in ((nested, name), (unrelated, name.removeprefix("Requested"))):
+        _worker(world, "fit_curve", {"read": [read.pk], "sample": [material.pk]}, {}, csv)
+        made = (
+            Entity.objects.filter(owner_project=project, type=PREFIX + kind)
+            .exclude(pk=result.pk)
+            .get()
+        )
+        recorded = services.current_values_of([made])[made.pk]
+        assert recorded["sample"] == material.pk
+        assert (recorded["procedure"], recorded["procedure_revision"]) == ("SOP-PLATE", "2")
+        assert recorded.get("request") == (request.pk if material == nested else None)
+        for signer, to in steps:
+            assert signed(world, signer, str(made.pk), to, field="review").signature_id
+        assert access.visible(requester).filter(pk=made.pk).exists() == (material == nested)
     for signer, to in steps:
         assert not access.visible(requester).filter(pk=result.pk).exists()
         proof = signed(world, signer, str(result.pk), to, field="review").signature

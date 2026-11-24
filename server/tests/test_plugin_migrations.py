@@ -142,6 +142,97 @@ def build(plugins: Path, *names: str) -> Path:
     return output
 
 
+def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -> None:
+    """A lab's own Lot, Sample and assay result use its declared physical parent."""
+    types = plugins / "protein" / "types"
+    request = types / "assay_request.yaml"
+    request.write_text(
+        request.read_text()
+        .replace(
+            "  sends: [samples, protein, tubes]",
+            "  sends: [samples, protein, tubes, specimens]\n  materials: [specimens]",
+        )
+        .replace(
+            "fields:\n",
+            "fields:\n  specimens: { type: list, items: { type: ref, to: Lot }, max_items: 20 }\n",
+            1,
+        )
+    )
+    sample = types / "sample.yaml"
+    sample.write_text(
+        sample.read_text().replace(
+            "lot: { type: ref, to: Lot }", "lot: { type: ref, to: Lot, immutable: true }"
+        )
+    )
+    result = types / "assay_result.yaml"
+    result.write_text(
+        result.read_text()
+        .replace("result:\n", "result:\n  material: sample\n")
+        .replace(
+            "sample: { type: ref, to: Sample }",
+            "sample: { type: ref, to: Sample, required: true, immutable: true }",
+        )
+    )
+    made("dna", "--no-input", cwd=plugins)
+    made("protein", "--with", "dna", "--no-input", cwd=plugins)
+    app = build(plugins, "dna", "protein")
+    migrate(app, database)
+    sync(app, database)
+    orm(
+        app,
+        database,
+        """
+        import pytest
+        from org_world import build_world
+        from iki_server.entities import services, requests
+        from iki_server.entities.models import Entity
+        from iki_server.org.models import Project, ProjectMembership, ProjectRole
+        world = build_world()
+        admin = world.users["admin"]
+        lab = world.project
+        facility = Project.objects.create(team=world.team, name="Assay facility")
+        ProjectMembership.objects.create(project=facility, user=admin, role=ProjectRole.ADMIN)
+        def make(kind, project, **values):
+            row = services.create(admin, "acme/protein." + kind, project, values).entity
+            return Entity.objects.get(pk=row.pk)
+        root, other = [make("Lot", lab, label=n) for n in ("Requested", "Other")]
+        children = [make("Sample", lab, label=n, lot=str(lot.pk))
+                    for lot, n in ((root, "First"), (other, "Second"))]
+        request = make("AssayRequest", lab, title="One lot", specimens=[str(root.pk)])
+        requests.set_intake(facility, types=[request.type], from_registry=False,
+                            sources=[lab], by=admin)
+        requests.submit(admin, request, facility, expected_revision=request.revision)
+        for child in children:
+            services.link(admin, child, facility)
+        make("AssayResult", facility, request=str(request.pk), sample=str(children[0].pk))
+        with pytest.raises(services.Invalid) as refused:
+            make("AssayResult", facility, request=str(request.pk), sample=str(children[1].pk))
+        assert "sample" in refused.value.errors
+
+        # A file import resolves its keyed creates before checking the staged rows.
+        from uuid import uuid4
+        from django.db import transaction
+        from iki_server.entities.values import shape
+        from iki_server.runs import imports, results
+        from iki_server.runs.models import ImportLine, RunImport
+        kind = "acme/protein.AssayResult"
+        table = shape(kind).part_of("sample").model._meta.db_table
+        staged = RunImport(id=uuid4(), round=1)
+        ImportLine.objects.create(bulk_import_id=staged.pk, round=1, line=1, type=kind,
+            entity_id=uuid4(), changed=["sample", "request"], parts={table: {
+                "request": str(request.pk), "sample": str(imports.stand_in(staged, "portion"))}})
+        with transaction.atomic():
+            imports._replace_stand_ins(staged, {"portion": children[0].pk})
+            imports._check_request_materials(staged, facility, [kind])
+        request.refresh_from_db()
+        services.update(admin, request, {"specimens": []}, expected_revision=request.revision)
+        with transaction.atomic(), pytest.raises(results.InvalidOutput):
+            imports._check_request_materials(staged, facility, [kind])
+        result = {}
+    """,
+    )
+
+
 # --- The first-party style plugins -------------------------------------------------------------
 
 

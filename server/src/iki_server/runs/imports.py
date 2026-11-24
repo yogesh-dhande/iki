@@ -49,7 +49,16 @@ from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.entities import access, checking, constraints, holds, identity, registry, unique
+from iki_server.entities import (
+    access,
+    checking,
+    constraints,
+    holds,
+    identity,
+    registry,
+    requests,
+    unique,
+)
 from iki_server.entities import services as entities
 from iki_server.entities.hrids import sequence_name
 from iki_server.entities.identity import hash_of, identity_of
@@ -89,9 +98,10 @@ from iki_spec.model import Action as SpecAction
 from iki_spec.model import Field, Software
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from iki_server.entities.values import Shape
+    from iki_server.org.models import Project
 
 __all__ = [
     "MAX_LINES",
@@ -587,7 +597,16 @@ def _stage_rows(
             continue
         try:
             form, given, _ = entities.prepare(
-                user, create.type, run.project, values, refs, by_run=True, check_rules=False
+                user,
+                create.type,
+                run.project,
+                values,
+                refs,
+                by_run=True,
+                check_rules=False,
+                defer_result_check=bool(
+                    (spec := requests.result_spec(create.type)) and spec.material
+                ),
             )
         except Invalid as error:
             check.errors = []
@@ -1134,6 +1153,39 @@ def _first_line(error: Exception) -> str:
     return f"The database refused it: {str(error).splitlines()[0][:500]}"
 
 
+def _check_request_materials(imported: RunImport, project: Project, types: Sequence[str]) -> None:
+    """Check actual IDs after keyed creates resolve, holding requests until the import commits."""
+    for type_name in types:
+        spec = requests.result_spec(type_name)
+        if not spec or not spec.material:
+            continue
+        form = shape(type_name)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT parts #>> %s AS request, parts #>> %s AS material, min(line) "  # noqa: S608 - _lines is our table
+                f"FROM {_lines(imported)} s WHERE type = %s GROUP BY 1, 2 ORDER BY 1, 2",
+                [
+                    [form.part_of(name).model._meta.db_table, name]
+                    for name in (spec.of, spec.material)
+                ]
+                + [type_name],
+            )
+            for request, material, line in cursor:
+                given = {spec.of: uuid.UUID(request), spec.material: uuid.UUID(material)}
+                for name, errors in requests.check_result(
+                    project, type_name, given, lock=True
+                ).items():
+                    raise results.InvalidOutput(
+                        [
+                            {
+                                "pointer": results.pointer("creates_file", line, "values", name),
+                                "detail": msg,
+                            }
+                            for msg in errors
+                        ]
+                    )
+
+
 def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
     """Writes the staged creates. Returns how many records it created and reused, and how
     many registry entries it registered (ADR 0115)."""
@@ -1158,6 +1210,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             raise results.InvalidOutput(
                 [{"pointer": results.pointer("creates_file"), "detail": refused}]
             )
+        _check_request_materials(imported, project, types)
         identified = [t for t in types if shape(t).has_entries]
         owners = sorted(
             {

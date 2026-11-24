@@ -120,12 +120,12 @@ def test_a_module_that_isnt_the_one_its_digest_names_is_refused(
 def test_on_another_platform_a_module_is_still_required_but_not_compared(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A Rust WebAssembly build is reproducible on one platform and not across them, so
-    the digest is of the Linux x86-64 build -- the only bytes that ever reach a worker.
-    Building a deployment on another platform, which only a dev cluster runs, gets the
-    module that was built there; it is still required to be there."""
+    """Local plugins may use host-built modules. Pinned plugins require canonical bytes."""
     monkeypatch.setattr(workers, "_digests_hold_here", lambda: False)
     directory = _with_a_module(tmp_path, "a" * 64, b"\x00asm\x01\x00\x00\x00 this platform's")
+    with pytest.raises(ValueError, match="module its digest names"):
+        workers.bundle(directory, tmp_path / "pinned.tar.gz", pinned=True)
+    assert not (tmp_path / "pinned.tar.gz").exists()
     workers.bundle(directory, tmp_path / "bundle.tar.gz")
     with tarfile.open(tmp_path / "bundle.tar.gz") as tar:
         assert "data/tools.wasm" in tar.getnames()
@@ -166,9 +166,8 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
     ``iki deploy build`` exports it, which carries the digest and not the module, bundled
     with the module iki-spec was built with (ADR 0200, ADR 0201).
 
-    The tracked digest is of the Linux x86-64 build, since that is what every image and
-    deployment runs, and rustc's precompiled wasm32 standard library differs between host
-    platforms, so the comparison is only asserted where it can hold.
+    A locally packaged native build can differ from the canonical Linux x86-64
+    release. A pinned deployment may only use bytes matching all the tracked digests.
     """
     root = Path(__file__).parents[2]
     carried = modules.module(name)
@@ -189,17 +188,27 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
     # As `iki deploy build` does: the plugin's other first-party resources -- the plasmid
     # plugin's annotation module, the DNA plugin's measurement -- are staged first, and
     # then the bundle places this one.
+    auxiliary = "oligo-measurement" if plugin == "dna" else "dna-annotation.wasm"
+    aux_name = "oligo-measurement.wasm" if plugin == "dna" else auxiliary
+    aux_pin = (exported / "data" / f"{auxiliary}.sha256").read_text().strip()
+    native_matches = (
+        hashlib.sha256(carried.read_bytes()).hexdigest() == want
+        and hashlib.sha256(files("iki_spec").joinpath(aux_name).read_bytes()).hexdigest() == aux_pin
+    )
+    if workers._digests_hold_here():
+        assert native_matches, "Rebuild the canonical release modules."
+    if not native_matches:
+        with pytest.raises(ValueError, match="digest"):
+            workers.prepared_source(f"iki/{plugin}", exported, tmp_path / "staged", pinned=True)
+        return
     staged = workers.prepared_source(f"iki/{plugin}", exported, tmp_path / "staged", pinned=True)
-    workers.bundle(staged, tmp_path / "bundle.tar.gz")
+    workers.bundle(staged, tmp_path / "bundle.tar.gz", pinned=True)
 
     placed = staged / "data" / name
     assert placed.read_bytes() == carried.read_bytes()
     with tarfile.open(tmp_path / "bundle.tar.gz") as tar:
         assert f"data/{name}" in tar.getnames()
-    # Where the digests hold -- Linux x86-64, what a worker runs -- the bytes are the
-    # tracked ones; elsewhere this checkout's own build went in, uncompared.
-    if workers._digests_hold_here():
-        assert hashlib.sha256(placed.read_bytes()).hexdigest() == want
+    assert hashlib.sha256(placed.read_bytes()).hexdigest() == want
 
 
 def test_only_the_pinned_dna_plugin_receives_the_installed_measurement(
@@ -321,6 +330,8 @@ def test_measurement_uses_a_platform_specific_digest(
     with pytest.raises(ValueError, match="SHA-256"):
         workers.prepared_source("iki/dna", checkout, tmp_path / "invalid-marker")
     marker.write_text("0" * 64)
+    with pytest.raises(ValueError, match="pinned digest"):
+        workers.prepared_source("iki/dna", checkout, tmp_path / "pinned", pinned=True)
     if compares:
         with pytest.raises(ValueError, match="pinned digest"):
             workers.prepared_source("iki/dna", checkout, tmp_path / "different")

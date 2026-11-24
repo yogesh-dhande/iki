@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -38,6 +38,7 @@ class Pin:
     revision: int
     #: For a record of a registry entry (ADR 0115): the entry's revision, pinned with it.
     entry_revision: int | None = None
+    covered_materials: tuple[str, ...] | None = None
 
 
 class Unreadable(Exception):  # noqa: N818 - raised for its message, as Refused is
@@ -144,6 +145,32 @@ def of_each(pins: Sequence[Pin], each: str, position: int) -> list[Pin]:
     ]
 
 
+def with_coverage(
+    action: Action, entities: Mapping[str, Sequence[Entity]], pins: list[Pin], project: UUID
+) -> list[Pin]:
+    """Pin which direct inputs each included request covers for declared material results."""
+    from iki_server.entities import requests
+    from iki_server.entities.models import Request
+
+    if not any((spec := requests.result_spec(c.type)) and spec.material for c in action.creates):
+        return pins
+    requests_here = set(
+        Request.objects.filter(
+            service_id=project,
+            entity_id__in=[pin.entity.pk for pin in pins if requests.spec_of(pin.entity.type)],
+        ).values_list("entity_id", flat=True)
+    )
+    candidates = {e.pk for group in entities.values() for e in group}
+    bound = []
+    for pin in pins:
+        if pin.entity.pk in requests_here:
+            materials = requests.materials_of(pin.entity, pin.revision)
+            covered = tuple(sorted(str(pk) for pk in candidates if requests.covers(materials, pk)))
+            pin = replace(pin, covered_materials=covered)
+        bound.append(pin)
+    return bound
+
+
 def record(run: ActionRun, pins: Iterable[Pin]) -> None:
     RunInclusion.objects.bulk_create(
         RunInclusion(
@@ -155,6 +182,7 @@ def record(run: ActionRun, pins: Iterable[Pin]) -> None:
             entity=p.entity,
             revision=p.revision,
             entry_revision=p.entry_revision,
+            covered_materials=p.covered_materials,
         )
         for p in pins
     )
@@ -172,6 +200,7 @@ def copy(run: ActionRun, original: ActionRun) -> None:
             entity_id=i.entity_id,
             revision=i.revision,
             entry_revision=i.entry_revision,
+            covered_materials=i.covered_materials,
         )
         for i in RunInclusion.objects.filter(run=original).order_by("id")
     )
@@ -191,6 +220,7 @@ def keyed(pins: Iterable[Pin]) -> list[list[Any]]:
             p.entity.type,
             types[p.entity.type].schema_version,
             *([] if p.entry_revision is None else [p.entry_revision]),
+            *([] if p.covered_materials is None else [list(p.covered_materials)]),
         ]
         for p in pins
     )
@@ -243,5 +273,7 @@ def documents(
     )
     for row in rows:
         item = document(row.entity, row.revision, row.entry_revision, files)
+        if row.covered_materials is not None:
+            item["covered_materials"] = row.covered_materials
         out[(row.run_id, row.input, row.position)].setdefault(row.field, []).append(item)
     return out, files

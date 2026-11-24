@@ -447,6 +447,7 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
             packed = workers.bundle(
                 item.directory,
                 output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
+                pinned=item.entry.sha is not None,
             )
         except ValueError as error:
             raise ValueError(f"{item.label}: {error}") from None

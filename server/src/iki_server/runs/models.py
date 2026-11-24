@@ -810,6 +810,9 @@ class RunInclusion(models.Model):
     #: For a record of a registry entry (ADR 0115): the entry's revision it read.
     entry_revision = models.PositiveIntegerField(null=True, blank=True)
 
+    #: Direct input IDs an included service request covered at launch.
+    covered_materials = models.JSONField(null=True, blank=True)
+
     class Meta:
         db_table = "iki_run_inclusion"
         db_table_comment = (

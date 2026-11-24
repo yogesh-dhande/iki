@@ -3,7 +3,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AnalysisRequest
 label: Analysis request
-schema_version: 1
+schema_version: 2
 description: >-
   A project's request to an analytical core to characterize samples of a
   protein (ADR 0132). The project asking writes what it wants and sends it to
@@ -17,6 +17,7 @@ hrid: { prefix: REQ }
 request:
   service_fields: [status, priority, scheduled_on, analyst, core_notes]
   sends: [samples, protein, tubes]
+  materials: [samples, tubes]
   # The core's coordinators receive its tubes against what was sent (ADR 0180).
   receives: { field: tubes, by: [coordinator] }
 fields:

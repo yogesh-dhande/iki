@@ -77,7 +77,7 @@ inputs:
 expect:
   output:
     creates:
-      - type: iki/plate_assays.RequestedQCAssayResult
+      - type: iki/plate_assays.QCAssayResult
         values:
           review_flow: regulated_qc
           endpoint_kind: EC50

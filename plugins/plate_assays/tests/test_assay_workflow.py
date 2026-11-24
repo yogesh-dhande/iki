@@ -91,6 +91,9 @@ def committed_read(actions):
 def test_fit_from_committed_measurements(actions, flow, request_id, kind):
     read = committed_read(actions)
     read["values"]["request"] = request_id
+    read["included"]["request"] = (
+        [{"id": request_id, "covered_materials": [uid(6)]}] if request_id else []
+    )
     run = {
         "run": {"requested_by": uid(8)},
         "inputs": {"read": [read], "sample": [{"id": uid(6), "entry_id": uid(5)}]},
