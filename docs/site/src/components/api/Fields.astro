@@ -2,17 +2,16 @@
 // A table of fields: parameters, a body's or a response's, each nested field indented
 // beneath the one it's inside.
 import type { Field } from "../../lib/openapi.ts";
-import { render, type Decisions } from "../../lib/markdown.ts";
+import { render } from "../../lib/markdown.ts";
 import TypeText from "./TypeText.astro";
 
 interface Props {
   fields: (Field & { in?: string })[];
   caption: string;
-  decisions: Decisions;
   /** Show where each parameter goes (path, query). */
   where?: boolean;
 }
-const { fields, caption, decisions, where = false } = Astro.props;
+const { fields, caption, where = false } = Astro.props;
 ---
 
 <div class="table" tabindex="0" role="region" aria-label={caption}>
@@ -44,7 +43,7 @@ const { fields, caption, decisions, where = false } = Astro.props;
           </td>
           <td class="description">
             {field.description ? (
-              <Fragment set:html={render(field.description, decisions)} />
+              <Fragment set:html={render(field.description)} />
             ) : (
               <span class="muted">—</span>
             )}

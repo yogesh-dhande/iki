@@ -3,14 +3,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  endpoints,
-  schemaUses,
-  tags,
-  type Document,
-  type Endpoint,
-  type Method,
-} from "./openapi.ts";
+import { endpoints, schemaUses, tags, type Document, type Endpoint } from "./openapi.ts";
 import { ROOT } from "./repo.ts";
 
 /** Where the server's document is kept (`make client` writes it). */
@@ -42,26 +35,4 @@ export function schemaPath(name: string): string {
 /** The path as the reference shows it: without the `/api/v1` every path starts with. */
 export function shortPath(path: string): string {
   return path.replace(/^\/api\/v\d+(?=\/)/, "");
-}
-
-const escape = (text: string) => text.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-
-/** Whether a text names this operation: its path (with or without `/api/v1`, any names
- * for its parameters), after its method when it gives one. */
-export function mentions(text: string, method: Method, path: string): boolean {
-  const pattern = escape(shortPath(path)).replace(/\\?\{[^}]+\\?\}/g, "\\{[^}/]+\\}");
-  const found = new RegExp(
-    `(?:\\b(GET|POST|PUT|PATCH|DELETE)\\s+)?(?:/api/v\\d+)?${pattern}(?![\\w/{-])`,
-    "g",
-  );
-  for (const match of text.matchAll(found)) {
-    const before = text[match.index - 1];
-    if (before !== undefined && /[\w/}]/.test(before) && !match[1]) {
-      continue; // Part of a longer path.
-    }
-    if (!match[1] || match[1].toLowerCase() === method) {
-      return true;
-    }
-  }
-  return false;
 }

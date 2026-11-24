@@ -46,14 +46,21 @@ export interface Item {
   href?: string;
   /** A file in the repository that covers it until its page is written. */
   source?: string;
-  /** A short qualifier after it: "from OpenAPI". */
+  /** A short qualifier after it: "plugin, bundle, deploy, starter". */
   note?: string;
 }
 
 /** A link as a page's frontmatter writes it: a site path, or `repo:<path>` for a file in the
  * repository, which links to GitHub. */
-export function itemOf(link: { label: string; href: string; note?: string | undefined }): Item {
+export function itemOf(link: {
+  label: string;
+  href?: string | undefined;
+  note?: string | undefined;
+}): Item {
   const { label, href, note } = link;
+  if (href === undefined) {
+    return note ? { label, note } : { label };
+  }
   const item: Item = href.startsWith("repo:")
     ? { label, source: href.slice("repo:".length) }
     : { label, href };
@@ -71,13 +78,12 @@ export const TOP_NAV = [
   { label: "Use cases", href: "/use-cases/" },
   { label: "Concepts", href: "/concepts/" },
   { label: "Reference", href: "/reference/" },
-  { label: "Decisions", href: "/decisions/" },
 ] as const;
 
 export type Section = (typeof TOP_NAV)[number]["label"];
 
 export const PAGES = {
-  doseResponse: "/use-cases/first-dose-response-assay/",
+  doseResponse: "/use-cases/dose-response-plate-assay/",
   prepVerification: "/concepts/prep-verification/",
   api: "/reference/api/",
   signatures: "/reference/api/get-entities-ref-signatures/",
@@ -86,7 +92,7 @@ export const PAGES = {
 /** What each door lists on the home page: tasks first. */
 export const DOORS: Record<Audience, Item[]> = {
   bench: [
-    { label: "Run a first dose-response plate assay", href: PAGES.doseResponse },
+    { label: "Run a dose-response plate assay", href: PAGES.doseResponse },
     { label: "Check a plasmid prep against its sequence", href: PAGES.prepVerification },
     { label: "Sign a result, and check who signed it" },
     { label: "Import a spreadsheet of records" },
@@ -112,55 +118,27 @@ export const DOORS: Record<Audience, Item[]> = {
       label: "Upgrade a plugin without losing history",
       source: "plugin-template/.agents/skills/iki-upgrade-plugin/SKILL.md",
     },
-    { label: "Give your coding agent the plugin skills", source: "plugin-template/README.md" },
+    { label: "Give a coding agent the plugin skills", source: "plugin-template/README.md" },
     { label: "Look up a REST API call", href: PAGES.api },
   ],
 };
 
-/** The ideas behind Iki: each concept's page, or the decision that sets it out today. */
+/** The ideas behind Iki: each concept's page, or planned. */
 export const CONCEPTS: Item[] = [
-  {
-    label: "Records, revisions and provenance",
-    href: "/decisions/0007-typed-table-per-type-entity-storage/",
-    note: "ADR 0007",
-  },
-  {
-    label: "Registries and project records",
-    href: "/decisions/0115-registries-keep-identities-projects-keep-records/",
-    note: "ADR 0115",
-  },
-  {
-    label: "States, locks and signatures",
-    href: "/decisions/0125-a-state-is-a-field-each-state-says-who-sets-it/",
-    note: "ADR 0125",
-  },
+  { label: "Records, revisions and where each value came from" },
+  { label: "Registries and project records" },
+  { label: "States, locks and signatures" },
   { label: "Prep verification", href: PAGES.prepVerification },
-  {
-    label: "Plugins, types and actions",
-    href: "/decisions/0006-deploy-time-plugins-as-django-apps/",
-    note: "ADR 0006",
-  },
-  {
-    label: "Workers and compute tiers",
-    href: "/decisions/0009-compute-tiers-and-templates/",
-    note: "ADR 0009",
-  },
-  {
-    label: "Review flows: Research and Regulated QC",
-    href: "/decisions/0198-a-project-applies-a-versioned-assay-starter/",
-    note: "ADR 0198",
-  },
-  {
-    label: "Agents through MCP",
-    href: "/decisions/0013-agents-via-mcp-oauth-approvals/",
-    note: "ADR 0013",
-  },
+  { label: "Plugins, record types and actions" },
+  { label: "Workers and compute" },
+  { label: "Review flows: Research and Regulated QC" },
+  { label: "Coding agents, through MCP" },
 ];
 
-/** The references, generated from what they describe. */
+/** The references. */
 export const REFERENCES: Item[] = [
-  { label: "REST API", href: PAGES.api, note: "from OpenAPI" },
-  { label: "Plugin spec, iki/v1", source: "spec/README.md", note: "from the JSON Schemas" },
+  { label: "REST API", href: PAGES.api, note: "every call and schema" },
+  { label: "Plugin spec, iki/v1", source: "spec/README.md", note: "types, actions and views" },
   { label: "The iki CLI", source: "cli/README.md", note: "plugin, bundle, deploy, starter" },
   { label: "Python SDK and MCP server", source: "sdk/python/README.md" },
 ];
@@ -170,7 +148,7 @@ export const BENCH_NAV: { heading: string; items: Item[] }[] = [
   {
     heading: "Do it",
     items: [
-      { label: "Run a first dose-response assay", href: PAGES.doseResponse },
+      { label: "Run a dose-response plate assay", href: PAGES.doseResponse },
       { label: "Check a plasmid prep", source: "plugins/plasmid_sequencing/README.md" },
       { label: "Record a prep's verification", source: "plugins/lots/README.md" },
     ],
@@ -178,16 +156,10 @@ export const BENCH_NAV: { heading: string; items: Item[] }[] = [
   {
     heading: "Understand it",
     items: [
-      {
-        label: "Lots and preps",
-        href: "/decisions/0162-a-lot-is-a-projects-record-of-an-entrys-material/",
-      },
+      { label: "Lots and preps" },
       { label: "Prep verification", href: PAGES.prepVerification },
-      {
-        label: "States, locks and signatures",
-        href: "/decisions/0126-an-electronic-signature-is-bound-to-the-revision-it-signs/",
-      },
-      { label: "Corrections", href: "/decisions/0179-a-corrected-result-goes-back-for-review/" },
+      { label: "States, locks and signatures" },
+      { label: "Corrections" },
     ],
   },
 ];

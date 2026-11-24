@@ -75,7 +75,7 @@ jobs:
           pytest_version=$(sed -n '/^name = "pytest"$/{n;p;}' uv.lock | cut -d'"' -f2)
           uv run --no-project --with "pytest==$pytest_version" \
             pytest -q -p no:cacheprovider -p pytest_gate_skips -c /dev/null --rootdir . docs/tests
-      # The ADRs are pages of the docs site: build it, and check its links and policies.
+      # The docs site links to the repository's documents: build it, and check its links and policies.
       - name: Install (locked)
         run: uv sync --locked
       - name: Build and check the docs site

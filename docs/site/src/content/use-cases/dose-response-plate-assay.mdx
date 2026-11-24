@@ -1,12 +1,12 @@
 ---
-title: Run a first dose-response plate assay
+title: Run a dose-response plate assay
 description: Receive a sample, map a plate reader file to its wells, review an IC50, and return the signed result to the project that asked for it.
 audience: bench
 band: For assay analysts, reviewers and QA. The setup step is for a project admin.
 topic: Assays
 facts:
   - { label: Plugins, value: "iki/plate_assays, iki/example_lims", code: true }
-  - { label: Data, value: "Synthetic BMG MARS endpoint CSV, 484 nm" }
+  - { label: Data, value: "The starter's BMG MARS export: 8 points, 1–128 nM, 484 nm" }
   - { label: Review flow, value: Research or Regulated QC }
   - { label: Roles, value: "Coordinator, analyst, reviewer, QA" }
 steps:
@@ -16,12 +16,8 @@ steps:
   - { id: sign, role: "Reviewer, QA", label: Sign and return }
 understand:
   - label: "Review flows: Research and Regulated QC"
-    href: /decisions/0198-a-project-applies-a-versioned-assay-starter/
   - label: "States, locks and signatures"
-    href: /decisions/0126-an-electronic-signature-is-bound-to-the-revision-it-signs/
-  - label: A plate read keeps the wells behind a fitted endpoint
-    href: /decisions/0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint/
-    note: ADR 0188
+  - label: Excluding a well from a fit
 reference:
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
   - { label: iki starter, href: "repo:cli/README.md#iki-starter" }
@@ -41,9 +37,14 @@ export const all = doseResponse.fits.all;
 export const fit = doseResponse.fits.excluded;
 export const a4 = doseResponse.readings.find((r) => r.well === doseResponse.exclusion.well);
 
-The example uses synthetic absorbance readings, which you can follow from the original CSV to the
-released result. In the seeded development deployment, the **Research plate assays** and **QC
-plate assays** projects each contain a completed example.
+The dose-response starter sets up this plate: an eight-point, two-fold dilution
+series from 1 to 128 nM in A1–A8, a blank in A9 and an uninhibited reference in A10, read once at
+484 nm on a BMG reader and exported from MARS. Its readings are simulated from a known curve (an
+IC50 of 12 nM), so the fit can be checked against the answer; the export ships with the server as
+[`mars-96-series.csv`](repo:server/src/iki_server/setup/data/mars-96-series.csv), and the plate
+assays plugin describes how it was made ([the example's reader data](repo:plugins/plate_assays/data/reader.md)).
+The seeded development deployment's **Research plate assays** and **QC plate assays** projects each
+hold this assay, completed.
 
 <Step n={1} id="setup" title="Set up the two projects" role="Admin">
 
@@ -117,7 +118,6 @@ reason and author. Seven sample wells contribute to the fit. Check the IC50 in n
 qualifier and its approximate 95% confidence interval: for these synthetic data the IC50 is
 **{nM(fit.endpoint_value)} nM**, within the measured range, with an approximate 95% interval of
 **{nM(fit.ci_low)}–{nM(fit.ci_high)} nM**. With A4 kept in, it would be {nM(all.endpoint_value)} nM.
-Try it below.
 
 </Step>
 
@@ -125,9 +125,8 @@ Try it below.
 
 <Step n={4} id="sign" title="Sign and return the result" role="Reviewer, QA">
 
-Signing requires the organization's electronic-signature certification to be recorded in Iki.
-Each person signs in again at the identity provider to sign the revision on screen
-([electronic signatures](/decisions/0126-an-electronic-signature-is-bound-to-the-revision-it-signs/)).
+Signing needs the organization's electronic-signature certification recorded in Iki. Each person
+signs in again with the organization's sign-in provider, and signs the revision on screen.
 
 <div class="table" tabindex="0" role="region" aria-label="Who signs in each review flow">
   <table>
@@ -141,11 +140,18 @@ Each person signs in again at the identity provider to sign the revision on scre
     <tbody>
       <tr>
         <td>Research</td>
-        <td>The assay reviewer checks the recorded fit and the A4 exclusion, then sets <strong>Signed off</strong>.</td>
+        <td>
+          The assay reviewer checks the recorded fit and the A4 exclusion, then sets{" "}
+          <strong>Signed off</strong>.
+        </td>
       </tr>
       <tr>
         <td>Regulated QC</td>
-        <td>The analyst signs <strong>Submitted</strong>. An independent reviewer checks the readings and the exclusion and signs <strong>Independently reviewed</strong>. QA signs <strong>QA released</strong>.</td>
+        <td>
+          The analyst signs <strong>Submitted</strong>. An independent reviewer checks the readings
+          and the exclusion and signs <strong>Independently reviewed</strong>. QA signs{" "}
+          <strong>QA released</strong>.
+        </td>
       </tr>
     </tbody>
   </table>

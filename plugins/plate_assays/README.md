@@ -12,7 +12,7 @@ starter in the assay project to choose Research or Regulated QC, assign lab
 roles and run a requested assay on example data. Projects without a starter use
 the plugin's deployment setting `review_flow`, which defaults to `research`.
 Each result keeps the flow selected when it was created.
-[Run a first dose-response plate assay](https://ikisci.org/use-cases/first-dose-response-assay/)
+[Run a dose-response plate assay](https://ikisci.org/use-cases/dose-response-plate-assay/)
 
 ## Run an assay
 

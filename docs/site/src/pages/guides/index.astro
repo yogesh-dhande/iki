@@ -17,8 +17,8 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
 >
   <h1 class="doc-title">Guides</h1>
   <p class="intro">
-    Task by task, for whoever does it. A guide not yet written here links to the document in the
-    repository that covers it for now, or is named as planned.
+    How to do each task in Iki, for the people who do it: scientists and QA at the bench, the admins
+    who run Iki, and the people who build plugins for it.
   </p>
   {doors.map((door) => (
     <section id={door.id} data-audience={door.id} aria-labelledby={`${door.id}-h`} class="door">

@@ -5,8 +5,8 @@ of page is opened in light and dark, on a phone (390 px) and a wide screen (1440
 follows the reader's colour scheme, breaks no rule of its Content Security Policy (nor do
 the viewers' frames inside it), logs no errors, asks no other origin for anything, never
 scrolls sideways, and axe finds nothing against WCAG 2.2 AA. Then its controls are used as
-a reader uses them: the worked plate's toggle, the theme switch, search, and the
-decisions' filter; and it reads without scripts.
+a reader uses them: the worked plate's toggle, the theme switch and search; and it reads
+without scripts. Nothing on it cites Iki's design records, which are for its developers.
 
 Needs the built site (``make docs``) and the browsers (``make test-browsers``).
 """
@@ -34,13 +34,12 @@ WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 WIDTHS = [390, 1440]
 
 PREP = "/concepts/prep-verification/"
-ASSAY = "/use-cases/first-dose-response-assay/"
+ASSAY = "/use-cases/dose-response-plate-assay/"
 SIGNATURES = "/reference/api/get-entities-ref-signatures/"
-ADR = "/decisions/0208-whole-plasmid-sequencing-is-checked-against-the-plasmids-own-sequence/"
 
 #: Every kind of page: the home page, a concept with a viewer's frame, a use case with
-#: the live plate, the API's overview, a call and a schema, the decisions and one of
-#: them, the sections' indexes, and the page a host serves for a missing path.
+#: the live plate, the API's overview, a call and a schema, the sections' indexes, and
+#: the page a host serves for a missing path.
 PAGES = [
     "/",
     PREP,
@@ -49,8 +48,6 @@ PAGES = [
     "/reference/api/",
     SIGNATURES,
     "/reference/api/schemas/SignaturesOut/",
-    "/decisions/",
-    ADR,
     "/guides/",
     "/use-cases/",
     "/concepts/",
@@ -271,7 +268,7 @@ def test_search_finds_pages_offline(browser: Browser, site: str) -> None:
     page = opened.page
     page.get_by_role("searchbox", name="Search the docs").fill("dispensing error")
     expect(page.get_by_role("status").filter(has_text="dispensing error")).to_be_visible()
-    hit = page.locator("#search-results a").filter(has_text="Run a first dose-response").first
+    hit = page.locator("#search-results a").filter(has_text="Run a dose-response").first
     expect(hit).to_be_visible()
     page.get_by_role("searchbox", name="Search the docs").press("Enter")
     expect(hit.or_(page.locator("#search-results a").first)).to_be_focused()
@@ -283,16 +280,15 @@ def test_search_finds_pages_offline(browser: Browser, site: str) -> None:
     page.context.close()
 
 
-def test_the_decisions_narrow_to_what_the_reader_asks_for(browser: Browser, site: str) -> None:
-    opened = open_page(browser, site, "/decisions/")
-    page = opened.page
-    page.get_by_role("searchbox", name="Find").fill("whole-plasmid")
-    expect(page.get_by_role("status")).to_contain_text("1 of ")
-    expect(page.get_by_role("link", name=re.compile("^Whole-plasmid sequencing"))).to_be_visible()
-    page.get_by_role("combobox", name="Status").select_option("proposed")
-    expect(page.get_by_role("status")).to_contain_text("No decision matches")
-    assert opened.errors == []
-    page.context.close()
+def test_no_page_cites_a_design_record() -> None:
+    """The design records (ADRs) are on the developers' architecture site, not this one."""
+    cited = re.compile(r"\bADRs? \d{4}\b|/decisions/|docs/adr/")
+    found = [
+        str(page.relative_to(DIST))
+        for page in DIST.rglob("*.html")
+        if cited.search(page.read_text(encoding="utf-8"))
+    ]
+    assert found == []
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
@@ -320,11 +316,8 @@ def test_the_api_reference_links_a_call_to_the_guides_and_code_that_use_it(
     page = opened.page
     expect(page.get_by_role("heading", level=1)).to_have_text("A record's electronic signatures")
     related = page.get_by_role("complementary", name="Related")
-    expect(
-        related.get_by_role("link", name="Run a first dose-response plate assay")
-    ).to_be_visible()
+    expect(related.get_by_role("link", name="Run a dose-response plate assay")).to_be_visible()
     expect(related.get_by_role("link", name="Prep verification")).to_be_visible()
-    expect(related.get_by_role("link", name="ADR 0126")).to_be_visible()
     expect(related.get_by_role("link", name=re.compile("client.signatures.list"))).to_be_visible()
     expect(related.get_by_role("link", name=re.compile("get_signatures"))).to_be_visible()
     page.get_by_role("link", name="SignaturesOut").first.click()

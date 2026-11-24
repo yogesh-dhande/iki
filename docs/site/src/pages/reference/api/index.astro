@@ -4,21 +4,19 @@ import ApiNav from "../../../components/api/ApiNav.astro";
 import MethodBadge from "../../../components/api/MethodBadge.astro";
 import Doc from "../../../layouts/Doc.astro";
 import { api, apiTags, endpointPath, OPENAPI, shortPath } from "../../../lib/api.ts";
-import { decisionMap } from "../../../lib/decisions.ts";
 import { render } from "../../../lib/markdown.ts";
 import { github } from "../../../lib/repo.ts";
 
 const { doc, all } = api();
-const decisions = await decisionMap();
 const groups = apiTags();
 ---
 
 <Doc
   title="REST API"
-  description={`Every call of Iki's REST API, version ${doc.info.version}: its parameters, body and response, generated from the server's OpenAPI document.`}
+  description={`Every call of Iki's REST API, version ${doc.info.version}: its parameters, body, response and an example.`}
   section="Reference"
   audience="build"
-  band="For integrators, plugin authors and coding agents. Generated from the server's OpenAPI document."
+  band="For integrators, plugin authors and coding agents."
   measure={900}
 >
   <ApiNav slot="nav" />
@@ -27,7 +25,7 @@ const groups = apiTags();
   </p>
   <h1 class="doc-title">REST API</h1>
   <div class="prose intro">
-    <Fragment set:html={render(doc.info.description ?? "", decisions)} />
+    <Fragment set:html={render(doc.info.description ?? "")} />
     <p>
       Every path below starts with <code>/api/v{doc.info.version}</code>. Call it with a bearer
       token in the
@@ -35,9 +33,8 @@ const groups = apiTags();
       server make the same calls, and each call's page names theirs.
     </p>
     <p>
-      This reference is generated from <a href={github(OPENAPI)}>{OPENAPI}</a>, which the server
-      writes:
-      {all.length} calls in {groups.length} areas.
+      {all.length} calls in {groups.length} areas. For code generators and API clients, the same
+      description is an OpenAPI 3.1 document: <a href={github(OPENAPI)}>openapi.json</a>.
     </p>
   </div>
   {groups.map((tag) => (

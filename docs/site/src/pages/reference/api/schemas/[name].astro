@@ -6,7 +6,6 @@ import MethodBadge from "../../../../components/api/MethodBadge.astro";
 import TypeText from "../../../../components/api/TypeText.astro";
 import Doc from "../../../../layouts/Doc.astro";
 import { api, endpointPath, shortPath } from "../../../../lib/api.ts";
-import { decisionMap } from "../../../../lib/decisions.ts";
 import { render } from "../../../../lib/markdown.ts";
 import { fieldsOf, typeOf } from "../../../../lib/openapi.ts";
 
@@ -18,7 +17,6 @@ const { name } = Astro.params as { name: string };
 const { doc, uses } = api();
 const schema = doc.components.schemas[name] ?? {};
 const fields = fieldsOf(schema, doc, 1);
-const decisions = await decisionMap();
 const usedBy = uses.get(name) ?? [];
 const plain = fields.length === 0 ? typeOf(schema) : null;
 const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
@@ -29,7 +27,7 @@ const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
   description={`The ${name} schema of Iki's REST API: its fields, and the calls that take or return it.`}
   section="Reference"
   audience="build"
-  band="For integrators, plugin authors and coding agents. Generated from the server's OpenAPI document."
+  band="For integrators, plugin authors and coding agents."
   measure={900}
 >
   <ApiNav slot="nav" />
@@ -37,9 +35,7 @@ const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
     <a href="/reference/">Reference</a> / <a href="/reference/api/">REST API</a> / Schemas
   </p>
   <h1 class="title mono">{name}</h1>
-  {schema.description && (
-    <div class="prose desc" set:html={render(schema.description, decisions)} />
-  )}
+  {schema.description && <div class="prose desc" set:html={render(schema.description)} />}
   {plain && (
     <p class="kind">
       <TypeText type={plain} />
@@ -60,7 +56,7 @@ const values = schema.enum?.filter((v) => v !== null).map(String) ?? [];
   {fields.length > 0 && (
     <section aria-labelledby="fields-h" class="part">
       <h2 id="fields-h">Fields</h2>
-      <Fields fields={fields} caption={`${name}'s fields`} decisions={decisions} />
+      <Fields fields={fields} caption={`${name}'s fields`} />
     </section>
   )}
   <section aria-labelledby="used-h" class="part">

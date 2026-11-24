@@ -1,7 +1,7 @@
 ---
 // One REST call: what it does, its parameters, body and response, an example, and where
-// the rest of the site explains or uses it. All of it from the OpenAPI document, the
-// decision records, the SDK's and MCP server's code, and the site's own pages.
+// the rest of the site uses it. All of it from the OpenAPI document, the SDK's and MCP
+// server's code, and the site's own pages.
 import { getCollection } from "astro:content";
 
 import ApiNav from "../../../components/api/ApiNav.astro";
@@ -9,12 +9,11 @@ import Fields from "../../../components/api/Fields.astro";
 import MethodBadge from "../../../components/api/MethodBadge.astro";
 import TypeText from "../../../components/api/TypeText.astro";
 import Doc from "../../../layouts/Doc.astro";
-import { api, endpointPath, mentions, shortPath } from "../../../lib/api.ts";
+import { api, endpointPath, shortPath } from "../../../lib/api.ts";
 import { sameCall } from "../../../lib/calls.ts";
-import { decisionList, decisionMap } from "../../../lib/decisions.ts";
 import { render } from "../../../lib/markdown.ts";
 import { curl, exampleOf, tagSlug, type Endpoint } from "../../../lib/openapi.ts";
-import { decisionPath, github } from "../../../lib/repo.ts";
+import { github } from "../../../lib/repo.ts";
 
 export function getStaticPaths() {
   return api().all.map((endpoint) => ({ params: { slug: endpoint.slug }, props: { endpoint } }));
@@ -25,7 +24,6 @@ interface Props {
 }
 const { endpoint: e } = Astro.props;
 const { doc } = api();
-const decisions = await decisionMap();
 const here = endpointPath(e.slug);
 
 // The site's pages that link here.
@@ -33,12 +31,6 @@ const pages = [
   ...(await getCollection("useCases")).map((entry) => ({ entry, href: `/use-cases/${entry.id}/` })),
   ...(await getCollection("concepts")).map((entry) => ({ entry, href: `/concepts/${entry.id}/` })),
 ].filter(({ entry }) => `${entry.body ?? ""}${JSON.stringify(entry.data)}`.includes(here));
-
-// The decisions its description cites, then those whose text names the call.
-const cited = [...e.description.matchAll(/\bADR (\d{4})\b/g)].map((m) => m[1]);
-const explaining = (await decisionList())
-  .filter((d) => cited.includes(d.number) || mentions(d.body, e.method, e.path))
-  .sort((a, b) => a.number.localeCompare(b.number));
 
 const elsewhere = sameCall(e.method, e.path);
 const ok = e.responses.find((r) => r.status.startsWith("2"));
@@ -62,7 +54,7 @@ const query = e.parameters.filter((p) => p.in !== "path");
   description={`${e.summary}: the ${e.method.toUpperCase()} ${e.path} call of Iki's REST API.`}
   section="Reference"
   audience="build"
-  band="For integrators, plugin authors and coding agents. Generated from the server's OpenAPI document."
+  band="For integrators, plugin authors and coding agents."
   measure={900}
 >
   <ApiNav slot="nav" current={e.tag} />
@@ -77,7 +69,7 @@ const query = e.parameters.filter((p) => p.in !== "path");
     <MethodBadge method={e.method} />
     <code class="path">{e.path}</code>
   </p>
-  {e.description && <div class="prose" set:html={render(e.description, decisions)} />}
+  {e.description && <div class="prose" set:html={render(e.description)} />}
   <ul class="chips" aria-label="About this call">
     {e.security.length > 0 && <li>Signed in by {e.security.join(" or ")}</li>}
     <li>
@@ -88,7 +80,7 @@ const query = e.parameters.filter((p) => p.in !== "path");
   {path.length + query.length > 0 && (
     <section aria-labelledby="parameters-h" class="part">
       <h2 id="parameters-h">Parameters</h2>
-      <Fields fields={[...path, ...query]} caption="Parameters" decisions={decisions} where />
+      <Fields fields={[...path, ...query]} caption="Parameters" where />
     </section>
   )}
 
@@ -99,9 +91,7 @@ const query = e.parameters.filter((p) => p.in !== "path");
         <TypeText type={e.body.type} />
         {e.body.required ? " · required" : " · optional"}
       </p>
-      {e.body.fields.length > 0 && (
-        <Fields fields={e.body.fields} caption="Request body" decisions={decisions} />
-      )}
+      {e.body.fields.length > 0 && <Fields fields={e.body.fields} caption="Request body" />}
     </section>
   )}
 
@@ -119,11 +109,9 @@ const query = e.parameters.filter((p) => p.in !== "path");
           )}
         </p>
         {r.schema === ok?.schema && okSchema?.description && (
-          <div class="prose" set:html={render(okSchema.description, decisions)} />
+          <div class="prose" set:html={render(okSchema.description)} />
         )}
-        {r.fields.length > 0 && (
-          <Fields fields={r.fields} caption={`Response ${r.status}`} decisions={decisions} />
-        )}
+        {r.fields.length > 0 && <Fields fields={r.fields} caption={`Response ${r.status}`} />}
       </>
     ))}
     <p class="note">Errors are RFC 9457 problem details, as on every call.</p>
@@ -132,27 +120,22 @@ const query = e.parameters.filter((p) => p.in !== "path");
   <section aria-labelledby="example-h" class="part">
     <h2 id="example-h">Example</h2>
     <p class="note">
-      With <code>IKI_URL</code> your deployment's address and <code>IKI_TOKEN</code> a token; fill
-      in each
-      <code>&#123;parameter&#125;</code>.
+      With <code>IKI_URL</code> the deployment's address and <code>IKI_TOKEN</code> a token. The
+      values are from one lab's QC dose-response result, <code>QSF-000014</code>.
     </p>
     <pre tabindex="0" role="region" aria-label="Request"><code>{curl(e)}</code></pre>
     {bodyExample && (
       <>
         <p class="note">
-          <code>body.json</code>, its shape:
+          <code>body.json</code>:
         </p>
-        <pre
-          tabindex="0"
-          role="region"
-          aria-label="Request body's shape"
-        ><code>{bodyExample}</code></pre>
+        <pre tabindex="0" role="region" aria-label="Request body"><code>{bodyExample}</code></pre>
       </>
     )}
     {example && (
       <>
-        <p class="note">The response's shape, each value a placeholder of its type:</p>
-        <pre tabindex="0" role="region" aria-label="Response's shape"><code>{example}</code></pre>
+        <p class="note">The response:</p>
+        <pre tabindex="0" role="region" aria-label="Response"><code>{example}</code></pre>
       </>
     )}
   </section>
@@ -172,18 +155,6 @@ const query = e.parameters.filter((p) => p.in !== "path");
         <p class="note">No guide uses this call yet.</p>
       )}
     </div>
-    {explaining.length > 0 && (
-      <div class="side-box">
-        <h2>Why it works this way</h2>
-        <ul>
-          {explaining.map((d) => (
-            <li>
-              <a href={decisionPath(d.slug)}>ADR {d.number}</a> <span class="note">{d.title}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    )}
     <div class="side-box quiet">
       <h2>Same call elsewhere</h2>
       {elsewhere.sdk.length + elsewhere.mcp.length > 0 ? (

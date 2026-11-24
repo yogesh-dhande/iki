@@ -1,5 +1,5 @@
 // Links in the repository's Markdown name files in the repository, as they do on GitHub:
-// an ADR links to `0184-a-plasmid-prep-….md`, and to `../../plugins/lots/README.md`. When
+// a plugin's README links to `data/reader.md`, and to `../../plugins/lots/README.md`. When
 // the site renders such a file, each link goes to the page that file is, if it is one,
 // or else to the file on GitHub. So one Markdown file reads the same in both places, and
 // the built site's check (python -m sitegen check) checks its links like any other's.

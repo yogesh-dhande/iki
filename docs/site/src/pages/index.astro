@@ -1,18 +1,15 @@
 ---
 // A1, the home page: who are you? Three doors, then the worked examples and the ideas.
-import { getCollection } from "astro:content";
-
 import ItemLink from "../components/ItemLink.astro";
 import Base from "../layouts/Base.astro";
 import { doseResponse, puc19 } from "../lib/examples.ts";
 import { github } from "../lib/repo.ts";
 import { AUDIENCES, CONCEPTS, DOORS, PAGES, REFERENCES, type Audience } from "../lib/site.ts";
 
-const decisions = (await getCollection("decisions")).filter((d) => d.data.kind === "decision");
 const reads = puc19.values;
 const excluded = doseResponse.exclusion.well;
 
-interface Specimen {
+interface Workflow {
   title: string;
   text: string;
   href: string;
@@ -20,34 +17,34 @@ interface Specimen {
   audiences: Audience[];
   source: string;
 }
-const specimens: Specimen[] = [
+const workflows: Workflow[] = [
   {
-    title: "Dose-response plate to a signed IC50",
-    text: `A MARS export mapped to wells, ${excluded} excluded with its reason, the curve reviewed and released.`,
+    title: "Dose-response assays",
+    text: `A plate reader's export mapped to its wells, an IC50 with its 95% interval and ${excluded} excluded with its reason, signed and returned to the project that asked.`,
     href: PAGES.doseResponse,
     out: false,
     audiences: ["bench"],
-    source: "iki/plate_assays · synthetic readings",
+    source: "iki/plate_assays · simulated 8-point series",
   },
   {
-    title: "pUC19 checked from public nanopore reads",
-    text: `${reads.reads_total} MinION reads against ${puc19.data.accession}: ${reads.differences.length} differences named, placed and reviewed.`,
+    title: "Plasmid prep verification",
+    text: `pUC19 from ${reads.reads_total} public MinION reads against ${puc19.data.accession}: ${reads.differences.length} differences named in HGVS and placed in the plasmid's features, then a reviewer's signed outcome.`,
     href: `${PAGES.prepVerification}#example`,
     out: false,
     audiences: ["bench"],
     source: `iki/plasmid_sequencing · ${puc19.data.run}`,
   },
   {
-    title: "Trastuzumab Fv from its two chains",
-    text: "Numbered by ANARCI, assembled, its liabilities found and its structure predicted.",
+    title: "Antibody engineering",
+    text: "Trastuzumab's heavy and light chains numbered by ANARCI and assembled into an Fv, with its sequence liabilities found and its structure predicted.",
     href: github("plugins/antibody/README.md"),
     out: true,
     audiences: ["bench", "build"],
     source: "iki/antibody · PDB 1N8Z chains",
   },
   {
-    title: "Aspirin and caffeine as compounds",
-    text: "Aspirin drawn another way is the same compound; caffeine fetched from PubChem.",
+    title: "Compound registration",
+    text: "Aspirin drawn another way registers as the same compound, and caffeine comes in from PubChem with its identifiers.",
     href: github("plugins/small_molecule/README.md"),
     out: true,
     audiences: ["bench"],
@@ -66,13 +63,12 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
 >
   <main id="content" data-pagefind-body>
     <section class="wrap hero">
-      <p class="kicker">Iki documentation</p>
-      <h1>Start from what you do in the lab, in the cluster, or in the code.</h1>
+      <h1>Iki documentation</h1>
       <p class="lede">
-        Iki is an open-source platform for scientific data. Scientists work with typed records (DNA,
-        proteins, antibodies, compounds, datasets) and run actions on them. Every run, every
-        revision and the origin of every value is recorded, so the lineage of any result can be
-        traced.
+        Iki is open-source software for a lab's scientific records: sequences, samples, plates and
+        results, each with its revisions and electronic signatures. Plugins add each kind of
+        science, analyses run on the lab's own compute, and every result is reviewed and released
+        with the lineage of each value.
       </p>
       <p class="status">Status: early development. Nothing here is ready for production use yet.</p>
     </section>
@@ -109,11 +105,10 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
 
     <section class="wrap block" aria-labelledby="real-h">
       <div class="block-head">
-        <h2 id="real-h">See it on real data</h2>
-        <p>Worked end to end by the example plugins, and checked in CI.</p>
+        <h2 id="real-h">Lab workflows, from sample to signed result</h2>
       </div>
       <div class="specimens">
-        {specimens.map((s) => (
+        {workflows.map((s) => (
           <a class:list={["specimen", { out: s.out }]} href={s.href}>
             <span class="tags">
               {s.audiences.map((a) => (
@@ -138,15 +133,12 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
         <div class="ideas">
           <h2 id="ideas-h">The ideas behind Iki</h2>
           <p class="block-sub">
-            Each concept page reads in the same order: in short, how it works, a worked example, the
-            rules in full, then reference. Until its page is written, a concept links to the
-            decision that sets it out.
+            What records, reviews, plugins and compute are in Iki, and the rules each one follows.
           </p>
           <ul class="ideas-list">
             {CONCEPTS.map((item) => (
               <li>
-                <ItemLink item={{ label: item.label, href: item.href ?? "" }} />
-                {item.note && <span class="note">{item.note}</span>}
+                <ItemLink item={item} />
               </li>
             ))}
           </ul>
@@ -154,7 +146,7 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
         <div class="reference-box" id="reference">
           <h2>Reference</h2>
           <p>
-            Generated from the source on every build, and linked back to the guides that use it.
+            Every REST call, the plugin spec, the CLI and the SDK, as the current release has them.
           </p>
           <ul>
             {REFERENCES.map((item) => (
@@ -163,10 +155,6 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
                 {item.note && <span class="note"> {item.note}</span>}
               </li>
             ))}
-            <li>
-              <a href="/decisions/">Decisions (ADRs)</a>
-              <span class="note"> {decisions.length} records of why Iki is built as it is</span>
-            </li>
           </ul>
         </div>
       </div>
@@ -178,14 +166,6 @@ const doors = (Object.keys(DOORS) as Audience[]).map((id) => ({
   .hero {
     padding-top: 72px;
     padding-bottom: 40px;
-  }
-  .kicker {
-    margin: 0 0 16px;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
   }
   h1 {
     margin: 0;

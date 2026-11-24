@@ -2,6 +2,7 @@
 // (web/packages/sdk/openapi.json, which `make client` writes): every operation's page,
 // its parameters, body and response as tables of fields, and an example request and
 // response shape, all from the document. Nothing here is written by hand.
+import { pathValue, sampleNumber, sampleString } from "./samples.ts";
 
 export interface Schema {
   $ref?: string;
@@ -359,13 +360,16 @@ export function tags(doc: Document): Tag[] {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-/** An example value of a schema's shape: its examples where it has them, else a
- * placeholder of its type. Arrays hold one element; deep or circular schemas stop. */
+/** An example of a schema: its documented defaults and enums, and otherwise the example
+ * lab's values (samples.ts) by each field's name and format. Arrays hold one element;
+ * deep or circular schemas stop at the schema's name. */
 export function exampleOf(
   schema: Schema,
   doc: Document,
   depth = 0,
   inside: string[] = [],
+  field?: string,
+  seed = "",
 ): unknown {
   const { options, nullable } = members(schema);
   const only = options[0];
@@ -378,17 +382,18 @@ export function exampleOf(
     if (!target || inside.includes(name) || depth > 3) {
       return `<${name}>`;
     }
-    return exampleOf(target, doc, depth, [...inside, name]);
+    return exampleOf(target, doc, depth, [...inside, name], field, seed || name);
   }
   if (only.allOf?.length === 1 && only.allOf[0]) {
-    return exampleOf(only.allOf[0], doc, depth, inside);
+    return exampleOf(only.allOf[0], doc, depth, inside, field, seed);
   }
-  if (only.default !== undefined && only.default !== null) {
+  if (only.default !== undefined && only.default !== null && only.default !== "") {
     return only.default;
   }
   if (only.enum?.length) {
     return only.enum.find((value) => value !== null) ?? null;
   }
+  const description = schema.description ?? only.description;
   switch (only.type) {
     case "object": {
       if (!only.properties) {
@@ -397,29 +402,37 @@ export function exampleOf(
       return Object.fromEntries(
         Object.entries(only.properties).map(([name, property]) => [
           name,
-          exampleOf(property, doc, depth + 1, inside),
+          exampleOf(property, doc, depth + 1, inside, name, `${seed}.${name}`),
         ]),
       );
     }
     case "array":
-      return only.items ? [exampleOf(only.items, doc, depth + 1, inside)] : [];
+      return only.items
+        ? [exampleOf(only.items, doc, depth + 1, inside, singular(field), `${seed}[]`)]
+        : [];
     case "integer":
+      return Math.round(sampleNumber(field, only.minimum));
     case "number":
-      return only.minimum ?? 0;
+      return sampleNumber(field, only.minimum);
     case "boolean":
       return false;
     case "string":
-      return only.format ? `<${only.format}>` : "<string>";
+      return sampleString(field, only.format, description, seed, inside.at(-1));
     default:
       return null;
   }
 }
 
-/** A curl call of the operation, its path parameters left for the reader to fill. */
+/** An array field's element, named as one: `methods` → `method`. */
+function singular(field: string | undefined): string | undefined {
+  return field?.endsWith("s") ? field.slice(0, -1) : field;
+}
+
+/** A curl call of the operation, with the example lab's values in its path (or `example`'s). */
 export function curl(endpoint: Endpoint, example?: Record<string, string>): string {
   const path = endpoint.path.replace(
     /\{([^}]+)\}/g,
-    (_, name: string) => example?.[name] ?? `{${name}}`,
+    (_, name: string) => example?.[name] ?? pathValue(endpoint.path, name),
   );
   const query = endpoint.parameters
     .filter((parameter) => parameter.in === "query" && example?.[parameter.name] !== undefined)

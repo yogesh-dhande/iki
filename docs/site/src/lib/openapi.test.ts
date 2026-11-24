@@ -185,15 +185,22 @@ describe("endpoints", () => {
 });
 
 describe("examples", () => {
-  it("shows a schema's shape with placeholders, and never loops", () => {
-    expect(exampleOf({ $ref: "#/components/schemas/Out" }, doc)).toEqual({
-      items: [
-        { id: "<uuid>", status: "carried", signer: { name: "<string>" }, tags: {}, count: 1 },
-      ],
-      missing: ["<string>"],
-    });
+  it("fills a schema with one lab's values, and never loops", () => {
+    const out = exampleOf({ $ref: "#/components/schemas/Out" }, doc) as {
+      items: { id: string; status: string; signer: { name: string }; count: number }[];
+    };
+    const [first] = out.items;
+    expect(first?.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    expect(first?.status).toBe("carried");
+    // A person's name where the schema is a person's.
+    expect(first?.signer.name).toBe("Amara Okafor");
+    expect(first?.count).toBe(8);
+    // The same schema gives the same values, page after page.
+    expect(exampleOf({ $ref: "#/components/schemas/Out" }, doc)).toEqual(out);
     expect(exampleOf({ $ref: "#/components/schemas/Node" }, doc)).toEqual({
-      name: "<string>",
+      name: "QC plate assays",
       child: "<Node>",
     });
   });
@@ -202,7 +209,7 @@ describe("examples", () => {
     const [list, make] = endpoints(doc);
     if (!list || !make) throw new Error("no endpoints");
     expect(curl(list)).toBe(
-      'curl -H "Authorization: Bearer $IKI_TOKEN" \\\n  "$IKI_URL/api/v1/entities/{ref}/signatures"',
+      'curl -H "Authorization: Bearer $IKI_TOKEN" \\\n  "$IKI_URL/api/v1/entities/QSF-000014/signatures"',
     );
     expect(curl(list, { ref: "VER-1", verify: "true" })).toContain(
       "/api/v1/entities/VER-1/signatures?verify=true",

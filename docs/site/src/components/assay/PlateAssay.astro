@@ -214,14 +214,12 @@ const initial = exclusion.well;
     </div>
   </div>
   <figcaption>
-    <strong>How this is live.</strong> Both fits are the plugin's own: this site's build imports the{" "}
+    Both fits are the plate assays plugin's results for this plate's{" "}
     <a class="out" href={github(data.data.file)}>
-      synthetic MARS file
-    </a>{" "}
-    with the plate reader action's code and fits it with the fit action's: once with all{" "}
-    {samples.length} sample wells, and once without {exclusion.well}. The toggle switches between
-    the two recorded fits; the browser fits nothing. Each curve is drawn from its own fitted
-    plateaus, slope and midpoint.
+      MARS export
+    </a>
+    : once with all {samples.length} sample wells, and once without {exclusion.well}. Each curve is
+    drawn from its fit's plateaus, Hill slope and midpoint.
   </figcaption>
 </figure>
 

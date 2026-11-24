@@ -3,31 +3,28 @@
 import ItemLink from "../../components/ItemLink.astro";
 import Doc from "../../layouts/Doc.astro";
 import { api } from "../../lib/api.ts";
-import { decisionList } from "../../lib/decisions.ts";
 import { REFERENCES } from "../../lib/site.ts";
 
 const { all, doc } = api();
-const decisions = await decisionList();
 ---
 
 <Doc
   title="Reference"
-  description="Iki's REST API, plugin spec, CLI, SDK and decisions, generated from the source."
+  description="Iki's REST API, plugin spec, CLI and Python SDK."
   section="Reference"
   audience="build"
   band="For plugin authors, integrators and coding agents."
 >
   <h1 class="doc-title">Reference</h1>
   <p class="lede-text">
-    Generated from the source on every build, so it says what the code does. Until a reference is
-    generated here, it links to the document in the repository that covers it.
+    Every REST call and schema, the plugin spec, the CLI and the SDK, as the current release has
+    them.
   </p>
   <ul class="refs">
     <li>
       <a href="/reference/api/">REST API</a>
       <span>
-        {all.length} calls and {Object.keys(doc.components.schemas).length} schemas, from the
-        server's OpenAPI document
+        {all.length} calls and {Object.keys(doc.components.schemas).length} schemas
       </span>
     </li>
     {REFERENCES.filter((item) => item.href !== "/reference/api/").map((item) => (
@@ -36,10 +33,6 @@ const decisions = await decisionList();
         {item.note && <span>{item.note}</span>}
       </li>
     ))}
-    <li>
-      <a href="/decisions/">Decisions (ADRs)</a>
-      <span>{decisions.length} records of why Iki is built as it is</span>
-    </li>
   </ul>
 </Doc>
 

@@ -10,7 +10,6 @@ const { n, id, title } = Astro.props;
 ---
 
 <section id={id} aria-labelledby={`${id}-h`} class:list={["layer", { short: n === 1 }]}>
-  <p class="number mono">Layer {n}</p>
   <h2 id={`${id}-h`}>{title}</h2>
   <slot />
 </section>
@@ -24,11 +23,6 @@ const { n, id, title } = Astro.props;
     padding: 24px 28px;
     border-radius: 12px;
     background: var(--surface-2);
-  }
-  .number {
-    margin: 0 0 6px;
-    font-size: 12px;
-    color: var(--muted);
   }
   h2 {
     margin: 0 0 12px;

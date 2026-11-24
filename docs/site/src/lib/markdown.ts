@@ -1,36 +1,18 @@
-// Markdown that isn't a page of its own: an API description, an ADR's status line. Its
-// mentions of decisions ("ADR 0126") link to their pages, outside code.
+// Markdown that isn't a page of its own: the API's descriptions. They cite the design
+// records the server's code follows ("(ADR 0126)"), which are for Iki's developers; the
+// site leaves those citations out, outside code.
 import { markdownToHtml } from "satteri";
 
-import { decisionPath } from "./repo.ts";
 import { focusableScrollers } from "./scrollers.ts";
-
-/** Each decision's number, and its page's slug: "0126" → "0126-an-electronic-…". */
-export type Decisions = ReadonlyMap<string, string>;
-
-const MENTION = /\bADR (\d{4})\b(?!\])/g;
-const FILE_LINK = /\]\((\d{4}-[^)#]+)\.md(#[^)]*)?\)/g;
 
 /** Code, which is left as written: fenced blocks, then spans. */
 const CODE = /(^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\2[`~]*[ \t]*$|(`+)[\s\S]*?[^`]\3(?!`))/m;
 
-/** Links each "ADR 0126" outside code, and each link to an ADR's file, to its page. */
-export function linkDecisions(markdown: string, decisions: Decisions): string {
+/** The text without its design-record citations: "(ADR 0126)" and ", ADR 0126)". */
+export function withoutCitations(markdown: string): string {
   return splitCode(markdown)
     .map(({ code, part }) =>
-      code
-        ? part
-        : part
-            .replace(FILE_LINK, (link, slug: string, hash?: string) =>
-              // A record's file goes to its page; any other file (the template) as written.
-              decisions.get(slug.slice(0, 4)) === slug
-                ? `](${decisionPath(slug)}${hash ?? ""})`
-                : link,
-            )
-            .replace(MENTION, (text, number: string) => {
-              const slug = decisions.get(number);
-              return slug ? `[${text}](${decisionPath(slug)})` : text;
-            }),
+      code ? part : part.replace(/\s*\(ADRs? \d{4}\)/g, "").replace(/,\s*ADRs? \d{4}\)/g, ")"),
     )
     .join("");
 }
@@ -48,8 +30,8 @@ export function splitCode(markdown: string): { code: boolean; part: string }[] {
 }
 
 /** The Markdown as HTML; `inline` drops a single paragraph's <p>. */
-export function render(markdown: string, decisions: Decisions, { inline = false } = {}): string {
-  const result = markdownToHtml(linkDecisions(markdown, decisions), {
+export function render(markdown: string, { inline = false } = {}): string {
+  const result = markdownToHtml(withoutCitations(markdown), {
     hastPlugins: [focusableScrollers()],
   });
   if (result instanceof Promise) {
