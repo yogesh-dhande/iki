@@ -1,0 +1,101 @@
+---
+title: Take settings from each deployment
+description: Declare the values each deployment gives your plugin, such as its LIMS's host name, and check a deployment's values before it builds.
+audience: build
+order: 100
+reference:
+  - { label: A setting's keys, href: /reference/plugin-spec/settings/ }
+  - { label: Plugin manifest, href: /reference/plugin-spec/plugin/#settings }
+  - { label: A deployment's lockfile, href: /reference/plugin-spec/plugin-lock/#plugins.settings }
+---
+
+## What a setting is
+
+A setting is a value each deployment gives your plugin: the host name of the lab's LIMS, the
+storage location new samples go to, a batch size. You declare settings in `plugin.yaml`, and
+each deployment sets their values in its config repository, beside its lockfile. Every run of
+your plugin's actions reads them.
+
+Settings aren't secret. A deployment's settings are in its config repository for anyone who
+reviews it to read, so an API token or a password is a secret, declared on the actions that use
+it ([Secrets](/guides/write-a-plugin/actions/#secrets)).
+
+## Declare a setting
+
+Each setting has a name, a [`type`](/reference/plugin-spec/settings/#type) and the options that
+go with it, as a field's do. The plugin template's one setting is where samples are stored
+unless someone says otherwise:
+
+```yaml
+# plugin.yaml
+settings:
+  default_storage:
+    type: string
+    max_length: 100
+    default: "-80 °C freezer"
+    description: Where new samples are stored unless someone says otherwise.
+```
+
+The example LIMS plugin needs to know which LIMS it talks to, and each deployment's is its own:
+
+```yaml
+settings:
+  lims_host:
+    type: string
+    format: hostname
+    required: true
+    description: >-
+      The LIMS's host name, such as lims.example.org. Runs reach it, and only
+      it, over HTTPS, and each protein's LIMS ID links to its page there.
+```
+
+- A setting is `string`, `text`, `int`, `float`, `bool`, `enum`, or a `list` of any of those but
+  text, with the same options as a field of that type
+  ([Declare fields](/guides/write-a-plugin/fields/)).
+- A setting is [`required`](/reference/plugin-spec/settings/#required), or has a
+  [`default`](/reference/plugin-spec/settings/#default), or neither. One that's both is refused
+  (`required-with-default`).
+- A setting that's neither may be left unset. An action that can't run without it names it under
+  [`requires_settings`](/reference/plugin-spec/action/#requires_settings), and isn't offered
+  until the deployment sets it
+  ([Settings an action needs](/guides/write-a-plugin/actions/#settings-an-action-needs)).
+- Give each a [`description`](/reference/plugin-spec/settings/#description): it's what the
+  deployment's admins read when they set it.
+- A name that looks like a secret's, such as `api_key`, `password` or `token`, is warned about
+  (`setting-looks-secret`).
+
+## Where a setting's value is used
+
+- **In a run.** Every run gets all its plugin's settings, under `settings` in its input, as the
+  deployment set them when the run was launched
+  ([Read a run's input](/guides/write-a-plugin/run-input-and-output/#what-a-command-reads)).
+- **In the hosts a run reaches.** An action's `network` can name a setting instead of a host,
+  `"{settings.lims_host}"`, for a host that differs between deployments
+  ([Hosts a run reaches](/guides/write-a-plugin/actions/#hosts-a-run-reaches)).
+- **In links.** A field's [`link`](/reference/plugin-spec/field/#link) can start with a setting,
+  `"{settings.lims_url}/samples/{value}"`, so each record's LIMS ID links to its page in that
+  deployment's LIMS.
+- **In an outside API's host.** An API's [`host`](/reference/plugin-spec/plugin/#apis.host) can
+  be a setting too ([Outside APIs](/guides/write-a-plugin/actions/#outside-apis)).
+
+## Check a deployment's values
+
+A deployment's lockfile names each plugin's settings file, a YAML mapping of setting names to
+values:
+
+```yaml
+# deployments/production/settings/example_lims.yaml
+lims_host: lims.northfield-bio.org
+```
+
+Check one against your plugin before the deployment builds:
+
+```sh
+iki plugin validate . --settings deployments/production/settings/example_lims.yaml
+```
+
+It reports a value of the wrong type or outside its options (`invalid-setting`), a required
+setting that's missing (`missing-setting`), a name the plugin doesn't declare
+(`unknown-setting`), and each action that the values leave unable to run because a setting it
+requires is unset (`setting-needed`, a warning). `iki deploy build` checks every installed
+plugin's settings the same way.
