@@ -20,6 +20,7 @@ import httpx2
 
 from iki import auth
 from iki.errors import (
+    Conflict,
     IkiError,
     ImportFailed,
     NotSignedIn,
@@ -1768,18 +1769,30 @@ class Spreadsheets(_Part):
             _path("/spreadsheet-imports/{i}/preview", i=_id(imported)),
             headers=_if_match(imported, revision),
         )
-        return self._until(made, lambda i: i["state"] != "previewing", timeout)
+        return self._until(
+            made, lambda i: i["state"] != "previewing", timeout, preview_revision=made["revision"]
+        )
 
     def rows(
-        self, imported: str | Mapping[str, Any], *, outcome: Sequence[str] = ()
+        self,
+        imported: str | Mapping[str, Any],
+        *,
+        outcome: Sequence[str] = (),
+        revision: int | None = None,
     ) -> Results[PreviewRowOut]:
         """What its preview found, row by row: ``outcome`` narrows them (``problem``,
-        ``register``, ``add``, ``reuse``, ``same`` or ``create``)."""
+        ``register``, ``add``, ``reuse``, ``same`` or ``create``). Pass the reviewed import or its
+        revision to read that preview on every page."""
         client = self._client
         path = _path("/spreadsheet-imports/{i}/rows", i=_id(imported))
+        headers = (
+            _if_match(imported, revision)
+            if isinstance(imported, Mapping) or revision is not None
+            else None
+        )
         return Results(
             lambda c: client.request(
-                "GET", path, params={"outcome": list(outcome) or None, "cursor": c}
+                "GET", path, params={"outcome": list(outcome) or None, "cursor": c}, headers=headers
             )
         )
 
@@ -1832,16 +1845,36 @@ class Spreadsheets(_Part):
         )
 
     def save_mapping(
-        self, imported: str | Mapping[str, Any], name: str, *, revision: int | None = None
+        self,
+        imported: str | Mapping[str, Any],
+        name: str,
+        *,
+        revision: int | None = None,
+        replace: str | Mapping[str, Any] | None = None,
+        target_revision: int | None = None,
     ) -> SavedMappingOut:
         """Keeps its mapping at ``revision`` (as for :meth:`change`) in its project, by its
-        headers, for the next sheet like it."""
+        headers, for the next sheet like it. To replace a template pass its reviewed
+        object, or its ID and target_revision. Read the import again after linking a
+        different template before approving it."""
+        body: dict[str, Any] = {"name": name}
+        if replace is not None:
+            reviewed = replace.get("revision") if isinstance(replace, Mapping) else target_revision
+            if type(reviewed) is not int or reviewed < 1:
+                raise IkiError("Give the reviewed template or its ID and positive target_revision.")
+            if target_revision is not None and (
+                type(target_revision) is not int or target_revision != reviewed
+            ):
+                raise IkiError("The target_revision must match the reviewed template.")
+            body.update(replace=_id(replace), target_revision=reviewed)
+        elif target_revision is not None:
+            raise IkiError("Give the template to replace with its target_revision.")
         return cast(
             "SavedMappingOut",
             self._client.request(
                 "POST",
                 _path("/spreadsheet-imports/{i}/mappings", i=_id(imported)),
-                json={"name": name},
+                json=body,
                 headers=_if_match(imported, revision),
             ),
         )
@@ -1852,6 +1885,8 @@ class Spreadsheets(_Part):
         done: Callable[[Mapping[str, Any]], bool],
         timeout: float | None,
         poll: float = 2.0,
+        *,
+        preview_revision: int | None = None,
     ) -> SpreadsheetImportOut:
         deadline = None if timeout is None else time.monotonic() + timeout
         delay = min(poll, 1.0)
@@ -1864,6 +1899,13 @@ class Spreadsheets(_Part):
             self._client._sleep(delay)
             delay = min(delay * 1.5, poll)
             found = self.get(str(found["id"]))
+            if preview_revision is not None and found["revision"] != preview_revision:
+                raise Conflict(
+                    412,
+                    f"Preview revision {preview_revision} was superseded by revision "
+                    f"{found['revision']}. Review the current preview before importing it.",
+                    code="stale",
+                )
         return cast("SpreadsheetImportOut", found)
 
 

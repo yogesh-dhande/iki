@@ -25,7 +25,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
 
 import { problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
@@ -51,6 +51,7 @@ import {
   rangesText,
   rowsQuery,
   saveMapping,
+  savedMappings,
   shownWith,
   SPREADSHEETS,
   startImport,
@@ -61,9 +62,11 @@ import {
   type Choose,
   type ImportSaves,
   type Outcome,
+  type SaveMapping,
   type SheetColumn,
   type SheetField,
   type SheetImport,
+  type SheetLocale,
   type SheetLocaleChange,
   type SheetProblem,
 } from "../spreadsheets";
@@ -628,14 +631,15 @@ export function MapColumns({
   made,
   change,
   errors = {},
-  keep,
+  reviewMapping,
+  settingsPending,
 }: {
   made: SheetImport;
   change: Choose;
   /** What's wrong with the choices made, by where. */
   errors?: Record<string, string>;
-  /** Saves the mapping to the project, after the changes on their way. */
-  keep?: Keep;
+  reviewMapping: () => void;
+  settingsPending: boolean;
 }) {
   const id = useId();
   const fields = new Map(made.fields.map((f) => [f.name, f]));
@@ -658,7 +662,12 @@ export function MapColumns({
           : "Iki matched columns to fields by their headers. "}
         Check each, and choose Not imported for those to leave out.
       </p>
-      <SavedMappings made={made} change={change} keep={keep} />
+      <SavedMappings
+        made={made}
+        change={change}
+        reviewMapping={reviewMapping}
+        settingsPending={settingsPending}
+      />
       {made.warnings.length ? (
         <div className="alert alert-warning" role="status">
           <ul className="plain-list">
@@ -768,9 +777,6 @@ export function MapColumns({
 }
 
 type SetColumn = (index: number, update: Parameters<typeof columnsWith>[2], said: string) => void;
-
-/** Saves the import's mapping to its project, as `name`, or as `replace`. */
-export type Keep = (name: string, replace?: string) => Promise<unknown>;
 
 const SEPARATORS = [
   { value: ";", label: "Separated by ;" },
@@ -937,23 +943,14 @@ function Spellings({
 function SavedMappings({
   made,
   change,
-  keep,
+  reviewMapping,
+  settingsPending,
 }: {
   made: SheetImport;
   change: Choose;
-  keep?: Keep | undefined;
+  reviewMapping: () => void;
+  settingsPending: boolean;
 }) {
-  const client = useQueryClient();
-  const { say } = useMessages();
-  const [naming, setNaming] = useState(false);
-  const [name, setName] = useState(made.mapping?.name ?? "");
-  const save = useApiMutation(
-    (vars: { name: string; replace?: string }) =>
-      keep
-        ? keep(vars.name, vars.replace)
-        : saveMapping(made.id, made.revision, vars.name, vars.replace),
-    [[SPREADSHEETS, made.id]],
-  );
   const others = made.mappings.filter((m) => m.id !== made.mapping?.id);
   return (
     <div className="sheet-mappings">
@@ -975,50 +972,246 @@ function SavedMappings({
         />
       ) : null}
       {made.can["change"] ? (
-        <Button
-          variant="quiet"
-          onClick={() => {
-            setNaming(true);
-          }}
-        >
+        <Button variant="quiet" disabled={settingsPending} onClick={reviewMapping}>
           Save this mapping…
         </Button>
       ) : null}
-      <ConfirmDialog
-        isOpen={naming}
-        title="Save this mapping"
-        confirmLabel={name === made.mapping?.name ? "Save changes" : "Save"}
-        confirmVariant="primary"
-        busy={save.isPending}
-        problem={save.error ? problemOf(save.error) : undefined}
-        confirmDisabled={!name.trim()}
-        onCancel={() => {
-          setNaming(false);
-          save.reset();
-        }}
-        onConfirm={() => {
-          save.mutate(
-            {
-              name: name.trim(),
-              ...(made.mapping?.name === name.trim() ? { replace: made.mapping.id } : {}),
-            },
-            {
-              onSuccess: () => {
-                setNaming(false);
-                say(`Saved the mapping “${name.trim()}”: sheets with these headers map by it.`);
-                void client.invalidateQueries({ queryKey: [SPREADSHEETS, made.id] });
-              },
-            },
-          );
-        }}
-      >
-        <p>
-          The project keeps how these columns map, by their headers, and how the sheet writes
-          numbers and dates. The next sheet with the same headers maps itself.
-        </p>
-        <TextField label="Name" value={name} onChange={setName} maxLength={100} />
-      </ConfirmDialog>
     </div>
+  );
+}
+
+/** The assignments and reading choices that a template keeps, by header. */
+function MappingDetails({
+  title,
+  description,
+  header,
+  columns,
+  fields,
+  locale,
+}: {
+  title: string;
+  description: string;
+  header: number;
+  columns: readonly Record<string, unknown>[];
+  fields: SheetField[];
+  locale: SheetLocale;
+}) {
+  const id = useId();
+  return (
+    <section aria-labelledby={id}>
+      <h4 id={id}>{title}</h4>
+      <p>
+        {description}. {header ? `Header row ${String(header)}.` : "No header row."}
+      </p>
+      <table className="table">
+        <thead>
+          <tr>
+            <th scope="col">Header</th>
+            <th scope="col">Field</th>
+          </tr>
+        </thead>
+        <tbody>
+          {columns.map((column, index) => {
+            const {
+              header,
+              field,
+              unit,
+              time_zone: zone,
+              separator,
+              dates,
+              decimal,
+              serial_dates: serial,
+              values,
+            } = column;
+            if (typeof header !== "string" || typeof field !== "string") return null;
+            const reading: string[] = [];
+            if (typeof unit === "string") reading.push(`Unit ${unit}`);
+            if (typeof separator === "string" && separator !== ";")
+              reading.push(`Items separated by “${separator}”`);
+            if (typeof zone === "string") reading.push(`Time zone ${zone}`);
+            if (typeof dates === "string") reading.push(dates.replaceAll("_", " "));
+            if (typeof decimal === "string") reading.push(`Decimal ${decimal}`);
+            if (typeof serial === "boolean")
+              reading.push(serial ? "Excel serial dates" : "No Excel serial dates");
+            if (values && typeof values === "object") {
+              for (const [text, value] of Object.entries(values)) {
+                if (typeof value === "string") reading.push(`“${text}” means “${value}”`);
+              }
+            }
+            return (
+              <tr key={index}>
+                <th scope="row">{header}</th>
+                <td>
+                  {fields.find((f) => f.name === field)?.label ?? field}
+                  {reading.length > 0 && <div className="muted">{reading.join(" · ")}</div>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <p>
+        {locale.decimal ? `Decimal ${locale.decimal}` : "Decimal mark unspecified"}.{" "}
+        {locale.dates
+          ? `Date order ${locale.dates.replaceAll("_", " ")}`
+          : "Date order unspecified"}
+        .{" "}
+        {locale.serial_dates
+          ? "Plain numbers in date columns are Excel serial dates."
+          : "Plain numbers in date columns are not Excel serial dates."}
+      </p>
+    </section>
+  );
+}
+
+function SaveMappingDialog({ initial, close }: { initial: SheetImport; close: () => void }) {
+  const client = useQueryClient();
+  const { say } = useMessages();
+  const id = useId();
+  const [round, setRound] = useState(0);
+  const [targetId, setTargetId] = useState(initial.mapping?.id ?? null);
+  const [entered, setEntered] = useState<{ name: string; replace: boolean } | null>(null);
+  // A review is a snapshot. Page refetches cannot replace its import or retarget a save.
+  const review = useQuery({
+    queryKey: ["spreadsheet-mapping-review", id, round],
+    staleTime: "static",
+    gcTime: 0,
+    retry: false,
+    queryFn: async ({ signal }) => {
+      const source =
+        round === 0 ? initial : await client.query({ ...importQuery(initial.id), staleTime: 0 });
+      const targets = initial.mapping
+        ? await savedMappings(initial.project, initial.type, signal)
+        : [];
+      return { source, targets };
+    },
+  });
+  const save = useApiMutation(
+    (vars: { revision: number; body: SaveMapping }) =>
+      saveMapping(initial.id, vars.revision, vars.body),
+    [[SPREADSHEETS, initial.id]],
+  );
+  const targets = review.data?.targets ?? [];
+  const target = targets.find((mapping) => mapping.id === targetId);
+  const source = review.data?.source;
+  const name = entered?.name ?? target?.name ?? "";
+  const replacing = entered?.replace ?? targetId !== null;
+  const missing = !!review.data && replacing && !target;
+  const stale =
+    save.error?.status === 412 ||
+    save.error?.problem.code === "stale_template" ||
+    save.error?.status === 404;
+  const blocked =
+    !source || !source.can["change"] || !name.trim() || missing || stale || review.isError;
+  return (
+    <ConfirmDialog
+      isOpen
+      title="Save this mapping"
+      confirmLabel={replacing ? "Save changes" : "Save"}
+      confirmVariant="primary"
+      busy={save.isPending}
+      confirmDisabled={blocked}
+      problem={
+        save.error ? problemOf(save.error) : review.error ? problemOf(review.error) : undefined
+      }
+      onCancel={() => {
+        if (missing || stale)
+          void client.invalidateQueries({ queryKey: importQuery(initial.id).queryKey });
+        close();
+      }}
+      onConfirm={() => {
+        if (blocked) return;
+        const body: SaveMapping = { name: name.trim() };
+        if (replacing && target) {
+          body.replace = target.id;
+          body.target_revision = target.revision;
+        }
+        save.mutate(
+          { revision: source.revision, body },
+          {
+            onSuccess: () => {
+              close();
+              say(`Saved the mapping “${body.name}”: sheets with these headers map by it.`);
+            },
+          },
+        );
+      }}
+    >
+      {review.isPending ? <Loading label="Loading the mapping for review…" /> : null}
+      {source ? (
+        <MappingDetails
+          title="Mapping to save"
+          description={`Sheet “${source.sheet}” in ${source.file.name}, revision ${String(source.revision)}`}
+          header={source.header_row}
+          columns={source.columns}
+          fields={source.fields}
+          locale={source.locale}
+        />
+      ) : null}
+      {replacing && target && source ? (
+        <MappingDetails
+          title="Current saved mapping"
+          description={`“${target.name}”, revision ${String(target.revision)}`}
+          header={target.header_row}
+          columns={target.columns}
+          fields={source.fields}
+          locale={target.locale}
+        />
+      ) : null}
+      {missing ? (
+        <>
+          <p role="alert">The saved mapping you selected is no longer available.</p>
+          {targets.length ? (
+            <SelectField
+              label="Choose a different mapping"
+              value=""
+              options={[
+                { value: "", label: "Choose one…" },
+                ...targets.map((t) => ({ value: t.id, label: t.name })),
+              ]}
+              onChange={(value) => {
+                if (value) {
+                  setTargetId(value);
+                  setEntered(null);
+                }
+              }}
+            />
+          ) : null}
+          <Button
+            onClick={() => {
+              setTargetId(null);
+              setEntered(null);
+            }}
+          >
+            Save as a new mapping
+          </Button>
+        </>
+      ) : null}
+      {source && !source.can["change"] ? (
+        <p role="alert">This import is no longer editable.</p>
+      ) : null}
+      {source && !missing ? (
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(value) => {
+            setEntered({ name: value, replace: !!target && value.trim() === target.name });
+          }}
+          maxLength={100}
+        />
+      ) : null}
+      {stale || review.isError || missing ? (
+        <Button
+          onClick={() => {
+            if (replacing) setEntered(null);
+            save.reset();
+            setRound((r) => r + 1);
+          }}
+        >
+          Review latest mapping
+        </Button>
+      ) : null}
+    </ConfirmDialog>
   );
 }
 
@@ -1233,13 +1426,29 @@ function ProblemText({ made, problem }: { made: SheetImport; problem: SheetProbl
 }
 
 /** The rows, as importing would write them: those with problems first, by default. */
-export function PreviewRows({ made, project }: { made: SheetImport; project: Project }) {
+export function PreviewRows({
+  made,
+  project,
+  children,
+}: {
+  made: SheetImport;
+  project: Project;
+  children?: (rowsReady: boolean, rowsStale: boolean) => ReactNode;
+}) {
+  const client = useQueryClient();
+  const previewed = made.state === "previewed";
   const problems = made.preview?.counts["problem"] ?? 0;
-  const [outcome, setOutcome] = useState<Outcome | "">(problems ? "problem" : "");
-  const list = useInfiniteQuery(rowsQuery(made, outcome || undefined));
+  const [filter, setFilter] = useState<{ revision: number; outcome: Outcome | "" }>();
+  const outcome = filter?.revision === made.revision ? filter.outcome : problems ? "problem" : "";
+  const list = useInfiniteQuery({ ...rowsQuery(made, outcome || undefined), enabled: previewed });
+  const stale = isStale(list.error);
+  useEffect(() => {
+    if (stale)
+      void client.invalidateQueries({ queryKey: importQuery(made.id).queryKey, exact: true });
+  }, [client, made.id, made.revision, stale]);
   const rows = list.data?.pages.flatMap((p) => p.items) ?? [];
   const id = useId();
-  return (
+  const table = (
     <section className="card sheet-card" aria-labelledby={`${id}-title`}>
       <h3 className="section-title" id={`${id}-title`}>
         {made.kind === "csv" ? "Rows" : `Rows of ${made.sheet}`}
@@ -1247,7 +1456,9 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
       <SelectField
         label="Show"
         value={outcome}
-        onChange={setOutcome}
+        onChange={(value) => {
+          setFilter({ revision: made.revision, outcome: value });
+        }}
         options={[
           { value: "", label: "Every row" },
           ...counted(made).map(({ outcome: o, count }) => ({
@@ -1258,7 +1469,7 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
       />
       {list.isError ? <ProblemAlert problem={problemOf(list.error)} /> : null}
       {list.isPending ? <Loading label="Loading its rows…" /> : null}
-      {rows.length ? (
+      {!stale && rows.length ? (
         <Scroll label="Its rows">
           <table className="table sheet-rows">
             <caption className="visually-hidden">
@@ -1331,6 +1542,12 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
       </p>
     </section>
   );
+  return (
+    <>
+      {previewed ? table : null}
+      {children?.(list.isSuccess, stale)}
+    </>
+  );
 }
 
 // --- 5. The import ------------------------------------------------------------------------
@@ -1339,9 +1556,58 @@ export function PreviewRows({ made, project }: { made: SheetImport; project: Pro
 export function CommitImport({
   made,
   onCommitted,
+  rowsReady = true,
+  rowsStale = false,
 }: {
   made: SheetImport;
   onCommitted?: (made: SheetImport) => void;
+  rowsReady?: boolean;
+  rowsStale?: boolean;
+}) {
+  const client = useQueryClient();
+  const [reviewed, setReviewed] = useState<number | null>(null);
+  const [refused, setRefused] = useState<number | null>(null);
+  if (made.state !== "previewed" || !made.preview || !made.can["commit"]) return null;
+  if (reviewed === null) setReviewed(made.revision);
+  if ((reviewed !== null && reviewed !== made.revision) || refused === made.revision || rowsStale) {
+    return (
+      <section className="card sheet-card" aria-label="Review the changed preview">
+        <p role="alert">The preview changed. Review the current rows before importing them.</p>
+        <Button
+          disabled={!rowsReady || refused === made.revision}
+          onClick={() => {
+            setReviewed(made.revision);
+          }}
+        >
+          Review current preview
+        </Button>
+      </section>
+    );
+  }
+  return (
+    <ApprovalForm
+      key={made.revision}
+      made={made}
+      rowsReady={rowsReady}
+      onCommitted={onCommitted}
+      onStale={() => {
+        setRefused(made.revision);
+        void client.invalidateQueries({ queryKey: importQuery(made.id).queryKey, exact: true });
+      }}
+    />
+  );
+}
+
+function ApprovalForm({
+  made,
+  rowsReady,
+  onCommitted,
+  onStale,
+}: {
+  made: SheetImport;
+  rowsReady: boolean;
+  onCommitted: ((made: SheetImport) => void) | undefined;
+  onStale: () => void;
 }) {
   const id = useId();
   const problems = made.preview?.counts["problem"] ?? 0;
@@ -1350,13 +1616,12 @@ export function CommitImport({
   const typeLabel = type ? inSentence(type.label_plural) : made.type;
   const [leaveOut, setLeaveOut] = useState(false);
   const [reason, setReason] = useState("");
-  const client = useQueryClient();
   // What was checked is what's imported: the revision whose preview the person read.
   const commit = useApiMutation(
     () => commitImport(made.id, made.revision, { skip_problems: leaveOut, reason: reason.trim() }),
     [[SPREADSHEETS, made.id]],
   );
-  const blocked = (problems > 0 && !leaveOut) || rows === 0;
+  const blocked = commit.isPending || !rowsReady || (problems > 0 && !leaveOut) || rows === 0;
   return (
     <form
       className="card sheet-card"
@@ -1369,9 +1634,7 @@ export function CommitImport({
             onCommitted?.(next);
           },
           onError: (error) => {
-            // It changed elsewhere since it was checked: show what it is now.
-            if (isStale(error))
-              void client.invalidateQueries({ queryKey: [SPREADSHEETS, made.id] });
+            if (isStale(error)) onStale();
           },
         });
       }}
@@ -1666,6 +1929,7 @@ export function SpreadsheetImportPage() {
   const { say } = useMessages();
   const [step, setStep] = useState<"rows" | "columns">("rows");
   const [discarding, setDiscarding] = useState(false);
+  const [mappingReview, setMappingReview] = useState<SheetImport | null>(null);
   const saves = useImportSaves(importId);
   const discard = useApiMutation(() => discardImport(importId), [[SPREADSHEETS, importId]]);
   const saved = found.data;
@@ -1685,8 +1949,6 @@ export function SpreadsheetImportPage() {
   const apply: Choose = (said, change) => {
     saves.save(edit(said, change, saved));
   };
-  const keep: Keep = (name, replace) =>
-    saves.inTurn((latest) => saveMapping(importId, latest.revision, name, replace));
   // Nothing's checked while a choice is refused or held back: the page shows it, not what's
   // saved.
   const unsettled = saves.unsaved.some((u) => u.state !== "saving") || saves.conflict !== null;
@@ -1743,7 +2005,15 @@ export function SpreadsheetImportPage() {
             <ChooseRows made={made} change={apply} errors={saves.errors} />
           ) : (
             <>
-              <MapColumns made={made} change={apply} errors={saves.errors} keep={keep} />
+              <MapColumns
+                made={made}
+                change={apply}
+                errors={saves.errors}
+                settingsPending={saves.saving || unsettled}
+                reviewMapping={() => {
+                  setMappingReview(saved);
+                }}
+              />
               <NumbersAndDates made={made} change={apply} />
             </>
           )}
@@ -1796,30 +2066,41 @@ export function SpreadsheetImportPage() {
           />
         </section>
       ) : null}
-      {made.state === "previewed" ? (
-        <>
-          <PreviewSummary made={made} />
-          <PreviewRows made={made} project={project} />
-          <div className="actions sheet-actions">
-            <Button
-              onClick={() => {
-                back("columns");
-              }}
-            >
-              Back to the columns
-            </Button>
-          </div>
-          {made.can["commit"] ? (
+      {saved.state === "previewed" ? <PreviewSummary made={saved} /> : null}
+      <PreviewRows key={saved.id} made={saved} project={project}>
+        {(rowsReady, rowsStale) => (
+          <>
+            {saved.state === "previewed" ? (
+              <div className="actions sheet-actions">
+                <Button
+                  onClick={() => {
+                    back("columns");
+                  }}
+                >
+                  Back to the columns
+                </Button>
+              </div>
+            ) : null}
             <CommitImport
-              made={made}
+              made={saved}
+              rowsReady={rowsReady}
+              rowsStale={rowsStale}
               onCommitted={(next) => {
                 client.setQueryData(importQuery(importId).queryKey, next);
               }}
             />
-          ) : null}
-        </>
-      ) : null}
+          </>
+        )}
+      </PreviewRows>
       {made.run ? <ImportResult made={made} project={project} /> : null}
+      {mappingReview?.id === importId ? (
+        <SaveMappingDialog
+          initial={mappingReview}
+          close={() => {
+            setMappingReview(null);
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         isOpen={discarding}
         title={`Discard the import of ${made.file.name}?`}

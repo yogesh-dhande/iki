@@ -30,6 +30,7 @@ export type SheetProblem = Schemas["SheetProblemOut"];
 export type Outcome = PreviewRow["outcome"];
 export type ColumnChoice = Schemas["SheetColumnIn"];
 export type SheetChange = Schemas["SpreadsheetImportChange"];
+export type SaveMapping = Schemas["SavedMappingIn"];
 export type SheetLocaleChange = Schemas["SheetLocaleIn"];
 
 /** The files an import reads: Excel workbooks and CSV files (and TSV, as CSV). */
@@ -117,14 +118,15 @@ export function importQuery(id: string) {
   });
 }
 
-// Keyed by its round's counts too: a preview run again finds other rows.
+// The row filter and every page of its results belong to the exact preview being read.
 export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
   return infiniteQueryOptions({
-    queryKey: [SPREADSHEETS, made.id, "rows", made.state, made.updated_at, outcome ?? "all"],
+    queryKey: [SPREADSHEETS, made.id, "rows", made.revision, outcome ?? "all"],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}/rows", {
+          headers: seen(made.revision),
           params: {
             path: { import_id: made.id },
             query: {
@@ -192,11 +194,20 @@ export async function discardImport(id: string) {
   );
 }
 
-export async function saveMapping(id: string, revision: number, name: string, replace?: string) {
+export async function savedMappings(project: string, type: string, signal: AbortSignal) {
+  return unwrap(
+    await iki.GET("/api/v1/projects/{project_id}/spreadsheet-mappings", {
+      params: { path: { project_id: project }, query: { type } },
+      signal,
+    }),
+  );
+}
+
+export async function saveMapping(id: string, revision: number, body: SaveMapping) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/mappings", {
       params: { path: { import_id: id }, header: seen(revision) },
-      body: { name, ...(replace ? { replace } : {}) },
+      body,
     }),
   );
 }
@@ -495,7 +506,6 @@ export function useImportSaves(id: string) {
   return {
     save,
     preview,
-    inTurn,
     saveHeld,
     keepSaved,
     /** What's on its way, refused or held back. */

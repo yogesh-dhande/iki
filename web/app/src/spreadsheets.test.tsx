@@ -4,9 +4,10 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { queryClient } from "./api";
 import { entity, KINASE, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import {
   columnName,
@@ -572,6 +573,192 @@ describe("an import's steps", () => {
     ]);
   });
 
+  it("waits for the field edit before reviewing and saving a new mapping", async () => {
+    onImport(sheet());
+    let release!: (value: SheetImport) => void;
+    answer(
+      `PATCH ${BASE}`,
+      () =>
+        new Promise<SheetImport>((resolve) => {
+          release = resolve;
+        }),
+    );
+    answer(`POST ${BASE}/mappings`, respond(201, {}));
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    await user.click(await screen.findByRole("button", { name: "Next: columns" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Field for A: Name" }), "");
+    const open = screen.getByRole("button", { name: "Save this mapping…" });
+    expect(open).toHaveAttribute("aria-disabled", "true");
+    await user.click(open);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    const updated = sheet({
+      revision: 3,
+      columns: COLUMNS.map((c) => (c.index === 0 ? { ...c, field: null } : c)),
+    });
+    answer(`GET ${BASE}`, updated);
+    act(() => {
+      release(updated);
+    });
+    await user.click(open);
+    const dialog = within(await screen.findByRole("alertdialog"));
+    const source = within(dialog.getByRole("region", { name: "Mapping to save" }));
+    expect(source.getByRole("rowheader", { name: "Sequence" })).toBeVisible();
+    expect(source.queryByRole("rowheader", { name: "Name" })).toBeNull();
+    await user.type(dialog.getByRole("textbox", { name: "Name" }), "New layout");
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+    await waitFor(() => {
+      expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([
+        { name: "New layout" },
+      ]);
+      expect(calls("POST", `${BASE}/mappings`)[0]?.headers.get("If-Match")).toBe('"3"');
+    });
+  });
+
+  it.each(["source", "target", "deleted"] as const)(
+    "keeps the reviewed mapping when the %s changes",
+    async (which) => {
+      const match = {
+        id: "00000000-0000-7000-8000-0000000051aa",
+        name: "Vendor layout",
+        revision: 3,
+        match: 1,
+      };
+      const lookup = `GET /api/v1/projects/${KINASE.id}/spreadsheet-mappings`;
+      const original = sheet({ mapping: match, mappings: [match] });
+      onImport(original);
+      const target = {
+        ...match,
+        type: original.type,
+        columns: [{ header: "Old label", field: "name" }],
+        headers: ["Old label"],
+        header_row: 1,
+        locale: original.locale,
+        created_by: PERSON,
+        updated_by: PERSON,
+        updated_at: original.updated_at,
+      };
+      answer(lookup, [target]);
+      const detail =
+        which === "source"
+          ? "The source sheet changed. Review its mapping."
+          : "The saved mapping changed. Review the current mapping.";
+      answer(`POST ${BASE}/mappings`, () =>
+        problem(
+          which === "deleted" ? 404 : which === "source" ? 412 : 409,
+          which === "source" ? "stale" : which === "target" ? "stale_template" : "not_found",
+          detail,
+        ),
+      );
+      const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+      await user.click(await screen.findByRole("button", { name: "Next: columns" }));
+      await user.click(screen.getByRole("button", { name: "Save this mapping…" }));
+      const dialog = within(await screen.findByRole("alertdialog"));
+      const originalTarget = await dialog.findByRole("region", { name: "Current saved mapping" });
+      expect(within(originalTarget).getByRole("rowheader", { name: "Old label" })).toBeVisible();
+      const changedMatch =
+        which === "source"
+          ? match
+          : {
+              ...match,
+              revision: 4,
+              name: which === "deleted" ? match.name : "Revised vendor layout",
+            };
+      const latest = sheet({
+        revision: which === "source" ? 3 : 2,
+        mapping: match, // The historical source remains pinned even when its live target disappears.
+        mappings: [which === "deleted" ? { ...changedMatch, id: ID } : changedMatch],
+        ...(which === "source"
+          ? {
+              header_row: 2,
+              columns: COLUMNS.map((c) =>
+                c.index === 0 ? { ...c, header: "Current source label" } : c,
+              ),
+            }
+          : {}),
+      });
+      answer(`GET ${BASE}`, latest);
+      answer(
+        lookup,
+        which === "source"
+          ? [target]
+          : [
+              {
+                ...target,
+                ...changedMatch,
+                id: which === "deleted" ? ID : match.id,
+                columns: [{ header: "Current target label", field: "name" }],
+                locale: { ...original.locale, decimal: "comma" },
+              },
+            ],
+      );
+      await act(async () => {
+        await queryClient.invalidateQueries();
+      });
+      await user.click(dialog.getByRole("button", { name: "Save changes" }));
+      await dialog.findByText(detail);
+      const first = { name: match.name, replace: match.id, target_revision: 3 };
+      expect(calls("POST", `${BASE}/mappings`)[0]?.headers.get("If-Match")).toBe('"2"');
+      expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([first]);
+      expect(dialog.getByRole("button", { name: "Save changes" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      await user.click(dialog.getByRole("button", { name: "Review latest mapping" }));
+      if (which === "deleted") {
+        await dialog.findByText(/no longer available/i);
+        expect(dialog.getByRole("button", { name: "Save changes" })).toHaveAttribute(
+          "aria-disabled",
+          "true",
+        );
+        await user.selectOptions(
+          dialog.getByRole("combobox", { name: "Choose a different mapping" }),
+          ID,
+        );
+        const current = within(dialog.getByRole("region", { name: "Current saved mapping" }));
+        expect(current.getByRole("rowheader", { name: "Current target label" })).toBeVisible();
+        expect(calls("POST", `${BASE}/mappings`)).toHaveLength(1);
+        answer(`POST ${BASE}/mappings`, respond(201, {}));
+        await user.click(dialog.getByRole("button", { name: "Save changes" }));
+        await waitFor(() => {
+          expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([
+            first,
+            { name: match.name, replace: ID, target_revision: 4 },
+          ]);
+        });
+        return;
+      }
+      const currentTarget = within(
+        await dialog.findByRole("region", { name: "Current saved mapping" }),
+      );
+      await currentTarget.findByRole("rowheader", {
+        name: which === "source" ? "Old label" : "Current target label",
+      });
+      if (which === "target") expect(currentTarget.getByText(/decimal comma/i)).toBeVisible();
+      const currentSource = within(dialog.getByRole("region", { name: "Mapping to save" }));
+      expect(
+        currentSource.getByRole("rowheader", {
+          name: which === "source" ? "Current source label" : "Name",
+        }),
+      ).toBeVisible();
+      expect(calls("POST", `${BASE}/mappings`)).toHaveLength(1);
+      answer(`POST ${BASE}/mappings`, respond(201, {}));
+      await user.click(dialog.getByRole("button", { name: "Save changes" }));
+      await waitFor(() => {
+        expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([
+          first,
+          {
+            name: changedMatch.name,
+            replace: match.id,
+            target_revision: changedMatch.revision,
+          },
+        ]);
+        expect(calls("POST", `${BASE}/mappings`)[1]?.headers.get("If-Match")).toBe(
+          `"${String(latest.revision)}"`,
+        );
+      });
+    },
+  );
+
   it("flags cells that read two ways until the sheet's locale is said", async () => {
     onImport(sheet());
     answer(
@@ -656,6 +843,140 @@ describe("an import's steps", () => {
       ]);
     });
     expect(await screen.findByRole("link", { name: "RUN-000042" })).toBeTruthy();
+  });
+
+  it.each(["refresh", "refusal"])(
+    "reviews the current preview after a %s, even when its totals match",
+    async (cause) => {
+      const first = PREVIEWED;
+      const next = { ...first, revision: first.revision + 1 };
+      let current = first;
+      onImport(first);
+      answer(`GET ${BASE}`, () => current);
+      answer(`GET ${BASE}/rows`, () =>
+        page([
+          {
+            row: current.revision + 10,
+            outcome: "problem",
+            match: "",
+            match_id: null,
+            same_as: null,
+            problems: [
+              {
+                row: current.revision + 10,
+                column: 0,
+                field: "name",
+                detail: `Problem from preview ${String(current.revision)}.`,
+                kind: null,
+              },
+            ],
+            held: [],
+          },
+        ]),
+      );
+      answer(`POST ${BASE}/commit`, (call: Sent) =>
+        call.headers.get("If-Match") === `"${String(current.revision)}"`
+          ? { ...current, state: "committing", can: {} }
+          : problem(412, "stale", "The preview changed. Review its current rows."),
+      );
+      const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+      await screen.findByText(/Problem from preview 2/);
+      await user.click(screen.getByRole("checkbox", { name: /Leave out the/ }));
+      await user.type(screen.getByRole("textbox", { name: /Why/ }), "Old reason");
+      current = next;
+      if (cause === "refusal") {
+        await user.click(screen.getByRole("button", { name: "Import 4 rows" }));
+      } else {
+        await act(() =>
+          queryClient.invalidateQueries({ queryKey: ["spreadsheet-imports", ID], exact: true }),
+        );
+      }
+      const review = await screen.findByRole("button", { name: "Review current preview" });
+      await screen.findByText(/Problem from preview 3/);
+      expect(calls("GET", `${BASE}/rows`).map((call) => call.headers.get("If-Match"))).toContain(
+        '"3"',
+      );
+      expect(screen.queryByRole("button", { name: "Import 4 rows" })).not.toBeInTheDocument();
+      expect(calls("POST", `${BASE}/commit`)).toHaveLength(cause === "refusal" ? 1 : 0);
+      await user.click(review);
+      const form = screen.getByRole("form", { name: "Import" });
+      expect(within(form).getByRole("checkbox")).not.toBeChecked();
+      expect(within(form).getByRole("textbox", { name: /Why/ })).toHaveValue("");
+      await user.click(within(form).getByRole("checkbox"));
+      await user.type(within(form).getByRole("textbox", { name: /Why/ }), "Fresh review");
+      await user.click(within(form).getByRole("button", { name: "Import 4 rows" }));
+      await waitFor(() => {
+        const sent = calls("POST", `${BASE}/commit`).at(-1);
+        expect(sent?.headers.get("If-Match")).toBe('"3"');
+        expect(sent?.body).toEqual({ skip_problems: true, reason: "Fresh review" });
+      });
+    },
+  );
+
+  it("stops reviewing a superseded preview when loading the next page of rows", async () => {
+    let current = PREVIEWED;
+    onImport(current);
+    answer(`GET ${BASE}`, () => current);
+    answer(`GET ${BASE}/rows`, (call: Sent) => {
+      if (call.headers.get("If-Match") !== `"${String(current.revision)}"`) {
+        return problem(412, "stale", "These preview rows have changed.");
+      }
+      return {
+        items: [
+          {
+            row: current.revision,
+            outcome: "problem",
+            match: "",
+            match_id: null,
+            same_as: null,
+            problems: [
+              {
+                row: current.revision,
+                column: 0,
+                field: "name",
+                detail: `Missing name in revision ${String(current.revision)}.`,
+                kind: null,
+              },
+            ],
+            held: [],
+          },
+        ],
+        next_cursor: current.revision === 2 ? "next-page" : null,
+      };
+    });
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    await screen.findByText(/Missing name in revision 2/);
+    await user.click(screen.getByRole("checkbox", { name: /Leave out the/ }));
+    current = { ...current, revision: 3 };
+    await user.click(screen.getByRole("button", { name: "Show more rows" }));
+    await screen.findByText(/Missing name in revision 3/);
+    expect(screen.queryByText(/Missing name in revision 2/)).not.toBeInTheDocument();
+    expect(
+      calls("GET", `${BASE}/rows`).map((call) => [
+        call.headers.get("If-Match"),
+        call.query.get("cursor"),
+      ]),
+    ).toEqual([
+      ['"2"', null],
+      ['"2"', "next-page"],
+      ['"3"', null],
+    ]);
+    await user.click(screen.getByRole("button", { name: "Review current preview" }));
+    expect(screen.getByRole("checkbox", { name: /Leave out the/ })).not.toBeChecked();
+    expect(calls("POST", `${BASE}/commit`)).toHaveLength(0);
+  });
+
+  it("holds approval while the rows belonging to this preview are unavailable", async () => {
+    onImport(PREVIEWED);
+    answer(`GET ${BASE}/rows`, problem(403, "forbidden", "The preview rows are unavailable."));
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
+    await screen.findByText("The preview rows are unavailable.");
+    await user.click(screen.getByRole("checkbox", { name: /Leave out the/ }));
+    const button = screen.getByRole("button", { name: "Import 4 rows" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await user.click(button);
+    expect(calls("POST", `${BASE}/commit`)).toHaveLength(0);
+    expect(calls("GET", `${BASE}/rows`)[0]?.headers.get("If-Match")).toBe('"2"');
   });
 
   it("links to the records an import wrote", async () => {
