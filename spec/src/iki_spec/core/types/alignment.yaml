@@ -10,7 +10,7 @@ kind: EntityType
 name: Alignment
 label: Alignment
 label_plural: Alignments
-schema_version: 2
+schema_version: 4
 description: Sequences aligned, as aligned FASTA, with the ones in Iki linked.
 hrid: { prefix: ALN }
 fields:
@@ -23,6 +23,11 @@ fields:
     description: >-
       The sequence the others were aligned to, such as the plasmid a construct
       should be, or a reference protein.
+  sample:
+    type: ref
+    to: Entity
+    immutable: true
+    description: The physical material whose reads were aligned.
   members:
     type: list
     label: Sequences
@@ -48,6 +53,7 @@ fields:
   verdict:
     type: enum
     values: [matches, differs, incomplete]
+    computed: true
     immutable: true
     description: The producing method’s reported agreement with its reference, if it reports one.
   method:

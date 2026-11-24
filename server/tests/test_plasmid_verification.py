@@ -1,25 +1,28 @@
 """A physical prep's archived evidence and signed decision through the installed plugin."""
 
 import runpy
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.core.exceptions import PermissionDenied
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.db.migrations.executor import MigrationExecutor
 from first_party_dependencies import ROOT, build_order
 from org_world import build_world
 from test_lots import LOTS
 from test_plugin_migrations import database, iki, migrate, orm, sync
-from test_signatures import begin, ready, signed, standing
+from test_signatures import begin, past_the_triggers, ready, signed, standing
 from test_states import roles
 
-from iki_server.entities import services, states
+from iki_server.entities import checking, services, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
 from iki_server.files.models import Blob, File
 from iki_server.org.services import Refused
+from iki_server.plugins.sync import drop_views
 
 __all__ = ["database"]
 
@@ -132,6 +135,7 @@ def exercise_review(blob: Blob) -> None:
                 "aligned": str(aligned.pk),
                 "verdict": "differs",
             },
+            by_run=True,
         )
         for ref in (dna, other_dna)
     )
@@ -170,6 +174,104 @@ def exercise_review(blob: Blob) -> None:
     assert qc_values["plasmid_record_id"] == str(plasmid.pk)
     assert qc_values["plasmid_revision"] == plasmid.revision
     assert qc_values["alignment_revision"] == alignment.revision
+
+    imported = {
+        "name": "Imported alignment",
+        "reference": str(dna.entry_id),
+        "aligned": str(aligned.pk),
+    }
+    with pytest.raises(services.Invalid) as manual_verdict:
+        create("iki/core.Alignment", imported | {"verdict": "matches"})
+    assert "verdict" in manual_verdict.value.errors
+    assert values("research", create("iki/core.Alignment", imported))["outcome"] == "match"
+
+    whole_type = "iki/plasmid_sequencing.WholePlasmidAlignment"
+    consensus = File.objects.create(
+        blob=blob, name="consensus.fa", media_type="chemical/seq-na-fasta", project=world.project
+    )
+    whole = imported | {
+        "plasmid": str(plasmid.entry_id),
+        "source": "consensus",
+        "consensus_given": str(aligned.pk),
+        "sample": str(prep.pk),
+        "agreement": "incomplete",
+    }
+    with pytest.raises(services.Invalid) as manual_agreement:
+        create(whole_type, whole)
+    assert "agreement" in manual_agreement.value.errors
+    comparison = whole | {
+        "plasmid_record_id": str(plasmid.pk),
+        "plasmid_revision": plasmid.revision,
+        "reference_length": 7,
+        "consensus": str(consensus.pk),
+        "called_percent": 0.0,
+        "verdict": "incomplete",
+    }
+    for field in (
+        "plasmid_record_id",
+        "plasmid_revision",
+        "reference_length",
+        "consensus",
+        "called_percent",
+        "agreement",
+        "verdict",
+    ):
+        with pytest.raises(services.Invalid):
+            create(
+                whole_type,
+                {name: value for name, value in comparison.items() if name != field},
+                by_run=True,
+            )
+    with pytest.raises(services.Invalid):
+        create(whole_type, comparison | {"verdict": "matches"}, by_run=True)
+    run = create("iki/sequencing.SequencingRun", {"name": "Fixture", "instrument_model": "Fixture"})
+    library = create(
+        "iki/sequencing.SequencingLibrary",
+        {"name": "Fixture", "sample": str(prep.pk), "strategy": "fixture"},
+    )
+    read_set = create(
+        "iki/sequencing.ReadSet",
+        {"run": str(run.pk), "library": str(library.pk), "read_1": str(aligned.pk)},
+    )
+    reads = comparison | {"source": "reads", "read_set": str(read_set.pk), "consensus_given": None}
+    with pytest.raises(services.Invalid) as no_revision:
+        create(whole_type, reads, by_run=True)
+    assert "read_set_revision" in no_revision.value.errors
+    create(whole_type, reads | {"read_set_revision": read_set.revision}, by_run=True)
+
+    whole_alignment = create(whole_type, comparison, by_run=True)
+    with pytest.raises(ValueError, match="Give a reason"):
+        values("regulated_qc", whole_alignment)
+    bound = values("regulated_qc", whole_alignment, override_reason)
+    create(TYPE, bound, by_run=True)
+    other_prep = create("iki/lots.PlasmidPrep", {"plasmid": str(plasmid.entry_id)})
+    with pytest.raises(services.Invalid, match="different physical prep"):
+        create(TYPE, bound | {"prep": str(other_prep.pk)}, by_run=True)
+
+    # Sample attribution added after a run must not change the evidence revision it pinned.
+    without_sample = create(whole_type, comparison | {"sample": None}, by_run=True)
+    before_attribution = values("research", without_sample, override_reason)
+    edit(without_sample, {"sample": str(other_prep.pk)})
+    create(TYPE, before_attribution, by_run=True)
+    without_sample.refresh_from_db()
+    with pytest.raises(services.Invalid, match="different physical prep"):
+        create(
+            TYPE, before_attribution | {"alignment_revision": without_sample.revision}, by_run=True
+        )
+    with pytest.raises(services.Invalid, match="saved revision"):
+        create(
+            TYPE,
+            before_attribution | {"alignment_revision": without_sample.revision + 1},
+            by_run=True,
+        )
+
+    # A pending verification saved before the sample rule cannot acquire a new signature.
+    legacy_rules = [r for r in checking.checks_of(TYPE) if r.name != "same_physical_prep"]
+    with patch.object(checking, "checks_of", return_value=legacy_rules):
+        pending = create(TYPE, bound | {"prep": str(other_prep.pk)}, by_run=True)
+    edit(pending, {"reviewer": str(reviewer.pk)})
+    with pytest.raises(Refused, match="different physical prep"):
+        begin(world, "editor", str(pending.pk), "submitted", field="review")
 
     # All save paths enforce the relationship, even if a worker sends mismatched evidence.
     for invalid in (
@@ -259,33 +361,79 @@ def exercise_review(blob: Blob) -> None:
     # The data migration runs alone, on today's tables, so later migrations that
     # change the type's columns don't stand in its way.
     app = "iki__plasmid_sequencing"
+    executor = MigrationExecutor(connection)
+    [head] = executor.loader.graph.leaf_nodes(app)
     name = "0002_project_agreement_to_alignment_verdict"
-    loader = MigrationExecutor(connection).loader
+    loader = executor.loader
     copying = loader.get_migration(app, name)
-    legacy = create(
-        "iki/plasmid_sequencing.WholePlasmidAlignment",
-        {
-            "name": "Earlier alignment",
-            "plasmid": str(plasmid.entry_id),
-            "reference": str(dna.entry_id),
-            "source": "consensus",
-            "consensus_given": str(aligned.pk),
-            "aligned": str(aligned.pk),
-            "agreement": "incomplete",
-        },
-    )
+    old = (app, "0003_consensus_length_and_unplaced")
+    executor.migrate([old])
+    # Use the old field and create rule for this fixture. Historical human-entered
+    # agreements lack the computed comparison values that new alignments require.
+    old_fields = shape(whole_type).part_of("agreement").fields
+    old_checks = tuple(r for r in checking.checks_of(whole_type) if r.name != "action_evidence")
+    with (
+        patch.dict(
+            old_fields, agreement=replace(old_fields["agreement"], required=True, computed=False)
+        ),
+        patch.object(checking, "checks_of", return_value=old_checks),
+    ):
+        legacy = create(whole_type, whole | {"sample": None})
+    # Seed the old sample column using the historical table. Revision 2 touches only
+    # the subtype, so no alignment history row exists there to carry the sample forward.
+    edit(legacy, {"provider": "External review"})
+    with past_the_triggers() as cursor:
+        cursor.execute(
+            "UPDATE iki__plasmid_sequencing_wholeplasmidalignment SET sample_id = %s "
+            "WHERE entity_id = %s",
+            [prep.pk, legacy.pk],
+        )
+        cursor.execute(
+            "UPDATE iki__plasmid_sequencing_wholeplasmidalignment__history SET sample_id = %s "
+            "WHERE entity_id = %s AND revision = 2",
+            [prep.pk, legacy.pk],
+        )
     edit(legacy, {"name": "Edited earlier alignment"})
     legacy.refresh_from_db()
     before = [services.values_at(legacy, number) for number in range(1, legacy.revision + 1)]
     assert all(row["verdict"] is None for row in before)
+    MigrationExecutor(connection).migrate([head])
     with connection.schema_editor() as editor:
         copying.apply(loader.project_state((app, name), at_end=False), editor)
     assert services.current_values_of([legacy])[legacy.pk]["verdict"] == "incomplete"
     for number, row in enumerate(before, 1):
-        assert services.values_at(legacy, number) == row | {"verdict": "incomplete"}
+        assert services.values_at(legacy, number) == row | {
+            "verdict": "incomplete",
+            "sample": None if number == 1 else prep.pk,
+        }
     with pytest.raises(ValueError, match="Give a reason"):
         values("regulated_qc", legacy)
+    late = create(whole_type, comparison | {"sample": None}, by_run=True)
+    edit(late, {"sample": str(other_prep.pk)})
+    MigrationExecutor(connection).migrate([old])
+    with connection.cursor() as cursor:
+        for record, expected_prep in ((legacy, prep), (late, other_prep)):
+            cursor.execute(
+                "SELECT revision, sample_id "
+                "FROM iki__plasmid_sequencing_wholeplasmidalignment__history "
+                "WHERE entity_id = %s ORDER BY revision",
+                [record.pk],
+            )
+            assert cursor.fetchall() == [(1, None), (2, expected_prep.pk)]
     with connection.schema_editor() as editor:
         copying.unapply(loader.project_state((app, name)), editor)
     for number, row in enumerate(before, 1):
         assert services.values_at(legacy, number) == row
+    previous_core = ("iki__core", "0004_alignment_verdict_alignment_history_verdict")
+    # MigrationExecutor bypasses the pre_migrate signal and the deployment runner,
+    # which both remove generated analyst views before changing their columns.
+    with connection.cursor() as cursor:
+        drop_views(cursor)
+    MigrationExecutor(connection).migrate([old, previous_core])
+    MigrationExecutor(connection).migrate([head])
+    # Other producers may put samples on core alignments. The older schema has nowhere
+    # to preserve those values, so the downgrade must stop before dropping the columns.
+    generic = create("iki/core.Alignment", imported | {"sample": str(prep.pk)})
+    with pytest.raises(DatabaseError, match="would lose recorded alignment samples"):
+        MigrationExecutor(connection).migrate([old, previous_core])
+    assert services.values_at(generic, 1)["sample"] == prep.pk

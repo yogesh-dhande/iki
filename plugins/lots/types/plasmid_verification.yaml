@@ -4,7 +4,7 @@ kind: EntityType
 name: PlasmidVerification
 label: Plasmid verification
 label_plural: Plasmid verifications
-schema_version: 2
+schema_version: 3
 hrid: { prefix: VER }
 description: >-
   An assessment of evidence from one physical plasmid prep against its registered plasmid.
@@ -208,14 +208,24 @@ rules:
     fields: [alignment, alignment_revision]
   explain_alignment_override:
     label: A match that overrides the alignment needs a reason
+    reference_revisions: { alignment: alignment_revision }
     when: >-
       record.alignment != null && record.outcome == "match" &&
       record.alignment.verdict != null && record.alignment.verdict in ["differs", "incomplete"]
     check: record.override_reason != null
     message: Give a reason to record a match over differing or incomplete evidence.
     fields: [outcome, override_reason]
+  same_physical_prep:
+    label: The alignment belongs to this physical prep
+    when: record.alignment != null
+    check: record.alignment.sample == null || record.alignment.sample == record.prep.id
+    reference_revisions: { alignment: alignment_revision }
+    recheck_before_signing: true
+    message: The alignment names a different physical prep.
+    fields: [alignment, prep]
   same_reference_sequence:
     label: The alignment used the expected plasmid sequence
+    reference_revisions: { alignment: alignment_revision }
     when: record.alignment != null
     check: record.alignment.reference != null && record.alignment.reference == record.plasmid.sequence
     message: The alignment must name this plasmid’s registered DNA sequence as its reference.

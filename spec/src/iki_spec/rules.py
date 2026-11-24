@@ -579,6 +579,22 @@ class _Rules:
                 for index, field_name in enumerate(rule.fields):
                     if field_name not in fields:
                         self.unknown_field(field_name, fields, source, (*at, "fields", index))
+                for ref, number in rule.reference_revisions:
+                    if ref not in fields or fields[ref].type != "ref":
+                        self.add(
+                            "rule-reference-revision",
+                            f"`{ref}` must be a reference.",
+                            source,
+                            (*at, "reference_revisions", ref),
+                            key=True,
+                        )
+                    if number not in fields or fields[number].type != "int":
+                        self.add(
+                            "rule-reference-revision",
+                            f"`{number}` must be an integer revision.",
+                            source,
+                            (*at, "reference_revisions", ref),
+                        )
                 for index, role in enumerate(rule.hold):
                     self.s.lab_role(role, source, (*at, "hold", "reviewed_by", index))
                 assert rule.check is not None  # noqa: S101 - its kind says so
@@ -586,7 +602,13 @@ class _Rules:
                 if rule.when is not None:
                     checks.append((name, rule.when, (*at, "when")))
             else:
-                for key in ("when", "hold", "fields"):
+                for key in (
+                    "when",
+                    "hold",
+                    "fields",
+                    "reference_revisions",
+                    "recheck_before_signing",
+                ):
                     if key in raw:
                         self.add(
                             "rule-kind",
@@ -626,7 +648,16 @@ class _Rules:
             )
             out[name] = replace(
                 rule,
-                reads=tuple(sorted({*record, *own_fields, *(f for f, _ in rule.only_while)})),
+                reads=tuple(
+                    sorted(
+                        {
+                            *record,
+                            *own_fields,
+                            *(f for f, _ in rule.only_while),
+                            *(n for pair in rule.reference_revisions for n in pair),
+                        }
+                    )
+                ),
                 fields=pointed,
             )
         return out

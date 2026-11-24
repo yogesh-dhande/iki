@@ -78,6 +78,19 @@ def test_alignment_requires_same_registered_dna(reference: str | None) -> None:
         runpy.run_path(str(SCRIPT))["archive"](run)
 
 
+@pytest.mark.parametrize("sample", [None, uid(1), uid(9)])
+def test_alignment_is_bound_to_its_physical_prep(sample: str | None) -> None:
+    run = verification_input()
+    run["inputs"]["alignment"][0]["values"]["sample"] = sample
+    archive = runpy.run_path(str(SCRIPT))["archive"]
+    if sample == uid(9):
+        with pytest.raises(ValueError, match="different physical prep"):
+            archive(run)
+    else:
+        [verification] = archive(run)["creates"]
+        assert verification["values"]["prep"] == uid(1)
+
+
 @pytest.mark.parametrize("mode", [None, "", "unknown"])
 def test_review_flow_comes_from_deployment(mode: str | None) -> None:
     run = verification_input()

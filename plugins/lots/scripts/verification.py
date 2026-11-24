@@ -44,6 +44,9 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         alignment = alignments[0]
         if alignment["values"].get("reference") != sequence:
             raise ValueError("The alignment reference must be the prep plasmid's registered DNA.")
+        sample = alignment["values"].get("sample")
+        if sample is not None and sample != prep["id"]:
+            raise ValueError("The alignment names a different physical prep.")
         verdict = alignment["values"].get("verdict")
         if params["outcome"] == "match" and verdict in {"differs", "incomplete"} and not reason:
             raise ValueError(

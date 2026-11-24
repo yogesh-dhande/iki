@@ -274,7 +274,7 @@ def _conditions(
     """Why the record can't be set to each of ``candidates`` now, as the record is, by
     state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
     the guard's name."""
-    from iki_server.entities import guards, holds
+    from iki_server.entities import checking, guards, holds
 
     if not candidates:
         return {}
@@ -283,6 +283,17 @@ def _conditions(
         held = holds.blocks_locking(entity)
         if held:
             out.update({st.name: (held, None) for st in candidates if st.locks})
+    if any(st.signatures for st in candidates):
+        saving = checking.Saving(values.get, id=entity.pk, hrid=entity.hrid)
+        failed = checking.broken(entity.type, [saving], before_signing=True)[0]
+        if failed:
+            out.update(
+                {
+                    st.name: (failed[0].message, failed[0].rule.key)
+                    for st in candidates
+                    if st.signatures
+                }
+            )
     rest = [st for st in candidates if st.name not in out]
     for name, refusal in guards.refusals(user, entity, field, rest, values, signatures).items():
         out[name] = (refusal.message, refusal.guard.name)

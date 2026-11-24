@@ -523,6 +523,9 @@ class Rule:
     fields: tuple[str, ...] = ()
     #: Every field of the record its expressions read, filled in by the validator.
     reads: tuple[str, ...] = ()
+    #: Reference field and revision field pairs for this check's historical evidence.
+    reference_revisions: tuple[tuple[str, str], ...] = ()
+    recheck_before_signing: bool = False
     #: An extension's rule, rather than a type's own.
     extension: bool = False
 
@@ -556,6 +559,8 @@ class Rule:
             message=data.get("message") or "",
             check=data.get("check"),
             when=data.get("when"),
+            reference_revisions=tuple(sorted((data.get("reference_revisions") or {}).items())),
+            recheck_before_signing=data.get("recheck_before_signing", False),
             unique=tuple(data.get("unique") or ()),
             no_overlap=(str(overlap.get("from", "")), str(overlap.get("to", "")))
             if isinstance(overlap, dict)
@@ -1724,6 +1729,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and isinstance(value, Environment)
                 and not value.customer_image_required
             )
+            and not (
+                isinstance(value, Rule)
+                and f.name in {"recheck_before_signing", "reference_revisions"}
+                and not getattr(value, f.name)
+            )
         }
     if isinstance(value, dict):
         return {k: _to_json(v) for k, v in value.items()}
@@ -2062,6 +2072,7 @@ def _rule(data: dict[str, Any]) -> Rule:
     return Rule(
         **{
             **data,
+            "reference_revisions": tuple((k, v) for k, v in data.get("reference_revisions") or ()),
             "unique": tuple(data.get("unique") or ()),
             "no_overlap": tuple(data.get("no_overlap") or ()),
             "per": tuple(data.get("per") or ()),

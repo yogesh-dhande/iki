@@ -62,6 +62,7 @@ def test_its_types_are_the_builtin_ones() -> None:
         "name",
         "description",
         "reference",
+        "sample",
         "members",
         "aligned",
         "verdict",
@@ -69,8 +70,9 @@ def test_its_types_are_the_builtin_ones() -> None:
     }
     verdict = alignment.fields["verdict"]
     assert verdict.values == ("matches", "differs", "incomplete")
-    assert verdict.immutable and not verdict.required
+    assert verdict.computed and verdict.immutable and not verdict.required
     assert not alignment.fields["members"].required
+    assert alignment.fields["sample"].immutable and not alignment.fields["sample"].required
     assert alignment.fields["reference"].immutable
     assert alignment.hrid_prefix == "ALN"
     assert alignment.viewers[0].viewer == "alignment"

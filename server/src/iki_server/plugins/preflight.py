@@ -171,12 +171,21 @@ def _check_type(name: str, old: _Schema, new: _Schema, recheck: set[str]) -> Typ
     )
     evaluated, projected = sampled_findings(before.fields, proposed, rows, reads=reads)
     ids = preflight_rules.reference_ids(after.fields, rules, projected)
+    targets = preflight_records.referenced(ids, old.plugins, new.plugins) if ids else {}
+    revision_keys = {
+        (str(row.values[ref]), row.values[number])
+        for rule in rules.values()
+        for ref, number in rule.reference_revisions
+        for row in projected
+        if row.values.get(ref) is not None and isinstance(row.values.get(number), int)
+    }
     evaluated.extend(
         preflight_rules.row_findings(
             after.fields,
             rules,
             projected,
-            referenced=preflight_records.referenced(ids, old.plugins, new.plugins) if ids else {},
+            referenced=targets,
+            pinned=preflight_records.historical(revision_keys, targets, old.plugins),
             ref_fields=new.ref_fields,
         )
     )

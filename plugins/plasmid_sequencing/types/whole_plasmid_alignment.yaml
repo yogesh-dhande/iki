@@ -9,7 +9,7 @@ kind: EntityType
 name: WholePlasmidAlignment
 label: Whole-plasmid alignment
 label_plural: Whole-plasmid alignments
-schema_version: 3
+schema_version: 4
 extends: iki/core.Alignment
 hrid: { prefix: WPA }
 description: >-
@@ -52,12 +52,6 @@ fields:
     immutable: true
     description: The reads aligned, where they were the prep's reads.
   read_set_revision: { type: int, min: 1, computed: true, immutable: true }
-  sample:
-    type: ref
-    to: iki/core.Entity
-    label: Sample
-    immutable: true
-    description: What the reads' library was made from, such as the plasmid prep.
   platform:
     type: enum
     values: [nanopore, pacbio_hifi]
@@ -79,7 +73,7 @@ fields:
   agreement:
     type: enum
     values: [matches, differs, incomplete]
-    required: true
+    computed: true
     immutable: true
     indexed: true
     description: >-
@@ -256,13 +250,30 @@ fields:
     max_size: 50MiB
     description: The consensus in the plasmid's frame, from its first base.
 rules:
+  action_evidence:
+    label: The comparison recorded its inputs and evidence
+    check: >-
+      record.plasmid_record_id != null && record.plasmid_revision != null && record.reference_length != null &&
+      record.consensus != null && record.called_percent != null &&
+      record.agreement != null && record.verdict == record.agreement
+    message: Record a whole-plasmid comparison with its reference revision, consensus, coverage and matching verdict.
+    fields:
+      [
+        plasmid_record_id,
+        plasmid_revision,
+        reference_length,
+        consensus,
+        called_percent,
+        verdict,
+        agreement,
+      ]
   reads_or_consensus:
     label: The result says what it compared
     check: >-
-      (record.source == "reads" && record.read_set != null && record.consensus_given == null) ||
-      (record.source == "consensus" && record.consensus_given != null && record.read_set == null)
+      (record.source == "reads" && record.read_set != null && record.read_set_revision != null && record.consensus_given == null) ||
+      (record.source == "consensus" && record.consensus_given != null && record.read_set == null && record.read_set_revision == null)
     message: A result from reads names its read set; one from a consensus keeps the file.
-    fields: [source, read_set, consensus_given]
+    fields: [source, read_set, read_set_revision, consensus_given]
   reference_is_the_plasmids:
     label: The reference is the plasmid's sequence
     check: record.reference != null && record.reference.id == record.plasmid.sequence

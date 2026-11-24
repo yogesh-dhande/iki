@@ -58,6 +58,8 @@ def checked_cel_rules(
         if rule.check and (
             old is None
             or (old.check, old.when, bool(old.hold)) != (rule.check, rule.when, bool(rule.hold))
+            or old.reference_revisions != rule.reference_revisions
+            or old.recheck_before_signing != rule.recheck_before_signing
             or changed.intersection(rule.reads)
         ):
             selected[key] = rule
@@ -131,6 +133,7 @@ def row_findings(
     *,
     referenced: Mapping[str, dict[str, Any]] | None = None,
     ref_fields: cel.RefFields | None = None,
+    pinned: Mapping[tuple[str, int], dict[str, Any]] | None = None,
 ) -> list[Finding]:
     """Evaluate CEL with the save-time interpreter and its null and conditional semantics."""
     out: list[Finding] = []
@@ -153,6 +156,19 @@ def row_findings(
             contexts = []
             for row in rows[start : start + 64]:
                 record = _record(row, fields, targets, rule.reads)
+                if record is not None:
+                    for name, number in rule.reference_revisions:
+                        if (target := row.values.get(name)) is not None:
+                            version = row.values.get(number)
+                            historical = (
+                                (pinned or {}).get((str(target), version))
+                                if isinstance(version, int)
+                                else None
+                            )
+                            if historical is None:
+                                record = None
+                                break
+                            record[name] = historical
                 if record is None:
                     unknown.append(row)
                 else:

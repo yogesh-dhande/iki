@@ -187,6 +187,37 @@ def referenced(
     return out
 
 
+def historical(
+    keys: set[tuple[str, int]],
+    projected: Mapping[str, dict[str, Any]],
+    deployed: Mapping[str, Plugin],
+) -> dict[tuple[str, int], dict[str, Any]]:
+    """Read pins only when the deployed tables match the runtime models and projection."""
+    from iki_server.entities import registry
+
+    pairs = sorted((pk, rev) for pk, rev in keys if pk in projected)[:1024]
+    if not pairs:
+        return {}
+    kinds = {
+        str(pk): kind
+        for pk, kind in Entity.objects.filter(pk__in={pk for pk, _ in pairs}).values_list(
+            "pk", "type"
+        )
+    }
+    installed = registry.plugins()
+    compatible = {
+        kind
+        for kind in set(kinds.values())
+        if kind in registry.types() and layout(kind, deployed) == layout(kind, installed)
+    }
+    return {
+        (pk, number): record
+        for pk, number in pairs
+        if kinds.get(pk) in compatible
+        and (record := checking.historical_reference(UUID(pk), number)) is not None
+    }
+
+
 def _fill(
     page: Sequence[Record], tables: Sequence[Table], fields: Collection[str] | None, *, cel: bool
 ) -> set[str]:
