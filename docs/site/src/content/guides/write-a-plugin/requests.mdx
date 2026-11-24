@@ -1,0 +1,136 @@
+---
+title: Take requests from other projects
+description: Make a type's records requests one project sends to another's service, such as a core facility, say which fields the service writes and what goes with each request, and release results back.
+audience: build
+order: 80
+reference:
+  - { label: "Entity type: request", href: /reference/plugin-spec/entity-type/#request }
+  - { label: "Entity type: result", href: /reference/plugin-spec/entity-type/#result }
+---
+
+A type's records can be requests one project sends to another project's service, such as a core
+facility. The project asking owns each request and writes its fields. The service writes only its
+own, and reads only what's sent with the request. A type with `result` is a request's results: the
+service makes and owns them, and releases each back to the project that asked.
+
+A service's Admins choose which request types it takes, and from which projects in its registry.
+
+## A request type
+
+The LIMS example's analysis request, abridged:
+
+```yaml
+name: AnalysisRequest
+request:
+  service_fields: [status, priority, scheduled_on, analyst, core_notes]
+  sends: [samples, protein, tubes]
+  receives: { field: tubes, by: [coordinator] }
+fields:
+  title: { type: string, required: true, max_length: 200 }
+  samples: { type: list, items: { type: ref, to: Sample }, max_items: 50 }
+  tubes: { type: list, items: { type: ref, to: Tube }, max_items: 96 }
+  needed_by: { type: date, label: Needed by }
+  status:
+    type: state
+    label: Status
+    initial: submitted
+    states:
+      submitted: { label: Submitted, set_by: [coordinator] }
+      accepted: { label: Accepted, set_by: [coordinator] }
+      in_progress: { label: In progress, set_by: [analyst] }
+      delivered: { label: Delivered, set_by: [reviewer, qa], locks: true }
+      declined: { label: Declined, set_by: [coordinator], reason: required }
+  priority: { type: enum, values: [routine, urgent], default: routine }
+  scheduled_on: { type: date, label: Scheduled }
+  analyst:
+    type: person
+    role: analyst
+    assignment: { field: status, states: [accepted, in_progress] }
+  core_notes: { type: text, label: Core notes }
+due: needed_by
+```
+
+- [`service_fields`](/reference/plugin-spec/entity-type/#request.service_fields) are the fields
+  the service writes once the request is sent, its state fields among them, which its people set
+  with the lab roles they hold in the service's project. Every other field is the asking project's.
+- A service field is one of the type's own fields (`unknown-field`, `duplicate-field`,
+  `service-field-inherited`). It isn't a reference or a file, which would reach into the service's
+  project (`service-field-refers`); nor `unique`, which would tell one side what the other's
+  records hold (`service-field-unique`); nor `immutable` (`service-field-immutable`); nor required
+  without a default, as a request is made without it (`service-field-required`).
+- [`sends`](/reference/plugin-spec/entity-type/#request.sends) names the references, or lists of
+  them, whose records go to the service with the request (`unknown-field`,
+  `request-sends-not-a-reference`). The service reads those, and nothing else of the asking
+  project's, as long as the request is there. None of them is a service field
+  (`request-sends-service-field`).
+- [`receives`](/reference/plugin-spec/entity-type/#request.receives) names one of the sent lists
+  whose records the service checks in, a type with storage such as tubes, each as matched,
+  missing, damaged or rejected, with what's extra.
+  [`by`](/reference/plugin-spec/entity-type/#request.receives.by) names the lab roles, held in the
+  service's project, who receive them; any Editor of the service if none are named.
+- A request's notifications can be sent as it's sent and as its results are released: see
+  [Tell people when records change](/guides/write-a-plugin/notifications/#when-its-sent).
+
+## A result type
+
+The LIMS example's analysis result, abridged:
+
+```yaml
+name: AnalysisResult
+result:
+  of: request
+  released: { field: review, states: [released] }
+fields:
+  request: { type: ref, to: AnalysisRequest, required: true, immutable: true }
+  purity: { type: float, label: Purity (%), min: 0, max: 100 }
+  review:
+    type: state
+    label: Review
+    initial: draft
+    states:
+      draft: { label: Draft, set_by: [analyst, reviewer, qa], reason: required }
+      in_review:
+        label: In review
+        set_by: [analyst]
+        locks: true
+        on_edit: draft
+        signatures:
+          - meaning: authorship
+            statement: I recorded this measurement and its result as observed.
+      reviewed:
+        label: Reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: draft
+        signatures:
+          - meaning: review
+      released:
+        label: Released
+        set_by: [qa]
+        locks: true
+        signatures:
+          - meaning: approval
+            label: QA release
+            statement: I release these results to the project that requested them.
+```
+
+- [`of`](/reference/plugin-spec/entity-type/#result.of) is a required, immutable reference to a
+  request type (`result-of-not-a-request`, `result-of-changes`).
+- Setting [`released.field`](/reference/plugin-spec/entity-type/#result.released.field) to one of
+  [`released.states`](/reference/plugin-spec/entity-type/#result.released.states) sends the result
+  back to the asking project, for good. Until then that project can't see it. The field is one of
+  the type's state fields (`result-released-without-states`), and its states are that field's
+  (`unknown-state`), not its initial one (`result-released-initial`).
+- The states that release a result can neither declare an
+  [`on_edit`](/guides/write-a-plugin/states/#returning-a-corrected-record) return nor be one's
+  destination (`result-release-on-edit`).
+- When the release field has a separate state signed for with the meaning `review`, a signed
+  release must lock the record (`result-release-lock`). It releases the revision that completed
+  review, and the asking project receives the result with those reviewed values.
+
+## Requests, results and identities
+
+A request or a result is one project's record, so neither has an identity
+(`request-with-identity`, `result-with-identity`), and a type isn't both
+(`result-is-a-request`). A subtype of a request type is a request, with its service, and doesn't
+declare `request` again (`request-redeclared`).
