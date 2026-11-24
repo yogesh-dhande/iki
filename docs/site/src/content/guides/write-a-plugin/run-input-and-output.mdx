@@ -1,0 +1,454 @@
+---
+title: Read a run's input and write its results
+description: What an action's command reads from input.json and its environment, how it reports progress and fails, and what it writes to output.json.
+audience: build
+order: 120
+reference:
+  - { label: Run input, href: /reference/plugin-spec/run-input/ }
+  - { label: Run output, href: /reference/plugin-spec/run-output/ }
+  - { label: Action manifest, href: /reference/plugin-spec/action/#effects }
+---
+
+## What a command reads
+
+When a worker takes a run's job, it writes the run's input to `input.json` and starts the
+action's command. The input is a [run input](/reference/plugin-spec/run-input/): the run, its
+params, the plugin's settings, the records it reads and their files. Here is the reagents
+plugin's `receive_delivery` receiving one pack of 15 mL tubes against a reorder line:
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "kind": "RunInput",
+  "run": {
+    "id": "0193f2a4-6c1e-7b0d-9e55-3a8c2f41d7a0",
+    "hrid": "RUN-000418",
+    "attempt": 1,
+    "requested_by": "0193c0de-21aa-7f3b-8c02-5be4a9d1e6f3",
+    "seed": 1830442517,
+    "action": "iki/reagents.receive_delivery",
+    "plugin": {
+      "name": "iki/reagents",
+      "version": "0.1.0",
+      "sha": "4f1c2b9e0d6a7c3b8e5f1a2d9c0b7e6f5a4d3c2b"
+    },
+    "project": "0193b7f0-0a4c-7d21-a6e9-1c5d8e2f3b40"
+  },
+  "params": {
+    "packs": 1,
+    "delivery_note": "DN-2026-11-0934",
+    "delivery_line": "2",
+    "lot_number": "4626011",
+    "received_on": "2026-11-18",
+    "expires_on": "2029-10-31",
+    "position": "A2",
+    "certificate": "0193f2a1-3b77-7e40-b1d2-6f0a9c8e5d21"
+  },
+  "settings": {},
+  "inputs": {
+    "order": [
+      {
+        "id": "0193f1e8-55b0-7c2a-9d14-7e3f0b6a2c19",
+        "hrid": "ROL-000037",
+        "type": "iki/reagents.ReorderLine",
+        "schema_version": 1,
+        "revision": 2,
+        "values": {
+          "item": "0193e9d2-4a61-7f08-b3c5-0d2e8a7f1b64",
+          "order_reference": "PO-88213 line 1",
+          "ordered_packs": 3,
+          "received_packs": null
+        },
+        "included": {
+          "item": [
+            {
+              "id": "0193e9d2-4a61-7f08-b3c5-0d2e8a7f1b64",
+              "hrid": "SCI-000012",
+              "type": "iki/reagents.StockItem",
+              "schema_version": 1,
+              "revision": 1,
+              "values": {
+                "name": "Corning 15 mL centrifuge tubes",
+                "supplier": "Corning",
+                "catalogue_number": "430790",
+                "stock_unit": "1",
+                "pack_size": 50,
+                "low_stock_at": 50
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "storage": [
+      {
+        "id": "0193e0aa-9c3f-7a15-8e27-4b6d1f0c9a82",
+        "hrid": "SLC-000004",
+        "type": "iki/reagents.StockLocation",
+        "schema_version": 1,
+        "revision": 1,
+        "values": { "name": "Consumables shelf B, room 2.14", "rows": 2, "columns": 12 }
+      }
+    ]
+  },
+  "files": {
+    "0193f2a1-3b77-7e40-b1d2-6f0a9c8e5d21": {
+      "name": "COA-4626011.pdf",
+      "media_type": "application/pdf",
+      "size": 184311,
+      "sha256": "3a7bd3e2360a3d29eea436fcfb7e44c735d117c42d1c1835420b6b9942dd4f1b",
+      "path": "/tmp/iki-job/inputs/0193f2a1-3b77-7e40-b1d2-6f0a9c8e5d21/COA-4626011.pdf"
+    }
+  },
+  "command": ["python", "./scripts/replenishment.py", "receive"],
+  "environment": "iki/reagents.reagent-tools",
+  "job": {
+    "id": "0193f2a4-6c20-7c41-a0e8-5d3b9f7e2a16",
+    "lease_token": "…",
+    "lease_expires_at": "2026-11-18T09:42:10Z",
+    "heartbeat_every": 30,
+    "timeout": 120,
+    "resources": { "cpu": 0.25, "memory": 268435456 }
+  }
+}
+```
+
+- Each [input](/reference/plugin-spec/run-input/#inputs) is a list, even when it takes one
+  record. Values are the ones at the revision the run was launched on, as the REST API shows
+  them, with references and files given as IDs. An action with no inputs, such as an import, gets
+  `"inputs": {}`.
+- A record is its project's record, by [`id`](/reference/plugin-spec/run-input/#inputs.id) and
+  [`revision`](/reference/plugin-spec/run-input/#inputs.revision). A registered record also gives
+  the registry entry it held at that revision,
+  [`entry_id`](/reference/plugin-spec/run-input/#inputs.entry_id), and the entry's revision pinned
+  at launch, [`entry_revision`](/reference/plugin-spec/run-input/#inputs.entry_revision). An action
+  that seals evidence should keep both pairs, since the entry's registry facts can change on
+  their own ([Registries and project records](/concepts/registries-and-project-records/)).
+- An input that includes references gives each record an
+  [`included`](/reference/plugin-spec/run-input/#inputs.included) object: for each reference, a
+  list of the records it names, in the same form.
+- A file param's value is the file's ID. [`files`](/reference/plugin-spec/run-input/#files)
+  describes, by ID, every file the inputs and what they include hold and every file param names.
+  The worker downloads each one before the command starts, checks its size and SHA-256, and adds
+  its [`path`](/reference/plugin-spec/run-input/#files.path).
+- [`settings`](/reference/plugin-spec/run-input/#settings) holds the plugin's settings as the
+  deployment set them when the run was launched.
+- [`run.requested_by`](/reference/plugin-spec/run-input/#run.requested_by) is the account that
+  asked for a single run. A job that packs several runs leaves it out, as each has its own.
+- A run a scheduled trigger launched has [`run.trigger`](/reference/plugin-spec/run-input/#run.trigger),
+  with the time it was for and the time the last run that succeeded was for
+  ([Run actions on a schedule](/guides/write-a-plugin/triggers/#run-actions-on-a-schedule)).
+- [`job`](/reference/plugin-spec/run-input/#job) is the worker's lease on the job; a command
+  doesn't need it.
+
+### The command's environment
+
+The command runs from its plugin's directory, and finds its files through its environment
+variables:
+
+| Variable                        | What it is                                   |
+| ------------------------------- | -------------------------------------------- |
+| `IKI_INPUT`                     | `input.json`                                 |
+| `IKI_OUTPUT`                    | where to write `output.json`                 |
+| `IKI_OUT_DIR`                   | a directory for files it makes               |
+| `TMPDIR`, `HOME`                | the job's own, removed when it ends          |
+| `IKI_RUN_ID`, `IKI_RUN_ATTEMPT` | the run, and which attempt this is           |
+| `IKI_SEED`                      | a seed for its random numbers (0 to 2³¹ − 1) |
+| `IKI_CHECKPOINT_DIR`            | where a checkpointable action saves progress |
+| `IKI_API_<NAME>_URL`            | each outside API the action calls            |
+| `IKI_API_<NAME>_CALLBACK_URL`   | where that API calls back, for this run      |
+| `HTTPS_PROXY`                   | the egress proxy, for an action with hosts   |
+
+For an action that calls outside APIs, `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE`
+name a file of the system's roots and the attempt's own certificate authority, and
+`NODE_EXTRA_CA_CERTS` one of that authority alone, so the command trusts the egress proxy for
+those hosts. A run's secrets are environment variables too, by their names
+([Secrets](/guides/write-a-plugin/actions/#secrets)).
+
+### Progress, errors and stopping
+
+- What the command prints goes to the run's log. A line like `::progress 0.4 Reading delivery
+  lines` reports progress, as a fraction or as `40%`.
+- It exits 0 once it has written `output.json`. Any other exit fails the attempt.
+- Before failing, it can say why with a line like
+  `::error Receive a positive number of packs up to the 1 outstanding.`: the last one is what the
+  run's page shows.
+- On SIGTERM, which a cancel, its timeout or the machine stopping sends, it has 10 seconds to
+  stop.
+
+The plugin template's `scripts/storage.py` is a complete command: it reads
+`IKI_INPUT`, prints progress for each sample, and writes `IKI_OUTPUT`.
+
+### Save progress in checkpoints
+
+A [`checkpointable`](/reference/plugin-spec/action/#checkpointable) action saves its progress in
+`IKI_CHECKPOINT_DIR`. While the command runs, the worker saves the directory every 10 minutes,
+or as the deployment sets it, if anything in it changed, and once more if the attempt ends in a
+way the run is retried for, such as the machine stopping. A later attempt finds the newest
+checkpoint in the directory before it starts, and `IKI_RUN_ATTEMPT` says which attempt it is. So
+the command:
+
+- on start, resumes from what's in the directory, if anything is
+- writes each file under a temporary name, then renames it into place, so a save never holds
+  half a file: a file that changes as it's saved is left for the next save
+- on SIGTERM, saves what it can within the 10 seconds, then exits
+
+Only regular files and directories are saved, not links. A checkpoint is deleted once a newer one
+is saved, and when the run ends. A batchable action can't be checkpointable.
+
+## What a command writes
+
+The command writes `output.json`, a [run output](/reference/plugin-spec/run-output/). It can only
+change what its action's [`effects`](/reference/plugin-spec/action/#effects) declare, and Iki
+writes all of it in one transaction, or none. For the delivery above, `receive_delivery` updates
+the reorder line's received packs and creates the lot, received into the shelf's position A2:
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "kind": "RunOutput",
+  "updates": {
+    "order": [
+      {
+        "entity": "0193f1e8-55b0-7c2a-9d14-7e3f0b6a2c19",
+        "require_unchanged": true,
+        "values": { "received_packs": 1 }
+      }
+    ]
+  },
+  "creates": [
+    {
+      "type": "iki/reagents.CountStockLot",
+      "values": {
+        "item": "0193e9d2-4a61-7f08-b3c5-0d2e8a7f1b64",
+        "order_line": "0193f1e8-55b0-7c2a-9d14-7e3f0b6a2c19",
+        "source": "bought",
+        "supplier": "Corning",
+        "catalogue_number": "430790",
+        "lot_number": "4626011",
+        "received_on": "2026-11-18",
+        "expires_on": "2029-10-31",
+        "delivery_note": "DN-2026-11-0934",
+        "delivery_line": "2",
+        "receipt_key": "8e0f79ce576e738f2f484e313b8277b625af0f41016a68db5f9dc2000d70458a",
+        "packs": 1,
+        "certificates": ["0193f2a1-3b77-7e40-b1d2-6f0a9c8e5d21"]
+      },
+      "derived_from": ["0193f1e8-55b0-7c2a-9d14-7e3f0b6a2c19"],
+      "receipt": {
+        "amount": { "unit": "1", "value": "50" },
+        "reason": "Received for PO-88213 line 1, delivery DN-2026-11-0934, line 2.",
+        "position": "A2"
+      }
+    }
+  ]
+}
+```
+
+### Updates
+
+[`updates`](/reference/plugin-spec/run-output/#updates) are keyed by input name, and may set only
+the declared fields of records given in that input. An update with
+[`require_unchanged: true`](/reference/plugin-spec/run-output/#updates.require_unchanged) requires
+the record to be at the revision the run read: if it has a later revision, the whole output is
+refused, creates included. Use it when what the run writes depends on what it read, as a count of
+packs received does, or when a person reviewed a preview of what the run will write.
+
+### Creates
+
+[`creates`](/reference/plugin-spec/run-output/#creates) may make only the declared types. Leave out
+[`derived_from`](/reference/plugin-spec/run-output/#creates.derived_from) when the inputs the type
+is derived from hold one record.
+
+An imported record says where it came from in its
+[`origin`](/reference/plugin-spec/run-output/#creates.origin): a database's or another system's
+record, with its `version`, an `https` `url`, when it was `retrieved_at`, and the `sha256` of
+what was read; or a record in a file the run was given, by its file param. Iki keeps it with the
+record for whoever reads it, and again each time an import finds the same record. The example
+LIMS plugin's import gives each record's origin in the LIMS:
+
+```json
+{
+  "type": "iki/protein.Protein",
+  "values": { "lims_id": "P-20931", "name": "ADH1 reference standard", "sequence": "MSIPETQKGV…" },
+  "origin": {
+    "source": "LIMS",
+    "id": "P-20931",
+    "url": "https://lims.northfield-bio.org/proteins/P-20931",
+    "retrieved_at": "2026-11-18T02:00:41+00:00",
+    "version": "modified 2026-11-17T16:22:05Z"
+  }
+}
+```
+
+### How a record was made
+
+Iki keeps how each record was made, and says who says so:
+
+- **Iki's record.** The tools in the action's [`software`](/reference/plugin-spec/action/#software)
+  are recorded as what each record its runs create was made with, and the run, with its
+  environment's build, proves it. An action that could make a record with one tool or another
+  names which in the create's [`made_with`](/reference/plugin-spec/run-output/#creates.made_with),
+  among its own `software` only.
+- **Its source's word.** An origin's [`made`](/reference/plugin-spec/run-output/#creates.origin.made)
+  is what an imported record says about how its source made it, measured or computed, read from
+  the record and never guessed. Iki shows it as the source's word, never as its own record.
+
+A record's page, [`GET /entities/{ref}/making`](/reference/api/get-entities-ref-making/) and the
+MCP server's `get_entity` give both, Iki's record first.
+
+### Imports that match records
+
+An import from a LIMS or an ELN matches its records to Iki's with
+[`match_on`](/reference/plugin-spec/action/#effects.creates.match_on), one of the type's unique
+fields. The example LIMS plugin matches on each record's LIMS ID:
+
+```yaml
+effects:
+  creates: [{ type: iki/protein.Protein, cardinality: many, match_on: lims_id }]
+```
+
+- A create whose value a record of the run's project already has updates that record instead: a
+  revision by the run, with its origin, setting the values the create gives. One that changes
+  nothing is found again, as the project's own record is when its identity is registered again.
+- Only the project's own records match, never one linked in from elsewhere. For a field marked
+  `registry`, the match is the project's record of the registry entry that has the value.
+- A record with no match yet, of a type with an identity, claims the project's own record of that
+  identity's registry entry if that record has no value for the field yet: a record registered
+  before the LIMS knew it takes the LIMS's ID. If it's another record's already, the run fails,
+  naming both, since one record can't be two of the LIMS's; so does a file with two records of
+  one.
+- In a creates file, a record may come only once.
+
+### Files
+
+A file field takes a file the inputs already had, by ID, or one the command made, as a path in
+`IKI_OUT_DIR`:
+
+```json
+{ "readings": { "$file": "readings/plate-0412.csv", "media_type": "text/csv" } }
+```
+
+`name` defaults to the path's last part, and `media_type` to a guess from its extension. The
+worker uploads it for this run and puts the new file's ID in its place, so only files this run
+uploaded can be attached.
+
+### Messages and metrics
+
+[`metrics`](/reference/plugin-spec/run-output/#metrics) are the numbers the action declares, which
+workflow conditions read. [`messages`](/reference/plugin-spec/run-output/#messages) are notes for
+whoever reads the run; one can name the input record it's about, and one at level `error` about
+a record fails that record's run, which then writes nothing.
+
+### Records that refer to one another
+
+A new record can refer to one made with it, such as a reorder line to the stock item an import
+makes in the same run. Give
+the earlier create a [`key`](/reference/plugin-spec/run-output/#creates.key), unique in `creates`,
+and the later one's reference field, or an item of a list of references, `{"$create": "<key>"}`.
+It becomes the ID of the record that create made, or of the project's record it found; a
+reference to a type with an identity holds its registry entry. A create can refer only to those
+before it, and, in a job that runs several runs at once, only to its own run's.
+
+### Entries registered already
+
+A create of an entry that's registered already fills the entry's empty fields, and a registry fact
+that differs is refused ([Registries and project records](/concepts/registries-and-project-records/)).
+[`fills`](/reference/plugin-spec/run-output/#creates.fills) names fields that only fill: where the
+entry has a value, it keeps it and the create goes ahead. Imports give organisms this way, by
+their NCBI Taxonomy ID, so a file with a taxon's older name still imports:
+
+```json
+{
+  "type": "iki/core.Organism",
+  "key": "taxon:9606",
+  "values": { "taxon_id": 9606, "scientific_name": "Homo sapiens" },
+  "fills": ["scientific_name"]
+}
+```
+
+## Receive a delivery
+
+A create can receive a delivery into storage: its action's create declares
+[`receive_into`](/reference/plugin-spec/action/#effects.creates.receive_into), a single required
+input holding a storage location that accepts the new record's type, and the created type
+declares an `amount` and `storage` ([Keep how much there is](/guides/write-a-plugin/amounts/)). The
+command gives the starting amount and the reason for the receipt in the create's
+[`receipt`](/reference/plugin-spec/run-output/#creates.receipt), as `receive_delivery` does above.
+
+- The input names where it goes. A receipt may give a
+  [`position`](/reference/plugin-spec/run-output/#creates.receipt.position), such as `A2` in a
+  grid, and a [`confirmation`](/reference/plugin-spec/run-output/#creates.receipt.confirmation)
+  for a location that requires a barcode scan.
+- At commit, Iki checks the launcher's permission, the lot's identity and the location. The
+  starting amount, the placement and any updates to the order commit in one transaction.
+- Each lot received is new, and created in `creates`, not a creates file.
+- A unique field of the delivery line, such as the reagents plugin's `receipt_key`, keeps a line
+  from being received twice.
+
+## Creates in a file
+
+`creates` holds at most 10,000, and `output.json` at most 2.5 MB. A command that makes more, such
+as an import of a whole LIMS, writes them to a file in `IKI_OUT_DIR`, one create per line as an
+item of `creates` is (JSON Lines), and names it in
+[`creates_file`](/reference/plugin-spec/run-output/#creates_file):
+
+```json
+{ "apiVersion": "iki/v1", "kind": "RunOutput", "creates_file": { "$file": "creates.jsonl" } }
+```
+
+The example LIMS plugin's import starts one once it has more than a thousand records.
+
+- `creates` can come with it, for the few records the lines refer to. Iki writes those first, and
+  a line's reference field gives one as `{"$create": "<key>"}`.
+- The worker uploads it with the run's other files. Iki then checks every line, a chunk at a time,
+  going on from where it was if it's interrupted, and writes them all in one transaction, or none:
+  nobody sees half an import. A line's problems point at `#/creates_file/<line>`, counting from 1.
+- Lines can't attach files, refer to one another, give `fills`, or refer to a create in their
+  identity fields: give those in `creates`. A job that runs several runs at once can't give a
+  creates file.
+- Webhooks hear of an import once, as `entity.imported`, not `entity.created` for each record.
+- A file holds at most 100 million lines, each at most 256 MiB.
+
+## Batches and packing
+
+Launching an action on several records at once makes a batch, such as `BAT-000123`, of runs, one
+for each. An action that's [`batchable: N`](/reference/plugin-spec/action/#batchable) runs up to N
+of a batch's runs in one job: its one input lists all their records, and
+[`pack`](/reference/plugin-spec/run-input/#pack) says which is whose:
+
+```text
+"pack": [
+  { "run": "0193f3b0-1d42-7a6e-b5c1-2e9f7a0d4c38", "hrid": "RUN-000431", "entity": "0193f3a9-7c05-7f12-8d3b-6a1e0c5f9b27" },
+  { "run": "0193f3b0-1d43-7c18-a2f4-9b6d3e1a7c50", "hrid": "RUN-000432", "entity": "0193f3aa-0e6b-7d39-94c7-1f8b2d6e0a35" }
+]
+```
+
+Iki splits the output back into each run's own: updates by their `entity`, new records by their
+`derived_from`, which a packed job must give, and messages by their `entity`; one without goes to
+every run. Metrics go to every run. Each run's part is then checked and written on its own, so one
+record's bad result fails only its run. To fail one record and go on with the rest, write an
+`error` message about it.
+
+## Seeds
+
+Every run gets a seed, as `IKI_SEED` and [`run.seed`](/reference/plugin-spec/run-input/#run.seed).
+A command that uses random numbers seeds them from it, so a run reproduced exactly gets the same
+seed again. A packed job's command gets its first run's.
+
+## Reuse a run
+
+An action that's [`deterministic: true`](/reference/plugin-spec/action/#deterministic) promises
+that its results depend only on its plugin's commit, its params, its plugin's settings and its
+inputs at the revisions it reads. Its runs can then be reused: launching one identical to a run
+that succeeded, which the launcher can read, ends at once with that run's results, as
+`reused_from`, and runs nothing. Launch with `reuse: false` to run it anyway. Don't declare it for
+an action that fetches what may change, or whose results depend on the time or the machine.
+
+## Reproduce a run exactly
+
+[`POST /runs/{ref}/reproduce`](/reference/api/post-runs-ref-reproduce/) runs any run again
+exactly: the same commit, params, settings, seed and input revisions. It writes nothing. Its
+`reproduction` says whether its results (creates, updates, the creates file and metrics, with
+files compared by their content) and its environment's build match the original's, and where
+they differ.
