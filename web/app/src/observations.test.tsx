@@ -67,3 +67,24 @@ it("says what was recorded before the note on it", () => {
     "A record you can’t open at A2",
   );
 });
+
+it("titles a count's choice about an unregistered label by what the person said", () => {
+  const scanned = { position: "A3", code: "BUFFER A", identity_basis: null };
+  expect(
+    eventTitle({
+      kind: "scan",
+      before: null,
+      after: { ...scanned, unregistered_action: "additional" },
+    }),
+  ).toBe("Recorded as another tube");
+  const moved = {
+    kind: "scan" as const,
+    before: { ...scanned, position: "A1" },
+    after: { ...scanned, unregistered_action: "move" },
+  };
+  expect(eventTitle(moved)).toBe("Moved from A1");
+  // Said in the title, not again beside the label.
+  expect(factText("scan", moved.after)).toBe("BUFFER A at A3");
+  // A later reread of the same tube is a scan like any other.
+  expect(eventTitle({ kind: "scan", before: moved.after, after: scanned })).toBe("Scan changed");
+});

@@ -357,6 +357,21 @@
         "title": "ActionSecretOut",
         "type": "object"
       },
+      "AdditionalUnregisteredIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "additional",
+            "title": "Action",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "AdditionalUnregisteredIn",
+        "type": "object"
+      },
       "AdjustIn": {
         "properties": {
           "amount": {
@@ -11718,6 +11733,28 @@
         "title": "MoveItemIn",
         "type": "object"
       },
+      "MoveUnregisteredIn": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "move",
+            "title": "Action",
+            "type": "string"
+          },
+          "line_id": {
+            "description": "The prior unregistered observation the operator saw move.",
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "line_id"
+        ],
+        "title": "MoveUnregisteredIn",
+        "type": "object"
+      },
       "MovedOut": {
         "properties": {
           "amount": {
@@ -21873,6 +21910,32 @@
             "maxLength": 8,
             "title": "Position",
             "type": "string"
+          },
+          "unregistered": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "additional": "#/components/schemas/AdditionalUnregisteredIn",
+                    "move": "#/components/schemas/MoveUnregisteredIn"
+                  },
+                  "propertyName": "action"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AdditionalUnregisteredIn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/MoveUnregisteredIn"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An additional unregistered tube, or a move of a named prior observation.",
+            "title": "Unregistered"
           }
         },
         "required": [
@@ -42552,7 +42615,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
       "post": {
-        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`. A shared label at its\nexpected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.",
+        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`. A shared label at its\nexpected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.\n\nIdentical unregistered labels read at different positions in the same rack can represent\nseparate tubes. If a reading could be a move of an earlier unregistered observation,\n409 `count_unregistered_choice` identifies the scan's zero-based `index`, its\n`position`, and the prior `observations` by line ID, revision and position. Submit\n`unregistered: {\"action\":\"additional\"}` to record another tube, or\n`{\"action\":\"move\",\"line_id\":...}` to move that line with its reviewed revision and a reason.\nAny prior observation displaced at the destination must also be reviewed.",
         "operationId": "iki_server_api_storage_scan_positions",
         "parameters": [
           {

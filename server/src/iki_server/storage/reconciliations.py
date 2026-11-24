@@ -9,10 +9,10 @@ is resolved, and completing it applies every resolution as one change.
 
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -162,6 +162,8 @@ class Scan:
     code: str | None
     mode: scan_identity.ScanMode = "label"
     choice: UUID | None = None
+    #: A new unlinked tube, or the UUID of the specific prior observation to move.
+    unregistered: Literal["additional"] | UUID | None = None
 
 
 def _reason(value: str) -> str:
@@ -183,6 +185,29 @@ class LinesChanged(Refused):
         super().__init__("The count evidence changed. Review the affected lines before saving.")
 
 
+class UnregisteredChoiceRequired(Refused):
+    def __init__(
+        self,
+        index: int,
+        slot: tuple[int, int],
+        others: dict[tuple[int, int], ReconciliationLine],
+        shape: Shape,
+    ) -> None:
+        self.index = index
+        self.position = shape.label(*slot)
+        self.observations = [
+            {
+                "line_id": str(line.pk),
+                "line_revision": line.line_revision,
+                "position": shape.label(*at),
+            }
+            for at, line in sorted(others.items(), key=lambda pair: shape.index(*pair[0]))
+        ]
+        super().__init__(
+            "Is this an additional unregistered tube, or did a previously observed tube move?"
+        )
+
+
 @dataclass(frozen=True)
 class PlannedScan:
     row: int
@@ -190,39 +215,72 @@ class PlannedScan:
     code: str
     line: ReconciliationLine
     identity_basis: scan_identity.IdentityBasis | None
+    unregistered: Literal["additional"] | UUID | None
 
 
-def _scanned_line(
+def _registered_line(
     count: Reconciliation,
     lines: list[ReconciliationLine],
     links: dict[UUID, Entity],
     occupied: ReconciliationLine | None,
     code: str,
-    entity: Entity | None,
+    entity: Entity,
 ) -> ReconciliationLine:
-    if not code:
-        if occupied and occupied.entity_id is None and not occupied.code:
-            return occupied
-        return ReconciliationLine(reconciliation=count)
-    if entity is not None:
-        for line in lines:
-            if line.entity_id == entity.pk or links.get(line.pk) == entity:
-                return line
-    # An unknown label may have been registered since the previous observation.
-    # Keep its physical line while preserving the original unlinked event.
-    unknown = next(
-        (
-            line
-            for line in lines
-            if line.entity_id is None and line.pk not in links and line.code == code
-        ),
-        None,
-    )
-    if unknown is not None:
-        if entity is not None:
-            links[unknown.pk] = entity
-        return unknown
+    for line in lines:
+        if line.entity_id == entity.pk or links.get(line.pk) == entity:
+            return line
+    # A registration can identify a prior unlinked observation at this same slot.
+    if (
+        occupied
+        and occupied.entity_id is None
+        and occupied.pk not in links
+        and occupied.code == code
+    ):
+        links[occupied.pk] = entity
+        return occupied
     return ReconciliationLine(reconciliation=count, entity=entity, code=code)
+
+
+def _unregistered_line(
+    count: Reconciliation,
+    item: Scan,
+    slot: tuple[int, int],
+    occupied: ReconciliationLine | None,
+    prior: dict[tuple[int, int], ReconciliationLine],
+    together: set[tuple[int, int]],
+    shape: Shape,
+    index: int,
+) -> ReconciliationLine:
+    code = (item.code or "").strip()
+    # The operator cannot move an observation that this rack still reads in its old slot.
+    sources = {at: line for at, line in prior.items() if at != slot and at not in together}
+    if isinstance(item.unregistered, UUID):
+        for line in sources.values():
+            if line.pk == item.unregistered:
+                return line
+        raise UnregisteredChoiceRequired(index, slot, sources, shape)
+    if occupied and occupied.entity_id is None and occupied.code == code:
+        if item.unregistered is not None:
+            raise Wrong(
+                {
+                    f"scans/{index}/unregistered": [
+                        "This slot already has that observation. Review it before rescanning."
+                    ]
+                }
+            )
+        return occupied
+    if item.unregistered is None and sources:
+        raise UnregisteredChoiceRequired(index, slot, sources, shape)
+    if (
+        item.unregistered is None
+        and code
+        and occupied
+        and occupied.entity_id is None
+        and occupied.code
+    ):
+        # A new reading of an unregistered tube at this slot corrects its own evidence.
+        return occupied
+    return ReconciliationLine(reconciliation=count, code=code)
 
 
 def scan(
@@ -251,19 +309,34 @@ def scan(
             if line.expected_row is not None and line.expected_column is not None
         }
         slots = observed_slots(lines)
-        # A missing finding depends on the actual observation at the expected slot.
-        old_basis = _finding_basis(lines)
-        required: dict[UUID, ReconciliationLine] = {}
-        selected: dict[UUID, tuple[int, int]] = {}
-        positions: dict[tuple[int, int], ReconciliationLine] = {}
-        planned: list[PlannedScan] = []
-        links: dict[UUID, Entity] = {}
-        correction = False
+        prior: dict[str, dict[tuple[int, int], ReconciliationLine]] = defaultdict(dict)
+        for slot, observed in slots.items():
+            if observed.entity_id is None and observed.code:
+                prior[observed.code][slot] = observed
+        readings = []
+        together: dict[str, set[tuple[int, int]]] = defaultdict(set)
+        outgoing = set()
         for index, item in enumerate(scans):
             try:
                 slot = shape.parse(item.position)
             except NotAPosition as error:
                 raise Wrong({f"scans/{index}/position": [str(error)]}) from None
+            readings.append((item, slot))
+            # Two simultaneously occupied positions are independent evidence. A prior
+            # line reread at its own slot in this file cannot also have moved elsewhere.
+            if item.unregistered is None:
+                together[(item.code or "").strip()].add(slot)
+            elif isinstance(item.unregistered, UUID):
+                outgoing.add(item.unregistered)
+        # A missing finding depends on the actual observation at the expected slot.
+        old_basis = _finding_basis(lines)
+        required: dict[UUID, ReconciliationLine] = {}
+        selected: dict[UUID, tuple[int, int]] = {}
+        positions: dict[tuple[int, int], PlannedScan] = {}
+        planned: list[PlannedScan] = []
+        links: dict[UUID, Entity] = {}
+        correction = False
+        for index, (item, slot) in enumerate(readings):
             raw_code = item.code or ""
             code = raw_code.strip()
             occupied = slots.get(slot)
@@ -285,9 +358,25 @@ def scan(
             )
             if match.status == "ambiguous":
                 raise identities.ambiguity(match, index=index)
-            line = _scanned_line(
-                reconciliation, lines, links, positions.get(slot, occupied), code, match.record
-            )
+            prior_reading = positions.get(slot)
+            at = prior_reading.line if prior_reading is not None else occupied
+            if prior_reading is None and at is not None and at.pk in outgoing:
+                # A named move is taking that line out; a reading here is of its replacement.
+                at = None
+            if item.unregistered is not None and (not code or match.record is not None):
+                raise Wrong(
+                    {
+                        f"scans/{index}/unregistered": [
+                            "Only applies to an unregistered label. Review the scan again."
+                        ]
+                    }
+                )
+            if match.record is not None:
+                line = _registered_line(reconciliation, lines, links, at, code, match.record)
+            else:
+                line = _unregistered_line(
+                    reconciliation, item, slot, at, prior[code], together[code], shape, index
+                )
             previous_slot = selected.get(line.pk)
             if previous_slot is not None and previous_slot != slot:
                 raise Wrong(
@@ -298,7 +387,10 @@ def scan(
                         ]
                     }
                 )
-            if slot in positions and positions[slot] is not line:
+            if prior_reading is not None and (
+                prior_reading.line is not line
+                or (match.record is None and prior_reading.code.strip() != code)
+            ):
                 raise Wrong(
                     {
                         f"scans/{index}/position": [
@@ -310,7 +402,9 @@ def scan(
                 lines.append(line)
             if occupied is not None:
                 required[occupied.pk] = occupied
-                correction |= occupied is not line
+                correction |= occupied is not line or (
+                    match.record is None and occupied.code != code
+                )
             if line.found_row is not None:
                 required[line.pk] = line
                 correction |= occupied is not line
@@ -318,8 +412,11 @@ def scan(
                 required[line.pk] = line
                 correction = True
             selected[line.pk] = slot
-            positions[slot] = line
-            planned.append(PlannedScan(*slot, raw_code if code else "", line, match.basis))
+            entry = PlannedScan(
+                *slot, raw_code if code else "", line, match.basis, item.unregistered
+            )
+            positions[slot] = entry
+            planned.append(entry)
         reviewed = dict(reviewed_lines)
         if len(reviewed) != len(reviewed_lines):
             raise Wrong({"reviewed_lines": ["names the same reviewed line more than once."]})
@@ -362,10 +459,17 @@ def scan(
                 line.line_revision += 1
             if line.pk in links:
                 line.entity = links[line.pk]
+            if line.entity_id is None:
+                line.code = entry.code.strip()
             line.found_row, line.found_column = entry.row, entry.column
             line.scanned_by, line.scanned_at = user, timezone.now()
             after = _slot_snapshot(line, shape)
             after.pop("input_unknown", None)
+            after.pop("unregistered_action", None)
+            if entry.unregistered is not None:
+                after["unregistered_action"] = (
+                    "additional" if entry.unregistered == "additional" else "move"
+                )
             after["code"] = entry.code or None
             after["identity_basis"] = entry.identity_basis
             line.current_observation = observations.record(
@@ -421,8 +525,9 @@ def _slot_snapshot(line: ReconciliationLine, shape: Shape) -> dict[str, Any]:
         current = line.current_observation
         if current is not None and current.after is not None:
             state["code"] = current.after["code"]
-            if "identity_basis" in current.after:
-                state["identity_basis"] = current.after["identity_basis"]
+            for key in ("identity_basis", "unregistered_action"):
+                if key in current.after:
+                    state[key] = current.after[key]
         elif line.entity_id is None:
             state["code"] = line.code or None
         else:

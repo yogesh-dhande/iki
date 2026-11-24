@@ -5474,6 +5474,21 @@ button.scan-choice:disabled {
   margin: 0;
 }
 
+/* What the person said an unregistered label seen in another slot is, with a way back. */
+.unregistered-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.75rem;
+}
+
+.unregistered-chosen p {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
 /* Typing a printed Iki ID: for a label that can't identify its tube alone. */
 .iki-id-ask {
   margin: -0.5rem 0 0.75rem;

@@ -71,6 +71,8 @@ const UNSAID = new Set([
   "expected",
   // A receipt scan's evidence, said on a line of its own.
   "scan",
+  // A count's decision about an unregistered label: said in the event's title.
+  "unregistered_action",
 ]);
 
 /**
@@ -154,6 +156,13 @@ export function eventTitle(event: Pick<ObservationEvent, "kind" | "before" | "af
   const { kind, before, after } = event;
   if (kind === "status") return STATUSES[text(after?.["status"])] ?? "Status changed";
   const name = KINDS[kind];
+  // An unregistered label seen in another slot before: the person said which tube it is.
+  if (kind === "scan" && after?.["unregistered_action"] === "additional")
+    return "Recorded as another tube";
+  if (kind === "scan" && after?.["unregistered_action"] === "move") {
+    const from = before?.["position"];
+    return typeof from === "string" && from ? `Moved from ${from}` : "Moved here";
+  }
   if (after?.["removed"] === true && before?.["removed"] !== true)
     return "Removed from the checklist";
   if (before?.["removed"] === true && after?.["removed"] !== true)
@@ -400,10 +409,7 @@ export function eventItems(
     about: event.line_id ? names.get(event.line_id) : undefined,
     body: (
       <>
-        {eventTitle(event)
-          .toLowerCase()
-          .replace(/^./, (c) => c.toUpperCase())}{" "}
-        by {personName(event.actor)}, <UtcTime value={event.created_at} />
+        {eventTitle(event)} by {personName(event.actor)}, <UtcTime value={event.created_at} />
         {event.kind === "status" ? "" : `: ${factText(event.kind, event.after)}`}
         {event.reason ? ` (“${event.reason}”)` : ""}
       </>

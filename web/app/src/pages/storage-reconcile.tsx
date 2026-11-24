@@ -12,7 +12,7 @@
 import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { BoxMap, slotKey } from "../box-map";
@@ -52,6 +52,9 @@ import {
   type Reviewed,
   type ScanCandidate,
   type ScanMode,
+  type UnregisteredIntent,
+  type UnregisteredSource,
+  unregisteredChoice,
 } from "../storage";
 import { IkiIdEntry, ScanBar, ScanChooser, ScanRefusedNote } from "../storage-ui";
 import {
@@ -200,8 +203,29 @@ function historyName(line: ReconciliationLine): string {
   return line.found ? `Empty at ${line.found}` : "A position";
 }
 
+/**
+ * Each line's name, and where it was scanned when another line has the same name: several
+ * tubes can carry one unregistered label, “BUFFER A at A1” and “BUFFER A at A2”.
+ */
+function distinctNames(
+  r: Reconciliation,
+  name: (line: ReconciliationLine) => string,
+): Map<string, string> {
+  const uses = new Map<string, number>();
+  for (const line of r.lines) uses.set(name(line), (uses.get(name(line)) ?? 0) + 1);
+  return new Map(
+    r.lines.map((line) => {
+      const shown = name(line);
+      return [
+        line.id,
+        (uses.get(shown) ?? 0) > 1 && line.found ? `${shown} at ${line.found}` : shown,
+      ];
+    }),
+  );
+}
+
 function namesOf(r: Reconciliation): Map<string, string> {
-  return new Map(r.lines.map((l) => [l.id, historyName(l)]));
+  return distinctNames(r, historyName);
 }
 
 function same(a: string | null | undefined, b: string): boolean {
@@ -221,20 +245,68 @@ export interface Superseded {
   here: boolean;
 }
 
+/** A scan of a label no readable record has: its text is evidence about its slot alone. */
+function unregistered(line: ReconciliationLine): boolean {
+  return !line.entity && !line.ref && !!line.code;
+}
+
 /**
  * What a scan of `code` (null: empty) at `at` supersedes, as the server has it: the scan
  * recorded at that position (an explicit empty one too), and the same tube's scan at
  * another. Each is a physical line's own scan; a missing tube's line only points to one.
+ *
+ * An unregistered label seen in another slot is another tube's evidence, unless the person
+ * said it's that tube, moved: `moving` names that line, and only it is superseded.
  */
-export function supersededBy(r: Reconciliation, at: string, code: string | null): Superseded[] {
+export function supersededBy(
+  r: Reconciliation,
+  at: string,
+  code: string | null,
+  moving?: string | null,
+): Superseded[] {
   const out: Superseded[] = [];
   for (const line of r.lines) {
     if (!line.found) continue;
     if (line.found === at) out.push({ line, here: true });
-    else if (code !== null && (same(line.code, code) || same(line.ref?.hrid, code)))
+    else if (line.id === moving) out.push({ line, here: false });
+    else if (
+      code !== null &&
+      !unregistered(line) &&
+      (same(line.code, code) || same(line.ref?.hrid, code))
+    )
       out.push({ line, here: false });
   }
   return out;
+}
+
+/**
+ * The earlier slots offered for an unregistered label, as this count shows them now: each
+ * still at the slot it was offered at, with the same label. One that's moved or changed
+ * since can't be chosen.
+ */
+export function offeredLines(
+  r: Reconciliation,
+  sources: readonly UnregisteredSource[],
+  code: string,
+): ReconciliationLine[] {
+  return sources.flatMap((source) => {
+    const line = r.lines.find((l) => l.id === source.line_id);
+    return line && unregistered(line) && line.found === source.position && same(line.code, code)
+      ? [line]
+      : [];
+  });
+}
+
+/** Whether this count shows each offered slot as the server offered it. */
+function showsOffer(r: Reconciliation, sources: readonly UnregisteredSource[]): boolean {
+  return sources.every((source) =>
+    r.lines.some(
+      (l) =>
+        l.id === source.line_id &&
+        l.found === source.position &&
+        l.line_revision === source.line_revision,
+    ),
+  );
 }
 
 /** Scanning what's already recorded, again: new evidence of the same fact. */
@@ -285,6 +357,10 @@ type Asking = {
       code: string | null;
       /** The lines a refusal said this scan replaces: exactly those are reviewed. */
       required: string[] | null;
+      /** For an unregistered label seen in other slots: those slots, to choose among. */
+      offer?: UnregisteredSource[] | undefined;
+      /** What changed, for a stale note: the slot scanned, or the one a tube moved from. */
+      about?: string | undefined;
     } & How)
   | { do: "resolve"; line: string; resolution: Resolution | null; note: string }
   | { do: "cancel" }
@@ -296,22 +372,37 @@ type Asking = {
 interface How {
   mode?: ScanMode | undefined;
   choice?: ScanCandidate | undefined;
+  /** For an unregistered label seen elsewhere: another tube, or a named earlier one moved. */
+  unregistered?: UnregisteredIntent | undefined;
 }
 
-/** A position's scan, as sent: its mode and choice only when they say something. */
-function scanItem(at: string, code: string | null, how: How): Schemas["ScanIn"] {
+/** A position's scan, as sent: its mode and choices only when they say something. */
+export function scanItem(at: string, code: string | null, how: How): Schemas["ScanIn"] {
   return {
     position: at,
     code,
     ...(how.mode && how.mode !== "label" ? { mode: how.mode } : {}),
     ...(how.choice ? { choice: how.choice.id } : {}),
+    ...(how.unregistered ? { unregistered: how.unregistered } : {}),
   };
+}
+
+/** The line a scan says moved here, if it says one did. */
+function movingLine(how: How): string | null {
+  return how.unregistered?.action === "move" ? how.unregistered.line_id : null;
 }
 
 /** A count's scan that needs more: a choice among readable tubes, or another way. */
 type Unidentified =
   | { kind: "ambiguous"; at: string; code: string; candidates: ScanCandidate[] }
-  | { kind: "refused"; mode: ScanMode | undefined };
+  | { kind: "refused"; mode: ScanMode | undefined }
+  | {
+      kind: "unregistered";
+      at: string;
+      code: string;
+      how: How;
+      sources: UnregisteredSource[];
+    };
 
 function isStale(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
@@ -355,19 +446,68 @@ function decisionOf(
 }
 
 /**
- * The lines a scan names as reviewed, at the versions shown now: those the server said it
- * replaces, once it has; else those it's seen to replace here.
+ * What a scan replaces, as shown and as sent: those the server said it replaces, once it
+ * has, else those it's seen to replace here; and the earlier line the person said moved.
  */
+function replacedBy(
+  r: Reconciliation,
+  at: string,
+  code: string | null,
+  required: readonly string[] | null,
+  how: How,
+): Superseded[] {
+  const moving = movingLine(how);
+  const out = required
+    ? r.lines
+        .filter((l) => required.includes(l.id))
+        .map((line) => ({ line, here: seenAt(line) === at }))
+    : supersededBy(r, at, code, moving);
+  const source = moving ? r.lines.find((l) => l.id === moving) : undefined;
+  if (source && !out.some(({ line }) => line.id === source.id))
+    out.push({ line: source, here: false });
+  return out;
+}
+
+/** The lines a scan names as reviewed, at the versions shown now. */
 function reviewedFor(
   r: Reconciliation,
   at: string,
   code: string | null,
   required: readonly string[] | null,
+  how: How,
 ): Reviewed[] {
-  const lines = required
-    ? r.lines.filter((l) => required.includes(l.id))
-    : supersededBy(r, at, code).map(({ line }) => line);
-  return lines.map((line) => ({ line_id: line.id, line_revision: line.line_revision }));
+  return replacedBy(r, at, code, required, how).map(({ line }) => ({
+    line_id: line.id,
+    line_revision: line.line_revision,
+  }));
+}
+
+/**
+ * The lines a refusal named, apart from the earlier slots offered: which of those moved is
+ * chosen again, and only the one chosen is reviewed.
+ */
+function withoutOffered(
+  required: readonly string[] | null,
+  offer: readonly UnregisteredSource[],
+): string[] | null {
+  if (!required) return null;
+  const offered = new Set(offer.map((source) => source.line_id));
+  const rest = required.filter((id) => !offered.has(id));
+  return rest.length ? rest : null;
+}
+
+/** Where a refused choice's evidence changed: the slot a tube was chosen from, else the scan's. */
+function aboutOf(r: Reconciliation, asking: { at: string } & How): string {
+  const moving = movingLine(asking);
+  return (moving ? r.lines.find((l) => l.id === moving)?.found : null) ?? asking.at;
+}
+
+/** What the person said a scanned unregistered label is, in words for the status line. */
+function intentText(r: Reconciliation, how: How): string | null {
+  if (how.unregistered?.action === "additional") return "recorded as another tube";
+  const moving = movingLine(how);
+  const from = moving ? r.lines.find((l) => l.id === moving) : undefined;
+  return from?.found ? `moved from ${from.found}` : null;
 }
 
 function ReconcileView({ r }: { r: Reconciliation }) {
@@ -402,6 +542,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const here = order[cursor];
   const open = r.status === "open" && r.can_change;
   const names = namesOf(r);
+  const lineNames = distinctNames(r, lineName);
   const queryKey = reconciliationQuery(r.id).queryKey;
   const current = () => client.getQueryData<Reconciliation>(queryKey) ?? r;
   const update = (next: Reconciliation) => {
@@ -491,23 +632,48 @@ function ReconcileView({ r }: { r: Reconciliation }) {
       setSaving(false);
     }
   }
-  const scanned = (at: string, code: string | null) => (next: Reconciliation) => {
-    const line = next.lines.find((l) => l.found === at);
-    setHeard(
-      code === null
-        ? `${at}: empty.`
-        : `${at}: ${line ? `${lineName(line)}, ${FINDINGS[line.finding].toLowerCase()}` : code}.`,
-    );
-    const i = order.findIndex((o) => o.label === at);
-    setCursor(Math.min(Math.max(i, 0) + 1, order.length - 1));
+  const scanned =
+    (at: string, code: string | null, said: string | null = null) =>
+    (next: Reconciliation) => {
+      const line = next.lines.find((l) => l.found === at);
+      setUnidentified(null);
+      setHeard(
+        code === null
+          ? `${at}: empty.`
+          : `${at}: ${
+              line ? `${lineName(line)}, ${said ?? FINDINGS[line.finding].toLowerCase()}` : code
+            }.`,
+      );
+      const i = order.findIndex((o) => o.label === at);
+      setCursor(Math.min(Math.max(i, 0) + 1, order.length - 1));
+    };
+  /**
+   * An unregistered label seen in other slots: nothing was saved, and the person says which
+   * tube it is. What's shown is what the server offered: the count is read again first if
+   * it shows any of those slots differently.
+   */
+  const offerChoice = async (at: string, code: string, how: How, sources: UnregisteredSource[]) => {
+    if (!showsOffer(current(), sources)) {
+      try {
+        await client.query({ ...reconciliationQuery(r.id), staleTime: 0 });
+      } catch {
+        // Offered from what's shown; the server checks the slot chosen again.
+      }
+    }
+    setUnidentified({ kind: "unregistered", at, code, how, sources });
   };
-  /** A scan: sent straight away if it's fresh or the same again; else asked about first. */
-  const record = (code: string | null, how: How = {}) => {
+  /**
+   * A scan: sent straight away if it's fresh or the same again; else asked about first.
+   * `offer` is the choice it answers, for an unregistered label seen in other slots: asked
+   * again, if what it replaces changed.
+   */
+  const record = (code: string | null, how: How = {}, offer?: UnregisteredSource[]) => {
     if (!here || writing.current) return;
     const at = here.label;
     const count = current();
-    setUnidentified(null);
-    const replaced = supersededBy(count, at, code);
+    // A choice about an unregistered label stays shown until it's recorded.
+    if (!how.unregistered) setUnidentified(null);
+    const replaced = replacedBy(count, at, code, null, how);
     if (replaced.length && !identical(replaced, code)) {
       scan.reset();
       setAsking({
@@ -515,6 +681,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         at,
         code,
         ...how,
+        offer,
         required: null,
         seen: count.plan_revision,
         changes: null,
@@ -531,10 +698,18 @@ function ReconcileView({ r }: { r: Reconciliation }) {
           scans: [scanItem(at, code, how)],
           ...(reviewed.length ? { reviewed_lines: reviewed } : {}),
         }),
-      scanned(at, code),
+      scanned(at, code, intentText(count, how)),
       (error) => {
+        const problem = problemOf(error);
+        // The same unregistered label was seen in another slot: which tube is this?
+        const choice = unregisteredChoice(problem);
+        if (choice && code !== null) {
+          setHeard("");
+          void offerChoice(at, code, how, choice.sources);
+          return;
+        }
         // A label several tubes share, or one that can't be used here: nothing was recorded.
-        const refusal = scanRefusal(problemOf(error));
+        const refusal = scanRefusal(problem);
         if (refusal && code !== null) {
           setHeard("");
           setUnidentified(
@@ -545,10 +720,11 @@ function ReconcileView({ r }: { r: Reconciliation }) {
           return;
         }
         if (!isStale(error)) {
-          setHeard(problemOf(error).detail);
+          setHeard(fieldErrors(problem)["scans/0/unregistered"] ?? problem.detail);
           return;
         }
         // Someone scanned it first: now it replaces theirs, and is asked about.
+        setUnidentified(null);
         setHeard(`${at} changed while you were scanning it. Check what’s recorded now.`);
         const required = affectedIds(error);
         void refetch(count.plan_revision, required ?? reviewed.map((x) => x.line_id)).then(
@@ -559,7 +735,10 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               at,
               code,
               ...how,
-              required,
+              // Asked again, with what changed: the person chooses again.
+              ...(offer ? { unregistered: undefined } : {}),
+              offer,
+              required: offer ? withoutOffered(required, offer) : required,
               seen: fresh.plan_revision,
               changes,
             });
@@ -567,6 +746,13 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         );
       },
     );
+  };
+  /** The person's answer for an unregistered label: another tube now, or a move, asking why. */
+  const chooseUnregistered = (
+    pending: Extract<Unidentified, { kind: "unregistered" }>,
+    intent: UnregisteredIntent,
+  ) => {
+    record(pending.code, { ...pending.how, unregistered: intent }, pending.sources);
   };
   /** A decision: the first sent as it is; one replacing a saved decision asks why. */
   const decide = (line: ReconciliationLine, resolution: Resolution | null, text: string) => {
@@ -620,12 +806,22 @@ function ReconcileView({ r }: { r: Reconciliation }) {
       void refetch(asking.seen, required ?? lines).then(({ fresh, changes }) => {
         setAsking(
           asking.do === "scan"
-            ? {
-                ...asking,
-                required: required ?? asking.required,
-                seen: fresh.plan_revision,
-                changes,
-              }
+            ? asking.offer
+              ? {
+                  // Which tube it is was asked about evidence that's changed: asked again.
+                  ...asking,
+                  unregistered: undefined,
+                  required: withoutOffered(required ?? asking.required, asking.offer),
+                  seen: fresh.plan_revision,
+                  changes,
+                  about: aboutOf(count, asking),
+                }
+              : {
+                  ...asking,
+                  required: required ?? asking.required,
+                  seen: fresh.plan_revision,
+                  changes,
+                }
             : { ...asking, seen: fresh.plan_revision, changes },
         );
       });
@@ -633,7 +829,8 @@ function ReconcileView({ r }: { r: Reconciliation }) {
     switch (asking.do) {
       case "scan": {
         const { at, code, required } = asking;
-        const reviewed = reviewedFor(count, at, code, required);
+        const reviewed = reviewedFor(count, at, code, required, asking);
+        const said = intentText(count, asking);
         void saveChange(
           () =>
             scan.mutateAsync({
@@ -643,9 +840,37 @@ function ReconcileView({ r }: { r: Reconciliation }) {
             }),
           (next) => {
             setAsking(null);
-            scanned(at, code)(next);
+            scanned(at, code, said)(next);
           },
-          retry(reviewed.map((x) => x.line_id)),
+          (error) => {
+            const choice = unregisteredChoice(problemOf(error));
+            if (!choice || code === null) {
+              retry(reviewed.map((x) => x.line_id))(error);
+              return;
+            }
+            setUnidentified(null);
+            const moving = movingLine(asking);
+            if (!moving) {
+              // Asked here first: nothing changed, and the reason stays as typed.
+              scan.reset();
+              setAsking({ ...asking, offer: choice.sources, about: undefined });
+              return;
+            }
+            // The tube chosen can't have moved here any more: the count as it is now, what
+            // changed, and the choice again.
+            void refetch(asking.seen, [moving]).then(({ fresh, changes }) => {
+              scan.reset();
+              setAsking({
+                ...asking,
+                unregistered: undefined,
+                offer: choice.sources,
+                required: withoutOffered(asking.required, asking.offer ?? []),
+                seen: fresh.plan_revision,
+                changes,
+                about: aboutOf(count, asking),
+              });
+            });
+          },
         );
         return;
       }
@@ -730,6 +955,21 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               {unidentified?.kind === "refused" ? (
                 <ScanRefusedNote mode={unidentified.mode} />
               ) : null}
+              {unidentified?.kind === "unregistered" && unidentified.at === here?.label ? (
+                <UnregisteredChooser
+                  code={unidentified.code}
+                  at={unidentified.at}
+                  lines={offeredLines(r, unidentified.sources, unidentified.code)}
+                  busy={locked}
+                  onChoose={(intent) => {
+                    chooseUnregistered(unidentified, intent);
+                  }}
+                  onCancel={() => {
+                    setUnidentified(null);
+                    setHeard(`Nothing was recorded at ${unidentified.at}.`);
+                  }}
+                />
+              ) : null}
               {unidentified?.kind === "ambiguous" && unidentified.at === here?.label ? (
                 <ScanChooser
                   code={unidentified.code}
@@ -745,7 +985,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                 />
               ) : null}
               <IkiIdEntry
-                open={unidentified !== null}
+                open={unidentified !== null && unidentified.kind !== "unregistered"}
                 disabled={locked || !!asking}
                 onEnter={(hrid) => {
                   record(hrid.trim(), { mode: "iki_id" });
@@ -842,6 +1082,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                 key={decisionKey(line)}
                 count={r.id}
                 line={line}
+                name={lineNames.get(line.id) ?? lineName(line)}
                 names={names}
                 open={open}
                 locked={locked}
@@ -997,6 +1238,10 @@ function ReconcileView({ r }: { r: Reconciliation }) {
           asking={asking}
           names={names}
           busy={saving}
+          onUnregistered={(intent) => {
+            scan.reset();
+            if (asking.do === "scan") setAsking({ ...asking, unregistered: intent });
+          }}
           problem={
             asking.do === "scan"
               ? scan.error
@@ -1010,6 +1255,8 @@ function ReconcileView({ r }: { r: Reconciliation }) {
             if (asking.do === "scan") setAsking({ ...asking, choice });
           }}
           onClose={() => {
+            if (asking.do === "scan" && asking.offer && !unidentified)
+              setHeard(`Nothing was recorded at ${asking.at}.`);
             setAsking(null);
           }}
         />
@@ -1027,6 +1274,7 @@ function CountDialog({
   problem,
   onConfirm,
   onChoose,
+  onUnregistered,
   onClose,
 }: {
   r: Reconciliation;
@@ -1037,32 +1285,67 @@ function CountDialog({
   onConfirm: (reason: string) => void;
   /** The tube chosen for a label several share, kept with the reason being typed. */
   onChoose: (choice: ScanCandidate) => void;
+  /** What an unregistered label seen elsewhere is, or undefined to choose again. */
+  onUnregistered: (intent: UnregisteredIntent | undefined) => void;
   onClose: () => void;
 }) {
+  // Chosen here, the choice is said where focus goes; chosen before, the reason is asked.
+  const [picked, setPicked] = useState(false);
   const shownProblem = problem ? problemOf(problem) : undefined;
   const refusal = scanRefusal(shownProblem);
   const common = { busy, problem: shownProblem, onConfirm, onClose };
   switch (asking.do) {
     case "scan": {
-      const { at, code, required } = asking;
-      const replaced = required
-        ? r.lines
-            .filter((l) => required.includes(l.id))
-            .map((line) => ({ line, here: seenAt(line) === at }))
-        : supersededBy(r, at, code);
+      const { at, code, required, offer, unregistered: intent } = asking;
+      const replaced = replacedBy(r, at, code, required, asking);
       const now = code ?? "Empty";
+      const choosing = !!offer && !intent && code !== null;
+      const movingId = movingLine(asking);
+      const moving = movingId ? r.lines.find((l) => l.id === movingId) : undefined;
+      const title = moving?.found
+        ? `Move the tube from ${moving.found} to ${at}?`
+        : offer && code !== null && !replaced.some((x) => x.here)
+          ? `Record ‘${code}’ at ${at}?`
+          : `Replace what’s recorded at ${at}?`;
       return (
         <ReasonDialog
           {...common}
           stale={
             asking.changes ? (
-              <StaleNote changes={eventItems(asking.changes, names)} what={at} />
+              <StaleNote changes={eventItems(asking.changes, names)} what={asking.about ?? at} />
             ) : null
           }
-          title={`Replace what’s recorded at ${at}?`}
-          confirmLabel="Record the new scan"
-          confirmDisabled={refusal !== null && !asking.choice}
+          title={title}
+          confirmLabel={moving ? "Record the move" : "Record the new scan"}
+          confirmDisabled={
+            (refusal !== null && !asking.choice) || choosing || (!!movingId && !moving)
+          }
+          focusReason={!choosing}
         >
+          {choosing ? (
+            <UnregisteredChooser
+              code={code}
+              at={at}
+              lines={offeredLines(r, offer, code)}
+              busy={busy}
+              onChoose={(intent) => {
+                setPicked(true);
+                onUnregistered(intent);
+              }}
+            />
+          ) : null}
+          {offer && intent && code !== null ? (
+            <UnregisteredChosen
+              code={code}
+              at={at}
+              from={moving?.found ?? null}
+              focus={picked}
+              busy={busy}
+              onAgain={() => {
+                onUnregistered(undefined);
+              }}
+            />
+          ) : null}
           {refusal?.kind === "refused" ? <ScanRefusedNote mode={asking.mode} /> : null}
           {refusal?.kind === "ambiguous" && code !== null ? (
             <ScanChooser
@@ -1099,7 +1382,14 @@ function CountDialog({
               </li>
             ))}
           </ul>
-          <p className="muted">What was recorded before stays in the history.</p>
+          {moving ? (
+            <p className="muted">
+              Any other tube with this label stays where it was scanned. What was recorded before
+              stays in the history.
+            </p>
+          ) : (
+            <p className="muted">What was recorded before stays in the history.</p>
+          )}
         </ReasonDialog>
       );
     }
@@ -1163,9 +1453,141 @@ function CountDialog({
   }
 }
 
+/** What the person chose for an unregistered label, said where focus goes when chosen here. */
+function UnregisteredChosen({
+  code,
+  at,
+  from,
+  focus,
+  busy,
+  onAgain,
+}: {
+  code: string;
+  at: string;
+  /** Where the tube moved from; null, another tube. */
+  from: string | null;
+  focus: boolean;
+  busy: boolean;
+  onAgain: () => void;
+}) {
+  const said = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (focus) said.current?.focus();
+  }, [focus, from]);
+  return (
+    <div className="unregistered-chosen">
+      <p ref={said} tabIndex={-1}>
+        ‘{code.trim()}’ at {at}: {from ? `the tube from ${from}, moved here.` : "another tube."}
+      </p>
+      <Button variant="quiet" disabled={busy} onClick={onAgain}>
+        Choose again
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * An unregistered label scanned here was scanned in another slot too: is it another tube
+ * with the same label, or one of those, moved here? Each earlier slot is a line of its own,
+ * with who scanned it and when. Nothing is recorded until the person says.
+ */
+function UnregisteredChooser({
+  code,
+  at,
+  lines,
+  busy,
+  onChoose,
+  onCancel,
+}: {
+  code: string;
+  at: string;
+  /** The earlier slots that can still be chosen. */
+  lines: readonly ReconciliationLine[];
+  busy: boolean;
+  onChoose: (intent: UnregisteredIntent) => void;
+  onCancel?: () => void;
+}) {
+  const id = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  const offered = lines.map((line) => `${line.id}@${String(line.line_revision)}`).join(",");
+  useEffect(() => {
+    // Said, and where the keyboard goes next: the scanner still works from here.
+    heading.current?.focus();
+  }, [code, at, offered]);
+  const label = code.trim();
+  return (
+    <section className="scan-chooser" aria-labelledby={`${id}-title`}>
+      <h3 className="scan-chooser-title" id={`${id}-title`} ref={heading} tabIndex={-1}>
+        ‘{label}’ at {at} is…
+      </h3>
+      <p className="scan-chooser-help">
+        {lines.length
+          ? "The same label was scanned in another slot. Say which is true; nothing is recorded until you do."
+          : "No earlier slot with this label can be chosen now. If it’s a separate tube, record it as another tube; nothing is recorded until you do."}
+      </p>
+      <ul className="scan-choices" aria-label={`What ‘${label}’ at ${at} is`}>
+        <li>
+          <button
+            type="button"
+            className="scan-choice"
+            disabled={busy}
+            onClick={() => {
+              onChoose({ action: "additional" });
+            }}
+          >
+            <span className="scan-choice-name">
+              <strong>Another tube</strong>
+            </span>
+            <span className="scan-choice-meta">
+              <span>A separate tube with the same label</span>
+            </span>
+          </button>
+        </li>
+        {lines.map((line) => (
+          <li key={line.id}>
+            <button
+              type="button"
+              className="scan-choice"
+              disabled={busy}
+              onClick={() => {
+                onChoose({ action: "move", line_id: line.id });
+              }}
+            >
+              <span className="scan-choice-name">
+                <strong>The tube from {line.found}, moved here</strong>
+              </span>
+              {line.observation?.scanned_by ? (
+                <span className="scan-choice-meta">
+                  <span>
+                    Scanned at {line.found} by {personName(line.observation.scanned_by)}
+                    {line.observation.scanned_at ? (
+                      <>
+                        {" "}
+                        <UtcTime value={line.observation.scanned_at} />
+                      </>
+                    ) : null}
+                  </span>
+                </span>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {onCancel ? (
+        <div className="actions">
+          <Button variant="quiet" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function ResolveLine({
   count,
   line,
+  name,
   names,
   open,
   locked,
@@ -1176,6 +1598,8 @@ function ResolveLine({
 }: {
   count: string;
   line: ReconciliationLine;
+  /** Its name, and where it was scanned when another line has the same. */
+  name: string;
   names: ReadonlyMap<string, string>;
   open: boolean;
   locked: boolean;
@@ -1255,7 +1679,7 @@ function ResolveLine({
           }}
         >
           <SelectField
-            label={`What to do about ${lineName(line)}`}
+            label={`What to do about ${name}`}
             value={choice}
             options={[
               { value: "", label: "Choose…" },
@@ -1287,7 +1711,7 @@ function ResolveLine({
         </Button>
       ) : null}
       <div className="resolve-history">
-        <LineHistory parent="reconciliations" id={count} line={line.id} name={lineName(line)} />
+        <LineHistory parent="reconciliations" id={count} line={line.id} name={name} />
         {elsewhere ? (
           <LineHistory
             parent="reconciliations"

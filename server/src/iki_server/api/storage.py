@@ -966,6 +966,17 @@ def _receipt(me: User, pk: UUID) -> Receipt:
 def _receiving(call: Any) -> Any:  # noqa: ANN401 - what it answers
     try:
         return call()
+    except reconciliations.UnregisteredChoiceRequired as choice:
+        raise Problem(
+            409,
+            str(choice),
+            code="count_unregistered_choice",
+            extensions={
+                "index": choice.index,
+                "position": choice.position,
+                "observations": choice.observations,
+            },
+        ) from None
     except reconciliations.LinesChanged as changed:
         raise Problem(
             409,
@@ -1526,6 +1537,22 @@ def reconciliation_history(
     return _observation_history(me, _reconciliation(me, reconciliation_id), line_id, params)
 
 
+class AdditionalUnregisteredIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["additional"]
+
+
+class MoveUnregisteredIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["move"]
+    line_id: UUID = Field(description="The prior unregistered observation the operator saw move.")
+
+
+UnregisteredChoiceIn = Annotated[
+    AdditionalUnregisteredIn | MoveUnregisteredIn, Field(discriminator="action")
+]
+
+
 class ScanIn(Schema):
     position: str = Field(max_length=8)
     code: str | None = Field(None, max_length=200, description="Null: it's empty.")
@@ -1536,6 +1563,19 @@ class ScanIn(Schema):
     choice: UUID | None = Field(
         None, description="The readable candidate selected for this scanned label."
     )
+    unregistered: UnregisteredChoiceIn | None = Field(
+        None, description="An additional unregistered tube, or a move of a named prior observation."
+    )
+
+    def scan(self) -> reconciliations.Scan:
+        intent: Literal["additional"] | UUID | None = None
+        if self.unregistered is not None:
+            intent = (
+                self.unregistered.line_id
+                if isinstance(self.unregistered, MoveUnregisteredIn)
+                else "additional"
+            )
+        return reconciliations.Scan(self.position, self.code, self.mode, self.choice, intent)
 
 
 class ReviewedReconciliationIn(Schema):
@@ -1581,7 +1621,15 @@ def scan_positions(
     currently affected line IDs and versions in `affected_lines`. A shared label at its
     expected slot records a positional match. An ambiguous label elsewhere returns 409
     with the readable candidates and the zero-based scan index. A selected candidate
-    is rechecked against the original label when the rack is submitted again."""
+    is rechecked against the original label when the rack is submitted again.
+
+    Identical unregistered labels read at different positions in the same rack can represent
+    separate tubes. If a reading could be a move of an earlier unregistered observation,
+    409 `count_unregistered_choice` identifies the scan's zero-based `index`, its
+    `position`, and the prior `observations` by line ID, revision and position. Submit
+    `unregistered: {"action":"additional"}` to record another tube, or
+    `{"action":"move","line_id":...}` to move that line with its reviewed revision and a reason.
+    Any prior observation displaced at the destination must also be reviewed."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
     with transaction.atomic():
@@ -1589,7 +1637,7 @@ def scan_positions(
             lambda: reconciliations.scan(
                 me,
                 r,
-                [reconciliations.Scan(s.position, s.code, s.mode, s.choice) for s in payload.scans],
+                [item.scan() for item in payload.scans],
                 reviewed_lines=[
                     (line.line_id, line.line_revision) for line in payload.reviewed_lines
                 ],
