@@ -19,6 +19,7 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("The prep must identify a registered plasmid with a DNA sequence.")
 
     params = run["params"]
+    reason = (params.get("override_reason") or "").strip()
     report = params.get("report")
     alignments = run["inputs"].get("alignment", [])
     if not report and not alignments:
@@ -43,6 +44,11 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         alignment = alignments[0]
         if alignment["values"].get("reference") != sequence:
             raise ValueError("The alignment reference must be the prep plasmid's registered DNA.")
+        verdict = alignment["values"].get("verdict")
+        if params["outcome"] == "match" and verdict in {"differs", "incomplete"} and not reason:
+            raise ValueError(
+                "Give a reason to record a match over differing or incomplete evidence."
+            )
         aligned = alignment["values"].get("aligned")
         if not aligned or aligned not in run["files"]:
             raise ValueError("The alignment must have a pinned aligned FASTA file.")
@@ -57,6 +63,8 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("The verification report is empty.")
         # Existing file UUIDs can be attached directly from run params (ADR 0177).
         values["report"] = report
+    if reason:
+        values["override_reason"] = reason
     if params.get("notes"):
         values["notes"] = params["notes"]
     return {

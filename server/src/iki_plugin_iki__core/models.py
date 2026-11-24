@@ -22,7 +22,7 @@ from iki_server.files.models import File
 
 
 class Alignment(Entity):
-    """Alignment (iki/core.Alignment), schema version 1. Sequences aligned, as aligned FASTA, with the ones in Iki linked."""
+    """Alignment (iki/core.Alignment), schema version 2. Sequences aligned, as aligned FASTA, with the ones in Iki linked."""
 
     IKI_TYPE = 'iki/core.Alignment'
 
@@ -38,6 +38,7 @@ class Alignment(Entity):
     description = models.TextField(null=True)
     reference = models.ForeignKey(Entity, models.PROTECT, related_name='+', null=True)
     aligned = models.ForeignKey(File, models.PROTECT, related_name='+')
+    verdict = models.TextField(null=True)
     method = models.CharField(max_length=500, null=True)
 
     class Meta:
@@ -58,6 +59,10 @@ class Alignment(Entity):
             models.CheckConstraint(
                 condition=LessThanOrEqual(Length('description'), 10000),
                 name='iki__core_alignment__description__max_length',
+            ),
+            models.CheckConstraint(
+                condition=Q(verdict__in=['matches', 'differs', 'incomplete']),
+                name='iki__core_alignment__verdict__values',
             ),
             models.CheckConstraint(
                 condition=GreaterThanOrEqual(Length('method'), 1),
@@ -95,6 +100,7 @@ class Alignment_History(models.Model):
     reference = models.UUIDField(db_column='reference_id', null=True)
     members = ArrayField(models.UUIDField(), null=True)
     aligned = models.UUIDField(db_column='aligned_id', null=True)
+    verdict = models.TextField(null=True)
     method = models.TextField(null=True)
 
     class Meta:

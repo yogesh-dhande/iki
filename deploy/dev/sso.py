@@ -1967,6 +1967,8 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
             fail(f"{checked['hrid']} kept {kept}")
     values = result["values"]
+    if values["verdict"] != values["agreement"]:
+        fail(f"{result['hrid']} has conflicting alignment and result verdicts")
     named = [d["hgvs"] for d in values["differences"]]
     if (
         values["agreement"],

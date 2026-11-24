@@ -54,3 +54,19 @@ reviewer can open each record to inspect the alignment or external file,
 reference revision, outcome and signatures. Repeated checks on the same
 material can each retain their evidence. Releasing a verification records
 what the evidence established. Lot disposition remains a separate decision.
+
+## Amendment. Reasons for overriding an alignment verdict
+
+Where an alignment's producer reports a verdict, the core Alignment carries
+it as `matches`, `differs` or `incomplete`. The whole-plasmid result publishes
+its existing agreement as this verdict. Its migration copies the agreement
+into the new field on existing alignments and their saved revisions.
+Alignments with no reported verdict and externally reviewed reports can
+still be recorded.
+
+The verification form shows the selected alignment's verdict by the outcome
+choice. A recorded match requires a written reason when the alignment reports
+`differs` or `incomplete`. The action checks the evidence revision it read, and
+the verification record checks the same immutable verdict when a reviewer
+edits or corrects the outcome or reason. The reason is part of the record's
+revision history and the content attested by its signatures.

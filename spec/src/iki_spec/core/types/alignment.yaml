@@ -10,7 +10,7 @@ kind: EntityType
 name: Alignment
 label: Alignment
 label_plural: Alignments
-schema_version: 1
+schema_version: 2
 description: Sequences aligned, as aligned FASTA, with the ones in Iki linked.
 hrid: { prefix: ALN }
 fields:
@@ -45,6 +45,11 @@ fields:
     max_size: 1GiB
     required: true
     immutable: true
+  verdict:
+    type: enum
+    values: [matches, differs, incomplete]
+    immutable: true
+    description: The producing method’s reported agreement with its reference, if it reports one.
   method:
     type: string
     max_length: 500

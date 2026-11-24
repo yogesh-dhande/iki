@@ -104,3 +104,31 @@ def test_empty_files_cannot_be_archived_as_evidence(empty: str, message: str) ->
     run["files"][empty]["size"] = 0
     with pytest.raises(ValueError, match=message):
         runpy.run_path(str(SCRIPT))["archive"](run)
+
+
+@pytest.mark.parametrize("verdict", ["differs", "incomplete"])
+def test_matching_outcome_over_a_nonmatching_verdict_requires_a_reason(verdict: str) -> None:
+    archive = runpy.run_path(str(SCRIPT))["archive"]
+    run = verification_input()
+    run["inputs"]["alignment"][0]["values"]["verdict"] = verdict
+    run["params"]["outcome"] = "match"
+    with pytest.raises(ValueError, match="Give a reason"):
+        archive(run)
+    for reason in ("", " \t "):
+        run["params"]["override_reason"] = reason
+        with pytest.raises(ValueError, match="Give a reason"):
+            archive(run)
+
+    run["params"]["override_reason"] = "  Independent report resolved the discrepancy.  "
+    [record] = archive(run)["creates"]
+    assert record["values"]["override_reason"] == "Independent report resolved the discrepancy."
+
+
+@pytest.mark.parametrize("verdict", [None, "matches"])
+def test_alignments_without_a_nonmatching_verdict_need_no_override(verdict: str | None) -> None:
+    run = verification_input()
+    run["inputs"]["alignment"][0]["values"]["verdict"] = verdict
+    run["params"]["outcome"] = "match"
+    [record] = runpy.run_path(str(SCRIPT))["archive"](run)["creates"]
+    assert record["values"]["outcome"] == "match"
+    assert "override_reason" not in record["values"]

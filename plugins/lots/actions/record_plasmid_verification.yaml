@@ -34,6 +34,11 @@ params:
     required: true
     values: [match, discrepancy, inconclusive]
     description: The outcome supported by the selected evidence, including an inconclusive result.
+  override_reason:
+    type: string
+    label: Reason for overriding the verdict
+    max_length: 1000
+    description: Required to record a match when the alignment reports differences or is incomplete.
   notes:
     type: text
     max_length: 10000
