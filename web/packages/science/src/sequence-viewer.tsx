@@ -824,7 +824,8 @@ function codonsIn(lane: Lane, start: number, end: number): ReactNode[] {
 }
 
 /** What a selection is: where, how long, and for DNA its GC content and Tm, as the DNA
- * plugin computes them for a sequence and a primer. */
+ * plugin computes them for a sequence and a primer. The Tm says its conditions, since a
+ * primer also carries a Tm in PCR buffer that reads several degrees higher (ADR 0201). */
 function Described({
   sequence,
   alphabet,
@@ -847,7 +848,7 @@ function Described({
   }
   if (alphabet === "dna" && count > 1) {
     const tm = count <= LONGEST_TM ? meltingTemperature(bases) : null;
-    if (tm !== null) facts.push(`Tm ${tenths.format(tm)} °C`);
+    if (tm !== null) facts.push(`Tm ${tenths.format(tm)} °C (50 mM Na⁺)`);
     else if (count > LONGEST_TM) facts.push(`no Tm past ${String(LONGEST_TM)} bases`);
     else facts.push("no Tm with bases other than A, C, G and T");
   }

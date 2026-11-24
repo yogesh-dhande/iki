@@ -968,3 +968,15 @@ mod tests {
         assert!(answer["error"].is_string());
     }
 }
+
+// The primer, digest and oligo-check science (ADR 0200, 0201) is compiled into the
+// plugins' own modules (`standalone/plasmid-tools`, `standalone/oligo-checks`), not into
+// this one, which every page loads; its tests run here, the crate it lives in.
+#[cfg(test)]
+pub mod digest;
+#[cfg(test)]
+pub mod priming;
+#[cfg(test)]
+pub mod structures;
+#[cfg(test)]
+pub mod thermodynamics;

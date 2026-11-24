@@ -52,5 +52,11 @@ spec/tests/
 !worker/.cargo/
 !worker/crates/
 worker/target/
+# The scripts that build the plugins' modules in the wasm stage, and the digests the
+# verified-wasm stage checks those modules against (ADR 0200); no .wasm is sent.
+!scripts/build-plasmid-tools-wasm.sh
+!scripts/build-oligo-checks-wasm.sh
+!plugins/plasmid/data/plasmid-tools.wasm.sha256
+!plugins/dna/data/oligo-checks.wasm.sha256
 **/__pycache__/
 **/*.pyc

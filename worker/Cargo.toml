@@ -4,6 +4,8 @@ members = [
   "crates/iki-protocol",
   "crates/iki-wasm",
   "crates/iki-wasm/standalone/dna-annotation",
+  "crates/iki-wasm/standalone/oligo-checks",
+  "crates/iki-wasm/standalone/plasmid-tools",
   "crates/iki-worker",
 ]
 

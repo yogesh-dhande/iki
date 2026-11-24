@@ -40,6 +40,16 @@ RUN rustup target add wasm32-unknown-unknown \
  && cargo build --locked -p iki-wasm --target wasm32-unknown-unknown --release \
  && ! grep -q Europe/London target/wasm32-unknown-unknown/release/iki_wasm.wasm \
  && /src/scripts/build-oligo-wasm.sh --with-notice /src/worker/oligo-measurement.wasm
+# And the plasmid plugin's own module, which places primers and cuts DNA (ADR 0200). No
+# .wasm is tracked in git, so this stage is where a deployment's copy comes from; the
+# script checks what it built against the digest git tracks on the one platform where that
+# comparison holds, Linux x86-64, which is what this stage and every deployment are.
+COPY scripts/build-plasmid-tools-wasm.sh scripts/build-oligo-checks-wasm.sh /src/scripts/
+# --build-only: this stage is where the digest's bytes come from, so it compiles and
+# nothing more. verified-wasm checks the bytes against the tracked digests, as it does
+# the server's, and the deployment CLI checks them again before they reach a worker.
+RUN /src/scripts/build-plasmid-tools-wasm.sh --build-only \
+ && /src/scripts/build-oligo-checks-wasm.sh --build-only
 # Both worker modules use the standard library notice from the pinned Rust image.
 COPY --from=dna-annotation /src/worker/dna-annotation.wasm ./
 
@@ -61,16 +71,17 @@ RUN /src/scripts/build-server-aot.sh /input/iki_wasm.wasm /artifacts
 FROM scratch AS server-wasm-artifacts
 COPY --from=wasm /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm /
 COPY --from=wasm /src/worker/dna-annotation.wasm /src/worker/oligo-measurement.wasm /src/worker/rust-standard-library.html /
+COPY --from=wasm /src/plugins/plasmid/data/plasmid-tools.wasm /src/plugins/dna/data/oligo-checks.wasm /
 COPY --from=server-aot /artifacts/ /
 
 FROM ${PYTHON_IMAGE} AS verified-wasm
-COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /oligo-measurement.wasm /rust-standard-library.html /artifacts/
+COPY --from=server-wasm-artifacts /iki_wasm.wasm /dna-annotation.wasm /oligo-measurement.wasm /plasmid-tools.wasm /oligo-checks.wasm /rust-standard-library.html /artifacts/
 COPY --from=server-wasm-artifacts /amd64 /artifacts/amd64
 COPY --from=server-wasm-artifacts /arm64 /artifacts/arm64
 COPY scripts/verify-server-wasm.sh scripts/verify-server-aot.py /src/scripts/
 COPY server/iki_wasm.wasm.sha256 server/iki_wasm.amd64.cwasm.sha256 server/iki_wasm.arm64.cwasm.sha256 /src/server/
-COPY plugins/dna/data/oligo-measurement.sha256 /src/plugins/dna/data/
-COPY plugins/plasmid/data/dna-annotation.wasm.sha256 /src/plugins/plasmid/data/
+COPY plugins/dna/data/oligo-measurement.sha256 plugins/dna/data/oligo-checks.wasm.sha256 /src/plugins/dna/data/
+COPY plugins/plasmid/data/dna-annotation.wasm.sha256 plugins/plasmid/data/plasmid-tools.wasm.sha256 /src/plugins/plasmid/data/
 COPY uv.lock /src/
 RUN /src/scripts/verify-server-wasm.sh /artifacts
 
@@ -134,9 +145,14 @@ COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_ser
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
 COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.wasm /artifacts/oligo-measurement.wasm /artifacts/rust-standard-library.html spec/src/iki_spec/
+# And the modules first-party plugins' actions call (ADR 0200). iki-spec carries them
+# because `iki deploy build` exports a plugin with `git archive`, which has each module's
+# tracked digest but not its bytes; the CLI takes them from here and checks them again.
+COPY --from=verified-wasm /artifacts/plasmid-tools.wasm /artifacts/oligo-checks.wasm spec/src/iki_spec/modules/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \
- && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM"
+ && /opt/iki/venv/bin/python -c "from iki_spec import wasm; assert wasm.WASM.is_file(), wasm.WASM" \
+ && /opt/iki/venv/bin/python -c "from iki_spec import modules; assert all(modules.module(m) for m in ('plasmid-tools.wasm', 'oligo-checks.wasm')), modules.BUILT"
 # Keep native code outside the portable Python wheel. The server verifies this
 # image-owned pair before it loads the module to evaluate a guard.
 COPY --from=verified-wasm --chmod=0444 /artifacts/${TARGETARCH}/iki_wasm.cwasm /artifacts/${TARGETARCH}/iki_wasm.json /opt/iki/wasm/
