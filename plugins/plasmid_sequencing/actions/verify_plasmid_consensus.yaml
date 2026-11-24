@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: verify_plasmid_consensus
+label: Verify a plasmid from a service's consensus
+description: >-
+  Compares the consensus a whole-plasmid sequencing service assembled for a prep, as FASTA,
+  with the plasmid's own registered sequence, whichever base it begins at and whichever
+  strand it's on. Records where it reaches along the plasmid and each difference from the
+  record, named as HGVS names it, with the features it falls in. A prep's verification
+  takes the result as its alignment, with the service's report beside it.
+inputs:
+  plasmid:
+    type: iki/plasmid.Plasmid
+    schema: ">=4"
+    include: [sequence]
+    description: The plasmid the prep should be. Its registered sequence is the reference.
+params:
+  consensus:
+    type: file
+    required: true
+    label: Consensus FASTA
+    media_types: [chemical/seq-na-fasta, text/plain, application/gzip, application/x-gzip]
+    max_size: 50MiB
+    description: The service's consensus for this prep, one sequence, as FASTA (gzipped or not).
+  provider:
+    type: string
+    max_length: 200
+    label: Assembled by
+    description: The service and its order or sample ID, such as the one on its report.
+  name:
+    type: string
+    max_length: 200
+    description: The result's name. Without one, it's named after the plasmid.
+effects:
+  creates: [{ type: WholePlasmidAlignment, cardinality: one, derived_from: [plasmid] }]
+software:
+  - { name: minimap2, version: "2.31", url: https://github.com/lh3/minimap2 }
+runs_on: { tier: backend, environment: long-read-tools }
+command: [python, ./scripts/whole_plasmid.py]
+deterministic: true
+artifacts:
+  keep: [consensus.fasta, differences.tsv]
+metrics:
+  called_percent:
+    {
+      label: Called (%),
+      description: "The plasmid's bases the consensus reaches with a base or a deletion.",
+    }
+  differences:
+    { label: Differences, description: The consensus's differences from the plasmid's sequence. }
+timeout: 30m

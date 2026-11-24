@@ -4,8 +4,7 @@ production Content Security Policy and Trusted Types enforced.
 
 Every page is checked with axe against WCAG 2.2 AA, in light and dark mode,
 and must log no errors and break no CSP rule. Needs the built app (``make web``)
-and browsers (``uv run playwright install``); without them these tests skip
-locally and fail in CI.
+and browsers (``make test-browsers``).
 """
 
 import contextlib
@@ -20,6 +19,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from browser_evidence import DISPOSABLE_BROWSER
 from conftest import S3_ACCESS_KEY, S3_SECRET_KEY
 from django.conf import settings
 from django.test import Client
@@ -36,6 +36,7 @@ from playwright.sync_api import (
     expect,
     sync_playwright,
 )
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from real_server import Server, app_role, manage, quiet, run_tasks, serve, server_env
 
@@ -117,14 +118,6 @@ async (tags) => {
 """
 
 
-def _require(what: bool, message: str) -> None:
-    if what:
-        return
-    if os.environ.get("CI"):
-        pytest.fail(message)
-    pytest.skip(message)
-
-
 @pytest.fixture(scope="module", autouse=True)
 def _orm_beside_playwright() -> Iterator[None]:
     # Sync Playwright keeps an event loop in this thread, so Django assumes the
@@ -136,14 +129,13 @@ def _orm_beside_playwright() -> Iterator[None]:
 
 @pytest.fixture(scope="module")
 def server(
+    browser_app_assets: None,
     django_db_setup: None,
     django_db_blocker: Any,
     tmp_path_factory: pytest.TempPathFactory,
     _s3_endpoint: str,
     _s3_bucket: str,
 ) -> Iterator[Server]:
-    _require(frontend._manifest_path() is not None, "Build the web app first: make web")
-    _require(AXE.is_file(), "Install the web dependencies first: pnpm install")
     with django_db_blocker.unblock(), app_role() as role:
         # The test process signs people in, so the server shares its secret key. It
         # serves the fixture plugins the test database has tables for.
@@ -203,11 +195,14 @@ def browser(request: pytest.FixtureRequest, playwright: Playwright) -> Iterator[
     )
     try:
         launched = getattr(playwright, request.param).launch(**options)
-    except Exception as error:
-        _require(False, f"{request.param}: {error}. Run: uv run playwright install")
-        raise
-    yield launched
-    launched.close()
+    except PlaywrightError as error:
+        pytest.fail(f"{request.param} failed to launch: {error}\nRun make test-browsers.")
+    request.node.stash[DISPOSABLE_BROWSER] = (request.fixturename, launched)
+    try:
+        yield launched
+    finally:
+        del request.node.stash[DISPOSABLE_BROWSER]
+        launched.close()
 
 
 @pytest.fixture
@@ -2696,6 +2691,13 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
 
 #: Stands in for the clipboard, keeping what the page copies: a test can't read the
 #: system's in every browser.
+# Whether the element is (at least partly) in the window, read at once: no waiting for it to
+# come back into view.
+IN_VIEW = """(selector) => {
+  const box = document.querySelector(selector)?.getBoundingClientRect();
+  return !!box && box.bottom > 0 && box.top < innerHeight;
+}"""
+
 CLIPBOARD = """() => {
   window.__copied = [];
   navigator.clipboard.writeText = (text) => {
@@ -2795,6 +2797,12 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     assert action.input_value() == action_name
     page.get_by_role("group", name="Sequence").get_by_text(accession).wait_for()
 
+    # The Lineage tab's count is held back until after the feature is shown, so the record's
+    # tabs settle (and the one you're on is brought into view across them) with the reader
+    # scrolled down to the feature: that mustn't take the page back up to the tabs.
+    lineage: list[Route] = []
+    graph = re.compile(r"/api/v1/entities/[^/]+/graph\?")
+    page.route(graph, lambda route: lineage.append(route))
     result = [
         {
             "type": "promoter",
@@ -2818,7 +2826,19 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     assert (
         row.get_by_role("button", name="Hide T7 promoter").get_attribute("aria-pressed") == "true"
     )
-    page.locator('.feature-shown[title="T7 promoter (promoter, 4984..5002)"]').wait_for()
+    # Where it is read from its box, and the tabs found by their class: with
+    # to_be_in_viewport here, axe below crashed Firefox's page in 3 of 20 runs (none of 20
+    # without it), and role lookups risk the same (see the section above).
+    shown = '.feature-shown[title="T7 promoter (promoter, 4984..5002)"]'
+    page.locator(shown).wait_for()
+    assert page.evaluate(IN_VIEW, shown)
+    tabs = page.locator("nav.record-tabs")
+    assert lineage and tabs.is_hidden()
+    page.unroute(graph)
+    for held in lineage:
+        held.continue_()
+    tabs.wait_for()
+    assert page.evaluate(IN_VIEW, shown)
     assert page.get_by_role("heading", name="Features", exact=True).is_visible()
     assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
     assert_clean(page)

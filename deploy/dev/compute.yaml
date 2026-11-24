@@ -76,7 +76,12 @@ templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: iki/proteomics.report-tools
+environment: iki/sequencing_analysis.analysis-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/plasmid_sequencing.long-read-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1
@@ -92,6 +97,11 @@ templates: [{ template: backend-small }]
 apiVersion: iki/v1
 kind: EnvironmentBinding
 environment: iki/example_lims.lims-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/proteomics.report-tools
 templates: [{ template: backend-small }]
 ---
 apiVersion: iki/v1

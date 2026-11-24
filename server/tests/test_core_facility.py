@@ -100,10 +100,15 @@ def _send(world: World, request: Entity, *, receive_code: str | None = None) -> 
             handed_over_by="Training courier",
             plan_revision=receipt.plan_revision,
         )
-        assert (
-            receipts.complete(coordinator, receipt, plan_revision=receipt.plan_revision).status
-            == ReceiptStatus.COMPLETED
+        done = receipts.complete(
+            coordinator,
+            receipt,
+            plan_revision=receipt.plan_revision,
+            keep_in_custody=[scanned.line.pk],
         )
+        assert done.status == ReceiptStatus.COMPLETED
+        [received] = Api(world.browser("admin")).get(f"/receipts/{receipt.pk}").json()["lines"]
+        assert received["id"] == str(scanned.line.pk) and received["received_unplaced"]
     _status(world, request, "editor", "in_progress")
 
 

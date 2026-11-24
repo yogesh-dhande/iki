@@ -1,0 +1,19 @@
+# What conda/long-read-tools-lock.yml locks, for each platform a worker runs on. Lock it
+# again with conda-lock 3.0.4, from the plugin's directory:
+#
+#   conda-lock lock --micromamba -f conda/long-read-tools.yml \
+#     --lockfile conda/long-read-tools-lock.yml
+#
+# Only packages at least three days old: ca-certificates is held below the release that
+# was newer when it was locked.
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+dependencies:
+  - python=3.12.16
+  - minimap2=2.31
+  - ca-certificates<2026.11.20
+platforms:
+  - linux-64
+  - linux-aarch64

@@ -72,6 +72,122 @@ describe("plasmid map", () => {
   });
 });
 
+describe("plasmid map with sequencing evidence", () => {
+  // Synthetic: a 100-base circle, two bins of depth and two differences, one across the
+  // origin, to check where each is drawn and said.
+  const evidence = {
+    name: "Synthetic circle",
+    length: 100,
+    topology: "circular" as const,
+    parts: { items: [{ start: 90, end: 20, name: "Wrap", type: "misc_feature" }], own: true },
+    coverage: {
+      bin_size: 50,
+      mean: [30, 4],
+      min: [25, 2],
+      minDepth: 10,
+      meanDepth: 17,
+      leastDepth: 2,
+      low: [{ start: 60, end: 70 }],
+      source: "Synthetic reads",
+    },
+    differences: {
+      items: [
+        {
+          start: 99,
+          end: 2,
+          hgvs: "o.99_2del",
+          kind: "deletion" as const,
+          reference: "ACGT",
+          observed: "",
+          length_change: -4,
+          homopolymer: 1,
+          features: ["Wrap (misc_feature)"],
+          depth: 30,
+          support: 24,
+          forward: 20,
+          reverse: 4,
+          fraction: 0.8,
+        },
+        {
+          start: 40,
+          end: 40,
+          hgvs: "o.40A>G",
+          kind: "substitution" as const,
+          reference: "A",
+          observed: "G",
+          length_change: 0,
+          homopolymer: 6,
+        },
+      ],
+      source: "Synthetic aligner",
+    },
+  };
+
+  it("draws the depth and differences, says them in words and tables, and toggles each", () => {
+    const map = document.createElement("iki-plasmid-map");
+    map.data = evidence;
+    document.body.append(map);
+    const root = map.shadowRoot;
+    assert(root);
+    expect(root.querySelectorAll("path.depth")).toHaveLength(1);
+    expect(root.querySelectorAll("circle.threshold")).toHaveLength(1);
+    expect(root.querySelectorAll("path.low")).toHaveLength(1);
+    const said = root.querySelector("p")?.textContent ?? "";
+    expect(said).toContain("17 reads deep on average, 2 at the least");
+    expect(said).toContain("under the minimum depth of 10 at 60\u201370");
+    expect(said).toContain(
+      "2 differences from the record: o.40A>G at 40; o.99_2del at 99 to 2 in Wrap",
+    );
+    const captions = Array.from(root.querySelectorAll("caption"), (c) => c.textContent);
+    expect(captions).toEqual(["Its features", "Read depth", "Differences from the record"]);
+    expect(said).toContain("with 1 feature of its own: Wrap, 90 to 20");
+    expect(root.querySelector('[aria-label="Layers"]')?.textContent).toBe(
+      "Features (1)Read depthDifferences (2)",
+    );
+    const rows = Array.from(root.querySelectorAll('[aria-label="Differences"] tbody tr'), (row) =>
+      Array.from(row.children, (cell) => cell.textContent),
+    );
+    expect(rows).toEqual([
+      ["o.40A>G", "40", "substitution: A \u2192 G", "\u2014", "\u2014", "6 bases"],
+      [
+        "o.99_2del",
+        "99\u2013100, 1\u20132",
+        "deletion: ACGT \u2192 \u2014",
+        "Wrap (misc_feature)",
+        "24 of 30, 80% (20 forward, 4 reverse)",
+        "\u2014",
+      ],
+    ]);
+    const button = (name: string) =>
+      Array.from(root.querySelectorAll("button")).find((b) => b.textContent === name);
+    button("Read depth")?.click();
+    expect(root.querySelector("path.depth")).toBeNull();
+    button("Differences (2)")?.click();
+    expect(root.querySelector('[aria-label="Differences"]')).toBeNull();
+    button("Linear")?.click();
+    button("Read depth")?.click();
+    expect(root.querySelectorAll("path.depth")).toHaveLength(1);
+    expect(root.querySelector("p")?.textContent).toContain("drawn as a line cut at base 1");
+    const dl = root.querySelector("dl")?.textContent ?? "";
+    expect(dl).toContain("Read depth fromSynthetic reads");
+  });
+
+  it("says when every base is deep enough and nothing differs", () => {
+    const map = document.createElement("iki-plasmid-map");
+    map.data = {
+      ...evidence,
+      parts: { items: [], own: true },
+      coverage: { ...evidence.coverage, low: [] },
+      differences: { items: [] },
+    };
+    document.body.append(map);
+    const said = map.shadowRoot?.querySelector("p")?.textContent ?? "";
+    expect(said).toContain("every base at the minimum depth of 10 or more");
+    expect(said).toContain("with no differences from the record");
+    expect(said).toContain("with no features of its own");
+  });
+});
+
 describe("map thumbnail", () => {
   it("draws a whole circle and both sides of a wrapping feature, then opens by DOM event", () => {
     const map = document.createElement("iki-plasmid-thumbnail");

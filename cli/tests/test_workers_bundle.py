@@ -59,8 +59,8 @@ def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
     assert "'/opt/my envs/it'\"'\"'s/acme__protein/protein-tools'" in script
 
 
-@pytest.mark.skipif(shutil.which("uv") is None, reason="needs uv")
 def test_the_script_builds_the_environment(tmp_path: Path) -> None:
+    assert shutil.which("uv"), "Install uv to build the worker environment"
     item = _protein(tmp_path, "# nothing\n")
     envs = tmp_path / "envs"
     manifest = workers.write([item], tmp_path / "bundle", str(envs))
@@ -172,8 +172,7 @@ def test_a_first_party_plugins_module_travels_from_iki_spec_into_its_bundle(
     """
     root = Path(__file__).parents[2]
     carried = modules.module(name)
-    if carried is None:
-        pytest.skip(f"iki-spec hasn't got {name}: build it, see scripts/")
+    assert carried is not None, f"Missing packaged {name}. Run make test-wasm."
     exported = tmp_path / "exported"
     exported.mkdir()
     archive = subprocess.run(  # noqa: S603 - git, on this checkout
@@ -393,6 +392,119 @@ def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
             assert (image / "plugins" / "iki__plasmid" / "data" / name).read_bytes() == contents
     assert stale.read_bytes() == b"stale build product"
     assert not (data / "rust-standard-library.html").exists()
+
+
+@pytest.mark.parametrize(
+    ("plugin", "name"), [("dna", "oligo-checks.wasm"), ("plasmid", "plasmid-tools.wasm")]
+)
+@pytest.mark.parametrize("matches", [True, False], ids=["matches-pin", "wrong-package-bytes"])
+def test_deploy_resolves_ignored_modules_from_iki_spec(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    plugin: str,
+    name: str,
+    matches: bool,
+) -> None:
+    monkeypatch.setattr(platform, "system", lambda: "Linux")
+    monkeypatch.setattr(platform, "machine", lambda: "x86_64")
+    built = b"\0asm\x01\0\0\0 fresh build"
+    expected = hashlib.sha256(built).hexdigest()
+    installed = tmp_path / "iki-spec-modules"
+    installed.mkdir()
+    carried = built if matches else b"\0asm\x01\0\0\0 wrong package bytes"
+    (installed / name).write_bytes(carried)
+    monkeypatch.setattr(modules, "BUILT", installed)
+
+    source = tmp_path / plugin
+    data = source / "data"
+    data.mkdir(parents=True)
+    (source / "plugin.yaml").write_text(
+        f"apiVersion: iki/v1\nkind: Plugin\nname: iki/{plugin}\nversion: 1.0.0\n"
+    )
+    (source / ".gitignore").write_text("*.wasm\n")
+    marker = data / f"{name}.sha256"
+    marker.write_text(f"{expected}  {name}\n")
+    stale = data / name
+    stale.write_bytes(b"stale build in the checkout")
+    stale.chmod(0o444)
+    subprocess.run(["git", "init", "-q"], cwd=source, check=True)  # noqa: S607
+    subprocess.run(["git", "add", "."], cwd=source, check=True)  # noqa: S607
+    subprocess.run(
+        [  # noqa: S607
+            "git",
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            "Pin the plugin module",
+        ],
+        cwd=source,
+        check=True,
+    )
+    subprocess.run(  # noqa: S603
+        ["git", "check-ignore", "--quiet", "--", f"data/{name}"],  # noqa: S607
+        cwd=source,
+        check=True,
+    )
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - {{ name: iki/{plugin}, local: ./{plugin}, state: active }}\n"
+    )
+
+    server, image = tmp_path / "server", tmp_path / "image"
+    result = main(
+        [
+            "deploy",
+            "build",
+            str(tmp_path),
+            "--allow-local",
+            "-o",
+            str(server),
+            "--workers",
+            str(image),
+        ]
+    )
+    assert stale.read_bytes() == b"stale build in the checkout"
+    assert stale.stat().st_mode & 0o777 == 0o444
+    assert marker.read_text() == f"{expected}  {name}\n"
+    if matches:
+        assert result == 0, capsys.readouterr().err
+        archive = server / "iki_installed_plugins" / "bundles" / f"iki__{plugin}-local.tar.gz"
+        with tarfile.open(archive) as packed:
+            stream = packed.extractfile(f"data/{name}")
+            assert stream is not None and stream.read() == built
+        assert (image / "plugins" / f"iki__{plugin}" / "data" / name).read_bytes() == built
+    else:
+        assert result == 1
+        diagnostic = capsys.readouterr().err
+        assert name in diagnostic and expected in diagnostic
+        assert hashlib.sha256(carried).hexdigest() in diagnostic
+        assert not server.exists() and not image.exists()
+
+
+def test_an_older_plugin_excludes_an_unpinned_ignored_module(tmp_path: Path) -> None:
+    directory = tmp_path / "checkout"
+    relative = Path("data/oligo-checks.wasm")
+    module = directory / relative
+    module.parent.mkdir(parents=True)
+    module.write_bytes(b"left behind by a newer checkout")
+    (directory / ".gitignore").write_text("*.wasm\n")
+    subprocess.run(["git", "init", "-q", directory], check=True)  # noqa: S603, S607
+
+    cleaned = workers.prepared_source("iki/dna", directory, tmp_path / "cleaned")
+    assert not (cleaned / relative).exists()
+    assert module.read_bytes() == b"left behind by a newer checkout"
+
+    subprocess.run(  # noqa: S603
+        ["git", "-C", directory, "add", "-f", "--", str(relative)],  # noqa: S607
+        check=True,
+    )
+    assert workers.prepared_source("iki/dna", directory, tmp_path / "tracked") == directory
 
 
 @pytest.mark.parametrize("marker_name", ["dna-annotation.wasm.sha256", "dna-annotation.sha256"])

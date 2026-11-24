@@ -9,6 +9,7 @@
 - ``POST /storage/check-out``, ``/storage/check-in``, ``/storage/hand-over``: custody.
 - ``GET /storage/scan``: the records a scanned code names.
 - ``GET /storage/checked-out``: what someone has checked out.
+- ``GET /storage/awaiting-put-away``: received material still held without a location.
 - Receipts: ``/entities/{ref}/receipts`` and ``/receipts/{id}``.
 - Reconciliations: ``/storage/containers/{ref}/reconciliations`` and
   ``/reconciliations/{id}``.
@@ -722,6 +723,29 @@ def scan(request: HttpRequest, params: Query[ScanParams]) -> dict[str, Any]:
     return {"code": code, "items": items}
 
 
+class AwaitingPutAwayOut(RefOut):
+    id: UUID
+    custodian: UserOut
+    custody_since: datetime
+
+
+@router.get(
+    "/storage/awaiting-put-away",
+    response=list[AwaitingPutAwayOut],
+    summary="Received material awaiting a storage location",
+)
+def list_awaiting_put_away(request: HttpRequest) -> list[dict[str, Any]]:
+    """Matched and damaged records you can read that are still in custody without a location."""
+    me = caller(request)
+    places = list(receipts.awaiting_put_away(me))
+    refs = _refs(me, [p.pk for p in places])
+    return [
+        {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
+        for p in places
+        if p.pk in refs
+    ]
+
+
 class CheckedOutOut(StepOut):
     custodian: UserOut
     custody_since: datetime
@@ -842,6 +866,9 @@ class ReceiptLineOut(Schema):
     checked_by: UserOut | None
     checked_at: datetime | None
     put_away: StepOut | None = Field(description="Where it was put away, once completed.")
+    received_unplaced: bool = Field(
+        description="It was accepted in custody without placement when this receipt completed."
+    )
 
 
 class ReceiptOut(Schema):
@@ -920,6 +947,11 @@ def _receipt_out(
             "note": line.note,
             "checked_by": line.checked_by,
             "checked_at": line.checked_at,
+            "received_unplaced": receipt.status == ReceiptStatus.COMPLETED
+            and not line.removed
+            and line.outcome in receipts.RECEIVED
+            and line.entity_id is not None
+            and line.put_in_id is None,
             "put_away": {
                 **refs[line.put_in_id],
                 "id": line.put_in_id,
@@ -1246,7 +1278,13 @@ class PutAwayIn(Schema):
 
 
 class CompleteReceiptIn(ReviewedReceiptIn):
+    model_config = ConfigDict(extra="forbid")
+
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
+    keep_in_custody: list[UUID] = Field(
+        default_factory=list,
+        description="IDs of received lines the receiver will hold without a storage location.",
+    )
     missing_rest: bool = Field(
         default_factory=bool,
         description="Mark every unchecked expected line missing. Defaults to false.",
@@ -1257,8 +1295,8 @@ class CompleteReceiptIn(ReviewedReceiptIn):
 def complete_receipt(
     request: HttpRequest, receipt_id: UUID, payload: CompleteReceiptIn
 ) -> dict[str, Any]:
-    """Takes custody of what was received, puts each away where it's given, and tells the
-    requester of anything missing, extra, damaged or rejected: all of it, or none."""
+    """Name each matched or damaged line once in put_away or keep_in_custody. Custody,
+    placements and discrepancy notices are recorded together."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     with transaction.atomic():
@@ -1275,6 +1313,7 @@ def complete_receipt(
                 receipt,
                 put,
                 plan_revision=payload.plan_revision,
+                keep_in_custody=payload.keep_in_custody,
                 missing_rest=payload.missing_rest,
             )
         )

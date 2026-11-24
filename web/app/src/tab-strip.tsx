@@ -26,6 +26,15 @@ interface Props {
   children: ReactNode;
 }
 
+/** How far to scroll a strip across to bring `tab` into it, the least that does, as
+ * scrollIntoView's "nearest" would: none if it's in view, else to the edge it's past. */
+function acrossToShow(strip: DOMRect, tab: HTMLElement): number {
+  const { left, right } = tab.getBoundingClientRect();
+  if (left < strip.left) return left - strip.left;
+  if (right > strip.right) return Math.min(right - strip.right, left - strip.left);
+  return 0;
+}
+
 export function TabStrip({ label, className, settled, sure, widths, children }: Props) {
   const nav = useRef<HTMLElement>(null);
   const path = useRouterState({ select: (state) => state.location.pathname });
@@ -52,12 +61,14 @@ export function TabStrip({ label, className, settled, sure, widths, children }: 
   }, [held]);
   // On a phone the tabs scroll across: the one you're on is in view from when they're
   // drawn, and again when a width changes. Before they're painted, so they don't move once
-  // they can be pressed.
+  // they can be pressed. Only the strip scrolls, never the page: the reads it waits on can
+  // answer after the reader has scrolled down (to a feature they've shown, say), and
+  // scrollIntoView would take them back up to the tabs.
   useLayoutEffect(() => {
     const strip = nav.current;
     const current = strip?.querySelector<HTMLElement>('[aria-current="page"]');
     if (settled && strip && current && strip.scrollWidth > strip.clientWidth) {
-      current.scrollIntoView({ block: "nearest", inline: "nearest" });
+      strip.scrollLeft += acrossToShow(strip.getBoundingClientRect(), current);
     }
   }, [path, widths, settled]);
   return (

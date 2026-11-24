@@ -1342,6 +1342,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/storage/scan", fixed("/storage/scan?code=T-1"), row(200)),
     ("POST", "/storage/scan/resolve", storage_scan_preview, readers(200)),
     ("GET", "/storage/checked-out", fixed("/storage/checked-out"), row(200)),
+    ("GET", "/storage/awaiting-put-away", fixed("/storage/awaiting-put-away"), row(200)),
     ("GET", "/storage/labels", fixed("/storage/labels"), row(200)),
     ("POST", "/storage/labels", storage_labels, readers(200)),
     # A request's receipts: read by its readers; received by the core's analysts alone,

@@ -21,8 +21,10 @@ plugins:
   - { name: iki/experiments, local: ../../plugins/experiments, state: active }
   - { name: iki/reagents, local: ../../plugins/reagents, state: active }
   - { name: iki/qc_release, local: ../../plugins/qc_release, state: active }
-  - { name: iki/sequencing, local: ../../plugins/sequencing, state: active }
   - { name: iki/proteomics, local: ../../plugins/proteomics, state: active }
+  - { name: iki/sequencing, local: ../../plugins/sequencing, state: active }
+  - { name: iki/sequencing_analysis, local: ../../plugins/sequencing_analysis, state: active }
+  - { name: iki/plasmid_sequencing, local: ../../plugins/plasmid_sequencing, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims

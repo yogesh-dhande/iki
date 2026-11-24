@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Component
+name: results
+label: Report summary
+description: The selected sample or repertoire, report counts, and a preview of imported rows.
+module: ./components/results.js
+element: sequencing-results
+slots: [{ slot: entity.tab, type: SequencingAnalysisResult }]
