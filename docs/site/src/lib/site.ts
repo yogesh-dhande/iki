@@ -88,6 +88,7 @@ export type Section = (typeof TOP_NAV)[number]["label"];
 
 export const PAGES = {
   api: "/reference/api/",
+  spec: "/reference/plugin-spec/",
 } as const;
 
 /** What the home page lists for admins and plugin authors that isn't a page here yet: the
@@ -118,7 +119,7 @@ export const REPOSITORY_GUIDES: Record<"run" | "build", Item[]> = {
 /** The references. */
 export const REFERENCES: Item[] = [
   { label: "REST API", href: PAGES.api, note: "every call and schema" },
-  { label: "Plugin spec", source: "spec/README.md", note: "every manifest kind and key" },
+  { label: "Plugin spec", href: PAGES.spec, note: "every manifest kind and key" },
   { label: "The iki CLI", source: "cli/README.md", note: "plugin, bundle, deploy, starter" },
   { label: "Python SDK and MCP server", source: "sdk/python/README.md" },
 ];

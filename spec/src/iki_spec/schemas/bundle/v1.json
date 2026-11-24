@@ -205,7 +205,7 @@
       "required": ["path", "sha256", "size"],
       "properties": {
         "path": {
-          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entries.ndjson`, `entities.ndjson`, `outside.ndjson`, `runs.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
+          "description": "`people.ndjson`, `agents.ndjson`, `files.ndjson`, `entries.ndjson`, `entities.ndjson`, `outside.ndjson`, `runs.ndjson`, `signatures.ndjson`, or `blobs/sha256/` and a file's SHA-256 for its bytes.",
           "type": "string",
           "pattern": "^([a-z]+\\.ndjson|blobs/sha256/[0-9a-f]{64})$"
         },

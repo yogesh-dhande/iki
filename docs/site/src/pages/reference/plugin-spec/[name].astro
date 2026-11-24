@@ -1,0 +1,154 @@
+---
+// One kind of the plugin spec: every key it takes, with its type, allowed values, default,
+// limits and description, generated from its JSON Schema.
+import Keys from "../../../components/spec/Keys.astro";
+import SpecNav from "../../../components/spec/SpecNav.astro";
+import Toc from "../../../components/Toc.astro";
+import Doc from "../../../layouts/Doc.astro";
+import { render } from "../../../lib/markdown.ts";
+import { github } from "../../../lib/repo.ts";
+import { GROUPS, SCHEMAS, SPEC, spec } from "../../../lib/spec.ts";
+
+export function getStaticPaths() {
+  return spec().map((page) => ({ params: { name: page.name }, props: { page } }));
+}
+
+const { page } = Astro.props;
+const group = GROUPS.find((candidate) => candidate.id === page.group);
+const toc = [
+  ...page.sections.map((section) => ({ id: section.id, label: section.title })),
+  ...(page.byType.length ? [{ id: "by-type", label: "Keys by field type" }] : []),
+];
+const what = page.kind ? `A ${page.kind} manifest` : page.title;
+---
+
+<Doc
+  title={`${page.title} · Plugin spec`}
+  description={`${what}'s keys in Iki's plugin spec, iki/v1: each one's type, allowed values, default and meaning.`}
+  section="Reference"
+  audience="build"
+  measure={900}
+>
+  <SpecNav slot="nav" />
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href="/reference/">Reference</a> / <a href={SPEC}>Plugin spec</a> / {group?.title}
+  </nav>
+  <h1 class="title mono">{page.title}</h1>
+  <div class="prose desc">
+    <Fragment set:html={render(page.description)} />
+    <p class="muted source">
+      Its JSON Schema is <code>{page.id}</code>, kept in the repository as{" "}
+      <a href={github(`${SCHEMAS}/${page.name}/v1.json`)}>{page.name}/v1.json</a>.
+    </p>
+  </div>
+  {page.examples.length > 0 && (
+    <section aria-labelledby="examples-h" class="part">
+      <h2 id="examples-h">Examples</h2>
+      <p>
+        {page.examples.map((example, index) => (
+          <>
+            {index > 0 && ", "}
+            <code>{example}</code>
+          </>
+        ))}
+      </p>
+    </section>
+  )}
+  {page.sections.map((section) => (
+    <section id={section.id} aria-labelledby={`${section.id}-h`} class="part">
+      <h2 id={`${section.id}-h`}>{section.title}</h2>
+      {section.description && (
+        <div class="prose section-desc" set:html={render(section.description)} />
+      )}
+      <Keys keys={section.keys} caption={`${page.title}: ${section.title.toLowerCase()}`} />
+      {section.also.length > 0 && (
+        <p class="also">
+          Each also takes{" "}
+          {section.also.map((link, index) => (
+            <>
+              {index > 0 && ", "}
+              <a href={link.href}>{link.text}</a>
+            </>
+          ))}
+          .
+        </p>
+      )}
+    </section>
+  ))}
+  {page.byType.length > 0 && (
+    <section id="by-type" aria-labelledby="by-type-h" class="part">
+      <h2 id="by-type-h">Keys by field type</h2>
+      <div class="table" tabindex="0" role="region" aria-label="The keys each field type takes">
+        <table>
+          <caption class="sr-only">The keys each field type takes</caption>
+          <thead>
+            <tr>
+              <th scope="col">Type</th>
+              <th scope="col">Keys it takes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {page.byType.map((row) => (
+              <tr>
+                <td>
+                  <code>{row.type}</code>
+                </td>
+                <td class="type-keys">
+                  {row.keys
+                    .filter((key) => key !== "type")
+                    .map((key, index) => (
+                      <>
+                        {index > 0 && ", "}
+                        <a href={`#${key}`}>
+                          <code>{key}</code>
+                        </a>
+                        {row.required.includes(key) && " (required)"}
+                      </>
+                    ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )}
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={toc} />
+  </aside>
+</Doc>
+
+<style>
+  .title {
+    margin: 0;
+    font-size: 30px;
+    overflow-wrap: anywhere;
+  }
+  .desc {
+    margin-top: 14px;
+  }
+  .source {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .part {
+    margin-top: 32px;
+  }
+  .part h2 {
+    margin: 0 0 12px;
+    font-size: 22px;
+  }
+  .section-desc {
+    margin-bottom: 12px;
+  }
+  .also {
+    margin: 10px 0 0;
+    font-size: 14px;
+  }
+  .type-keys {
+    line-height: 1.8;
+  }
+  .type-keys code {
+    font-size: 12px;
+  }
+</style>

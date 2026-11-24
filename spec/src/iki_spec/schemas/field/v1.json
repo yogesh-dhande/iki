@@ -7,9 +7,11 @@
   "$ref": "#/$defs/typed",
   "properties": {
     "label": {
+      "description": "What people see as the field's name, in forms, tables and exports. Defaults to the name, with underscores as spaces.",
       "$ref": "#/$defs/label"
     },
     "description": {
+      "description": "Help text shown beside the field in forms.",
       "$ref": "#/$defs/description"
     },
     "required": {
@@ -220,10 +222,12 @@
           "pattern": "^[^\\r\\n]*[^.\\r\\n]$"
         },
         "min_length": {
+          "description": "The fewest characters the value may have. A string is never empty unless it's `0`.",
           "type": "integer",
           "minimum": 0
         },
         "max_length": {
+          "description": "The most characters the value may have. An indexed string needs one of at most 600.",
           "type": "integer",
           "minimum": 1
         },
@@ -295,10 +299,12 @@
           "$ref": "#/$defs/item"
         },
         "min_items": {
+          "description": "The fewest items the list may have.",
           "type": "integer",
           "minimum": 0
         },
         "max_items": {
+          "description": "The most items the list may have.",
           "type": "integer",
           "minimum": 1
         },
@@ -329,9 +335,11 @@
           "additionalProperties": false,
           "properties": {
             "field": {
+              "description": "The state field its records' states move to.",
               "$ref": "#/$defs/fieldName"
             },
             "states": {
+              "description": "Each of the removed field's states, and the state of `field` its records move to.",
               "type": "object",
               "minProperties": 1,
               "maxProperties": 30,
@@ -852,6 +860,7 @@
       "additionalProperties": false,
       "properties": {
         "type": {
+          "description": "`row`: each item is a row of the fields under `fields`. Any other type makes each item a value of that type, with that type's options, as a field is.",
           "const": "row"
         },
         "fields": {
@@ -903,6 +912,7 @@
       "$ref": "#/$defs/typed",
       "properties": {
         "type": {
+          "description": "The kind of value: any field type but `list`, `json` and `state`.",
           "not": {
             "enum": ["list", "json", "state"]
           }

@@ -8,12 +8,17 @@ import { focusableScrollers } from "./scrollers.ts";
 /** Code, which is left as written: fenced blocks, then spans. */
 const CODE = /(^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?^ {0,3}\2[`~]*[ \t]*$|(`+)[\s\S]*?[^`]\3(?!`))/m;
 
-/** The text without its design-record citations: "(ADR 0126)" and ", ADR 0126)". */
+/** One or more design records: "ADR 0126", "ADR 0122, 0125", "ADRs 0084 and 0117". */
+const RECORDS = String.raw`ADRs? \d{4}(?:(?:,\s*|\s+and\s+)(?:ADRs? )?\d{4})*`;
+/** A parenthesis that only cites them, and a citation that ends one: ", ADR 0126)". */
+const WHOLE = new RegExp(String.raw`\s*\(${RECORDS}\)`, "g");
+const ENDING = new RegExp(String.raw`[,;:]\s*${RECORDS}\)`, "g");
+
+/** The text without its design-record citations: "(ADR 0126)", "(ADR 0084, ADR 0117)" and
+ * ", ADR 0126)". */
 export function withoutCitations(markdown: string): string {
   return splitCode(markdown)
-    .map(({ code, part }) =>
-      code ? part : part.replace(/\s*\(ADRs? \d{4}\)/g, "").replace(/,\s*ADRs? \d{4}\)/g, ")"),
-    )
+    .map(({ code, part }) => (code ? part : part.replace(WHOLE, "").replace(ENDING, ")")))
     .join("");
 }
 

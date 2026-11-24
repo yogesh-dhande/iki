@@ -12,6 +12,17 @@ describe("withoutCitations", () => {
     );
   });
 
+  it("leaves out citations of several records, and one that ends a parenthesis", () => {
+    expect(
+      withoutCitations(
+        "Shown in more places (ADR 0084, ADR 0117). Named people (ADR 0122, 0125). " +
+          "Registered once (by the record that registered it: ADR 0115), as it was.",
+      ),
+    ).toBe(
+      "Shown in more places. Named people. Registered once (by the record that registered it), as it was.",
+    );
+  });
+
   it("knows a code span by its own run of backticks", () => {
     expect(splitCode("a ``x ` y`` b")).toEqual([
       { code: false, part: "a " },

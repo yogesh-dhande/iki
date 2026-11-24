@@ -1,0 +1,141 @@
+---
+// A table of a manifest's keys, each nested key indented beneath the one it's inside, and
+// each one a place to link to: `#states.set_by`.
+import { render } from "../../lib/markdown.ts";
+import type { Key } from "../../lib/spec.ts";
+import SpecType from "./SpecType.astro";
+
+interface Props {
+  keys: Key[];
+  caption: string;
+}
+const { keys, caption } = Astro.props;
+---
+
+<div class="table" tabindex="0" role="region" aria-label={caption}>
+  <table>
+    <caption class="sr-only">{caption}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Key</th>
+        <th scope="col">Type</th>
+        <th scope="col">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      {keys.map((key) => (
+        <tr id={key.id} class:list={[`depth-${Math.min(key.depth, 4)}`]}>
+          <td class="name">
+            <a href={`#${key.id}`} class="key" title={key.id}>
+              <code>{key.name}</code>
+            </a>
+            {key.required && <span class="required">required</span>}
+          </td>
+          <td>
+            <SpecType type={key.type} />
+          </td>
+          <td class="description">
+            <Fragment set:html={render(key.description)} />
+            {key.when && <p class="muted notes">{key.when}.</p>}
+            {key.values.length > 0 && (
+              <p class="values">
+                One of{" "}
+                {key.values.map((value, index) => (
+                  <>
+                    {index > 0 && ", "}
+                    <code>{value}</code>
+                  </>
+                ))}
+              </p>
+            )}
+            {key.default !== undefined && (
+              <p class="values">
+                Default <code>{key.default}</code>
+              </p>
+            )}
+            {key.notes.length > 0 && <p class="muted notes">{key.notes.join("; ")}</p>}
+            {key.also.length > 0 && (
+              <p class="notes">
+                It also takes{" "}
+                {key.also.map((link, index) => (
+                  <>
+                    {index > 0 && ", "}
+                    <a href={link.href}>{link.text}</a>
+                  </>
+                ))}
+                .
+              </p>
+            )}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+
+<style>
+  table {
+    min-width: 620px;
+  }
+  td {
+    vertical-align: top;
+  }
+  .name {
+    white-space: nowrap;
+  }
+  td:nth-child(2) {
+    min-width: 130px;
+    max-width: 220px;
+  }
+  .key {
+    text-decoration: none;
+  }
+  .key:hover code {
+    text-decoration: underline;
+  }
+  .name code {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .required {
+    display: block;
+    font-size: 12px;
+    color: var(--build);
+    font-weight: 600;
+  }
+  .depth-1 .name {
+    padding-left: 30px;
+  }
+  .depth-2 .name {
+    padding-left: 48px;
+  }
+  .depth-3 .name {
+    padding-left: 66px;
+  }
+  .depth-4 .name {
+    padding-left: 84px;
+  }
+  .depth-1 .key::before,
+  .depth-2 .key::before,
+  .depth-3 .key::before,
+  .depth-4 .key::before {
+    content: "└ ";
+    color: var(--muted);
+  }
+  tr:target {
+    background: var(--accent-soft);
+  }
+  .description :global(p) {
+    margin: 0 0 6px;
+  }
+  .description :global(p:last-child) {
+    margin: 0;
+  }
+  .values,
+  .notes {
+    font-size: 13px;
+  }
+  .values code {
+    font-size: 12px;
+  }
+</style>
