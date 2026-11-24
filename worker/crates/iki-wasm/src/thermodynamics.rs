@@ -31,6 +31,13 @@
 //!
 //! for a duplex of N bases.
 //!
+//! **One implementation.** The Watson-Crick part of all this -- the stacks, initiation,
+//! the symmetry term, equation 3's concentration and equation 7's sodium term, and the
+//! rounding -- is [`crate::oligo`], which is also the DNA sequence record's measurement
+//! (ADR 0191). A primer against its exact complement is computed there whole, by
+//! [`matched_melting_temperature`]; this module adds what a matched duplex doesn't need:
+//! the mismatch tables, the buffer's other salts, and Owczarzy's corrections.
+//!
 //! **Why it is written this way.** Iki's plasmid plugin computed these temperatures with
 //! Biopython's `Bio.SeqUtils.MeltingTemp.Tm_NN`, with its `DNA_NN3` table and
 //! `saltcorr=5`. This module is that calculation, so the server, the worker and the web
@@ -45,22 +52,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Watson-Crick nearest-neighbour stacks, 5'->3' on the top strand over 3'->5' on the
-/// bottom: enthalpy in kcal/mol and entropy in cal/(mol*K). SantaLucia 1998, Table 1,
-/// unified parameters. A stack not listed here is the same duplex read from its other
-/// strand, which is the key reversed.
-pub(crate) const STACK: [(&[u8; 5], f64, f64); 10] = [
-    (b"AA/TT", -7.9, -22.2),
-    (b"AT/TA", -7.2, -20.4),
-    (b"CA/GT", -8.5, -22.7),
-    (b"CG/GC", -10.6, -27.2),
-    (b"CT/GA", -7.8, -21.0),
-    (b"GA/CT", -8.2, -22.2),
-    (b"GC/CG", -9.8, -24.4),
-    (b"GG/CC", -8.0, -19.9),
-    (b"GT/CA", -8.4, -22.4),
-    (b"TA/AT", -7.2, -21.3),
-];
+use crate::oligo::{self, Duplex, GAS_CONSTANT};
 
 /// A pair that isn't Watson-Crick, inside the duplex. Allawi & SantaLucia 1997-1998 and
 /// Peyret et al. 1999, as Biopython's `DNA_IMM1` collects them. The inosine entries of
@@ -173,15 +165,6 @@ pub(crate) const TERMINAL_MISMATCH: [(&[u8; 5], f64, f64); 48] = [
     (b"TT/AG", -3.6, -9.8),
     (b"TT/AT", -3.2, -8.9),
 ];
-
-/// Initiation with a terminal A or T base pair, per end: SantaLucia 1998, Table 1.
-const INITIATION_AT: (f64, f64) = (2.3, 4.1);
-/// Initiation with a terminal G or C base pair, per end.
-const INITIATION_GC: (f64, f64) = (0.1, -2.8);
-/// The entropy a self-complementary strand loses to symmetry: SantaLucia 1998, Table 1.
-const SYMMETRY: (f64, f64) = (0.0, -1.4);
-/// The gas constant in cal/(mol*K), as the reference and Biopython use it.
-const GAS_CONSTANT: f64 = 1.987;
 
 /// How a buffer's salts are allowed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -397,11 +380,7 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
     // Initiation, by the base at each end of the whole strand -- not of what a terminal
     // mismatch left, which is the order Biopython reads these in.
     for end in [*top.first()?, *top.last()?] {
-        let (h, s) = if matches!(end, b'A' | b'T') {
-            INITIATION_AT
-        } else {
-            INITIATION_GC
-        };
+        let (h, s) = oligo::initiation(end)?;
         enthalpy += h;
         entropy += s;
     }
@@ -410,49 +389,50 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
     // mispaired base takes an internal mismatch parameter, a paired one its stack.
     for at in 0..inner_top.len().saturating_sub(1) {
         let it = key(inner_top.get(at..)?, inner_bottom.get(at..)?)?;
-        let (h, s) = parameter(&INTERNAL_MISMATCH, it).or_else(|| parameter(&STACK, it))?;
+        let (h, s) = parameter(&INTERNAL_MISMATCH, it).or_else(|| watson_crick(it))?;
         enthalpy += h;
         entropy += s;
     }
 
-    // One strand pairs with itself at the whole concentration, and loses the symmetry
-    // term; otherwise it pairs with its complement at a quarter of it (SantaLucia 1998,
-    // equation 3, as Biopython reads the two strands' concentrations).
-    //
-    // A zero second concentration is what says "self-complementary" here, and the only
-    // thing that sets it is the fold in `matched_melting_temperature`, which has already
-    // added it to the first. A caller that passed a legitimate zero -- a duplex whose
-    // second strand really is absent -- would get the symmetry term it hasn't earned, so
-    // that caller needs an explicit flag rather than this inference.
-    let self_complementary = conditions.other_strand == 0.0;
-    let strands = if self_complementary {
-        enthalpy += SYMMETRY.0;
-        entropy += SYMMETRY.1;
-        conditions.strand * 1e-9
-    } else {
-        (conditions.strand - conditions.other_strand / 2.0) * 1e-9
-    };
+    // Two strands, the top at its concentration and the bottom at its own: SantaLucia 1998,
+    // equation 3, as Biopython reads the two strands' concentrations. A strand against its
+    // own exact complement, where a palindrome is one species, is
+    // [`matched_melting_temperature`]'s; a template the top anneals to is a molecule of its
+    // own, however its bases read.
+    let strands = (conditions.strand - conditions.other_strand / 2.0) * 1e-9;
     if strands <= 0.0 {
         return None;
     }
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a duplex is at most a few hundred bases"
-    )]
-    let length = (bases - 1) as f64;
+    finished(
+        &Duplex {
+            enthalpy,
+            entropy,
+            bases,
+            ln_strands: strands.ln(),
+        },
+        top,
+        conditions,
+    )
+}
+
+/// The Watson-Crick stack a four-base key names, where its bottom pairs with its top.
+fn watson_crick(key: [u8; 5]) -> Option<(f64, f64)> {
+    let [first, second, _, under_first, under_second] = key;
+    (under_first == complement(first) && under_second == complement(second))
+        .then(|| oligo::stack(first, second))
+        .flatten()
+}
+
+/// A duplex's temperature in `conditions`' buffer, to one decimal place, from its sums at
+/// 1 M Na+. `top` is the strand whose G-C content Owczarzy's correction reads.
+fn finished(duplex: &Duplex, top: &[u8], conditions: &Conditions) -> Option<f64> {
     let celsius = match conditions.salt {
-        Salt::SantaLucia => {
-            let monovalent = conditions.monovalent();
-            if monovalent <= 0.0 {
-                return None;
-            }
-            entropy += 0.368 * length * monovalent.ln();
-            1000.0 * enthalpy / (entropy + GAS_CONSTANT * strands.ln()) - 273.15
-        }
+        Salt::SantaLucia => oligo::santalucia(duplex, conditions.monovalent())?,
         Salt::Owczarzy => {
             // The correction is on 1/Tm, measured from the duplex's melting temperature in
             // 1 M Na+, where SantaLucia's own entropy term is ln(1) and so vanishes.
-            let kelvin = 1000.0 * enthalpy / (entropy + GAS_CONSTANT * strands.ln());
+            let kelvin =
+                1000.0 * duplex.enthalpy / (duplex.entropy + GAS_CONSTANT * duplex.ln_strands);
             let gc = top
                 .iter()
                 .filter(|base| matches!(base, b'G' | b'C'))
@@ -461,15 +441,11 @@ pub fn melting_temperature(top: &[u8], bottom: &[u8], conditions: &Conditions) -
                 clippy::cast_precision_loss,
                 reason = "a duplex is at most a few hundred bases"
             )]
-            let fraction = gc as f64 / bases as f64;
+            let (fraction, length) = (gc as f64 / duplex.bases as f64, (duplex.bases - 1) as f64);
             1.0 / (1.0 / kelvin + owczarzy(conditions, fraction, length)?) - 273.15
         }
     };
-    if celsius.is_finite() {
-        Some(rounded(celsius))
-    } else {
-        None
-    }
+    celsius.is_finite().then(|| oligo::rounded(celsius))
 }
 
 /// Where a buffer's magnesium stops being a detail and starts being what holds the duplex
@@ -531,9 +507,11 @@ fn owczarzy(conditions: &Conditions, fraction: f64, length: f64) -> Option<f64> 
 /// An oligo that is its own complement -- `GCGCGC`, and every palindrome -- is handled as
 /// SantaLucia's self-complementary case rather than as two different strands: there is no
 /// second species in the tube, so all the strands are at the concentration `conditions`
-/// gives for the first, and the duplex carries his symmetry term (1998, equation 3). An
-/// oligo and a separate complement at the same total concentration melt about 3 degrees
-/// lower, which is the difference this avoids reporting.
+/// gives for the first, and the duplex carries his symmetry term (1998, equation 3). Read
+/// as an oligo and a separate complement at the same total concentration, every palindrome
+/// of 4 to 10 bases melts 1.5 to 3.0 degrees lower at 50 mM Na+, which is the difference
+/// this avoids reporting. A primer on a template is that other reading, rightly: see
+/// [`melting_temperature`].
 ///
 /// The symmetry term and the concentration have to move together, and reading Biopython
 /// for the convention is a trap worth naming: its `Tm_NN` takes `dnac1` as the *total*
@@ -545,15 +523,11 @@ fn owczarzy(conditions: &Conditions, fraction: f64, length: f64) -> Option<f64> 
 /// correction without the other half is worse than neither.
 #[must_use]
 pub fn matched_melting_temperature(bases: &[u8], conditions: &Conditions) -> Option<f64> {
-    let complement: Vec<u8> = bases.iter().map(|base| complement(*base)).collect();
-    let mut conditions = *conditions;
-    if bases.iter().rev().eq(complement.iter()) {
-        // The two halves of the correction, together: one species at the whole
-        // concentration here, and the symmetry term where this zero is read below.
-        conditions.strand += conditions.other_strand;
-        conditions.other_strand = 0.0;
+    if !only_dna(bases) {
+        return None;
     }
-    melting_temperature(bases, &complement, &conditions)
+    let duplex = oligo::matched(bases, conditions.strand, conditions.other_strand)?;
+    finished(&duplex, bases, conditions)
 }
 
 /// The base that pairs with this one, or the byte itself where nothing pairs with it.
@@ -568,14 +542,6 @@ pub const fn complement(base: u8) -> u8 {
     }
 }
 
-/// A temperature to one decimal place, rounded as a decimal with halves going to the even
-/// digit -- the rounding Iki's records already hold, so a ported measurement reads the
-/// same to the last digit.
-fn rounded(celsius: f64) -> f64 {
-    let decimal = format!("{celsius:.1}");
-    decimal.parse().unwrap_or(celsius)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{Conditions, Salt, matched_melting_temperature, melting_temperature};
@@ -584,7 +550,7 @@ mod tests {
     fn a_matched_primer_melts_where_the_reference_says() {
         // The M13/pUC primers, under the conditions Iki quotes a primer's Tm at.
         // SantaLucia 1998, equations 3 and 7; cross-checked against Biopython's Tm_NN
-        // with DNA_NN3 and saltcorr=5 in spec/tests/test_plasmid_tools.py.
+        // with DNA_NN3 and saltcorr=5 in server/tests/test_plasmid_parity.py.
         for (bases, expected) in [
             (b"GTAAAACGACGGCCAGT".as_slice(), 49.2),
             (b"CAGGAAACAGCTATGAC".as_slice(), 43.6),

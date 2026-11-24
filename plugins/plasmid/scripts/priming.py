@@ -67,24 +67,25 @@ MOST_SITES = 500
 MOST_PRODUCTS = 20
 #: These conditions are what the temperatures here are computed at, and the text is shown
 #: to whoever checks our numbers against their own, so it has to keep describing what the
-#: code does. It says "25 nM of each strand" because that is what this path computes, for
-#: every primer including a self-complementary one -- two species at 25 nM, with no
-#: symmetry term. For a palindrome that is the wrong convention: SantaLucia 1998 has one
-#: species at the whole concentration and the symmetry term applied, which the DNA plugin's
-#: primer fields, the sequence viewer and ``thermodynamics::matched_melting_temperature``
-#: all do, and which this path deliberately does not, because the parity oracle in
-#: ``server/tests/oracles/priming_before.py`` pins it to the behaviour it was ported from.
-#: ``GGATCC`` reads -13.7 here and -11.4 there.
+#: code does. It is written onto a PCR record's ``tm_method`` and a plasmid's binding
+#: sites, whose temperatures are each primer's annealed bases on the template: two
+#: molecules, the primer and the template strand, at 25 nM each, so "25 nM of each strand"
+#: and no symmetry term is SantaLucia 1998's two-species case and the right one, even for a
+#: primer whose bases are their own reverse complement -- the template is still another
+#: molecule.
 #:
-#: So do not change this text on its own: it would turn a true description of a flaw into a
-#: false description of a fix. The arithmetic, this text, the Rust constant it mirrors in
-#: ``worker/crates/iki-wasm/src/priming.rs``, the ``tm_method`` written onto records, the
-#: fixtures in ``plugins/plasmid/tests/priming.yaml`` and the parity assertions move in one
-#: commit, with the oracle keeping its old text and old reference.
+#: A primer's own temperature, with no template (:func:`melting_temperature` given only the
+#: primer), is the other case: against its exact complement, a palindrome's complement is
+#: the same molecule, so it is one species at the whole 50 nM with the symmetry term. That
+#: is the DNA sequence record's measurement, computed by the same Rust
+#: (``worker/crates/iki-wasm/src/oligo.rs``, ADR 0191), and ``GGATCC`` reads -11.4 both
+#: here and there. ``server/tests/oracles/priming_before.py`` keeps the two-strand reading
+#: for it, which is what the pure Python this was ported from did.
 #:
 #: And do not reach for Biopython's ``selfcomp=True`` by itself: ``Tm_NN`` then reads
 #: ``dnac1`` as the total, so with ``dnac1=25, dnac2=25`` it gives -13.758 for ``GGATCC``,
-#: 0.04 degrees further from right. The flag and the concentration go together.
+#: 0.04 degrees further from right than -13.719 and nowhere near -11.384. The flag and
+#: ``dnac1=50`` go together.
 CONDITIONS_TEXT = (
     "SantaLucia 1998 nearest-neighbour (Biopython Tm_NN, DNA_NN3), 50 mM Na+, no Mg2+ or "
     "dNTPs, 25 nM of each strand"
@@ -101,8 +102,10 @@ def reverse_complement(bases: str) -> str:
 
 def melting_temperature(primer: str, template: str | None = None) -> float | None:
     """°C for ``primer`` (5' to 3') on ``template``: the template's bases under it, 5' to 3'
-    on the primer's own strand. None where a base isn't A, C, G or T, where there are
-    fewer than two of them, or where no published parameter covers a pair of neighbours."""
+    on the primer's own strand. Without a template, the primer against its own exact
+    complement, which for a palindrome is one species (see ``CONDITIONS_TEXT``). None
+    where a base isn't A, C, G or T, where there are fewer than two of them, or where no
+    published parameter covers a pair of neighbours."""
     request: dict[str, Any] = {"primer": primer}
     if template is not None:
         request["template"] = template

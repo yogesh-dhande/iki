@@ -3,7 +3,7 @@
 #![deny(unsafe_code)]
 
 #[path = "../src/oligo.rs"]
-mod oligo;
+pub mod oligo;
 
 use std::cell::RefCell;
 

@@ -4,6 +4,8 @@
 //! Built for wasm32-unknown-unknown with no host imports, so the DNA plugin's action
 //! archive carries it and runs it under Wasmtime, and the browser runs the same bytes.
 
+#[path = "../../../src/oligo.rs"]
+pub mod oligo;
 #[path = "../../../src/structures.rs"]
 pub mod structures;
 #[path = "../../../src/thermodynamics.rs"]

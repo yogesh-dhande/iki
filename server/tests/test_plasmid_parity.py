@@ -205,14 +205,27 @@ def test_a_matched_duplex_melts_where_biopython_and_the_old_python_say(
     # SantaLucia 1998, equations 3 and 7 (DOI 10.1073/pnas.95.4.1460), as Biopython's
     # Tm_NN computes them with DNA_NN3 and saltcorr=5, at the conditions the plugin
     # states: 50 mM Na+, no Mg2+ or dNTPs, 25 nM of each strand.
-    reference = round(
-        MeltingTemp.Tm_NN(  # type: ignore[no-untyped-call]
-            bases, nn_table=MeltingTemp.DNA_NN3, dnac1=25, dnac2=25, Na=50, saltcorr=5
-        ),
-        1,
+    def tm(**strands: float | bool) -> float:
+        celsius: float = MeltingTemp.Tm_NN(  # type: ignore[no-untyped-call]
+            bases, nn_table=MeltingTemp.DNA_NN3, Na=50, saltcorr=5, **strands
+        )
+        return round(celsius, 1)
+
+    two_strands = tm(dnac1=25, dnac2=25)
+    # A primer alone is read against its exact complement, and a palindrome's complement
+    # is itself: one species at the whole 50 nM, carrying the symmetry term, which
+    # Biopython gives with selfcomp=True and dnac1=50 -- the total, as Tm_NN reads dnac1
+    # once selfcomp is set. selfcomp=True with dnac1=25, dnac2=25 left in place is half
+    # the correction and further from right than neither: -13.758 for GGATCC, where the
+    # two-strand reading gives -13.719 and the answer is -11.384.
+    reference = (
+        tm(selfcomp=True, dnac1=50)
+        if bases == bases.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+        else two_strands
     )
     assert ported[0].melting_temperature(bases) == reference
-    assert before[0].melting_temperature(bases) == reference
+    # The pure Python it was ported from read every primer as two strands.
+    assert before[0].melting_temperature(bases) == two_strands
 
 
 @pytest.mark.parametrize("circular", [False, True])
