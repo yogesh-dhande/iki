@@ -1,0 +1,31 @@
+iki-quantity-input,
+iki-sequence-input {
+  display: block;
+}
+
+.input-code {
+  font-family: var(--mono);
+  font-size: 0.95em;
+}
+
+input.input-number {
+  max-width: 14rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A quantity: its number, and the unit it's typed in. */
+.input-with-unit {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.input-with-unit select {
+  width: auto;
+  min-width: 6rem;
+}
+
+.field-sub {
+  margin-top: 0.75rem;
+  max-width: 22rem;
+}

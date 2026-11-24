@@ -3,7 +3,7 @@
  * where a record is, its location history, receipts and reconciliations.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
@@ -17,11 +17,19 @@ export type Step = Schemas["StepOut"];
 export type LocationEvent = Schemas["EventOut"];
 export type Place = Schemas["PlaceOut"];
 export type ScanMatch = Schemas["ScanMatchOut"];
+export type Outcome = "matched" | "missing" | "extra" | "damaged" | "rejected";
+export type ObservationEvent = Schemas["ObservationEventOut"];
+export type User = Schemas["UserOut"];
+
 export type Receipt = Schemas["ReceiptOut"];
 export type ReceiptLine = Schemas["ReceiptLineOut"];
-export type Outcome = "matched" | "missing" | "extra" | "damaged" | "rejected";
-export type Reconciliation = Schemas["ReconciliationOut"];
+export type ReceiptScan = Schemas["ReceiptScanOut"];
+export type ReceiptCheck = Schemas["CheckedReceiptOut"];
+
 export type ReconciliationLine = Schemas["ReconciliationLineOut"];
+export type Reconciliation = Schemas["ReconciliationOut"];
+/** A scan in a count: which event, on which physical line, saw what where, by whom, when. */
+export type CountObservation = Schemas["CountScanEvidenceOut"];
 export type Finding = ReconciliationLine["finding"];
 export type Resolution = "moved" | "removed" | "placed" | "kept";
 export type LabelSize = Schemas["LabelSizeOut"];
@@ -32,22 +40,26 @@ export const STORAGE = ["storage"] as const;
 
 export const placesQuery = queryOptions({
   queryKey: [...STORAGE, "places"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/places")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/places", { signal })),
 });
 
 export function containerQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "container", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/storage/containers/{ref}", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function locationQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "location", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/location", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
@@ -55,13 +67,14 @@ export function locationEventsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...STORAGE, "events", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/location/events", {
           params: {
             path: { ref },
             query: { limit: 20, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -74,10 +87,11 @@ export type CheckedOut = Schemas["CheckedOutOut"];
 export function checkedOutQuery(custodian?: string) {
   return queryOptions({
     queryKey: [...STORAGE, "checked-out", custodian ?? "all"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/checked-out", {
           params: { query: custodian ? { custodian } : {} },
+          signal,
         }),
       ),
   });
@@ -86,10 +100,11 @@ export function checkedOutQuery(custodian?: string) {
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
           params: { path: { ref } },
+          signal,
         }),
       ),
   });
@@ -97,25 +112,28 @@ export function reconciliationsQuery(ref: string) {
 
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/storage/labels")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/storage/labels", { signal })),
   staleTime: Infinity,
 });
 
 export function receiptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipts", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/entities/{ref}/receipts", { params: { path: { ref } }, signal }),
+      ),
   });
 }
 
 export function reconciliationQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliation", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/reconciliations/{reconciliation_id}", {
           params: { path: { reconciliation_id: id } },
+          signal,
         }),
       ),
   });
@@ -124,11 +142,234 @@ export function reconciliationQuery(id: string) {
 export function receiptQuery(id: string) {
   return queryOptions({
     queryKey: [...STORAGE, "receipt", id],
-    queryFn: async () =>
-      unwrap(
-        await iki.GET("/api/v1/receipts/{receipt_id}", { params: { path: { receipt_id: id } } }),
-      ),
+    queryFn: async ({ signal }) => readReceipt(id, signal),
   });
+}
+
+export async function readReceipt(id: string, signal?: AbortSignal): Promise<Receipt> {
+  return unwrap(
+    await iki.GET("/api/v1/receipts/{receipt_id}", {
+      params: { path: { receipt_id: id } },
+      ...(signal ? { signal } : {}),
+    }),
+  );
+}
+
+// --- Observation history (ADR 0180) -------------------------------------------------------------
+
+/** Whose history: a receipt's, or a count's. */
+export type Observed = "receipts" | "reconciliations";
+
+async function historyPage(
+  parent: Observed,
+  id: string,
+  query: { line_id?: string; cursor?: string; limit?: number },
+  signal?: AbortSignal,
+) {
+  const cancel = signal ? { signal } : {};
+  return parent === "receipts"
+    ? unwrap(
+        await iki.GET("/api/v1/receipts/{receipt_id}/history", {
+          params: { path: { receipt_id: id }, query },
+          ...cancel,
+        }),
+      )
+    : unwrap(
+        await iki.GET("/api/v1/reconciliations/{reconciliation_id}/history", {
+          params: { path: { reconciliation_id: id }, query },
+          ...cancel,
+        }),
+      );
+}
+
+/** Where a parent's history queries are, to read again after a change. */
+export function historyKey(parent: Observed, id: string) {
+  return [...STORAGE, "history", parent, id] as const;
+}
+
+/** Who recorded what, and each correction: newest first, a page at a time; or one line's. */
+export function historyQuery(parent: Observed, id: string, line?: string) {
+  return infiniteQueryOptions({
+    queryKey: [...historyKey(parent, id), line ?? "all"],
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam, signal }) =>
+      historyPage(
+        parent,
+        id,
+        {
+          limit: 20,
+          ...(line ? { line_id: line } : {}),
+          ...(pageParam ? { cursor: pageParam } : {}),
+        },
+        signal,
+      ),
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+  });
+}
+
+/** What changed after the plan revision someone saw: the newest page's later events. */
+export async function changesSince(
+  parent: Observed,
+  id: string,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<ObservationEvent[]> {
+  const latest = await historyPage(parent, id, { limit: 50 }, signal);
+  return latest.items.filter((e) => e.revision > revision);
+}
+
+// --- Recording and correcting observations -------------------------------------------------------
+
+/** A correction's reason: 1–2,000 characters once trimmed. */
+export const REASON_MAX = 2000;
+
+/** What a correction carries: the line version the person reviewed, and why. */
+export interface Correction {
+  line_revision: number;
+  reason: string;
+}
+
+/**
+ * A scan: no version, so two people scanning different tubes don't wait on each other.
+ * `code` is what the scanner sent, as it sent it: the history keeps it exactly. A choice
+ * names the tube the receiver picked for it, and the server checks the pair again.
+ */
+export async function scanReceipt(
+  receipt: string,
+  code: string,
+  how: { mode?: ScanMode; choice?: string } = {},
+): Promise<ReceiptScan> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/scan", {
+      params: { path: { receipt_id: receipt } },
+      body: { code, ...how },
+    }),
+  );
+}
+
+/**
+ * A line's outcome and condition note. The first is sent as it is; a change to what was
+ * recorded carries the version seen and why. A first one may answer that someone else had
+ * already checked it: theirs stands.
+ */
+export async function checkReceiptLine(
+  receipt: string,
+  line: string,
+  check: Schemas["ReceiptLineIn"],
+): Promise<ReceiptCheck> {
+  return unwrap(
+    await iki.PATCH("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: check,
+    }),
+  );
+}
+
+export async function removeReceiptLine(
+  receipt: string,
+  line: string,
+  correction: Correction,
+): Promise<Receipt> {
+  return unwrap(
+    await iki.DELETE("/api/v1/receipts/{receipt_id}/lines/{line_id}", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: correction,
+    }),
+  );
+}
+
+export async function restoreReceiptLine(
+  receipt: string,
+  line: string,
+  correction: Correction,
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/lines/{line_id}/restore", {
+      params: { path: { receipt_id: receipt, line_id: line } },
+      body: correction,
+    }),
+  );
+}
+
+export async function describeReceipt(
+  receipt: string,
+  handoff: Schemas["ReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.PATCH("/api/v1/receipts/{receipt_id}", {
+      params: { path: { receipt_id: receipt } },
+      body: handoff,
+    }),
+  );
+}
+
+export async function cancelReceipt(
+  receipt: string,
+  cancel: Schemas["CancelReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/cancel", {
+      params: { path: { receipt_id: receipt } },
+      body: cancel,
+    }),
+  );
+}
+
+export async function completeReceipt(
+  receipt: string,
+  approval: Schemas["CompleteReceiptIn"],
+): Promise<Receipt> {
+  return unwrap(
+    await iki.POST("/api/v1/receipts/{receipt_id}/complete", {
+      params: { path: { receipt_id: receipt } },
+      body: approval,
+    }),
+  );
+}
+
+export type Reviewed = Schemas["ReviewedCountLine"];
+
+/** The lines a refused count or receipt change names: the ones to review, at their versions now. */
+export function affectedLines(problem: Problem | undefined): Reviewed[] | null {
+  return problem?.affected_lines ?? null;
+}
+
+/**
+ * A count's scans. A fresh observation is sent as it is; one that replaces what's recorded
+ * names each line it supersedes, at the version seen, and, if it changes it, why.
+ */
+export async function scanCount(count: string, scans: Schemas["ScansIn"]): Promise<Reconciliation> {
+  return unwrap(
+    await iki.POST("/api/v1/reconciliations/{reconciliation_id}/scans", {
+      params: { path: { reconciliation_id: count } },
+      body: scans,
+    }),
+  );
+}
+
+export async function resolveCountLine(
+  count: string,
+  line: string,
+  decision: Schemas["ResolveIn"],
+): Promise<Reconciliation> {
+  return unwrap(
+    await iki.PATCH("/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}", {
+      params: { path: { reconciliation_id: count, line_id: line } },
+      body: decision,
+    }),
+  );
+}
+
+export async function cancelCount(
+  count: string,
+  cancel: Schemas["CancelReconciliationIn"],
+): Promise<Reconciliation> {
+  return unwrap(
+    await iki.POST("/api/v1/reconciliations/{reconciliation_id}/cancel", {
+      params: { path: { reconciliation_id: count } },
+      body: cancel,
+    }),
+  );
 }
 
 /** The records a scanned code names, among those its reader can read. */
@@ -136,69 +377,108 @@ export async function scanFor(code: string): Promise<ScanMatch[]> {
   return unwrap(await iki.GET("/api/v1/storage/scan", { params: { query: { code } } })).items;
 }
 
+// --- Which tube a scan identifies ---------------------------------------------------------------
+
+export type ScanMode = Schemas["ScanMode"];
+export type ScanCandidate = Schemas["ScanCandidateOut"];
+export type ScanResolved = Schemas["ScanResolveOut"];
+/** What confirms a record is the one in hand: a scanned label, or its printed Iki ID typed. */
+export type Proof = string | Schemas["IkiIdConfirmationIn"];
+
+/**
+ * What Iki says when a scan can't be used here: a tube the person can't read is involved,
+ * whether or not it matched. It says nothing about how many matched, or which.
+ */
+export const SCAN_REFUSED =
+  "This scan can’t identify a tube here. Use its printed Iki ID or ask an authorized reviewer.";
+
+/**
+ * What Iki says when a typed Iki ID can't be used: none matched, or one the person can't
+ * read did. The same words either way, so it never says whether an Iki ID exists.
+ */
+export const IKI_ID_REFUSED =
+  "No tube you can open has this Iki ID. Check the ID, or ask an authorized reviewer.";
+
+/** The unique code an Iki label carries: “IKI:” and the record's UUID, in 32 hex digits. */
+export function ikiCode(id: string): string {
+  return `IKI:${id.replaceAll("-", "").toUpperCase()}`;
+}
+
+/** An Iki ID typed from a tube's label: matched only against Iki IDs, not vendor barcodes. */
+export function ikiId(hrid: string): Schemas["IkiIdConfirmationIn"] {
+  return { code: hrid.trim(), mode: "iki_id" };
+}
+
+/** What a scan identifies where it's used: one record, several to choose from, or none. */
+export async function resolveScan(scan: Schemas["ScanResolveIn"]): Promise<ScanResolved> {
+  return unwrap(await iki.POST("/api/v1/storage/scan/resolve", { body: scan }));
+}
+
+/** Why a scan wasn't used: it can't identify a tube here, or it matches several readable. */
+export type ScanRefusal =
+  { kind: "refused" } | { kind: "ambiguous"; candidates: ScanCandidate[]; index: number | null };
+
+/**
+ * A refusal about the scan itself, apart from a conflict with what someone else recorded:
+ * those name `affected_lines`, and mean the person reviews what's recorded now.
+ */
+export function scanRefusal(problem: Problem | undefined): ScanRefusal | null {
+  if (!problem) return null;
+  if (problem.code === "scan_unavailable") return { kind: "refused" };
+  if (problem.code === "scan_ambiguous") {
+    const candidates = problem.candidates ?? [];
+    // Without its candidates, a choice can't be offered: it's said as a refusal.
+    return candidates.length
+      ? { kind: "ambiguous", candidates, index: problem.index ?? null }
+      : { kind: "refused" };
+  }
+  return null;
+}
+
+/** Whether a 409 is about the scan, not about a newer version of what's recorded. */
+export function isScanConflict(problem: Problem | undefined): boolean {
+  return problem?.code === "scan_unavailable" || problem?.code === "scan_ambiguous";
+}
+
+/** Where a candidate is: “BOX-000014 Kinase retains, A2”, or that it isn't in a box. */
+export function candidatePlace(c: ScanCandidate): string {
+  if (!c.box) return c.position ? `At ${c.position}` : "Not in a box you can open";
+  const box =
+    c.box.title && c.box.title !== c.box.hrid ? `${c.box.hrid} ${c.box.title}` : c.box.hrid;
+  return c.position ? `${box}, ${c.position}` : box;
+}
+
+/** How a count's scan identified its tube. */
+export const IDENTITY_BASES: Record<Schemas["IdentityBasis"], string> = {
+  record_link: "by its Iki label or record link",
+  iki_id: "by its Iki ID, typed",
+  position: "by its label at its recorded position",
+  choice: "by the tube chosen for its label",
+  label: "by its label",
+};
+
+/** How a receipt's scan identified its tube, as its history keeps it. */
+export const RECEIPT_BASES: Record<string, string> = {
+  record_code: "identified by its Iki label",
+  record_link: "identified by an Iki record link",
+  iki_id: "identified by its Iki ID, typed",
+  vendor: "identified by its vendor barcode",
+  hrid: "identified by its Iki ID",
+  hrid_and_vendor: "identified by its Iki ID and vendor barcode",
+  unmatched: "matched no record",
+  ambiguous: "left unlinked: more than one readable record has this label",
+};
+
 // --- Positions ----------------------------------------------------------------------------------
 
-/** A row's letters, as a spreadsheet's columns are: 1 is A, 27 is AA. */
-export function letters(n: number): string {
-  let out = "";
-  let rest = n;
-  while (rest > 0) {
-    const m = (rest - 1) % 26;
-    out = String.fromCharCode(65 + m) + out;
-    rest = Math.floor((rest - 1) / 26);
-  }
-  return out;
-}
-
-/** Its place in the grid's order, from 0. */
-export function indexOf(shape: Shape, row: number, column: number): number {
-  return shape.order === "by_column"
-    ? (column - 1) * shape.rows + (row - 1)
-    : (row - 1) * shape.columns + (column - 1);
-}
-
-/** A position's name: A1 to H12, or 1 to 81 in the grid's order. */
-export function positionLabel(shape: Shape, row: number, column: number): string {
-  return shape.labels === "number"
-    ? String(indexOf(shape, row, column) + 1)
-    : `${letters(row)}${String(column)}`;
-}
-
-/** A row's header: its letter, or the number its first position has. */
-export function rowLabel(shape: Shape, row: number): string {
-  return shape.labels === "number" ? "" : letters(row);
-}
-
-export interface Slot {
-  row: number;
-  column: number;
-  label: string;
-  occupant: Occupant | undefined;
-}
-
-/** Every position, row by row as it's drawn, each with what's in it. */
-export function slotsOf(shape: Shape, contents: readonly Occupant[]): Slot[][] {
-  const at = new Map<string, Occupant>();
-  for (const o of contents) {
-    if (o.row != null && o.column != null) at.set(`${String(o.row)}:${String(o.column)}`, o);
-  }
-  return Array.from({ length: shape.rows }, (_, r) =>
-    Array.from({ length: shape.columns }, (_, c) => ({
-      row: r + 1,
-      column: c + 1,
-      label: positionLabel(shape, r + 1, c + 1),
-      occupant: at.get(`${String(r + 1)}:${String(c + 1)}`),
-    })),
-  );
-}
-
-/** The free positions, in the grid's order: where the next things put away go. */
-export function freeSlots(shape: Shape, contents: readonly Occupant[]): Slot[] {
-  return slotsOf(shape, contents)
-    .flat()
-    .filter((s) => !s.occupant)
-    .sort((a, b) => indexOf(shape, a.row, a.column) - indexOf(shape, b.row, b.column));
-}
+export {
+  indexOf,
+  slotsOf,
+  freeSlots,
+  letters,
+  positionLabel,
+  rowLabel,
+} from "@ikisci/science/box-map";
 
 /** Where its type says its records are kept, or hold others: none, for any other. */
 export function storageOf(type: EntityType | undefined): TypeStorage | null {
@@ -243,6 +523,7 @@ export const FINDINGS: Record<Finding, string> = {
   unchecked: "Not scanned yet",
   empty: "Empty",
   checked_out: "Checked out",
+  no_longer_found: "No longer found",
 };
 
 export const RESOLUTIONS: Record<Resolution, string> = {

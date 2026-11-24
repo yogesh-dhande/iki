@@ -1,0 +1,43 @@
+name: Build server Wasm
+
+on:
+  workflow_call:
+    outputs:
+      artifact-id:
+        description: The verified Wasm files for the server images in this run.
+        value: ${{ jobs.build.outputs.artifact-id }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify the amd64 artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Export server Wasm
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: server/Dockerfile
+          target: server-wasm-artifacts
+          platforms: linux/amd64
+          outputs: type=local,dest=${{ runner.temp }}/server-wasm
+          provenance: false
+          sbom: false
+      - name: Verify server Wasm
+        run: scripts/verify-server-wasm.sh "$RUNNER_TEMP/server-wasm"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        with:
+          name: server-wasm-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/server-wasm
+          if-no-files-found: error
+          retention-days: 7

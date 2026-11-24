@@ -14,7 +14,6 @@ change. Where it is is shown only as far as the reader can read.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -34,6 +33,7 @@ from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
+from iki_server.storage import scan_identity
 from iki_server.storage.grids import NotAPosition, Shape
 from iki_server.storage.models import Container, Event, EventKind, Place
 from iki_spec.model import EntityType, Storage
@@ -176,8 +176,6 @@ def label(shape: Shape | None, row: int | None, column: int | None) -> str | Non
 
 # --- Codes: what's scanned and printed ----------------------------------------------------------
 
-_LINK = re.compile(r"/entities/([A-Za-z0-9][A-Za-z0-9-]{2,63})/?(?:[?#].*)?$")
-
 
 def codes_of(entities: Sequence[Entity]) -> dict[Any, str]:
     """Each record's code: its type's barcode, if it has one, or its HRID."""
@@ -197,50 +195,15 @@ def codes_of(entities: Sequence[Entity]) -> dict[Any, str]:
 
 
 def find(user: User, code: str) -> list[Entity]:
-    """The records ``code`` names that ``user`` can read: by an Iki link to it, its HRID, or
-    a storable type's barcode."""
-    text = code.strip()
-    if not text:
+    """All readable records identified by a global scan, including non-storable Iki IDs."""
+    if not code.strip():
         return []
-    readable = access.visible(user)
-    linked = _LINK.search(text)
-    if linked is not None:
-        text = linked.group(1)
-        try:
-            by_id = readable.filter(pk=UUID(text))
-        except ValueError:
-            by_id = readable.none()
-        if by_id.exists():
-            return list(by_id)
-    found = {e.pk: e for e in readable.filter(hrid=text.upper())}
-    seen: set[str] = set()
-    for type_name in storable_types():
-        name = spec(type_name).barcode  # type: ignore[union-attr]
-        if name is None:
-            continue
-        owner = _field_owner(type_name, name).qualified_name
-        if owner in seen:
-            continue
-        seen.add(owner)
-        ids = (
-            registry.model(owner)
-            ._default_manager.filter(**{name: text})
-            .values_list("pk", flat=True)
-        )
-        for e in readable.filter(pk__in=ids):
-            found[e.pk] = e
-    return sorted(found.values(), key=lambda e: (e.hrid, str(e.pk)))
-
-
-def confirms(entity: Entity, code: str) -> bool:
-    """Whether ``code`` names ``entity``: its barcode, its HRID, or a link to it."""
-    text = code.strip()
-    linked = _LINK.search(text)
-    if linked is not None:
-        text = linked.group(1)
-        if text == str(entity.pk):
-            return True
-    return text.upper() == entity.hrid.upper() or text == codes_of([entity])[entity.pk]
+    index = scan_identity.ScanIndex(user, [code], include_nonstorable=True)
+    try:
+        return list(index.resolve(code).candidates)
+    except scan_identity.ScanRefused:
+        # Search has always returned an empty list for an unavailable record.
+        return []
 
 
 # --- Who may change what ------------------------------------------------------------------------
@@ -363,6 +326,45 @@ class Wanted:
     record: Entity
     to: Entity | None
     position: str | None = None
+    #: A reconciliation can explain each move with a different observation or decision.
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class Confirmation:
+    code: str
+    mode: scan_identity.ScanMode = "label"
+
+
+class ConfirmationScope:
+    """The selection and all its source boxes. A tube without a known source
+    requires checking the caller's whole readable inventory."""
+
+    def __init__(self, user: User, records: Sequence[Entity], codes: Sequence[str]) -> None:
+        self.selected = {record.pk for record in records}
+        sources = list(
+            Place.objects.filter(pk__in=self.selected, container__isnull=False).values_list(
+                "container_id", flat=True
+            )
+        )
+        boxes = set(sources)
+        occupants = Place.objects.filter(container_id__in=boxes).values_list("pk", flat=True)
+        members = self.selected.union(occupants)
+        scope_ids = boxes | members
+        self.index = scan_identity.ScanIndex(user, codes, scope_ids=scope_ids)
+        self.candidates = members if len(sources) == len(self.selected) else None
+        self.selection_readable = self.selected <= self.index.readable_ids
+        self.has_concealed = not scope_ids <= self.index.readable_ids
+
+    def resolve(self, code: str, *, mode: scan_identity.ScanMode = "label") -> scan_identity.Match:
+        if not self.selection_readable:
+            raise scan_identity.ScanRefused()
+        match = self.index.resolve(
+            code, mode=mode, candidates=self.candidates, has_concealed=self.has_concealed
+        )
+        if match.candidates and not any(record.pk in self.selected for record in match.candidates):
+            raise scan_identity.ScanRefused()
+        return match
 
 
 @dataclass
@@ -375,6 +377,7 @@ class Planned:
     was: Place | None
     was_shape: Shape | None
     problems: list[str] = field(default_factory=list)
+    confirmed: str = ""
 
     @property
     def position(self) -> str | None:
@@ -397,7 +400,7 @@ def plan(
     user: User,
     wanted: Sequence[Wanted],
     *,
-    confirmations: Mapping[Any, str] | None = None,
+    confirmations: Mapping[Any, str | Confirmation] | None = None,
     receiving: bool = False,
 ) -> list[Planned]:
     """What each move would do, and each problem with it, changing nothing. ``receiving``
@@ -496,7 +499,16 @@ def plan(
             continue
         claimed[planned.to.pk].add(nxt)
         planned.row, planned.column = nxt
-    _confirmed(out, confirmations or {})
+    proofs, errors = _confirmed(
+        user,
+        [w.record for w in wanted],
+        [p.record for p in out if not p.problems],
+        confirmations or {},
+    )
+    for planned in out:
+        if planned.record.pk in errors and not planned.problems:
+            planned.problems.append(errors[planned.record.pk])
+        planned.confirmed = proofs.get(planned.record.pk, "")
     return out
 
 
@@ -531,18 +543,44 @@ def _into(user: User, planned: Planned, readable: set[Any], *, receiving: bool) 
         )
 
 
-def _confirmed(planned: Sequence[Planned], confirmations: Mapping[Any, str]) -> None:
-    for p in planned:
-        if p.problems:
-            continue
-        found = spec(p.record.type)
+def _confirmed(
+    user: User,
+    selected: Sequence[Entity],
+    checking: Sequence[Entity],
+    confirmations: Mapping[Any, str | Confirmation],
+) -> tuple[dict[UUID, str], dict[UUID, str]]:
+    """Verify required physical evidence once against the selection and all its
+    source boxes. Only the accepted proof is written to its movement event."""
+    errors: dict[UUID, str] = {}
+    submitted: list[tuple[Entity, Confirmation]] = []
+    for record in checking:
+        found = spec(record.type)
         if found is None or "move" not in found.confirm:
             continue
-        code = confirmations.get(p.record.pk)
-        if not code:
-            p.problems.append(f"Scan {p.record.hrid} to confirm it's the one you're moving.")
-        elif not confirms(p.record, code):
-            p.problems.append(f"“{code}” isn't {p.record.hrid}: check you have the right one.")
+        value = confirmations.get(record.pk, "")
+        proof = Confirmation(value) if isinstance(value, str) else value
+        if not proof.code.strip():
+            errors[record.pk] = f"Scan {record.hrid} to confirm it's the one you're moving."
+        elif len(proof.code) > 200:
+            errors[record.pk] = "The confirmation must be at most 200 characters."
+        else:
+            submitted.append((record, proof))
+    verified: dict[UUID, str] = {}
+    if submitted:
+        scope = ConfirmationScope(user, selected, [proof.code for _, proof in submitted])
+        for record, proof in submitted:
+            try:
+                match = scope.resolve(proof.code, mode=proof.mode)
+            except scan_identity.ScanRefused:
+                match = None
+            if match is not None and match.status == "one" and match.record == record:
+                verified[record.pk] = proof.code.strip()
+            else:
+                errors[record.pk] = (
+                    f"Could not confirm {record.hrid}. "
+                    "Scan its record link or enter its printed Iki ID."
+                )
+    return verified, errors
 
 
 def _lock(ids: Iterable[Any]) -> None:
@@ -559,12 +597,27 @@ def problems_of(planned: Sequence[Planned]) -> dict[str, list[str]]:
     return {f"items/{i}": p.problems for i, p in enumerate(planned) if p.problems}
 
 
+def _lock_moves(wanted: Sequence[Wanted]) -> None:
+    """Serialize changes to the selected records and the inventories used to confirm them."""
+    ids = [w.record.pk for w in wanted]
+    places = Place.objects.filter(pk__in=ids, container__isnull=False)
+    locked = {*ids, *(w.to.pk for w in wanted if w.to is not None)}
+    locked.update(places.values_list("container_id", flat=True))
+    _lock(locked)
+    # Another move could have finished while we were acquiring these locks. A
+    # newly introduced source box wasn't locked, so its occupancy could still change.
+    if places.exclude(container_id__in=locked).exists():
+        raise Wrong(
+            {"items": ["A record changed location. Review its current position and retry."]}
+        )
+
+
 def move(
     user: User,
     wanted: Sequence[Wanted],
     *,
     reason: str,
-    confirmations: Mapping[Any, str] | None = None,
+    confirmations: Mapping[Any, str | Confirmation] | None = None,
     receiving: bool = False,
     operation: Any = None,  # noqa: ANN401 - a UUID
     handed_over_by: str = "",
@@ -575,15 +628,7 @@ def move(
     if not wanted:
         raise Wrong({"items": ["names nothing to move."]})
     with transaction.atomic():
-        _lock(
-            [
-                *(w.record.pk for w in wanted),
-                *(w.to.pk for w in wanted if w.to is not None),
-                *Place.objects.filter(pk__in=[w.record.pk for w in wanted])
-                .exclude(container=None)
-                .values_list("container_id", flat=True),
-            ]
-        )
+        _lock_moves(wanted)
         for to in {w.to.pk: w.to for w in wanted if w.to is not None}.values():
             if is_container(to.type):
                 ensure_container(to)
@@ -596,12 +641,12 @@ def move(
             _apply(
                 user,
                 p,
-                reason,
+                f"{reason} {w.evidence}" if w.evidence else reason,
                 operation,
-                (confirmations or {}).get(p.record.pk, ""),
+                p.confirmed,
                 handed_over_by,
             )
-            for p in planned
+            for w, p in zip(wanted, planned, strict=True)
         ]
         _check_now()
         return events
@@ -845,18 +890,26 @@ def check_in(
     wanted: Sequence[Wanted],
     *,
     reason: str = "",
-    confirmations: Mapping[Any, str] | None = None,
+    confirmations: Mapping[Any, str | Confirmation] | None = None,
 ) -> list[Event]:
     """Checks records back in: each to the position it kept, or, where ``to`` is given, to
     another, in the same change."""
     if not wanted:
         raise Wrong({"records": ["names nothing to check in."]})
     with transaction.atomic():
-        places = _custody(user, [w.record for w in wanted])
+        _lock_moves(wanted)
+        records = [w.record for w in wanted]
+        places = {
+            p.pk: p
+            for p in Place.objects.select_for_update().filter(pk__in=[r.pk for r in records])
+        }
         wrong: dict[str, list[str]] = {}
+        seen: set[UUID] = set()
         for i, w in enumerate(wanted):
             p = places.get(w.record.pk)
-            if p is None or p.custodian_id is None:
+            if w.record.pk in seen:
+                wrong[f"records/{i}"] = [f"{w.record.hrid} is named twice."]
+            elif p is None or p.custodian_id is None:
                 wrong[f"records/{i}"] = [f"{w.record.hrid} isn't checked out."]
             elif w.to is None and p.container_id is None:
                 wrong[f"records/{i}"] = [
@@ -866,8 +919,14 @@ def check_in(
                 wrong[f"records/{i}"] = [
                     f"Checking {w.record.hrid} in needs Editor in its container's project."
                 ]
+            seen.add(w.record.pk)
         if wrong:
             raise Wrong(wrong)
+        verified, errors = _confirmed(user, records, records, confirmations or {})
+        if errors:
+            raise Wrong(
+                {f"items/{i}": [errors[r.pk]] for i, r in enumerate(records) if r.pk in errors}
+            )
         operation = uuid7()
         moving = [w for w in wanted if w.to is not None]
         if moving:
@@ -902,6 +961,7 @@ def check_in(
                     custodian=None,
                     reason=reason,
                     operation=operation,
+                    confirmed=verified.get(w.record.pk, ""),
                 )
             )
         return out

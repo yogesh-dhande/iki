@@ -1,0 +1,13 @@
+apiVersion: iki/v1
+kind: EntityType
+name: MassStockLot
+label: Reagent mass lot
+schema_version: 1
+extends: StockLot
+hrid: { prefix: RMG }
+amount: { unit: "mg", label: Reagent mass, material: item }
+rules:
+  catalogue_unit:
+    check: record.item.stock_unit == "mg"
+    message: This lot requires a catalogue pack measured in mg.
+    fields: [item]

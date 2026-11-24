@@ -33,7 +33,7 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
-from pydantic import ConfigDict, ValidationError
+from pydantic import ConfigDict, ValidationError, field_serializer
 
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
@@ -511,6 +511,9 @@ class ResultTypeOut(Schema):
 
 class TypeAmountOut(Schema):
     unit: str = Field(description="The UCUM unit it's kept in, such as uL, mg or {vial}.")
+    whole_units: bool = Field(
+        False, description="Whether quantities must be whole numbers in this ledger unit."
+    )
     label: str = Field(description="What it's called, such as Volume.")
     description: str | None
     display_unit: str | None = Field(description="The unit it's shown in, if not `unit`.")
@@ -892,7 +895,16 @@ class AmountOut(Schema):
         description="The state field whose state holds it, such as quarantine: none of it is "
         "drawn, transferred or split off until that changes. None if nothing holds it."
     )
-    updated_at: datetime
+    updated_at: datetime = Field(
+        description="The balance revision. Send this exact string in If-Balance-Revision "
+        "when recording an absolute count.",
+        json_schema_extra={"format": "date-time"},
+    )
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, value: datetime) -> str:
+        # Django's JSON encoder rounds datetimes to milliseconds.
+        return value.isoformat()
 
 
 class EntityOut(Schema):
@@ -1474,6 +1486,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
     if wanted is None:
         return None
     return {
+        "whole_units": wanted.whole_units,
         "unit": wanted.unit,
         "label": wanted.label,
         "description": wanted.description,

@@ -18,6 +18,7 @@ from test_browser import (  # noqa: F401 - fixtures
     open_as,
     playwright,
     server,
+    watch,
     world,
 )
 from test_project_files import add
@@ -73,6 +74,139 @@ def rows(page: Page) -> list[str]:
     table = page.get_by_role("table", name="Files in Kinase Atlas")
     names = table.locator("tbody tr td:first-child")
     return [n.strip() for n in names.all_inner_texts()]
+
+
+def test_a_late_record_response_cannot_start_a_watch_when_leaving_for_a_file(
+    open_as: Any, world: World
+) -> None:
+    file = add(world.project, "record.pdb", by=world.users["admin"])
+    record = held(world, file)
+    record_path = f"/entities/{record.pk}/"
+    file_path = f"/files/{file.pk}/"
+    api = f"/api/v1/entities/{record.pk}"
+    # A separate same-origin page can observe the record page even as it leaves.
+    # Chromium can discard an outgoing document's console messages during navigation.
+    observer: Page = open_as("admin", file_path)
+    observer.evaluate(
+        """() => {
+          const channel = new BroadcastChannel("watch-test");
+          channel.onmessage = ({data: {stage, event}}) => {
+            const root = document.documentElement;
+            const key = "data-" + stage;
+            root.setAttribute(key, [root.getAttribute(key), event].filter(Boolean).join(" "));
+          };
+          window.watchTestChannel = channel;
+        }"""
+    )
+    trace = observer.locator("html")
+    page = watch(observer.context.new_page())
+
+    # The route's real loader awaits the record before it asks whether the user watches it.
+    # Release the parsed record at pagehide. WebKit can refuse a fetch in the old document
+    # before sending a request, so count attempts at native fetch as well as page errors.
+    page.add_init_script(
+        r"""
+        const ref = location.pathname.match(/^\/entities\/([^/]+)\/$/)?.[1];
+        const stage = new URLSearchParams(location.search).get("watchTest");
+        if (ref && stage) {
+          const channel = new BroadcastChannel("watch-test");
+          const record = event => channel.postMessage({stage, event});
+          const api = `/api/v1/entities/${ref}`;
+          const send = window.fetch;
+          window.fetch = function(input, init) {
+            const url = input instanceof Request ? input.url : new URL(input, location.href).href;
+            if (new URL(url).pathname === api + "/watch") {
+              record("watch-attempt");
+              const signal = init?.signal ?? input.signal;
+              signal?.addEventListener("abort", () => {
+                record("watch-aborted");
+              });
+            }
+            return send.call(this, input, init);
+          };
+          // The SDK parses JSON directly or from text, depending on the response headers.
+          for (const method of ["json", "text"]) {
+            const parse = Response.prototype[method];
+            Response.prototype[method] = async function(...args) {
+              const result = await parse.apply(this, args);
+              if (this.url && new URL(this.url).pathname === api) {
+                document.documentElement.dataset.recordReady = "yes";
+                await new Promise(resolve => {
+                  function release() {
+                    window.removeEventListener("pagehide", release);
+                    window.removeEventListener("test-release-record", release);
+                    record("record-released");
+                    resolve();
+                  }
+                  window.addEventListener("pagehide", release, {once: true});
+                  window.addEventListener("test-release-record", release, {once: true});
+                });
+              }
+              return result;
+            };
+          }
+        }
+        """
+    )
+    page.goto(f"{record_path}?watchTest=departure")
+    expect(page.locator("html")).to_have_attribute("data-record-ready", "yes")
+    page.goto(file_path)
+    expect(page.get_by_role("heading", level=1, name=file.name)).to_be_visible()
+    expect(trace).to_have_attribute("data-departure", "record-released")
+    assert_clean(page)
+
+    # A live GET is allowed to start. Leaving while the server has yet to answer it
+    # must abort its signal. Network cancellation alone cannot establish who stopped it.
+    page.goto(f"{record_path}?watchTest=inflight")
+    expect(page.locator("html")).to_have_attribute("data-record-ready", "yes")
+    watch_url = f"**{api}/watch"
+    page.route(watch_url, lambda route: None)
+    with page.expect_request(watch_url):
+        page.evaluate("window.dispatchEvent(new Event('test-release-record'))")
+    page.goto(file_path)
+    expect(page.get_by_role("heading", level=1, name=file.name)).to_be_visible()
+    expect(trace).to_have_attribute("data-inflight", "record-released watch-attempt watch-aborted")
+    page.unroute(watch_url)
+
+    # Automation does not guarantee that going Back restores a cached document. Model
+    # that lifecycle on this live page and let its original loader finish on restoration.
+    page.goto(f"{record_path}?watchTest=restored")
+    expect(page.locator("html")).to_have_attribute("data-record-ready", "yes")
+    page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted: true}))")
+    expect(trace).to_have_attribute("data-restored", "record-released")
+    with page.expect_response(lambda response: response.url.endswith(f"{api}/watch")) as recovered:
+        page.evaluate(
+            "window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted: true}))"
+        )
+    assert recovered.value.status == 200
+    expect(page.get_by_role("heading", level=1, name=record.hrid)).to_be_visible()
+    expect(trace).to_have_attribute("data-restored", "record-released watch-attempt")
+
+    # The same continuation on a live page must reach the browser. A genuine connect-src
+    # refusal is still reported by the browser's CSP listener.
+    page.goto(f"{record_path}?watchTest=live")
+    expect(page.locator("html")).to_have_attribute("data-record-ready", "yes")
+    page.evaluate(
+        """path => {
+          const watch = new URL(path, location.href).href;
+          document.addEventListener("securitypolicyviolation", event => {
+            if (event.blockedURI === watch) {
+              document.documentElement.dataset.watchViolation = event.effectiveDirective;
+            }
+          });
+          const policy = document.createElement("meta");
+          policy.httpEquiv = "Content-Security-Policy";
+          policy.content = "connect-src 'none'";
+          document.head.append(policy);
+          window.dispatchEvent(new Event("test-release-record"));
+        }""",
+        f"{api}/watch",
+    )
+    expect(page.locator("html")).to_have_attribute("data-watch-violation", "connect-src")
+    expect(trace).to_have_attribute("data-live", "record-released watch-attempt")
+    expect(trace).to_have_attribute("data-departure", "record-released")
+    assert any(f"{api}/watch" in violation for violation in page.evaluate("window.__cspViolations"))
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Button · Iki UI</title>
+    <link rel="stylesheet" href="../dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/fonts.css" />
+    <link rel="stylesheet" href="../dist/button.css" />
+    <style>
+      html {
+        font: 81.25%/1.45 var(--font);
+      }
+      html,
+      body {
+        background: var(--bg);
+        color: var(--text);
+      }
+      main {
+        padding: 1rem;
+      }
+      form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Button</h1>
+      <form>
+        <iki-button id="save"></iki-button>
+        <iki-button id="cancel"></iki-button>
+        <iki-button id="archive"></iki-button>
+      </form>
+      <p role="status"></p>
+    </main>
+    <script type="module">
+      import "../dist/button.js";
+
+      const status = document.querySelector('[role="status"]');
+      document.querySelector("#save").data = { text: "Save", type: "submit", variant: "primary" };
+      document.querySelector("#cancel").data = { text: "Cancel", variant: "quiet" };
+      document.querySelector("#archive").data = {
+        text: "Archive",
+        variant: "danger",
+        disabled: true,
+      };
+      document.querySelector("form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        status.textContent = "Saved.";
+      });
+      document.querySelector("#cancel").addEventListener("iki-press", () => {
+        status.textContent = "Canceled.";
+      });
+    </script>
+  </body>
+</html>

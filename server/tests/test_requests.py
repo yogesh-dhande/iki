@@ -572,6 +572,60 @@ def test_the_service_assigns_its_own_people(lab: Lab) -> None:
     assert [w["entity"]["hrid"] for w in work] == [made["hrid"]]
 
 
+def test_withdrawn_requests_leave_work_and_cannot_be_taken(lab: Lab) -> None:
+    assigned, available = sent(lab), sent(lab)
+    technician = lab.api("tech")
+
+    def work_ids(path: str) -> list[str]:
+        listing = technician.get(path)
+        assert listing.status_code == 200, listing.content
+        return [item["entity"]["id"] for item in listing.json()["items"]]
+
+    for ref in (assigned["id"], available["id"]):
+        accepted = state(lab, "tech", ref, "status", "accepted")
+        assert accepted.status_code == 200, accepted.content
+    changed = change(lab, "tech", assigned["id"], {"technician": str(lab.users["tech"].pk)})
+    assert changed.status_code == 200, changed.content
+    assert work_ids("/me/work") == [assigned["id"]]
+    assert work_ids("/me/work/open") == [available["id"]]
+
+    for ref in (assigned["id"], available["id"]):
+        stopped = state(lab, "editor", ref, "standing", "withdrawn", "No longer needed")
+        assert stopped.status_code == 200, stopped.content
+    assert work_ids("/me/work") == []
+    assert work_ids("/me/work/open") == []
+
+    ref = available["id"]
+    observed = technician.get(f"/entities/{ref}")
+    assert observed.status_code == 200, observed.content
+    values = observed.json()["values"]
+    assert values["status"] == "accepted" and values["standing"] == "withdrawn"
+    assert values["technician"] is None
+    assert observed.json()["can"]["take"] == []
+    refused = problem(
+        technician.post(
+            f"/entities/{ref}/take",
+            {"field": "technician"},
+            headers={"If-Match": observed["ETag"]},
+        ),
+        409,
+        "refused",
+    )
+    assert "withdrawn" in refused["detail"]
+    assert technician.get(f"/entities/{ref}")["ETag"] == observed["ETag"]
+
+    reopened = state(lab, "editor", ref, "standing", "open")
+    assert reopened.status_code == 200, reopened.content
+    assert work_ids("/me/work/open") == [ref]
+    took = technician.post(
+        f"/entities/{ref}/take",
+        {"field": "technician"},
+        headers={"If-Match": reopened["ETag"]},
+    )
+    assert took.status_code == 200, took.content
+    assert work_ids("/me/work") == [ref]
+
+
 def raw(statement: str, params: list[Any], *sides: str) -> None:
     """Runs SQL as a write of ``sides`` (none: the asking project's), as Iki's own would."""
     with transaction.atomic(), requests.writing(frozenset(sides)), connection.cursor() as cursor:

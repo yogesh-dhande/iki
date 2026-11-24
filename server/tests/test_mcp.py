@@ -787,6 +787,35 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     assert ledger[1]["agent"] is not None
 
 
+async def test_agents_submit_the_balance_revision_they_observed(world: World) -> None:
+    token = await token_for(world)
+    made = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={"label": "S-1"},
+            amount={"value": 100, "unit": "uL"},
+        )
+    )
+    ref = made["hrid"]
+    drawn = data(
+        await tool(
+            token, "draw_amount", ref=ref, amount={"value": 20, "unit": "uL"}, reason="Issued"
+        )
+    )
+    count = {"ref": ref, "amount": {"value": 75, "unit": "uL"}, "reason": "Counted"}
+    refused = error(
+        await tool(token, "adjust_amount", **count, balance_revision=made["amount"]["updated_at"])
+    )
+    assert "409, stale_balance" in refused and "recount" in refused
+    adjusted = data(
+        await tool(token, "adjust_amount", **count, balance_revision=drawn["amount"]["updated_at"])
+    )
+    assert adjusted["amount"]["value"] == "75"
+
+
 async def test_agents_set_records_states(world: World) -> None:
     """ADR 0125: an agent sees which states the person may set, sets one on the record, and
     can't change a record a state locks."""

@@ -1,6 +1,6 @@
 /**
  * Inter (ADR 0176), served from Iki's own static files: the files are the npm package's,
- * byte for byte, and iki.css asks for each over the ranges the package does. After a new
+ * byte for byte, and fonts.css asks for each over the ranges the package does. After a new
  * version of @fontsource-variable/inter, `pnpm --filter @ikisci/app fonts` copies them.
  */
 
@@ -45,7 +45,7 @@ describe("Inter", () => {
   it("covers the ranges the package's stylesheet does", () => {
     const published = ranges(readFileSync(repositoryPath(`${PACKAGE}/wght.css`), "utf8"));
     const ours = ranges(
-      readFileSync(repositoryPath("server/src/iki_server/web/static/iki/iki.css"), "utf8"),
+      readFileSync(repositoryPath("server/src/iki_server/web/static/iki/fonts.css"), "utf8"),
     );
     expect([...ours.keys()]).toEqual(SUBSETS.map((s) => `inter-${s}-wght-normal.woff2`));
     for (const [file, range] of ours) expect(range, file).toBe(published.get(file));

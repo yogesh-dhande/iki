@@ -55,6 +55,7 @@ from iki_server.org.models import Project, registry_of
 from iki_server.org.permissions import Action, can
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun
+from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE
 from iki_server.tasks import task
 from iki_spec import titles
 from iki_spec.model import EntityType, Field
@@ -163,13 +164,15 @@ def plan_import(import_id: str) -> str:
     except Exception:
         # Not one it can explain: it says so, rather than seem to go on planning. The
         # task's record and the logs keep what went wrong.
-        logger.exception("bundle_plan_crashed", import_id=import_id)
-        BundleImport.objects.filter(pk=made.pk).update(
+        changed = BundleImport.objects.filter(pk=made.pk, state=ImportState.PLANNING).update(
             state=ImportState.FAILED,
             error="Something went wrong on Iki's side while checking it. Discard it and upload "
             "it again; if it happens again, your administrator can find what went wrong in "
             "Iki's logs.",
         )
+        if not changed:
+            return BundleImport.objects.get(pk=made.pk).state
+        logger.exception("bundle_plan_crashed", import_id=import_id)
         raise
 
 
@@ -181,21 +184,28 @@ def _plan(made: BundleImport) -> str:
             bundle = reading.read(
                 path, settings.IKI_BUNDLE_TRUSTED_KEYS, limit=settings.IKI_BUNDLE_MAX_BYTES
             )
-        except reading.BundleError as error:
-            return _refuse(made, str(error))
-        made.bundle_id = uuid.UUID(bundle.manifest["id"])
-        made.source = _source(bundle.manifest)
-        if bundle.trusted_as is None:
-            return _refuse(
-                made,
-                f"It's signed with {bundle.source}'s key {bundle.manifest['source']['key']}, "
-                f"which this deployment doesn't trust. To import from {bundle.source}, an "
-                "administrator adds that key to the deployment's trusted bundle keys "
-                "(bundles.trusted).",
-            )
-        made.trusted_as = bundle.trusted_as
-        try:
             with transaction.atomic():
+                # A discard or another worker can finish while this one reads the archive.
+                # Use the current project's registry and keep it fixed during publication.
+                made = (
+                    BundleImport.objects.select_related("project")
+                    .select_for_update(of=("self", "project"))
+                    .get(pk=made.pk)
+                )
+                if made.state != ImportState.PLANNING:
+                    return made.state
+                check_archive(made, bundle)
+                made.bundle_id = uuid.UUID(bundle.manifest["id"])
+                made.source = _source(bundle.manifest)
+                if bundle.trusted_as is None:
+                    key = bundle.manifest["source"]["key"]
+                    raise reading.BundleError(
+                        f"It's signed with {bundle.source}'s key {key}, "
+                        f"which this deployment doesn't trust. To import from {bundle.source}, an "
+                        "administrator adds that key to the deployment's trusted bundle keys "
+                        "(bundles.trusted)."
+                    )
+                made.trusted_as = bundle.trusted_as
                 ImportEntity.objects.filter(bundle_import=made).delete()
                 ImportPerson.objects.filter(bundle_import=made).delete()
                 made.plan = _Planner(made, bundle).plan()
@@ -212,19 +222,33 @@ def _plan(made: BundleImport) -> str:
                         "import": str(made.pk),
                         "bundle": str(made.bundle_id),
                         "sha256": made.sha256,
+                        "planned_at": made.planned_at.isoformat(),
                         "source": made.trusted_as,
                         **made.plan["counts"],
                     },
                 )
+                return made.state
         except reading.BundleError as error:
             return _refuse(made, str(error))
-    return made.state
 
 
+def check_archive(made: BundleImport, bundle: reading.Bundle) -> None:
+    """The reviewed archive is the one whose size and SHA-256 the upload verified."""
+    if (bundle.sha256, bundle.size) != (made.sha256, made.size):
+        raise reading.BundleError("The bundle's SHA-256 or size differs from the verified upload.")
+
+
+@transaction.atomic
 def _refuse(made: BundleImport, message: str) -> str:
-    made.state = ImportState.REFUSED
-    made.error = message
-    made.save()
+    changed = BundleImport.objects.filter(pk=made.pk, state=ImportState.PLANNING).update(
+        state=ImportState.REFUSED,
+        error=message,
+        bundle_id=made.bundle_id,
+        source=made.source,
+        trusted_as=made.trusted_as,
+    )
+    if not changed:
+        return BundleImport.objects.get(pk=made.pk).state
     audit.record(
         "bundle.import_refused",
         actor=made.requested_by,
@@ -233,7 +257,7 @@ def _refuse(made: BundleImport, message: str) -> str:
         project=made.project,
         data={"import": str(made.pk), "sha256": made.sha256, "why": message},
     )
-    return made.state
+    return ImportState.REFUSED
 
 
 def _source(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -291,6 +315,11 @@ class _Planner:
     #: The bundle's registry entries, by their ID there, and what each is here.
     entries: dict[str, dict[str, Any]] = field(default_factory=dict)
     resolved: dict[str, _Entry] = field(default_factory=dict)
+    #: Per-source decisions for comparing the confirmed plan, including outside references
+    #: beyond the display limit. Entities and people have their own plan tables.
+    members: dict[str, dict[str, dict[str, Any]]] = field(
+        default_factory=lambda: {"files": {}, "runs": {}, "outside": {}, "entries": {}}
+    )
 
     def plan(self) -> dict[str, Any]:
         types = self._types()
@@ -310,6 +339,7 @@ class _Planner:
                 "export and import again."
             )
         return {
+            "members": self.members,
             "counts": {
                 "entities": c.new + c.update + c.skip + c.conflict,
                 "new": c.new,
@@ -343,17 +373,21 @@ class _Planner:
             ids = [r["id"] for r in batch]
             here = set(ActionRun.objects.filter(pk__in=ids).values_list("pk", flat=True))
             taken = set(
-                ActionRun.objects.filter(hrid__in=[r["hrid"] for r in batch])
-                .exclude(pk__in=ids)
-                .values_list("hrid", flat=True)
+                ActionRun.objects.filter(hrid__in=[r["hrid"] for r in batch]).values_list(
+                    "hrid", flat=True
+                )
             )
             for run in batch:
                 if uuid.UUID(run["id"]) in here:
                     self.counts.runs_here += 1
-                    continue
-                self.counts.runs += 1
-                if run["hrid"] in taken:
-                    self.counts.runs_renumbered += 1
+                    action = "skip"
+                else:
+                    self.counts.runs += 1
+                    action = "keep_hrid"
+                    if run["hrid"] in taken:
+                        self.counts.runs_renumbered += 1
+                        action = "renumber"
+                self.members["runs"][run["id"]] = {"label": run["hrid"], "action": action}
 
     # Types --------------------------------------------------------------------------------
 
@@ -452,36 +486,66 @@ class _Planner:
             if m["path"].startswith("blobs/")
         }
         shas = {f["sha256"] for f in lines}
-        here = set(Blob.objects.filter(sha256__in=shas).values_list("sha256", flat=True))
-        existing = dict(
-            File.objects.filter(pk__in=[f["id"] for f in lines]).values_list("pk", "blob__sha256")
-        )
-        existing_uris = set(
-            Blob.objects.filter(sha256__in=shas).values_list("storage_uri", flat=True)
-        )
+        # Choose the first local blob of the digest, including externally registered
+        # blobs. Several distinct registered objects can have the same bytes.
+        blobs: dict[str, str] = {}
+        existing_uris: set[str] = set()
+        for sha, pk, uri in (
+            Blob.objects.filter(sha256__in=shas)
+            .order_by("pk")
+            .values_list("sha256", "pk", "storage_uri")
+        ):
+            blobs.setdefault(sha, str(pk))
+            existing_uris.add(uri)
+        existing = {
+            str(pk): (str(blob), sha)
+            for pk, blob, sha in File.objects.filter(pk__in=[f["id"] for f in lines]).values_list(
+                "pk", "blob_id", "blob__sha256"
+            )
+        }
+        # If the bytes aren't here yet, the first new file of the digest determines how
+        # every file of that digest will be stored, as in _Writer._store.
+        sources: dict[str, str] = {}
         registered = 0
         allowed = files.locations()
         for f in lines:
-            self.file_sha[f["id"]] = f["sha256"]
+            source_id, sha = f["id"], f["sha256"]
+            self.file_sha[source_id] = sha
+            try:
+                label = files.clean_name(f["name"])
+            except Refused:
+                label = source_id
             if f["registered"]:
                 registered += 1
                 uri = f["registered"]["uri"]
                 if uri not in existing_uris and not any(uri.startswith(a) for a in allowed):
                     self.problems.append(
-                        f"{f['name']} is registered at {uri}, where this deployment doesn't "
+                        f"{label} is registered at {uri}, where this deployment doesn't "
                         "register files from: an administrator adds the location first."
                     )
-            elif f["sha256"] not in carried and f["sha256"] not in here:
-                raise reading.BundleError(f"It names {f['name']}, but doesn't carry its bytes.")
-            sha = existing.get(uuid.UUID(f["id"]))
-            if sha is not None and sha != f["sha256"]:
-                self.problems.append(
-                    f"{f['name']} is here already with other bytes: a file never changes, so "
-                    "one of the two deployments has it wrong."
-                )
+            elif sha not in carried and sha not in blobs:
+                raise reading.BundleError(f"It names {label}, but doesn't carry its bytes.")
+            member = {"label": label, "action": "new"}
+            if source_id in existing:
+                blob_id, existing_sha = existing[source_id]
+                member.update(action="skip", storage="keep", blob=blob_id)
+                if existing_sha != sha:
+                    self.problems.append(
+                        f"{label} is here already with other bytes: a file never changes, so "
+                        "one of the two deployments has it wrong."
+                    )
+            elif sha in blobs:
+                member.update(storage="reuse_blob", blob=blobs[sha])
+            else:
+                first = sources.setdefault(sha, source_id)
+                if first == source_id:
+                    member.update(storage="register" if f["registered"] else "store")
+                else:
+                    member.update(storage="share_blob", source_file=first)
+            self.members["files"][source_id] = member
         return {
             "files": len(lines),
-            "here": sum(1 for f in lines if uuid.UUID(f["id"]) in existing),
+            "here": len(existing),
             "carried": len(carried),
             "registered": registered,
         }
@@ -519,6 +583,7 @@ class _Planner:
             str(pk)
             for pk in Entity.objects.filter(pk__in=list(self.entries)).values_list("pk", flat=True)
         }
+        remapped = self._remapped_ids({key for key in taken_ids if digests.get(key) not in here})
         taken_hrids = set(
             Entity.objects.filter(
                 hrid__in=[e["hrid"] for e in lines], entry__isnull=True
@@ -529,7 +594,7 @@ class _Planner:
             if digest is None:
                 self.resolved[line["id"]] = _Entry(
                     None,
-                    uuid.uuid4(),
+                    remapped.get(line["id"], uuid.UUID(line["id"])),
                     "",
                     f"{line['hrid']}'s identity can't be read here: is its type's plugin here?",
                 )
@@ -542,13 +607,41 @@ class _Planner:
                 )
                 continue
             self.counts.registered += 1
-            pk = uuid.UUID(line["id"]) if line["id"] not in taken_ids else uuid.uuid4()
+            pk = remapped.get(line["id"], uuid.UUID(line["id"]))
             hrid = line["hrid"] if line["hrid"] not in taken_hrids else ""
             if not hrid:
                 self.counts.renumbered += 1
             form = shape(line["type"])
             why = next(iter(_entry_clashes(registry_id, form, _typed(form, line["values"]))), "")
             self.resolved[line["id"]] = _Entry(None, pk, hrid, why)
+
+    def _remapped_ids(self, taken: set[str]) -> dict[str, uuid.UUID]:
+        """Choose stable IDs for new entries whose source UUID belongs to something else.
+
+        The import owns the UUID namespace. Reserve the bundle's other entries and records
+        too: both occupy the entity table. Check proposed IDs together against that table
+        before accepting them, retrying only collisions.
+        """
+        remapped: dict[str, uuid.UUID] = {}
+        if not taken:
+            return remapped
+        reserved = {uuid.UUID(key) for key in self.entries}
+        reserved.update(uuid.UUID(line["id"]) for line in self.bundle.lines("entities.ndjson"))
+        attempt = 0
+        while taken:
+            candidates = {
+                key: uuid.uuid5(self.made.pk, f"entry:{key}:{attempt}") for key in sorted(taken)
+            }
+            occupied = set(
+                Entity.objects.filter(pk__in=candidates.values()).values_list("pk", flat=True)
+            )
+            for key, candidate in candidates.items():
+                if candidate not in reserved and candidate not in occupied:
+                    remapped[key] = candidate
+                    reserved.add(candidate)
+                    taken.remove(key)
+            attempt += 1
+        return remapped
 
     @staticmethod
     def _against_entry(line: dict[str, Any], here: Entity) -> str:
@@ -591,9 +684,9 @@ class _Planner:
         ):
             history.setdefault(entity_id, []).append(revision_id)
         taken = set(
-            Entity.objects.filter(hrid__in=[e["hrid"] for e in batch])
-            .exclude(pk__in=ids)
-            .values_list("hrid", flat=True)
+            Entity.objects.filter(hrid__in=[e["hrid"] for e in batch]).values_list(
+                "hrid", flat=True
+            )
         )
         held = dict(
             Entity.objects.filter(
@@ -673,6 +766,12 @@ class _Planner:
             clash = self._clash(entity_id, entity_type, values)
             if clash:
                 row.action, row.adds, row.why = EntityPlan.CONFLICT, 0, clash
+        if row.registers and row.action in (EntityPlan.NEW, EntityPlan.UPDATE):
+            source = self.entries[line["entry"]]
+            self.members["entries"][source["id"]] = {
+                "label": source["hrid"],
+                "registry": str(registry_of(self.made.project)),
+            }
         setattr(self.counts, str(row.action), getattr(self.counts, str(row.action)) + 1)
         self.counts.revisions += row.adds
         return row
@@ -719,9 +818,11 @@ class _Planner:
         )
 
     def _clash(self, entity_id: uuid.UUID, entity_type: EntityType, values: dict[str, Any]) -> str:
-        """A unique value of the record's own another record of the project has. (Its
-        entry's are the registry's, checked with the entry.)"""
+        """Check the proposed current barcode and the record's project-scoped unique fields."""
         form = shape(entity_type.qualified_name)
+        name = form.vendor_barcode
+        if name is not None and form.is_reserved_vendor_code(name, values.get(name)):
+            return f"Its {name} {RESERVED_VENDOR_MESSAGE}"
         for message in _unique_clashes(self.made.project, form, values, entity_id, self.ids):
             return message
         return ""
@@ -738,6 +839,9 @@ class _Planner:
             access.held_entries(self.made.project).filter(pk__in=ids).values_list("pk", flat=True)
         )
         items = [{**o, "here": uuid.UUID(o["id"]) in here} for o in lines]
+        self.members["outside"] = {
+            i["id"]: {"label": i["hrid"] or i["id"], "here": i["here"]} for i in items
+        }
         # Values refer to them now (history's references needn't resolve): they must be here.
         missing = [i for i in items if not i["here"] and i["why"] not in ("history", "run")]
         if missing:

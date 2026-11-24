@@ -640,6 +640,7 @@
             "type": "string"
           },
           "updated_at": {
+            "description": "The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.",
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
@@ -1286,6 +1287,44 @@
         "title": "AppPluginComponentOut",
         "type": "object"
       },
+      "AppliedMappingOut": {
+        "properties": {
+          "columns": {
+            "description": "Mapped columns, including the column index, header and how each was read.",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "header_row": {
+            "title": "Header Row",
+            "type": "integer"
+          },
+          "locale": {
+            "$ref": "#/components/schemas/SheetLocaleOut"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedMappingMatch"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "template",
+          "header_row",
+          "locale",
+          "columns"
+        ],
+        "title": "AppliedMappingOut",
+        "type": "object"
+      },
       "AppliedStarterOut": {
         "properties": {
           "flow": {
@@ -1324,6 +1363,12 @@
       },
       "ApplyIn": {
         "properties": {
+          "planned_at": {
+            "description": "The planned_at of the plan being confirmed.",
+            "format": "date-time",
+            "title": "Planned At",
+            "type": "string"
+          },
           "reason": {
             "description": "Why: the import and the audit log keep it.",
             "maxLength": 2000,
@@ -1333,6 +1378,7 @@
           }
         },
         "required": [
+          "planned_at",
           "reason"
         ],
         "title": "ApplyIn",
@@ -1421,6 +1467,25 @@
             "minItems": 1,
             "title": "Entities",
             "type": "array"
+          },
+          "expected_revisions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "format": "uuid"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required. Each selected entity's observed revision, by entity ID.",
+            "title": "Expected Revisions"
           },
           "field": {
             "description": "An assignment field of theirs.",
@@ -2424,6 +2489,51 @@
         "title": "CancelIn",
         "type": "object"
       },
+      "CancelReceiptIn": {
+        "properties": {
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_revision",
+          "reason"
+        ],
+        "title": "CancelReceiptIn",
+        "type": "object"
+      },
+      "CancelReconciliationIn": {
+        "properties": {
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "description": "Why this count is being cancelled.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_revision",
+          "reason"
+        ],
+        "title": "CancelReconciliationIn",
+        "type": "object"
+      },
       "CarriedSignatureOut": {
         "properties": {
           "id": {
@@ -2641,7 +2751,15 @@
         "properties": {
           "confirmations": {
             "additionalProperties": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/IkiIdConfirmationIn"
+                }
+              ]
             },
             "title": "Confirmations",
             "type": "object"
@@ -2690,15 +2808,34 @@
           "to": {
             "anyOf": [
               {
-                "maxLength": 64,
+                "maxLength": 200,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Another container to put it in; null: where it was.",
+            "description": "Destination container ID, label or entity link; null: where it was.",
             "title": "To"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -2818,6 +2955,34 @@
           "location"
         ],
         "title": "CheckedOutOut",
+        "type": "object"
+      },
+      "CheckedReceiptOut": {
+        "properties": {
+          "found": {
+            "description": "Whether this observation changed.",
+            "enum": [
+              "recorded",
+              "again"
+            ],
+            "title": "Found",
+            "type": "string"
+          },
+          "line": {
+            "format": "uuid",
+            "title": "Line",
+            "type": "string"
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/ReceiptOut"
+          }
+        },
+        "required": [
+          "found",
+          "line",
+          "receipt"
+        ],
+        "title": "CheckedReceiptOut",
         "type": "object"
       },
       "CheckpointOut": {
@@ -3035,10 +3200,15 @@
       "CompleteReceiptIn": {
         "properties": {
           "missing_rest": {
-            "default": false,
-            "description": "Mark every expected line not yet checked missing.",
+            "description": "Mark every unchecked expected line missing. Defaults to false.",
             "title": "Missing Rest",
             "type": "boolean"
+          },
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           },
           "put_away": {
             "items": {
@@ -3049,24 +3219,42 @@
             "type": "array"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReceiptIn",
         "type": "object"
       },
       "CompleteReconciliationIn": {
         "properties": {
           "missing_rest": {
-            "default": false,
-            "description": "Take each recorded position nobody scanned to be missing, removed.",
+            "description": "Treat unscanned occupants as missing and remove them. Defaults to false.",
             "title": "Missing Rest",
             "type": "boolean"
           },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Completion note. Defaults to empty.",
+            "title": "Note"
+          },
+          "plan_revision": {
+            "description": "The revision of the reconciliation plan being reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -3910,6 +4098,68 @@
         "title": "CostTotalOut",
         "type": "object"
       },
+      "CountScanEvidenceOut": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The actual scanned label, null for empty; hidden labels are redacted.",
+            "title": "Code"
+          },
+          "id": {
+            "description": "The immutable scan event.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityBasis"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the record was identified. A shared label at its expected slot uses position. Null for an unidentified, empty or older scan."
+          },
+          "line_id": {
+            "description": "The physical scan line, usable as a history filter.",
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "string"
+          },
+          "scanned_at": {
+            "format": "date-time",
+            "title": "Scanned At",
+            "type": "string"
+          },
+          "scanned_by": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "required": [
+          "identity_basis",
+          "id",
+          "line_id",
+          "position",
+          "code",
+          "scanned_by",
+          "scanned_at"
+        ],
+        "title": "CountScanEvidenceOut",
+        "type": "object"
+      },
       "CountsOut": {
         "properties": {
           "total": {
@@ -4186,6 +4436,18 @@
             "title": "Derived From",
             "type": "array"
           },
+          "receive_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The required input container for a fresh stock receipt.",
+            "title": "Receive Into"
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -4314,7 +4576,7 @@
         "properties": {
           "note": {
             "default": "",
-            "description": "Why, for the record and for the agent.",
+            "description": "Required. Why, for the record and for the agent.",
             "maxLength": 2000,
             "title": "Note",
             "type": "string"
@@ -4584,11 +4846,18 @@
             "description": "How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass."
           },
           "confirm": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "$ref": "#/components/schemas/IkiIdConfirmationIn"
+              }
+            ],
             "default": "",
-            "description": "The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.",
-            "maxLength": 200,
-            "title": "Confirm",
-            "type": "string"
+            "description": "For a type that requires a scan: its unique label or printed Iki code, a link to the record, or its HRID explicitly entered from the tube.",
+            "title": "Confirm"
           },
           "purpose": {
             "allOf": [
@@ -9078,6 +9347,39 @@
         "title": "HoldingRecordOut",
         "type": "object"
       },
+      "IdentityBasis": {
+        "enum": [
+          "record_link",
+          "iki_id",
+          "position",
+          "choice",
+          "label"
+        ],
+        "type": "string"
+      },
+      "IkiIdConfirmationIn": {
+        "additionalProperties": false,
+        "description": "The operator independently entered the HRID printed on the selected record.",
+        "properties": {
+          "code": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "mode": {
+            "const": "iki_id",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "code"
+        ],
+        "title": "IkiIdConfirmationIn",
+        "type": "object"
+      },
       "ImportCounts": {
         "properties": {
           "conflict": {
@@ -9262,6 +9564,19 @@
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
           }
         },
         "title": "ImportEntityParams",
@@ -9326,6 +9641,45 @@
           "sha256"
         ],
         "title": "ImportIn",
+        "type": "object"
+      },
+      "ImportMemberParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "planned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "title": "Planned At"
+          }
+        },
+        "title": "ImportMemberParams",
         "type": "object"
       },
       "ImportOut": {
@@ -9394,6 +9748,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -9774,6 +10129,7 @@
                 "type": "null"
               }
             ],
+            "description": "Revision of the published plan. Pass this value unchanged when applying it.",
             "title": "Planned At"
           },
           "project": {
@@ -10492,7 +10848,7 @@
       "LabelOut": {
         "properties": {
           "code": {
-            "description": "What its barcodes encode: its barcode, or its HRID.",
+            "description": "Unique Iki record identity encoded in the Data Matrix or QR.",
             "title": "Code",
             "type": "string"
           },
@@ -10512,6 +10868,18 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "vendor_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Additional vendor Code 128 requested for this print, otherwise null.",
+            "title": "Vendor Code"
           }
         },
         "required": [
@@ -10519,7 +10887,8 @@
           "hrid",
           "title",
           "line",
-          "code"
+          "code",
+          "vendor_code"
         ],
         "title": "LabelOut",
         "type": "object"
@@ -10527,7 +10896,7 @@
       "LabelSizeOut": {
         "properties": {
           "code128": {
-            "description": "It has room for a Code 128 beside the 2D code.",
+            "description": "This stock supports an additional vendor Code 128 if it fits.",
             "title": "Code128",
             "type": "boolean"
           },
@@ -10605,6 +10974,11 @@
             ],
             "title": "Format",
             "type": "string"
+          },
+          "include_vendor_code": {
+            "description": "Also print the vendor barcode as Code 128 when it fits. Defaults to false.",
+            "title": "Include Vendor Code",
+            "type": "boolean"
           },
           "preview": {
             "default": false,
@@ -11270,13 +11644,16 @@
       "MoveIn": {
         "properties": {
           "reason": {
-            "default": "",
-            "description": "Why, for the record.",
+            "description": "Why the holder is moving it.",
             "maxLength": 2000,
+            "minLength": 1,
             "title": "Reason",
             "type": "string"
           }
         },
+        "required": [
+          "reason"
+        ],
         "title": "MoveIn",
         "type": "object"
       },
@@ -11304,15 +11681,34 @@
           "to": {
             "anyOf": [
               {
-                "maxLength": 64,
+                "maxLength": 200,
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "The container it goes in, by ID or HRID; null: out of storage.",
+            "description": "Destination container ID, label or entity link; null: out of storage.",
             "title": "To"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -11757,9 +12153,17 @@
         "properties": {
           "confirmations": {
             "additionalProperties": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "$ref": "#/components/schemas/IkiIdConfirmationIn"
+                }
+              ]
             },
-            "description": "The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.",
+            "description": "Proof for each selected record that requires confirmation, keyed by its ID or HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
             "title": "Confirmations",
             "type": "object"
           },
@@ -12179,6 +12583,168 @@
         "title": "NotificationRecordOut",
         "type": "object"
       },
+      "ObservationEventOut": {
+        "properties": {
+          "actor": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "outcome",
+              "handoff",
+              "scan",
+              "resolution",
+              "status"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The original line, including after its removal.",
+            "title": "Line Id"
+          },
+          "operation": {
+            "format": "uuid",
+            "title": "Operation",
+            "type": "string"
+          },
+          "previous": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The prior observation of this kind on this line.",
+            "title": "Previous"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Id"
+          },
+          "reconciliation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation Id"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "receipt_id",
+          "reconciliation_id",
+          "line_id",
+          "before",
+          "after",
+          "actor",
+          "created_at",
+          "operation",
+          "revision",
+          "previous",
+          "reason"
+        ],
+        "title": "ObservationEventOut",
+        "type": "object"
+      },
+      "ObservationEventsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationEventOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ObservationEventsOut",
+        "type": "object"
+      },
       "OccupantOut": {
         "properties": {
           "code": {
@@ -12295,6 +12861,68 @@
           "container"
         ],
         "title": "OccupantOut",
+        "type": "object"
+      },
+      "OpenOrder": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "item_hrid": {
+            "title": "Item Hrid",
+            "type": "string"
+          },
+          "item_id": {
+            "format": "uuid",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "item_name": {
+            "title": "Item Name",
+            "type": "string"
+          },
+          "order_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Reference"
+          },
+          "ordered_packs": {
+            "title": "Ordered Packs",
+            "type": "integer"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "received_packs": {
+            "title": "Received Packs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "order_reference",
+          "item_id",
+          "item_hrid",
+          "item_name",
+          "ordered_packs",
+          "received_packs",
+          "outstanding_packs"
+        ],
+        "title": "OpenOrder",
         "type": "object"
       },
       "OrgParams": {
@@ -13144,6 +13772,35 @@
         "title": "Page[NotificationOut]",
         "type": "object"
       },
+      "Page_OpenOrder_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OpenOrder"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OpenOrder]",
+        "type": "object"
+      },
       "Page_PreviewRowOut_": {
         "properties": {
           "items": {
@@ -13490,6 +14147,64 @@
           "next_cursor"
         ],
         "title": "Page[SpreadsheetImportOut]",
+        "type": "object"
+      },
+      "Page_StockLot_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockLot"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockLot]",
+        "type": "object"
+      },
+      "Page_StockSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StockSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StockSummary]",
         "type": "object"
       },
       "Page_TeamMemberOut_": {
@@ -16098,10 +16813,29 @@
             "title": "Position"
           },
           "to": {
-            "description": "The container, by ID or HRID.",
-            "maxLength": 64,
+            "description": "The destination container's ID, HRID or label.",
+            "maxLength": 200,
             "title": "To",
             "type": "string"
+          },
+          "to_choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Choice"
+          },
+          "to_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -16559,20 +17293,62 @@
                 "type": "null"
               }
             ],
-            "description": "Such as its temperature on arrival.",
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
             "title": "Note"
+          },
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when correcting existing handoff information.",
+            "title": "Reason"
           }
         },
+        "required": [
+          "plan_revision"
+        ],
         "title": "ReceiptIn",
         "type": "object"
       },
       "ReceiptLineIn": {
         "properties": {
+          "line_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version of the line being corrected.",
+            "title": "Line Revision"
+          },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
+            "title": "Note"
           },
           "outcome": {
             "anyOf": [
@@ -16590,8 +17366,21 @@
                 "type": "null"
               }
             ],
-            "description": "Null clears an expected line's. Damaged, rejected and extra need a note.",
+            "description": "Null clears an expected line. First observations can omit line_revision.",
             "title": "Outcome"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required to change an existing outcome or replace a saved note.",
+            "title": "Reason"
           }
         },
         "required": [
@@ -16649,6 +17438,12 @@
             "title": "Id",
             "type": "string"
           },
+          "line_revision": {
+            "description": "The version of this line’s saved observation.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -16695,6 +17490,7 @@
         },
         "required": [
           "id",
+          "line_revision",
           "entity",
           "ref",
           "code",
@@ -16714,6 +17510,20 @@
             "description": "You may change it, while it's open.",
             "title": "Can Receive",
             "type": "boolean"
+          },
+          "cancel_reason": {
+            "title": "Cancel Reason",
+            "type": "string"
+          },
+          "cancelled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completed_at": {
             "anyOf": [
@@ -16755,6 +17565,12 @@
             "title": "Outcomes",
             "type": "object"
           },
+          "plan_revision": {
+            "description": "The receipt revision shown for review.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "project": {
             "description": "The service receiving it.",
             "format": "uuid",
@@ -16770,6 +17586,14 @@
                 "type": "null"
               }
             ]
+          },
+          "removed_lines": {
+            "description": "Removed extras kept for review and restoration.",
+            "items": {
+              "$ref": "#/components/schemas/ReceiptLineOut"
+            },
+            "title": "Removed Lines",
+            "type": "array"
           },
           "request": {
             "$ref": "#/components/schemas/StepOut"
@@ -16794,6 +17618,7 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "request",
           "project",
           "status",
@@ -16802,8 +17627,11 @@
           "started_by",
           "started_at",
           "received_by",
+          "cancelled_by",
+          "cancel_reason",
           "completed_at",
           "lines",
+          "removed_lines",
           "outcomes",
           "can_receive"
         ],
@@ -16812,11 +17640,30 @@
       },
       "ReceiptScanIn": {
         "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choice"
+          },
           "code": {
             "maxLength": 200,
             "minLength": 1,
             "title": "Code",
             "type": "string"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
           }
         },
         "required": [
@@ -16828,11 +17675,13 @@
       "ReceiptScanOut": {
         "properties": {
           "found": {
-            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.",
+            "description": "`matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because several readable records share its label; `removed`: an extra that can be restored.",
             "enum": [
               "matched",
               "again",
-              "extra"
+              "extra",
+              "ambiguous_extra",
+              "removed"
             ],
             "title": "Found",
             "type": "string"
@@ -16933,7 +17782,8 @@
               "wrong_slot",
               "unchecked",
               "empty",
-              "checked_out"
+              "checked_out",
+              "no_longer_found"
             ],
             "title": "Finding",
             "type": "string"
@@ -16955,9 +17805,26 @@
             "title": "Id",
             "type": "string"
           },
+          "line_revision": {
+            "description": "The version of this line and its supporting slot evidence.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
             "title": "Note",
             "type": "string"
+          },
+          "observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountScanEvidenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The scan supporting the finding, including a missing tube's expected slot."
           },
           "ref": {
             "anyOf": [
@@ -16986,6 +17853,11 @@
             ],
             "title": "Resolution"
           },
+          "resolution_stale": {
+            "description": "The open count's saved decision needs review.",
+            "title": "Resolution Stale",
+            "type": "boolean"
+          },
           "resolved_by": {
             "anyOf": [
               {
@@ -16995,9 +17867,23 @@
                 "type": "null"
               }
             ]
+          },
+          "reviewed_observation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountScanEvidenceOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact scan on which the saved decision was based."
           }
         },
         "required": [
+          "line_revision",
+          "observation",
+          "reviewed_observation",
           "id",
           "entity",
           "ref",
@@ -17006,6 +17892,7 @@
           "found",
           "finding",
           "resolution",
+          "resolution_stale",
           "note",
           "resolved_by"
         ],
@@ -17017,6 +17904,20 @@
           "can_change": {
             "title": "Can Change",
             "type": "boolean"
+          },
+          "cancel_reason": {
+            "title": "Cancel Reason",
+            "type": "string"
+          },
+          "cancelled_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "completed_at": {
             "anyOf": [
@@ -17066,6 +17967,12 @@
             "title": "Note",
             "type": "string"
           },
+          "plan_revision": {
+            "description": "The version of the count's observations and decisions.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
           "shape": {
             "$ref": "#/components/schemas/ShapeOut"
           },
@@ -17089,12 +17996,15 @@
         },
         "required": [
           "id",
+          "plan_revision",
           "container",
           "shape",
           "status",
           "note",
           "started_by",
           "started_at",
+          "cancelled_by",
+          "cancel_reason",
           "completed_by",
           "completed_at",
           "lines",
@@ -18062,11 +18972,36 @@
       },
       "ResolveIn": {
         "properties": {
+          "line_revision": {
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
           "note": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
+            "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when changing or clearing a saved decision.",
+            "title": "Reason"
           },
           "resolution": {
             "anyOf": [
@@ -18083,11 +19018,12 @@
                 "type": "null"
               }
             ],
-            "description": "`moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.",
+            "description": "`moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.",
             "title": "Resolution"
           }
         },
         "required": [
+          "line_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -18168,6 +19104,48 @@
           "released_states"
         ],
         "title": "ResultTypeOut",
+        "type": "object"
+      },
+      "ReviewedCountLine": {
+        "properties": {
+          "line_id": {
+            "format": "uuid",
+            "title": "Line Id",
+            "type": "string"
+          },
+          "line_revision": {
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "line_id",
+          "line_revision"
+        ],
+        "title": "ReviewedCountLine",
+        "type": "object"
+      },
+      "ReviewedExtraIn": {
+        "properties": {
+          "line_revision": {
+            "description": "The reviewed version of the extra line.",
+            "minimum": 1,
+            "title": "Line Revision",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "line_revision",
+          "reason"
+        ],
+        "title": "ReviewedExtraIn",
         "type": "object"
       },
       "RevisionDetailOut": {
@@ -20749,8 +21727,127 @@
         "title": "SavedSearchPatch",
         "type": "object"
       },
+      "ScanCandidateBoxOut": {
+        "properties": {
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title"
+        ],
+        "title": "ScanCandidateBoxOut",
+        "type": "object"
+      },
+      "ScanCandidateOut": {
+        "properties": {
+          "box": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanCandidateBoxOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "owner_project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScanCandidateProjectOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "title",
+          "type",
+          "owner_project",
+          "box",
+          "position"
+        ],
+        "title": "ScanCandidateOut",
+        "type": "object"
+      },
+      "ScanCandidateProjectOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ScanCandidateProjectOut",
+        "type": "object"
+      },
       "ScanIn": {
         "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The readable candidate selected for this scanned label.",
+            "title": "Choice"
+          },
           "code": {
             "anyOf": [
               {
@@ -20763,6 +21860,14 @@
             ],
             "description": "Null: it's empty.",
             "title": "Code"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ],
+            "description": "Defaults to label. Use iki_id for a printed Iki ID."
           },
           "position": {
             "maxLength": 8,
@@ -20861,6 +21966,13 @@
         "title": "ScanMatchOut",
         "type": "object"
       },
+      "ScanMode": {
+        "enum": [
+          "label",
+          "iki_id"
+        ],
+        "type": "string"
+      },
       "ScanOut": {
         "properties": {
           "code": {
@@ -20899,8 +22011,162 @@
         "title": "ScanParams",
         "type": "object"
       },
+      "ScanResolveIn": {
+        "properties": {
+          "choice": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A readable candidate chosen for navigation.",
+            "title": "Choice"
+          },
+          "code": {
+            "description": "The label, printed Iki ID or record link read.",
+            "maxLength": 200,
+            "title": "Code",
+            "type": "string"
+          },
+          "container": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The container to search for a box scan.",
+            "title": "Container"
+          },
+          "mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScanMode"
+              }
+            ]
+          },
+          "position": {
+            "anyOf": [
+              {
+                "maxLength": 8,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the usable occupant at this position.",
+            "title": "Position"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record whose identity is being confirmed.",
+            "title": "Record"
+          },
+          "records": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 1536,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Selected record UUIDs or HRIDs. Omit record to identify a tube across the selection (up to 500). With record, include the target.",
+            "title": "Records"
+          },
+          "scope": {
+            "enum": [
+              "box",
+              "confirmation",
+              "destination"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "code"
+        ],
+        "title": "ScanResolveIn",
+        "type": "object"
+      },
+      "ScanResolveOut": {
+        "properties": {
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/ScanCandidateOut"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "one",
+              "ambiguous",
+              "none"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "candidates"
+        ],
+        "title": "ScanResolveOut",
+        "type": "object"
+      },
       "ScansIn": {
         "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Defaults to empty. Required when replacing an earlier observation.",
+            "title": "Reason"
+          },
+          "reviewed_lines": {
+            "description": "Prior observations to recheck or replace, including empty slots.",
+            "items": {
+              "$ref": "#/components/schemas/ReviewedCountLine"
+            },
+            "maxItems": 3072,
+            "title": "Reviewed Lines",
+            "type": "array"
+          },
           "scans": {
             "description": "Each position scanned: one at a time, or a rack scanner's file.",
             "items": {
@@ -24210,6 +25476,17 @@
       },
       "SpreadsheetImportOut": {
         "properties": {
+          "applied_mapping": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppliedMappingOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact mapping confirmed at commit, kept on the import."
+          },
           "can": {
             "additionalProperties": {
               "type": "boolean"
@@ -24289,7 +25566,7 @@
                 "type": "null"
               }
             ],
-            "description": "The saved mapping it was mapped by."
+            "description": "The saved mapping it was mapped by, pinned on committed imports."
           },
           "mappings": {
             "description": "The project's saved mappings for the type, best matched first.",
@@ -24324,6 +25601,11 @@
           },
           "requested_by": {
             "$ref": "#/components/schemas/PersonRef"
+          },
+          "revision": {
+            "description": "One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.",
+            "title": "Revision",
+            "type": "integer"
           },
           "run": {
             "anyOf": [
@@ -24419,6 +25701,7 @@
         },
         "required": [
           "id",
+          "revision",
           "project",
           "type",
           "file",
@@ -25227,6 +26510,231 @@
         "title": "StepRunOut",
         "type": "object"
       },
+      "StockFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "low_only": {
+            "default": false,
+            "title": "Low Only",
+            "type": "boolean"
+          }
+        },
+        "title": "StockFilters",
+        "type": "object"
+      },
+      "StockLot": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "checked_out": {
+            "title": "Checked Out",
+            "type": "boolean"
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
+          },
+          "container_hrid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Hrid"
+          },
+          "container_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires On"
+          },
+          "held": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lot_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Number"
+          },
+          "placed": {
+            "title": "Placed",
+            "type": "boolean"
+          },
+          "row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "lot_number",
+          "expires_on",
+          "expired",
+          "held",
+          "unit",
+          "amount",
+          "available",
+          "container_id",
+          "container_hrid",
+          "row",
+          "column",
+          "checked_out",
+          "placed"
+        ],
+        "title": "StockLot",
+        "type": "object"
+      },
+      "StockSummary": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "string"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outstanding_packs": {
+            "title": "Outstanding Packs",
+            "type": "integer"
+          },
+          "physical": {
+            "title": "Physical",
+            "type": "string"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hrid",
+          "name",
+          "unit",
+          "threshold",
+          "physical",
+          "stored",
+          "available",
+          "low",
+          "outstanding_packs"
+        ],
+        "title": "StockSummary",
+        "type": "object"
+      },
       "StructureViewerOut": {
         "properties": {
           "label": {
@@ -26013,6 +27521,12 @@
             "description": "The UCUM unit it's kept in, such as uL, mg or {vial}.",
             "title": "Unit",
             "type": "string"
+          },
+          "whole_units": {
+            "default": false,
+            "description": "Whether quantities must be whole numbers in this ledger unit.",
+            "title": "Whole Units",
+            "type": "boolean"
           }
         },
         "required": [
@@ -31788,7 +33302,7 @@
     },
     "/api/v1/entities/assign": {
       "post": {
-        "description": "Names someone in an assignment field of many records at once (ADR 0122), such as a\ngrid's selection: each record you may edit changes as its own revision, and each person\nis told once. Records that can't change are skipped, with why: you can't edit them,\ntheir state locks them, their people with them, or the person can't be named\nin their project. A record you can't read is 404, and changes nothing.",
+        "description": "Names someone in an assignment field of many records at once (ADR 0122), such as a\ngrid's selection: each record you may edit changes as its own revision, and each person\nis told once. Records that can't change are skipped, with why: you can't edit them,\ntheir state locks them, their people with them, or the person can't be named\nin their project. Send an observed revision in `expected_revisions` for every selected\nentity. A stale selection answers 412 and identifies the changed records. A record\nyou can't read answers 404. Neither refusal changes any records.",
         "operationId": "iki_server_api_work_assign",
         "parameters": [],
         "requestBody": {
@@ -32454,7 +33968,7 @@
     },
     "/api/v1/entities/{ref}/amount/adjust": {
       "post": {
-        "description": "Sets it to what it was found to be, saying why: a recount, a spill, a correction. A\nrecord with no amount recorded gets one.",
+        "description": "Records an absolute count, with a reason. Send the observed amount's exact\n`updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.\nA missing header answers 428. A changed balance answers 409 and must be recounted.",
         "operationId": "iki_server_api_amounts_adjust",
         "parameters": [
           {
@@ -32464,6 +33978,22 @@
             "schema": {
               "title": "Ref",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Balance-Revision",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Balance-Revision"
             }
           }
         ],
@@ -36651,6 +38181,25 @@
             }
           },
           {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
+            }
+          },
+          {
             "in": "query",
             "name": "action",
             "required": false,
@@ -36800,6 +38349,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Read this revision of the plan. A newer plan answers 409.",
+            "in": "query",
+            "name": "planned_at",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Read this revision of the plan. A newer plan answers 409.",
+              "title": "Planned At"
             }
           }
         ],
@@ -39549,6 +41117,246 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/stock": {
+      "get": {
+        "description": "All active catalogue items owned by the project, including items with no lots.\nPhysical is the amount on hand. Stored excludes unplaced and checked-out material.\nAvailable counts stored material eligible for routine use. Amounts are exact decimal\nstrings in the item's unit. A low-only page can be empty and have a next cursor.",
+        "operationId": "iki_server_api_stock_project_stock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "low_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Low Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockSummary_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Current stock and reorder thresholds",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/orders": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_orders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OpenOrder_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outstanding stock reorders",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_lots",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Item Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_StockLot_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A catalogue item's lots and storage positions",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/trigger-firings": {
       "get": {
         "description": "Newest first. `trigger` narrows it to one trigger's.",
@@ -40033,6 +41841,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReceiptIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40111,9 +41929,99 @@
         ]
       }
     },
+    "/api/v1/receipts/{receipt_id}/history": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_receipt_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A receipt's observation history",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
       "delete": {
-        "description": "An extra line scanned by mistake, while the receipt is open.",
         "operationId": "iki_server_api_storage_drop_line",
         "parameters": [
           {
@@ -40137,6 +42045,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewedExtraIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40157,7 +42075,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Drop an extra line",
+        "summary": "Remove an observed extra",
         "tags": [
           "storage"
         ]
@@ -40201,7 +42119,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReceiptOut"
+                  "$ref": "#/components/schemas/CheckedReceiptOut"
                 }
               }
             },
@@ -40217,6 +42135,67 @@
           }
         ],
         "summary": "Check a receipt's line",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/lines/{line_id}/restore": {
+      "post": {
+        "operationId": "iki_server_api_storage_restore_line",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewedExtraIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Restore a removed extra on an open receipt",
         "tags": [
           "storage"
         ]
@@ -40330,6 +42309,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReconciliationIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -40358,7 +42347,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies every resolution as one change. Refused (422) if anything moved into or out of\nthe container since it started.",
+        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -40408,8 +42397,100 @@
         ]
       }
     },
+    "/api/v1/reconciliations/{reconciliation_id}/history": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_reconciliation_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A reconciliation's observation history",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
+        "description": "Save or clear the decision for the reviewed line_revision. A changed finding,\nsupporting scan, or decision on this line returns 409. Superseding a decision\nrequires a reason in addition to any note supporting the new decision.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
@@ -40471,7 +42552,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
       "post": {
-        "description": "What's in each position, or that it's empty. A position scanned again replaces what\nwas scanned there.",
+        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`. A shared label at its\nexpected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.",
         "operationId": "iki_server_api_storage_scan_positions",
         "parameters": [
           {
@@ -42881,6 +44962,7 @@
         ]
       },
       "get": {
+        "description": "Its ``ETag`` is its revision: send it back as If-Match to change it.",
         "operationId": "iki_server_api_spreadsheets_get_import",
         "parameters": [
           {
@@ -42920,7 +45002,7 @@
         ]
       },
       "patch": {
-        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by). Choosing another sheet or header row maps the columns afresh, unless the\ncolumns are given too. A preview starts again.",
+        "description": "Its sheet, header row and rows, and how its columns map (or a saved mapping to map\nthem by), from the revision you read (If-Match). What's given is checked together, on\nthe sheet it chooses, and saved all at once or not at all. Choosing another sheet\ntakes its rows afresh (its header row as Iki finds it, every row after it), but for\nthose given with it. Choosing another sheet or header row maps the columns afresh,\nunless the columns are given too. A preview starts again.",
         "operationId": "iki_server_api_spreadsheets_change_import",
         "parameters": [
           {
@@ -42931,6 +45013,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -42972,7 +45070,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/commit": {
       "post": {
-        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Rows with\nproblems stop it, unless ``skip_problems`` leaves them out.",
+        "description": "Writes its rows as records, all of them or none, as a run of\n``iki/core.import_spreadsheet``, which checks them again as they are now. Send the\nrevision whose preview you read (If-Match). Rows with problems stop it, unless\n``skip_problems`` leaves them out.",
         "operationId": "iki_server_api_spreadsheets_commit_import",
         "parameters": [
           {
@@ -42983,6 +45081,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -43024,7 +45138,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/mappings": {
       "post": {
-        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself.",
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept.",
         "operationId": "iki_server_api_spreadsheets_save_mapping",
         "parameters": [
           {
@@ -43035,6 +45149,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -43076,7 +45206,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/preview": {
       "post": {
-        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Poll it until it's\n``previewed``.",
+        "description": "Checks every row as importing would write it, a chunk at a time: what's wrong with\neach, by its column, and the records each would duplicate. Send the revision you read\n(If-Match): it's what's checked. Poll it until it's ``previewed``.",
         "operationId": "iki_server_api_spreadsheets_preview_import",
         "parameters": [
           {
@@ -43087,6 +45217,22 @@
               "format": "uuid",
               "title": "Import Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -43912,6 +46058,47 @@
           }
         ],
         "summary": "Find what a code names",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/storage/scan/resolve": {
+      "post": {
+        "description": "Preview a box search, a destination, or the evidence for confirming a selected record.\nEach candidate names the record, project and placement that the caller may read.",
+        "operationId": "iki_server_api_storage_scan_resolve_storage_scan",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScanResolveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScanResolveOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Identify a scan in its storage context",
         "tags": [
           "storage"
         ]

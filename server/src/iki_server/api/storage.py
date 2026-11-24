@@ -22,11 +22,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.http import HttpRequest
 from ninja import Field, Query, Router, Schema, Status
+from pydantic import ConfigDict
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller
@@ -38,13 +40,15 @@ from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.storage import labels as labelling
-from iki_server.storage import receipts, reconciliations
+from iki_server.storage import receipts, reconciliations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.grids import Shape
 from iki_server.storage.models import (
     Event,
+    ObservationEvent,
     Place,
     Receipt,
+    ReceiptLine,
     ReceiptStatus,
     Reconciliation,
 )
@@ -173,6 +177,25 @@ def _container(me: User, ref: str) -> Entity:
     if not storage.is_container(entity.type):
         raise Problem(404, f"{entity.hrid} is a {entity.type}, which holds nothing.")
     return entity
+
+
+def _destination(
+    index: scan_identity.ScanIndex,
+    raw: str,
+    *,
+    mode: scan_identity.ScanMode = "label",
+    choice: UUID | None = None,
+) -> Entity:
+    match = index.resolve(raw, mode=mode, choice=choice, containers_only=True, direct_id=True)
+    if match.status == "ambiguous":
+        raise index.ambiguity(match)
+    if match.record is not None:
+        return match.record
+    # Older API callers pass a record UUID. Keep row-level plan errors for a
+    # readable record that holds nothing, after checking all eligible box labels.
+    if mode == "label" and choice is None and (record_id := scan_identity.direct_uuid(raw)):
+        return _find(index.user, str(record_id))
+    raise Problem(404, "No such container, or you can’t read it.")
 
 
 def _occupants(me: User, places: Sequence[Place], shape: Shape | None) -> list[dict[str, Any]]:
@@ -390,8 +413,11 @@ def list_events(request: HttpRequest, ref: str, params: Query[PageParams]) -> di
 class MoveItemIn(Schema):
     record: str = Field(max_length=64, description="By ID or HRID.")
     to: str | None = Field(
-        max_length=64, description="The container it goes in, by ID or HRID; null: out of storage."
+        max_length=200,
+        description="Destination container ID, label or entity link; null: out of storage.",
     )
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(
         None,
         max_length=8,
@@ -400,13 +426,25 @@ class MoveItemIn(Schema):
     )
 
 
+class IkiIdConfirmationIn(Schema):
+    """The operator independently entered the HRID printed on the selected record."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["iki_id"]
+    code: str = Field(min_length=1, max_length=200)
+
+
+ConfirmationIn = Annotated[str, Field(max_length=200)] | IkiIdConfirmationIn
+
+
 class MovesIn(Schema):
     items: list[MoveItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000, description="Why: required to change anything.")
-    confirmations: dict[str, str] = Field(
+    confirmations: dict[str, ConfirmationIn] = Field(
         default_factory=dict,
-        description="The code scanned from each record, by its ID or HRID, for a type that "
-        "asks for one before a move.",
+        description="Proof for each selected record that requires confirmation, keyed by its ID or "
+        "HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.",
     )
     preview: bool = Field(False, description="Say what each move would do, changing nothing.")
 
@@ -431,21 +469,39 @@ def _records(me: User, refs: Sequence[str]) -> list[Entity]:
     return [_find(me, ref) for ref in refs]
 
 
-def _wanted(me: User, items: Sequence[MoveItemIn]) -> list[storage.Wanted]:
+def _wanted(me: User, items: Sequence[MoveItemIn | CheckInItemIn]) -> list[storage.Wanted]:
     records = _records(me, [i.record for i in items])
-    return [
-        storage.Wanted(record, _find(me, item.to) if item.to is not None else None, item.position)
-        for item, record in zip(items, records, strict=True)
-    ]
+    boxes = scan_identity.ScanIndex(me, (item.to for item in items if item.to is not None))
+    wanted = []
+    for i, (item, record) in enumerate(zip(items, records, strict=True)):
+        destination = None
+        if item.to is not None:
+            destination = _destination(boxes, item.to, mode=item.to_mode, choice=item.to_choice)
+        elif item.to_choice is not None or item.to_mode != "label":
+            raise _invalid(storage.Wrong({f"items/{i}/to": ["Supply the destination code."]}))
+        wanted.append(storage.Wanted(record, destination, item.position))
+    return wanted
 
 
-def _confirmations(me: User, given: dict[str, str]) -> dict[Any, str]:
-    out: dict[Any, str] = {}
-    for ref, code in given.items():
+def _confirmations(
+    wanted: Sequence[storage.Wanted], given: dict[str, ConfirmationIn]
+) -> dict[UUID, storage.Confirmation | str]:
+    out: dict[UUID, storage.Confirmation | str] = {}
+    ids = {w.record.pk for w in wanted}
+    hrids = {w.record.hrid: w.record.pk for w in wanted}
+    for ref, proof in given.items():
+        pk: UUID | None
         try:
-            out[_find(me, ref).pk] = code
-        except Problem:
-            continue
+            pk = UUID(ref)
+        except ValueError:
+            pk = hrids.get(ref.upper())
+        if pk is None or pk not in ids:
+            raise _invalid(
+                storage.Wrong({"confirmations": ["Supply proof only for selected records."]})
+            )
+        if pk in out:
+            raise _invalid(storage.Wrong({"confirmations": ["Supply one proof per record."]}))
+        out[pk] = proof if isinstance(proof, str) else storage.Confirmation(proof.code, proof.mode)
     return out
 
 
@@ -490,7 +546,7 @@ def move(request: HttpRequest, payload: MovesIn) -> dict[str, Any]:
     nothing. Needs Editor in the project of each container a record goes into or leaves."""
     me = caller(request)
     wanted = _wanted(me, payload.items)
-    confirmations = _confirmations(me, payload.confirmations)
+    confirmations = _confirmations(wanted, payload.confirmations)
     if payload.preview:
         planned = storage.plan(me, wanted, confirmations=confirmations)
         return {"items": _planned_out(me, planned), "done": False, "operation": None}
@@ -527,15 +583,19 @@ class CheckOutIn(Schema):
 class CheckInItemIn(Schema):
     record: str = Field(max_length=64)
     to: str | None = Field(
-        None, max_length=64, description="Another container to put it in; null: where it was."
+        None,
+        max_length=200,
+        description="Destination container ID, label or entity link; null: where it was.",
     )
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(None, max_length=8)
 
 
 class CheckInIn(Schema):
     items: list[CheckInItemIn] = Field(min_length=1, max_length=storage.MAX_MOVES)
     reason: str = Field("", max_length=2000)
-    confirmations: dict[str, str] = Field(default_factory=dict)
+    confirmations: dict[str, ConfirmationIn] = Field(default_factory=dict)
 
 
 class HandOverIn(Schema):
@@ -592,15 +652,13 @@ def check_in(request: HttpRequest, payload: CheckInIn) -> dict[str, Any]:
     """Each goes back to the position it kept, or to ``to`` and ``position``, in the same
     change."""
     me = caller(request)
-    wanted = _wanted(
-        me, [MoveItemIn(record=i.record, to=i.to, position=i.position) for i in payload.items]
-    )
+    wanted = _wanted(me, payload.items)
     try:
         events = storage.check_in(
             me,
             wanted,
             reason=payload.reason,
-            confirmations=_confirmations(me, payload.confirmations),
+            confirmations=_confirmations(wanted, payload.confirmations),
         )
     except Invalid as error:
         raise _invalid(error) from None
@@ -694,11 +752,87 @@ def list_checked_out(request: HttpRequest, custodian: UUID | None = None) -> lis
     ]
 
 
+# --- Observation history ------------------------------------------------------------------------
+
+
+class ObservationEventOut(Schema):
+    id: UUID
+    kind: Literal["outcome", "handoff", "scan", "resolution", "status"]
+    receipt_id: UUID | None
+    reconciliation_id: UUID | None
+    line_id: UUID | None = Field(description="The original line, including after its removal.")
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    actor: UserOut
+    created_at: datetime
+    operation: UUID
+    revision: int = Field(ge=1)
+    previous: UUID | None = Field(description="The prior observation of this kind on this line.")
+    reason: str
+
+
+class ObservationEventsOut(Page[ObservationEventOut]):
+    pass
+
+
+def _observation_history(
+    me: User, parent: Receipt | Reconciliation, line_id: UUID | None, params: PageParams
+) -> dict[str, Any]:
+    events = parent.observations.select_related("actor")
+    if line_id is not None:
+        events = events.filter(line_id=line_id)
+    result = page(events, params, newest_first=True)
+    items: list[ObservationEvent] = result["items"]
+    # Look up the historical links on this page. The working line may have been changed
+    # or deleted, and the two sides of an amendment may refer to different records.
+    ids = {
+        UUID(snapshot["entity_id"])
+        for event in items
+        for snapshot in (event.before, event.after)
+        if snapshot and snapshot.get("entity_id") is not None
+    }
+    readable = {str(pk) for pk, ref in _refs(me, ids).items() if not ref["purged"]}
+
+    def snapshot_out(snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
+        if snapshot is None:
+            return None
+        public = snapshot.copy()
+        entity_id = public.pop("entity_id", None)
+        if entity_id is not None and entity_id not in readable:
+            if "code" in public:
+                public["code"] = ""
+            public.pop("scan", None)
+        elif entity_id is not None and isinstance(parent, Receipt) and "scan" in public:
+            public["entity_id"] = entity_id
+        return public
+
+    result["items"] = [
+        {
+            "id": e.pk,
+            "kind": e.kind,
+            "receipt_id": e.receipt_id,
+            "reconciliation_id": e.reconciliation_id,
+            "line_id": e.line_id,
+            "before": snapshot_out(e.before),
+            "after": snapshot_out(e.after),
+            "actor": e.actor,
+            "created_at": e.created_at,
+            "operation": e.operation,
+            "revision": e.revision,
+            "previous": e.previous_id,
+            "reason": e.reason,
+        }
+        for e in items
+    ]
+    return result
+
+
 # --- Receipts -----------------------------------------------------------------------------------
 
 
 class ReceiptLineOut(Schema):
     id: UUID
+    line_revision: int = Field(ge=1, description="The version of this line’s saved observation.")
     entity: UUID | None
     ref: RefOut | None
     code: str
@@ -712,6 +846,7 @@ class ReceiptLineOut(Schema):
 
 class ReceiptOut(Schema):
     id: UUID
+    plan_revision: int = Field(ge=1, description="The receipt revision shown for review.")
     request: StepOut
     project: UUID = Field(description="The service receiving it.")
     status: Literal["open", "completed", "cancelled"]
@@ -720,8 +855,13 @@ class ReceiptOut(Schema):
     started_by: UserOut
     started_at: datetime
     received_by: UserOut | None
+    cancelled_by: UserOut | None
+    cancel_reason: str
     completed_at: datetime | None
     lines: list[ReceiptLineOut]
+    removed_lines: list[ReceiptLineOut] = Field(
+        description="Removed extras kept for review and restoration."
+    )
     outcomes: dict[str, int] = Field(
         description="How many lines are each outcome, and `unchecked`."
     )
@@ -735,16 +875,63 @@ class ReceiptsOut(Schema):
     expected: int = Field(description="How many it expects that no receipt has received.")
 
 
-def _receipt_out(me: User, receipt: Receipt, refused: str | None = None) -> dict[str, Any]:
-    lines = list(receipt.lines.select_related("checked_by").order_by("-expected", "id"))
+def _receipt_out(
+    me: User,
+    receipt: Receipt,
+    refused: str | None = None,
+    *,
+    locked: bool = False,
+) -> dict[str, Any]:
+    def lines_of(r: Receipt) -> list[ReceiptLine]:
+        return list(r.lines.select_related("checked_by").order_by("-expected", "id"))
+
+    # All writers lock the receipt. Capture parent fields and lines under that same
+    # lock so a returned revision always describes the handoff and checklist shown.
+    if receipt.status == ReceiptStatus.OPEN and not locked:
+        with transaction.atomic():
+            receipt = (
+                Receipt.objects.select_for_update(of=("self",))
+                .select_related("request", "project", "started_by", "received_by", "cancelled_by")
+                .get(pk=receipt.pk)
+            )
+            lines = lines_of(receipt)
+    else:
+        lines = lines_of(receipt)
     request = receipt.request
     ids = {request.pk, *(x.entity_id for x in lines), *(x.put_in_id for x in lines)}
     refs = _refs(me, ids)
     kept = storage.shapes({x.put_in_id for x in lines if x.put_in_id})
     if refused is None:
         refused = receipts.why_not_receiver(me, request)
+    active: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for line in lines:
+        ref = refs.get(line.entity_id)
+        if ref and ref["purged"]:
+            ref = None
+        item = {
+            "id": line.pk,
+            "line_revision": line.line_revision,
+            "entity": line.entity_id if ref else None,
+            "ref": ref,
+            "code": "" if line.entity_id and ref is None else line.code,
+            "expected": line.expected,
+            "outcome": line.outcome,
+            "note": line.note,
+            "checked_by": line.checked_by,
+            "checked_at": line.checked_at,
+            "put_away": {
+                **refs[line.put_in_id],
+                "id": line.put_in_id,
+                "position": storage.label(kept.get(line.put_in_id), line.put_row, line.put_column),
+            }
+            if line.put_in_id in refs
+            else None,
+        }
+        (removed if line.removed else active).append(item)
     return {
         "id": receipt.pk,
+        "plan_revision": receipt.plan_revision,
         "request": {**refs[request.pk], "id": request.pk, "position": None},
         "project": receipt.project_id,
         "status": receipt.status,
@@ -753,36 +940,21 @@ def _receipt_out(me: User, receipt: Receipt, refused: str | None = None) -> dict
         "started_by": receipt.started_by,
         "started_at": receipt.started_at,
         "received_by": receipt.received_by,
+        "cancelled_by": receipt.cancelled_by,
+        "cancel_reason": receipt.cancel_reason,
         "completed_at": receipt.completed_at,
-        "lines": [
-            {
-                "id": x.pk,
-                "entity": x.entity_id if x.entity_id in refs else None,
-                "ref": refs.get(x.entity_id),
-                "code": x.code,
-                "expected": x.expected,
-                "outcome": x.outcome,
-                "note": x.note,
-                "checked_by": x.checked_by,
-                "checked_at": x.checked_at,
-                "put_away": {
-                    **refs[x.put_in_id],
-                    "id": x.put_in_id,
-                    "position": storage.label(kept.get(x.put_in_id), x.put_row, x.put_column),
-                }
-                if x.put_in_id in refs
-                else None,
-            }
-            for x in lines
-        ],
-        "outcomes": receipts.tally(lines),
+        "lines": active,
+        "removed_lines": removed,
+        "outcomes": receipts.tally([line for line in lines if not line.removed]),
         "can_receive": receipt.status == ReceiptStatus.OPEN and refused is None,
     }
 
 
 def _receipt(me: User, pk: UUID) -> Receipt:
     found = (
-        Receipt.objects.select_related("request", "project", "started_by", "received_by")
+        Receipt.objects.select_related(
+            "request", "project", "started_by", "received_by", "cancelled_by"
+        )
         .filter(pk=pk)
         .first()
     )
@@ -794,6 +966,13 @@ def _receipt(me: User, pk: UUID) -> Receipt:
 def _receiving(call: Any) -> Any:  # noqa: ANN401 - what it answers
     try:
         return call()
+    except reconciliations.LinesChanged as changed:
+        raise Problem(
+            409,
+            str(changed),
+            code="count_lines_changed",
+            extensions={"affected_lines": changed.lines},
+        ) from None
     except PermissionError as refused:
         raise Problem(403, str(refused)) from None
     except Invalid as error:
@@ -810,7 +989,7 @@ def list_receipts(request: HttpRequest, ref: str) -> dict[str, Any]:
     refused = receipts.why_not_receiver(me, entity)
     found = (
         Receipt.objects.filter(request=entity)
-        .select_related("request", "started_by", "received_by")
+        .select_related("request", "started_by", "received_by", "cancelled_by")
         .order_by("-started_at")
     )
     return {
@@ -831,8 +1010,9 @@ def start_receipt(request: HttpRequest, ref: str) -> Status[dict[str, Any]]:
     entity = _find(me, ref)
     if receipts.receives(entity) is None:
         raise Problem(404, f"{entity.hrid} is a {entity.type}, whose material isn't received.")
-    receipt = _receiving(lambda: receipts.start(me, entity))
-    return Status(201, _receipt_out(me, _receipt(me, receipt.pk)))
+    with transaction.atomic():
+        receipt = _receiving(lambda: receipts.start(me, entity))
+        return Status(201, _receipt_out(me, receipt, locked=True))
 
 
 @router.get("/receipts/{receipt_id}", response=ReceiptOut, summary="A receipt")
@@ -841,35 +1021,75 @@ def get_receipt(request: HttpRequest, receipt_id: UUID) -> dict[str, Any]:
     return _receipt_out(me, _receipt(me, receipt_id))
 
 
-class ReceiptIn(Schema):
+@router.get(
+    "/receipts/{receipt_id}/history",
+    response=ObservationEventsOut,
+    summary="A receipt's observation history",
+)
+def receipt_history(
+    request: HttpRequest, receipt_id: UUID, params: Query[PageParams], line_id: UUID | None = None
+) -> dict[str, Any]:
+    """Newest first. Supply a line ID to follow its observations, even after it was removed."""
+    me = caller(request)
+    return _observation_history(me, _receipt(me, receipt_id), line_id, params)
+
+
+_PATCH_NOTE = (
+    "Omit to keep the current note. Send null, an empty string, or whitespace to clear it."
+)
+
+
+def _patch_note(payload: ReceiptIn | ReceiptLineIn | ResolveIn) -> str | None:
+    if "note" not in payload.model_fields_set:
+        return None
+    return (payload.note or "").strip()
+
+
+class ReviewedReceiptIn(Schema):
+    plan_revision: int = Field(ge=1, strict=True, description="The receipt revision you reviewed.")
+
+
+class ReceiptIn(ReviewedReceiptIn):
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when correcting existing handoff information.",
+    )
     handed_over_by: str | None = Field(
         None, max_length=200, description="Who handed it over: a courier and waybill, a person."
     )
-    note: str | None = Field(
-        None, max_length=2000, description="Such as its temperature on arrival."
-    )
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
 
 
 @router.patch("/receipts/{receipt_id}", response=ReceiptOut, summary="Describe a receipt")
 def update_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptIn) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(
-        lambda: receipts.describe(
-            me, receipt, handed_over_by=payload.handed_over_by, note=payload.note
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.describe(
+                me,
+                receipt,
+                handed_over_by=payload.handed_over_by,
+                note=_patch_note(payload),
+                plan_revision=payload.plan_revision,
+                reason=payload.reason or "",
+            )
         )
-    )
-    return _receipt_out(me, _receipt(me, receipt_id))
+        return _receipt_out(me, changed, locked=True)
 
 
 class ReceiptScanIn(Schema):
-    code: str = Field(min_length=1, max_length=200)
+    code: str = Field(min_length=1, max_length=receipts.MAX_SCAN_CODE)
+    mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    choice: UUID | None = None
 
 
 class ReceiptScanOut(Schema):
-    found: Literal["matched", "again", "extra"] = Field(
+    found: Literal["matched", "again", "extra", "ambiguous_extra", "removed"] = Field(
         description="`matched`: an expected line ticked; `again`: one already checked; "
-        "`extra`: a line added for what isn't expected."
+        "`extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because "
+        "several readable records share its label; `removed`: an extra that can be restored."
     )
     line: UUID
     receipt: ReceiptOut
@@ -880,54 +1100,145 @@ def scan_receipt(request: HttpRequest, receipt_id: UUID, payload: ReceiptScanIn)
     """Ticks the expected line the code names as matched, or adds an extra line for it."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    scanned = _receiving(lambda: receipts.scan(me, receipt, payload.code))
-    return {
-        "found": scanned.found,
-        "line": scanned.line.pk,
-        "receipt": _receipt_out(me, _receipt(me, receipt_id)),
-    }
+    with transaction.atomic():
+        scanned = _receiving(
+            lambda: receipts.scan(
+                me, receipt, payload.code, mode=payload.mode, choice=payload.choice
+            )
+        )
+        return {
+            "found": scanned.found,
+            "line": scanned.line.pk,
+            "receipt": _receipt_out(me, scanned.receipt, locked=True),
+        }
 
 
 class ReceiptLineIn(Schema):
     outcome: Outcome | None = Field(
-        description="Null clears an expected line's. Damaged, rejected and extra need a note."
+        description="Null clears an expected line. First observations can omit line_revision."
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
+    line_revision: int | None = Field(
+        None, ge=1, strict=True, description="Version of the line being corrected."
+    )
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description=(
+            "Defaults to empty. Required to change an existing outcome or replace a saved note."
+        ),
+    )
+
+
+class CheckedReceiptOut(Schema):
+    found: Literal["recorded", "again"] = Field(description="Whether this observation changed.")
+    line: UUID
+    receipt: ReceiptOut
 
 
 @router.patch(
-    "/receipts/{receipt_id}/lines/{line_id}", response=ReceiptOut, summary="Check a receipt's line"
+    "/receipts/{receipt_id}/lines/{line_id}",
+    response=CheckedReceiptOut,
+    summary="Check a receipt's line",
 )
 def check_line(
     request: HttpRequest, receipt_id: UUID, line_id: UUID, payload: ReceiptLineIn
 ) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.check(me, receipt, line_id, payload.outcome, payload.note))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        result = _receiving(
+            lambda: receipts.check(
+                me,
+                receipt,
+                line_id,
+                payload.outcome,
+                _patch_note(payload),
+                line_revision=payload.line_revision,
+                reason=payload.reason or "",
+            )
+        )
+        return {
+            "found": result.found,
+            "line": result.line.pk,
+            "receipt": _receipt_out(me, result.receipt, locked=True),
+        }
+
+
+class ReviewedExtraIn(Schema):
+    line_revision: int = Field(
+        ge=1, strict=True, description="The reviewed version of the extra line."
+    )
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 @router.delete(
-    "/receipts/{receipt_id}/lines/{line_id}", response=ReceiptOut, summary="Drop an extra line"
+    "/receipts/{receipt_id}/lines/{line_id}",
+    response=ReceiptOut,
+    summary="Remove an observed extra",
 )
-def drop_line(request: HttpRequest, receipt_id: UUID, line_id: UUID) -> dict[str, Any]:
-    """An extra line scanned by mistake, while the receipt is open."""
+def drop_line(
+    request: HttpRequest,
+    receipt_id: UUID,
+    line_id: UUID,
+    payload: ReviewedExtraIn,
+) -> dict[str, Any]:
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.drop(me, receipt, line_id))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.set_removed(
+                me,
+                receipt,
+                line_id,
+                removed=True,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
+
+
+@router.post(
+    "/receipts/{receipt_id}/lines/{line_id}/restore",
+    response=ReceiptOut,
+    summary="Restore a removed extra on an open receipt",
+)
+def restore_line(
+    request: HttpRequest,
+    receipt_id: UUID,
+    line_id: UUID,
+    payload: ReviewedExtraIn,
+) -> dict[str, Any]:
+    me = caller(request)
+    receipt = _receipt(me, receipt_id)
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.set_removed(
+                me,
+                receipt,
+                line_id,
+                removed=False,
+                line_revision=payload.line_revision,
+                reason=payload.reason,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
 
 
 class PutAwayIn(Schema):
     line: UUID
-    to: str = Field(max_length=64, description="The container, by ID or HRID.")
+    to: str = Field(max_length=200, description="The destination container's ID, HRID or label.")
+    to_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    to_choice: UUID | None = None
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
-class CompleteReceiptIn(Schema):
+class CompleteReceiptIn(ReviewedReceiptIn):
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
     missing_rest: bool = Field(
-        False, description="Mark every expected line not yet checked missing."
+        default_factory=bool,
+        description="Mark every unchecked expected line missing. Defaults to false.",
     )
 
 
@@ -939,24 +1250,76 @@ def complete_receipt(
     requester of anything missing, extra, damaged or rejected: all of it, or none."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    put = [receipts.PutAway(p.line, _find(me, p.to), p.position) for p in payload.put_away]
-    _receiving(lambda: receipts.complete(me, receipt, put, missing_rest=payload.missing_rest))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
+        put = [
+            receipts.PutAway(
+                p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+            )
+            for p in payload.put_away
+        ]
+        changed = _receiving(
+            lambda: receipts.complete(
+                me,
+                receipt,
+                put,
+                plan_revision=payload.plan_revision,
+                missing_rest=payload.missing_rest,
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
+
+
+class CancelReceiptIn(ReviewedReceiptIn):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 @router.post("/receipts/{receipt_id}/cancel", response=ReceiptOut, summary="Cancel a receipt")
-def cancel_receipt(request: HttpRequest, receipt_id: UUID) -> dict[str, Any]:
+def cancel_receipt(
+    request: HttpRequest, receipt_id: UUID, payload: CancelReceiptIn
+) -> dict[str, Any]:
     """An open receipt, abandoned: nothing is received with it. It's kept, cancelled."""
     me = caller(request)
     receipt = _receipt(me, receipt_id)
-    _receiving(lambda: receipts.cancel(me, receipt))
-    return _receipt_out(me, _receipt(me, receipt_id))
+    with transaction.atomic():
+        changed = _receiving(
+            lambda: receipts.cancel(
+                me, receipt, plan_revision=payload.plan_revision, reason=payload.reason
+            )
+        )
+        return _receipt_out(me, changed, locked=True)
 
 
 # --- Reconciliations ----------------------------------------------------------------------------
 
 
+class CountScanEvidenceOut(Schema):
+    identity_basis: scan_identity.IdentityBasis | None = Field(
+        description=(
+            "How the record was identified. A shared label at its expected slot uses position. "
+            "Null for an unidentified, empty or older scan."
+        )
+    )
+    id: UUID = Field(description="The immutable scan event.")
+    line_id: UUID = Field(description="The physical scan line, usable as a history filter.")
+    position: str
+    code: str | None = Field(
+        description="The actual scanned label, null for empty; hidden labels are redacted."
+    )
+    scanned_by: UserOut
+    scanned_at: datetime
+
+
 class ReconciliationLineOut(Schema):
+    line_revision: int = Field(
+        ge=1, description="The version of this line and its supporting slot evidence."
+    )
+    observation: CountScanEvidenceOut | None = Field(
+        description="The scan supporting the finding, including a missing tube's expected slot."
+    )
+    reviewed_observation: CountScanEvidenceOut | None = Field(
+        description="The exact scan on which the saved decision was based."
+    )
     id: UUID
     entity: UUID | None
     ref: RefOut | None
@@ -964,21 +1327,34 @@ class ReconciliationLineOut(Schema):
     expected: str | None = Field(description="Its recorded position, when this started.")
     found: str | None = Field(description="Where it was scanned.")
     finding: Literal[
-        "matched", "missing", "unexpected", "wrong_slot", "unchecked", "empty", "checked_out"
+        "matched",
+        "missing",
+        "unexpected",
+        "wrong_slot",
+        "unchecked",
+        "empty",
+        "checked_out",
+        "no_longer_found",
     ]
     resolution: Resolution | None
+    resolution_stale: bool = Field(description="The open count's saved decision needs review.")
     note: str
     resolved_by: UserOut | None
 
 
 class ReconciliationOut(Schema):
     id: UUID
+    plan_revision: int = Field(
+        ge=1, description="The version of the count's observations and decisions."
+    )
     container: StepOut
     shape: ShapeOut
     status: Literal["open", "completed", "cancelled"]
     note: str
     started_by: UserOut
     started_at: datetime
+    cancelled_by: UserOut | None
+    cancel_reason: str
     completed_by: UserOut | None
     completed_at: datetime | None
     lines: list[ReconciliationLineOut]
@@ -988,7 +1364,9 @@ class ReconciliationOut(Schema):
 
 def _reconciliation(me: User, pk: UUID) -> Reconciliation:
     found = (
-        Reconciliation.objects.select_related("container", "started_by", "completed_by")
+        Reconciliation.objects.select_related(
+            "container", "started_by", "completed_by", "cancelled_by"
+        )
         .filter(pk=pk)
         .first()
     )
@@ -997,15 +1375,63 @@ def _reconciliation(me: User, pk: UUID) -> Reconciliation:
     return found
 
 
-def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
+def _count_scan(
+    event: ObservationEvent | None, refs: dict[Any, dict[str, Any]]
+) -> dict[str, Any] | None:
+    if event is None or not event.after:
+        return None
+    snapshot = event.after
+    linked = snapshot.get("entity_id")
+    readable = refs.get(UUID(linked)) if linked else None
+    code = "" if linked and (not readable or readable["purged"]) else snapshot["code"]
+    return {
+        "id": event.pk,
+        "line_id": event.line_id,
+        "identity_basis": snapshot.get("identity_basis"),
+        "position": snapshot["position"],
+        "code": code,
+        "scanned_by": event.actor,
+        "scanned_at": snapshot["scanned_at"],
+    }
+
+
+def _reconciliation_out(me: User, r: Reconciliation, *, locked: bool = False) -> dict[str, Any]:
+    # Return the reviewed lines and their revision from the same plan. Every scan,
+    # decision and completion takes this lock. Finalized plans are immutable.
+    if r.status == ReceiptStatus.OPEN and not locked:
+        with transaction.atomic():
+            r = (
+                Reconciliation.objects.select_for_update(of=("self",))
+                .select_related("container", "started_by", "completed_by", "cancelled_by")
+                .get(pk=r.pk)
+            )
+            found = reconciliations.findings(r)
+    else:
+        found = reconciliations.findings(r)
+    slots = reconciliations.observed_slots([line for line, _ in found])
     shape = reconciliations.shape_of(r)
-    found = reconciliations.findings(r)
-    refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found)})
+    # A stale decision can still refer to a different physical line that is gone from
+    # the working map. Resolve both historical links against this reader's current access.
+    events = {
+        e.pk: e
+        for x, _ in found
+        for e in (x.current_observation, x.reviewed_observation)
+        if e is not None
+    }
+    ids = {
+        UUID(e.after["entity_id"]) for e in events.values() if e.after and e.after.get("entity_id")
+    }
+    refs = _refs(me, {r.container_id, *(x.entity_id for x, _ in found), *ids})
+    readable_codes = {pk for pk, ref in refs.items() if not ref["purged"]}
+    evidence: dict[UUID | None, dict[str, Any] | None] = {
+        pk: _count_scan(e, refs) for pk, e in events.items()
+    }
     counted: dict[str, int] = {}
     for _, what in found:
         counted[what] = counted.get(what, 0) + 1
     return {
         "id": r.pk,
+        "plan_revision": r.plan_revision,
         "container": {**refs[r.container_id], "id": r.container_id, "position": None},
         "shape": _shape(shape),
         "status": r.status,
@@ -1013,17 +1439,29 @@ def _reconciliation_out(me: User, r: Reconciliation) -> dict[str, Any]:
         "started_by": r.started_by,
         "started_at": r.started_at,
         "completed_by": r.completed_by,
+        "cancelled_by": r.cancelled_by,
+        "cancel_reason": r.cancel_reason,
         "completed_at": r.completed_at,
         "lines": [
             {
                 "id": x.pk,
                 "entity": x.entity_id if x.entity_id in refs else None,
                 "ref": refs.get(x.entity_id),
-                "code": x.code if x.entity_id is None or x.entity_id in refs else "",
+                "code": x.code if x.entity_id is None or x.entity_id in readable_codes else "",
                 "expected": storage.label(shape, x.expected_row, x.expected_column),
                 "found": storage.label(shape, x.found_row, x.found_column),
                 "finding": what,
+                "line_revision": x.line_revision,
+                "observation": evidence.get(reconciliations.evidence_id(x, what, slots)),
+                "reviewed_observation": evidence.get(x.reviewed_observation_id),
                 "resolution": x.resolution,
+                "resolution_stale": r.status == ReceiptStatus.OPEN
+                and reconciliations.resolution_stale(
+                    x,
+                    what,
+                    reconciliations.decision_position(x, what, shape),
+                    reconciliations.evidence_id(x, what, slots),
+                ),
                 "note": x.note,
                 "resolved_by": x.resolved_by,
             }
@@ -1044,7 +1482,7 @@ def list_reconciliations(request: HttpRequest, ref: str) -> list[dict[str, Any]]
     me = caller(request)
     container = _container(me, ref)
     found = Reconciliation.objects.filter(container=container).select_related(
-        "container", "started_by", "completed_by"
+        "container", "started_by", "completed_by", "cancelled_by"
     )
     return [_reconciliation_out(me, r) for r in found.order_by("-started_at")[:20]]
 
@@ -1059,8 +1497,9 @@ def start_reconciliation(request: HttpRequest, ref: str) -> Status[dict[str, Any
     Editor in its project."""
     me = caller(request)
     container = _container(me, ref)
-    r = _receiving(lambda: reconciliations.start(me, container))
-    return Status(201, _reconciliation_out(me, _reconciliation(me, r.pk)))
+    with transaction.atomic():
+        r = _receiving(lambda: reconciliations.start(me, container))
+        return Status(201, _reconciliation_out(me, r))
 
 
 @router.get(
@@ -1071,12 +1510,56 @@ def get_reconciliation(request: HttpRequest, reconciliation_id: UUID) -> dict[st
     return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
 
 
+@router.get(
+    "/reconciliations/{reconciliation_id}/history",
+    response=ObservationEventsOut,
+    summary="A reconciliation's observation history",
+)
+def reconciliation_history(
+    request: HttpRequest,
+    reconciliation_id: UUID,
+    params: Query[PageParams],
+    line_id: UUID | None = None,
+) -> dict[str, Any]:
+    """Newest first. Supply a line ID to follow its observations, even after it was removed."""
+    me = caller(request)
+    return _observation_history(me, _reconciliation(me, reconciliation_id), line_id, params)
+
+
 class ScanIn(Schema):
     position: str = Field(max_length=8)
     code: str | None = Field(None, max_length=200, description="Null: it's empty.")
+    mode: scan_identity.ScanMode = Field(
+        default_factory=lambda: "label",
+        description="Defaults to label. Use iki_id for a printed Iki ID.",
+    )
+    choice: UUID | None = Field(
+        None, description="The readable candidate selected for this scanned label."
+    )
+
+
+class ReviewedReconciliationIn(Schema):
+    plan_revision: int = Field(
+        ge=1, strict=True, description="The revision of the reconciliation plan being reviewed."
+    )
+
+
+class ReviewedCountLine(Schema):
+    line_id: UUID
+    line_revision: int = Field(ge=1, strict=True)
 
 
 class ScansIn(Schema):
+    reviewed_lines: list[ReviewedCountLine] = Field(
+        default_factory=list,
+        max_length=3072,
+        description="Prior observations to recheck or replace, including empty slots.",
+    )
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when replacing an earlier observation.",
+    )
     scans: list[ScanIn] = Field(
         min_length=1,
         max_length=1536,
@@ -1092,24 +1575,43 @@ class ScansIn(Schema):
 def scan_positions(
     request: HttpRequest, reconciliation_id: UUID, payload: ScansIn
 ) -> dict[str, Any]:
-    """What's in each position, or that it's empty. A position scanned again replaces what
-    was scanned there."""
+    """Record the scans in one transaction. Fresh positions and tubes need no precondition.
+    Supply the reviewed line revisions for observations being replaced or repeated.
+    A change of slot or contents also needs a reason. A conflict returns 409 with the
+    currently affected line IDs and versions in `affected_lines`. A shared label at its
+    expected slot records a positional match. An ambiguous label elsewhere returns 409
+    with the readable candidates and the zero-based scan index. A selected candidate
+    is rechecked against the original label when the rack is submitted again."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(
-        lambda: reconciliations.scan(
-            me, r, [reconciliations.Scan(s.position, s.code) for s in payload.scans]
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.scan(
+                me,
+                r,
+                [reconciliations.Scan(s.position, s.code, s.mode, s.choice) for s in payload.scans],
+                reviewed_lines=[
+                    (line.line_id, line.line_revision) for line in payload.reviewed_lines
+                ],
+                reason=payload.reason or "",
+            )
         )
-    )
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+        return _reconciliation_out(me, r, locked=True)
 
 
 class ResolveIn(Schema):
+    line_revision: int = Field(ge=1, strict=True)
+    reason: str | None = Field(
+        None,
+        max_length=2000,
+        description="Defaults to empty. Required when changing or clearing a saved decision.",
+    )
     resolution: Resolution | None = Field(
         description="`moved` (a record in the wrong position), `removed` (one missing), "
-        "`placed` (one unexpected), or `kept`, with a note; null clears it."
+        "`placed` (one unexpected), or `kept`, with a note. Null clears the decision and its "
+        "attached note. The earlier decision and note remain in the history."
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(None, max_length=2000, description=_PATCH_NOTE)
 
 
 @router.patch(
@@ -1120,17 +1622,34 @@ class ResolveIn(Schema):
 def resolve_line(
     request: HttpRequest, reconciliation_id: UUID, line_id: UUID, payload: ResolveIn
 ) -> dict[str, Any]:
+    """Save or clear the decision for the reviewed line_revision. A changed finding,
+    supporting scan, or decision on this line returns 409. Superseding a decision
+    requires a reason in addition to any note supporting the new decision."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(lambda: reconciliations.resolve(me, r, line_id, payload.resolution, payload.note))
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.resolve(
+                me,
+                r,
+                line_id,
+                payload.resolution,
+                _patch_note(payload),
+                line_revision=payload.line_revision,
+                reason=payload.reason or "",
+            )
+        )
+        return _reconciliation_out(me, r, locked=True)
 
 
-class CompleteReconciliationIn(Schema):
+class CompleteReconciliationIn(ReviewedReconciliationIn):
     missing_rest: bool = Field(
-        False, description="Take each recorded position nobody scanned to be missing, removed."
+        default_factory=bool,
+        description="Treat unscanned occupants as missing and remove them. Defaults to false.",
     )
-    note: str = Field("", max_length=2000)
+    note: str | None = Field(
+        None, max_length=2000, description="Completion note. Defaults to empty."
+    )
 
 
 @router.post(
@@ -1141,16 +1660,27 @@ class CompleteReconciliationIn(Schema):
 def complete_reconciliation(
     request: HttpRequest, reconciliation_id: UUID, payload: CompleteReconciliationIn
 ) -> dict[str, Any]:
-    """Applies every resolution as one change. Refused (422) if anything moved into or out of
-    the container since it started."""
+    """Applies the reviewed plan atomically. A stale plan revision returns 409. A decision
+    that needs review or a change in the container's recorded contents returns 422."""
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(
-        lambda: reconciliations.complete(
-            me, r, missing_rest=payload.missing_rest, note=payload.note
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.complete(
+                me,
+                r,
+                plan_revision=payload.plan_revision,
+                missing_rest=payload.missing_rest,
+                note=payload.note or "",
+            )
         )
+        return _reconciliation_out(me, r, locked=True)
+
+
+class CancelReconciliationIn(ReviewedReconciliationIn):
+    reason: str = Field(
+        min_length=1, max_length=2000, description="Why this count is being cancelled."
     )
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
 
 
 @router.post(
@@ -1158,11 +1688,18 @@ def complete_reconciliation(
     response=ReconciliationOut,
     summary="Cancel a reconciliation",
 )
-def cancel_reconciliation(request: HttpRequest, reconciliation_id: UUID) -> dict[str, Any]:
+def cancel_reconciliation(
+    request: HttpRequest, reconciliation_id: UUID, payload: CancelReconciliationIn
+) -> dict[str, Any]:
     me = caller(request)
     r = _reconciliation(me, reconciliation_id)
-    _receiving(lambda: reconciliations.cancel(me, r))
-    return _reconciliation_out(me, _reconciliation(me, reconciliation_id))
+    with transaction.atomic():
+        _receiving(
+            lambda: reconciliations.cancel(
+                me, r, plan_revision=payload.plan_revision, reason=payload.reason
+            )
+        )
+        return _reconciliation_out(me, r, locked=True)
 
 
 # --- Labels -------------------------------------------------------------------------------------
@@ -1173,7 +1710,9 @@ class LabelSizeOut(Schema):
     label: str
     width_mm: float
     height_mm: float
-    code128: bool = Field(description="It has room for a Code 128 beside the 2D code.")
+    code128: bool = Field(
+        description="This stock supports an additional vendor Code 128 if it fits."
+    )
 
 
 class LabelSizesOut(Schema):
@@ -1196,6 +1735,10 @@ class LabelsIn(Schema):
     symbology: Literal["datamatrix", "qr"] = "datamatrix"
     dpi: int = Field(203, description="For ZPL: the printer's resolution, 203 or 300 dpi.")
     copies: int = Field(1, ge=1, le=labelling.MAX_COPIES)
+    include_vendor_code: bool = Field(
+        default_factory=bool,
+        description="Also print the vendor barcode as Code 128 when it fits. Defaults to false.",
+    )
     preview: bool = Field(
         False, description="Only to show them: not recorded as prepared, and with no ZPL."
     )
@@ -1206,7 +1749,10 @@ class LabelOut(Schema):
     hrid: str
     title: str
     line: str
-    code: str = Field(description="What its barcodes encode: its barcode, or its HRID.")
+    code: str = Field(description="Unique Iki record identity encoded in the Data Matrix or QR.")
+    vendor_code: str | None = Field(
+        description="Additional vendor Code 128 requested for this print, otherwise null."
+    )
 
 
 class LabelsOut(Schema):
@@ -1231,18 +1777,31 @@ def prepare_labels(request: HttpRequest, payload: LabelsIn) -> dict[str, Any]:
             raise _invalid(
                 storage.Wrong({f"records/{index}": [f"{r.hrid} isn't kept anywhere to label."]})
             )
-    made = labelling.labels_of(records)
+    try:
+        made = labelling.labels_of(
+            records, size=size, dpi=payload.dpi, include_vendor_code=payload.include_vendor_code
+        )
+    except storage.Wrong as error:
+        raise _invalid(error) from None
+    zpl = None
+    if payload.format == "zpl" and not payload.preview:
+        zpl = labelling.zpl(
+            made, size=size, dpi=payload.dpi, symbology=payload.symbology, copies=payload.copies
+        )
     if not payload.preview:
         labelling.recorded(me, made, size=size, how=payload.format, copies=payload.copies)
     return {
         "labels": [
-            {"id": x.entity.pk, "hrid": x.hrid, "title": x.title, "line": x.line, "code": x.code}
+            {
+                "id": x.entity.pk,
+                "hrid": x.hrid,
+                "title": x.title,
+                "line": x.line,
+                "code": x.code,
+                "vendor_code": x.vendor_code,
+            }
             for x in made
         ],
         "size": labelling.describe({size.key: size})[0],
-        "zpl": labelling.zpl(
-            made, size=size, dpi=payload.dpi, symbology=payload.symbology, copies=payload.copies
-        )
-        if payload.format == "zpl" and not payload.preview
-        else None,
+        "zpl": zpl,
     }

@@ -781,11 +781,21 @@ def build() -> MCPServer:
         ref: Ref,
         amount: Annotated[AmountIn, Field(description="How much there is: what was found.")],
         reason: Reason,
+        balance_revision: Annotated[
+            str, Field(description="The observed amount's exact updated_at, or unrecorded.")
+        ],
     ) -> CallToolResult:
-        """Sets how much there is of a record to what it was found to be: a recount, a
-        spill, a correction."""
+        """Records an absolute count. Use the observed amount's revision from get_entity.
+        If the balance changed, ask the person to recount before recording a new count."""
         body = {"amount": amount.model_dump(mode="json"), "reason": reason}
-        return answer(await call("POST", path("/entities/{ref}/amount/adjust", ref=ref), body=body))
+        return answer(
+            await call(
+                "POST",
+                path("/entities/{ref}/amount/adjust", ref=ref),
+                body=body,
+                if_balance_revision=balance_revision,
+            )
+        )
 
     @server.tool(annotations=ADD, title="Split into aliquots")
     async def split_into_aliquots(

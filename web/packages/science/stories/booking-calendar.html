@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" class="viewer-story">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Instrument bookings</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/viewer-theme.css" />
+    <style>
+      body {
+        font:
+          1rem system-ui,
+          sans-serif;
+        margin: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Instrument bookings</h1>
+      <p>Synthetic schedule for March 2026.</p>
+      <iki-booking-calendar></iki-booking-calendar>
+      <output aria-live="polite"></output>
+    </main>
+    <script type="module">
+      import "../dist/booking-calendar.js";
+
+      const calendar = document.querySelector("iki-booking-calendar");
+      calendar.month = "2026-03";
+      calendar.data = {
+        label: "Protocol room",
+        bookings: [
+          {
+            id: "demo-1",
+            title: "Lamp inspection",
+            instrument: "Microscope",
+            startsAt: "2026-03-05T09:00:00",
+            endsAt: "2026-03-05T10:00:00",
+          },
+          {
+            id: "demo-2",
+            title: "Quarterly service",
+            instrument: "Plate reader",
+            startsAt: "2026-03-18T14:30:00",
+            endsAt: "2026-03-18T16:00:00",
+          },
+        ],
+      };
+      calendar.addEventListener("booking-open", ({ detail }) => {
+        document.querySelector("output").textContent = `Selected ${detail.id}`;
+      });
+    </script>
+  </body>
+</html>

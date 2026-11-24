@@ -23,8 +23,10 @@ export const STARTERS = ["starters"] as const;
 export function startersQuery(projectId: string) {
   return queryOptions({
     queryKey: [...STARTERS, projectId],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/starters", { params: { query: { project: projectId } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/starters", { params: { query: { project: projectId } }, signal }),
+      ),
   });
 }
 

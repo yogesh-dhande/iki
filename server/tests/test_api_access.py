@@ -198,6 +198,11 @@ def sample_amount(suffix: str, body: Any = None) -> Build:
             given["to"] = str(made().pk)
         if "values" in given:
             given["values"] = {"label": f"A-{uuid.uuid4().hex[:8]}"}
+        if suffix == "/amount/adjust":
+            from iki_server.amounts.models import Amount
+
+            revision = Amount.objects.get(pk=found.pk).updated_at.isoformat()
+            return f"/entities/{found.pk}{suffix}", given, {"If-Balance-Revision": revision}
         return f"/entities/{found.pk}{suffix}", given or None
 
     return build
@@ -246,7 +251,14 @@ def samples_assign(w: World) -> tuple[Any, ...]:
     found = entities.create(
         w.users["editor"], "acme/protein.Sample", w.project, {"label": "S-assign"}
     )
-    body = {"entities": [str(found.entity.pk)], "field": "analyst", "person": None}
+    assert found.revision is not None
+    pk = str(found.entity.pk)
+    body = {
+        "entities": [pk],
+        "expected_revisions": {pk: found.revision.number},
+        "field": "analyst",
+        "person": None,
+    }
     return "/entities/assign", body
 
 
@@ -722,6 +734,11 @@ def storage_moves(w: World) -> tuple[Any, ...]:
     return "/storage/moves", {"items": items, "reason": "Put away"}
 
 
+def storage_scan_preview(w: World) -> tuple[Any, ...]:
+    container = _box(w)
+    return "/storage/scan/resolve", {"scope": "box", "container": str(container.pk), "code": "T-1"}
+
+
 def storage_check_out(w: World) -> tuple[Any, ...]:
     tube = _tube(w, into=_box(w))
     return "/storage/check-out", {"records": [str(tube.pk)], "reason": "Thawing"}
@@ -740,6 +757,35 @@ def storage_hand_over(w: World) -> tuple[Any, ...]:
 
 def storage_labels(w: World) -> tuple[Any, ...]:
     return "/storage/labels", {"records": [str(_tube(w).pk)], "size": "cryo", "format": "zpl"}
+
+
+def stock_lots(w: World) -> tuple[str, None]:
+    from iki_server.entities import services as entities
+
+    editor = w.users["editor"]
+    item = entities.create(editor, "acme/protein.Lot", w.project, {"label": "uL"}).entity
+    entities.create(
+        editor,
+        "acme/protein.Sample",
+        w.project,
+        {"label": "Lot 1", "lot": str(item.pk)},
+        amount={"value": "10", "unit": "uL"},
+    )
+    return f"/projects/{w.project.pk}/stock/{item.pk}/lots", None
+
+
+@pytest.fixture
+def stock_lot_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Map the installed fixture types' unit and lot fields for the lot-detail request."""
+    from types import SimpleNamespace
+
+    from iki_server.amounts import stock
+    from iki_spec.model import StockLots
+
+    cfg = SimpleNamespace(
+        unit="label", lots=StockLots("acme/protein.Sample", "lot", "label", "due_on")
+    )
+    monkeypatch.setattr(stock, "catalogues", lambda: {"acme/protein.Lot": cfg})
 
 
 def _received(w: World) -> Any:
@@ -772,6 +818,12 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         found, started = _received(w)
         line = started.lines.get()
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
+        if body is not None and "reason" in body and "/lines/" in path:
+            return path, {**body, "line_revision": line.line_revision}
+        if body is not None and (
+            suffix == "/receipts/{receipt}" or suffix.endswith(("/complete", "/cancel"))
+        ):
+            return path, {**body, "plan_revision": started.plan_revision}
         return path, body
 
     return build
@@ -785,7 +837,14 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         tube = _tube(w, into=box)
         started = reconciliations.start(w.users["editor"], box)
         line = started.lines.get(entity=tube)
-        return suffix.format(reconciliation=started.pk, line=line.pk), body
+        payload = (
+            {**body, "plan_revision": started.plan_revision}
+            if suffix.endswith(("/complete", "/cancel"))
+            else body
+        )
+        if suffix.endswith("/lines/{line}"):
+            payload = {**body, "line_revision": line.line_revision}
+        return suffix.format(reconciliation=started.pk, line=line.pk), payload
 
     return build
 
@@ -872,11 +931,11 @@ def workbook_import(w: World) -> tuple[str, Any]:
     }
 
 
-def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
+def spreadsheet_import(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
     """The editor's import of a manifest, its columns mapped: only they see it until it's
-    committed."""
+    committed. A change to it says the revision it was read at."""
 
-    def build(w: World) -> tuple[str, Any]:
+    def build(w: World) -> tuple[Any, ...]:
         from iki_server.spreadsheets.models import SpreadsheetImport
 
         made = SpreadsheetImport.objects.create(
@@ -899,7 +958,8 @@ def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
             sheet="manifest",
             columns=[{"index": 0, "field": "label"}],
         )
-        return f"/spreadsheet-imports/{made.pk}{suffix}", body
+        headers = {"If-Match": f'"{made.revision}"'} if if_match else None
+        return f"/spreadsheet-imports/{made.pk}{suffix}", body, headers
 
     return build
 
@@ -1276,6 +1336,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
     ),
     ("GET", "/storage/scan", fixed("/storage/scan?code=T-1"), row(200)),
+    ("POST", "/storage/scan/resolve", storage_scan_preview, readers(200)),
     ("GET", "/storage/checked-out", fixed("/storage/checked-out"), row(200)),
     ("GET", "/storage/labels", fixed("/storage/labels"), row(200)),
     ("POST", "/storage/labels", storage_labels, readers(200)),
@@ -1284,6 +1345,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(200)),
     ("POST", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(403)),
     ("GET", "/receipts/{receipt_id}", receipt("/receipts/{receipt}"), readers(200)),
+    (
+        "GET",
+        "/receipts/{receipt_id}/history",
+        receipt("/receipts/{receipt}/history"),
+        readers(200),
+    ),
     (
         "PATCH",
         "/receipts/{receipt_id}",
@@ -1305,7 +1372,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "DELETE",
         "/receipts/{receipt_id}/lines/{line_id}",
-        receipt("/receipts/{receipt}/lines/{line}"),
+        receipt("/receipts/{receipt}/lines/{line}", {"reason": "Duplicate observation"}),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/lines/{line_id}/restore",
+        receipt("/receipts/{receipt}/lines/{line}/restore", {"reason": "Confirmed extra"}),
         readers(403),
     ),
     (
@@ -1314,7 +1387,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
     ),
-    ("POST", "/receipts/{receipt_id}/cancel", receipt("/receipts/{receipt}/cancel"), readers(403)),
+    (
+        "POST",
+        "/receipts/{receipt_id}/cancel",
+        receipt("/receipts/{receipt}/cancel", {"reason": "Wrong shipment"}),
+        readers(403),
+    ),
     # A container's reconciliations: read by its readers, made by its project's Editors.
     (
         "GET",
@@ -1332,6 +1410,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "GET",
         "/reconciliations/{reconciliation_id}",
         reconciliation("/reconciliations/{reconciliation}"),
+        readers(200),
+    ),
+    (
+        "GET",
+        "/reconciliations/{reconciliation_id}/history",
+        reconciliation("/reconciliations/{reconciliation}/history"),
         readers(200),
     ),
     (
@@ -1357,7 +1441,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/reconciliations/{reconciliation_id}/cancel",
-        reconciliation("/reconciliations/{reconciliation}/cancel"),
+        reconciliation("/reconciliations/{reconciliation}/cancel", {"reason": "Wrong box"}),
         editors(200),
     ),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
@@ -1546,7 +1630,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/run-approvals/{approval_id}/decline",
-        approval("/decline", {}),
+        approval("/decline", {"note": "No longer needed"}),
         readers(403, runner=200),
     ),
     ("GET", "/runs/{ref}/attempts/{attempt}/log", run("/attempts/1/log"), readers(200)),
@@ -1826,7 +1910,9 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/imports/{import_id}/apply",
-        bundle_import("/apply", {"reason": "Moving the work"}),
+        bundle_import(
+            "/apply", {"reason": "Moving the work", "planned_at": "2026-11-15T10:00:05Z"}
+        ),
         row(404),
     ),
     ("GET", "/projects/{project_id}/webhooks", project("/webhooks"), visible(403, admin=200)),
@@ -1986,14 +2072,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "PATCH",
         "/spreadsheet-imports/{import_id}",
-        spreadsheet_import(body={"header_row": 1}),
+        spreadsheet_import(body={"header_row": 1}, if_match=True),
         row(404, editor=200),
     ),
     ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/preview",
-        spreadsheet_import("/preview"),
+        spreadsheet_import("/preview", if_match=True),
         row(404, editor=202),
     ),
     (
@@ -2005,13 +2091,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/spreadsheet-imports/{import_id}/commit",
-        spreadsheet_import("/commit", {}),
+        spreadsheet_import("/commit", {}, if_match=True),
         row(404, editor=409),
     ),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/mappings",
-        spreadsheet_import("/mappings", {"name": "Plate reader"}),
+        spreadsheet_import("/mappings", {"name": "Plate reader"}, if_match=True),
         row(404, editor=201),
     ),
     (
@@ -2021,6 +2107,15 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(200, org_admin=403),
     ),
     ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
+    # Stock, reorder lines and lot locations all require a project reader (ADR 0190).
+    ("GET", "/projects/{project_id}/stock", project("/stock"), visible(200, org_admin=403)),
+    (
+        "GET",
+        "/projects/{project_id}/stock/orders",
+        project("/stock/orders"),
+        visible(200, org_admin=403),
+    ),
+    ("GET", "/projects/{project_id}/stock/{item_id}/lots", stock_lots, visible(200, org_admin=403)),
 ]
 
 
@@ -2103,6 +2198,8 @@ def test_operation_matrix(
         with_cluster(request)
     world = build_world()
     path, body, *headers = build(world)
+    if build is stock_lots:
+        request.getfixturevalue("stock_lot_fields")
     client = Api(world.browser(principal))
     response = client.call(method, path, body, headers=headers[0] if headers else None)
     assert response.status_code == expected[principal], (
