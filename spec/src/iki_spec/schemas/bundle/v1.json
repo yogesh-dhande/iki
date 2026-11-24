@@ -1109,7 +1109,17 @@
               "model": { "type": "string", "maxLength": 200 },
               "version": { "type": "string", "maxLength": 200 },
               "parameters": { "type": "object" },
-              "usage": { "type": "object" }
+              "usage": { "type": "object" },
+              "cost": {
+                "description": "The price recorded for the call at its source deployment, as provenance.",
+                "type": "object",
+                "required": ["amount", "currency"],
+                "additionalProperties": false,
+                "properties": {
+                  "amount": { "type": "string", "pattern": "^-?[0-9]{1,8}(\\.[0-9]{1,6})?$" },
+                  "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+                }
+              }
             }
           }
         },

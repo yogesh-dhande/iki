@@ -54,6 +54,7 @@ from iki_server.signatures.models import (
     Status,
     Withdrawal,
 )
+from iki_server.signatures.proof import manifestation as manifestation
 from iki_spec.model import SIGNATURE_MEANINGS
 from iki_spec.model import Signature as Wanted
 
@@ -1086,19 +1087,6 @@ def standing(signatures: Sequence[Signature]) -> dict[Any, State]:
 
 def _shown(moment: dt.datetime) -> str:
     return moment.astimezone(dt.UTC).strftime("%Y-%m-%d at %H:%M:%S UTC")
-
-
-def manifestation(document: dict[str, Any]) -> str:
-    """The signature as people read it (21 CFR 11.50): the signer's printed name, the date
-    and time, and what it means. From the signed document, so it says what was signed."""
-    sig = document.get("signature") or {}
-    meaning = SIGNATURE_MEANINGS.get(sig.get("meaning", ""))
-    verb = meaning.verb if meaning else "Signed"
-    signer = document.get("signer") or {}
-    when = dt.datetime.fromisoformat(str(document.get("signed_at", "")).replace("Z", "+00:00"))
-    label = sig.get("label") or (meaning.label if meaning else "")
-    who = signer.get("name") or signer.get("email")
-    return f"{verb} by {who} on {_shown(when)}. Meaning: {label}."
 
 
 def parsed(signature: Signature) -> dict[str, Any]:

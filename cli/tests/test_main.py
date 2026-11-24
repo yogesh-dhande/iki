@@ -28,3 +28,13 @@ def test_unknown_argument_is_rejected(capsys: pytest.CaptureFixture[str]) -> Non
         main(["--nope"])
     assert excinfo.value.code == 2
     assert "unrecognized arguments: --nope" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", [("plugin", "test"), ("deploy", "build")])
+def test_help_describes_options_without_adr_numbers(
+    command: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as excinfo:
+        main([*command, "--help"])
+    assert excinfo.value.code == 0
+    assert "ADR " not in capsys.readouterr().out

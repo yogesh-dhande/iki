@@ -4,7 +4,7 @@ An Org Admin who is also the project's Admin uploads a bundle into the project (
 is of kind ``bundle``, kept under its own key). Once its bytes are in, a task reads it,
 trusting nothing until it checks out (:mod:`.reading`), and works out the plan (ADR 0096):
 
-- every type it holds is here, active, at its schema version or later, with the same units;
+- every type it holds is here, active, at the same schema version and with the same units;
 - each registry entry its records are of (ADR 0115) is registered in the project's registry
   already, which its record then refers to, or is registered by the import: its facts
   must agree with the registry's, and it mustn't be superseded here;

@@ -422,6 +422,10 @@ def test_upgrade_builds_against_core_at_the_earlier_commit(
     (core_app / "manifest.json").write_text('{"earlier": true}')
 
     plugin = manifest(tmp_path / "plugins/lab", "lab/assays")
+    plugin_file = plugin / "plugin.yaml"
+    metadata = json.loads(plugin_file.read_text())
+    metadata["settings"] = {"endpoint": {"type": "string"}}
+    plugin_file.write_text(json.dumps(metadata))
     (plugin / "types").mkdir()
     result_type = plugin / "types/result.yaml"
     result_type.write_text(
@@ -448,9 +452,9 @@ fields:
         .replace("fields:\n  sample: { type: ref, to: iki/core.Entity }\n", "")
     )
     (core_app / "manifest.json").write_text('{"earlier": false}')
-    (plugin / "plugin.yaml").write_text(
-        (plugin / "plugin.yaml").read_text().replace("1.0.0", "1.1.0")
-    )
+    metadata["version"] = "1.1.0"
+    metadata["settings"]["endpoint"]["required"] = False
+    plugin_file.write_text(json.dumps(metadata))
 
     class Scratch(nullcontext[str]):
         name = "dummy"

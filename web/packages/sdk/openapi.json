@@ -795,7 +795,7 @@
                 "type": "null"
               }
             ],
-            "description": "At this deployment's price; null without one.",
+            "description": "At the deployment where the call ran; null without a recorded price.",
             "title": "Cost"
           },
           "currency": {

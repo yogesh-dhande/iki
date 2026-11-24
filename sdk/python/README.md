@@ -118,9 +118,10 @@ for release in iki.entities.request("REQ-000007")["result_releases"]:
 # Fields can name people (ADR 0122), by ID or email address; a state that locks
 # a record locks whom it names too.
 iki.entities.update("SAM-000013", {"reviewer": "ana@example.com"}, revision=4)
-for item in iki.work.mine(type="iki/example_lims.Sample"):  # yours now, soonest due first
+client = iki.client()  # uses the current sign-in
+for item in client.work.mine(type="iki/example_lims.Sample"):  # yours now, soonest due first
     print(item["entity"]["hrid"], item["fields"], item["due"])
-for item in iki.work.open():  # nobody's yet, and open to your lab roles
+for item in client.work.open():  # nobody's yet, and open to your lab roles
     record = item["entity"]
     iki.entities.take(record["hrid"], item["fields"][0], revision=record["revision"])
 # Many at once, each its own revision; what can't change is skipped, with why.
@@ -134,11 +135,11 @@ mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searche
 for signature in iki.signatures.list("SMP-000012", verify=True)["items"]:
     print(signature["manifestation"], signature["verification"]["valid"])
 # What you were told (ADR 0129), how you're told of each kind, and what you watch.
-for n in iki.notifications.list(unread=True):
+for n in client.notifications.list(unread=True):
     print(n["title"], [r["hrid"] for r in n["records"]])
-iki.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
-iki.notifications.choose({"iki/example_lims.Sample.in_review": "off"}, project="stability")
-iki.notifications.watch("SAM-000013")  # or "muted", or "default"
+client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+client.notifications.choose({"iki/example_lims.Sample.in_review": "off"}, project="stability")
+client.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
 # with the samples it names. The core writes its own fields; you write yours.

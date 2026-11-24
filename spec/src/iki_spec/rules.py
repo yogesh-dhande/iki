@@ -480,6 +480,8 @@ class _Rules:
     def run(self) -> tuple[dict[str, EntityType], tuple[Extension, ...]]:
         types = dict(self.plugin.types)
         for qualified, entity_type in self.plugin.types.items():
+            if qualified in self.s.invalid_types:
+                continue
             source = self.loaded.type_sources[qualified]
             types[qualified] = self.entity_type(entity_type, source)
         extensions = []

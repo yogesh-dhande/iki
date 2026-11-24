@@ -72,7 +72,7 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
         "--upgrade-from",
         metavar="REF",
         help=(
-            "Also test upgrading from the plugin at this git commit (ADR 0094): migrate a "
+            "Also test upgrading from the plugin at this git commit: migrate a "
             "scratch database to it, make its action tests' entities, migrate to the plugin "
             "now, and roll back."
         ),
