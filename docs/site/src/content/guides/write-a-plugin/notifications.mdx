@@ -1,0 +1,121 @@
+---
+title: Tell people when records change
+description: Declare a type's notifications, when each is sent and whom it tells, write its message, and make one that nobody can turn off.
+audience: build
+order: 70
+reference:
+  - { label: "Entity type: notifications", href: /reference/plugin-spec/entity-type/#notifications }
+---
+
+A type says who is told when its records change, in Iki and by email, under
+[`notifications`](/reference/plugin-spec/entity-type/#notifications): each notification by name,
+when it's sent, and whom it tells. Iki decides the rest:
+
+- Each person is told only while they can read the record, and not of their own change. An agent's,
+  a run's or a trigger's change made for them does tell them.
+- It's sent as each person chooses, folded with others of its kind into one notification and one
+  email, and each one sent is in the record's audit log.
+- Emails say what happened and link to it, without the record's values.
+
+Each person chooses, per notification, in Iki and by email, in Iki only, or off, everywhere or in
+one project, and can watch or mute a record.
+
+The LIMS example's samples tell QA when one is submitted for review, and the analyst when QA
+rejects one:
+
+```yaml
+notifications:
+  in_review:
+    label: Submitted for review
+    description: QA hears when an analyst submits a sample's results, to plan its release.
+    when: { field: status, to: in_review }
+    tell: { roles: [qa], watchers: true }
+    message:
+      title: "{{ hrid }} is in review"
+      body: "{{ protein }}, lot {{ lot or 'not given' }}, tested by {{ analyst or 'nobody named' }}."
+  rejected:
+    label: Rejected
+    when: { field: status, to: rejected }
+    tell: { fields: [analyst], watchers: true }
+    message:
+      title: "{{ hrid }} was rejected"
+      body: "QA rejected {{ protein }}, lot {{ lot or 'not given' }}. Its history says why."
+    required: true
+```
+
+## When it's sent
+
+[`when`](/reference/plugin-spec/entity-type/#notifications.when) is one of:
+
+- [`created: true`](/reference/plugin-spec/entity-type/#notifications.when.created): a record is
+  made.
+- A [`field`](/reference/plugin-spec/entity-type/#notifications.when.field) changing, optionally
+  [`to`](/reference/plugin-spec/entity-type/#notifications.when.to) and
+  [`from`](/reference/plugin-spec/entity-type/#notifications.when.from) a value or values, for
+  state, enum and bool fields (`notification-values`, `unknown-state`). The field can be a
+  referenced record's, `ref.field`: every record referring to the one that changed is told of, up
+  to 1000.
+- For a [request type](/guides/write-a-plugin/requests/),
+  [`sent: true`](/reference/plugin-spec/entity-type/#notifications.when.sent), as the request is
+  sent, which tells only `roles`, held in the service's project; or
+  [`released: true`](/reference/plugin-spec/entity-type/#notifications.when.released), as each of
+  its results is released back, which tells whom it names in the project that asked, if they can
+  read both the request and the result.
+
+[`where`](/reference/plugin-spec/entity-type/#notifications.where) keeps only the records a search's
+conditions find, on the type's own fields, as a component's search takes them; `{{ now }}` is the
+moment it's sent, for date and datetime fields (`notification-where`). The LIMS example's
+bookings tell whoever a booking is for when its instrument goes out of service, if the booking
+hasn't ended:
+
+```yaml
+notifications:
+  instrument_down:
+    label: Instrument out of service
+    when: { field: instrument.service, to: out_of_service }
+    where: { field: ends_at, op: gte, value: "{{ now }}" }
+    tell: { fields: [booked_by] }
+    message:
+      title: "{{ instrument }} is out of service"
+      body: "Your booking “{{ purpose }}” starts {{ starts_at }}."
+```
+
+## Whom it tells
+
+[`tell`](/reference/plugin-spec/entity-type/#notifications.tell) names at least one of
+(`notification-recipients`):
+
+- [`fields`](/reference/plugin-spec/entity-type/#notifications.tell.fields): the type's
+  [person fields](/guides/write-a-plugin/people/);
+- [`roles`](/reference/plugin-spec/entity-type/#notifications.tell.roles): lab roles whose holders
+  in the record's project are told (`unknown-role`);
+- [`creator`](/reference/plugin-spec/entity-type/#notifications.tell.creator): whoever made the
+  record;
+- [`watchers`](/reference/plugin-spec/entity-type/#notifications.tell.watchers): those who watch it;
+- [`actor`](/reference/plugin-spec/entity-type/#notifications.tell.actor): the person who made the
+  change, who isn't told otherwise.
+
+A notification that tells an assignment field's person when the record becomes theirs repeats
+Iki's own "It's ready for you" (`notification-repeats-ready`, a warning).
+
+## Its message
+
+[`message`](/reference/plugin-spec/entity-type/#notifications.message) has a
+[`title`](/reference/plugin-spec/entity-type/#notifications.message.title), up to 200 characters,
+and a [`body`](/reference/plugin-spec/entity-type/#notifications.message.body), up to 1000, in the
+display title's template language: field names, `hrid`, strings and `or`
+(`notification-message`). States show their label, people their name, and references their HRID
+only to someone who can read them. Without a message it reads "SAM-000012: Submitted for review".
+
+## Email and notifications nobody can turn off
+
+- [`email: false`](/reference/plugin-spec/entity-type/#notifications.email) sends it in Iki only,
+  unless someone chooses email too.
+- [`required: true`](/reference/plugin-spec/entity-type/#notifications.required) means nobody can
+  turn it off in Iki, or mute it on a record; whether it's emailed stays their choice.
+
+## Subtypes and registry fields
+
+A type's notifications are its parents' too, and can't reuse a parent's names
+(`notification-shadows-parent`). A registry entry's fields can't send one, since an entry has no
+project to tell (`notification-in-registry`).
