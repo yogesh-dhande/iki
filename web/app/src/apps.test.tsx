@@ -263,7 +263,7 @@ describe("an app about an entity", () => {
     answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH]));
     await renderApp("/entities/DNA-000001/apps/APP-000001/");
     expect(
-      await screen.findByText("There’s nothing here, or you don’t have access to it."),
+      await screen.findByText("It has no such tab, or you don’t have access to it."),
     ).toBeInTheDocument();
     await waitFor(() => {
       expect(calls("GET", "/api/v1/entities/APP-000001")).toHaveLength(0);

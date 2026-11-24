@@ -21,6 +21,21 @@ export function NotFound() {
   );
 }
 
+/**
+ * A tab a record hasn't got: a viewer its type doesn't have, or a component or app that
+ * isn't about it. Under the record's own header and tabs, which go on to the tabs it has,
+ * so it's a section of that page, not a page of its own.
+ */
+export function NoSuchTab() {
+  usePageTitle("Not found");
+  return (
+    <section className="card">
+      <h2>Not found</h2>
+      <p>It has no such tab, or you don’t have access to it.</p>
+    </section>
+  );
+}
+
 export function ErrorPage({ error, reset }: ErrorComponentProps) {
   const status = error instanceof ApiError ? error.status : 0;
   usePageTitle(status === 403 ? "Not allowed" : status === 410 ? "Purged" : "Something went wrong");

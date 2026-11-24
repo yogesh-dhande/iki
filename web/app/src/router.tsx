@@ -118,6 +118,7 @@ const ProjectWorkflows = lazyRouteComponent(workflowPages, "ProjectWorkflows");
 const NewWorkflowRun = lazyRouteComponent(workflowPages, "NewWorkflowRun");
 const ProjectTriggers = lazyRouteComponent(() => import("./pages/triggers"), "ProjectTriggers");
 const EntityOverview = lazyRouteComponent(entityPages, "EntityOverview");
+const RecordPages = lazyRouteComponent(entityPages, "RecordPages");
 const NewEntity = lazyRouteComponent(entityFormPages, "NewEntity");
 const EditEntity = lazyRouteComponent(entityFormPages, "EditEntity");
 const EntityAudit = lazyRouteComponent(() => import("./pages/entity-audit"), "EntityAudit");
@@ -585,7 +586,7 @@ const entityRoute = createRoute({
 
 function EntityOrChoice() {
   const { choices } = entityRoute.useLoaderData();
-  return choices ? <ChooseProject records={choices} /> : <Outlet />;
+  return choices ? <ChooseProject records={choices} /> : <RecordPages />;
 }
 
 const entityOverviewRoute = createRoute({

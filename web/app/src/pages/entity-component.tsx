@@ -24,20 +24,19 @@ import {
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import { actionsQuery } from "../runs";
-import { EntityTabs, useEntity } from "./entity";
-import { NotFound } from "./errors";
+import { useEntity } from "./entity";
+import { NoSuchTab } from "./errors";
 import { PluginPlace } from "./plugin-place";
 
 export function EntityComponent() {
-  const { entity, type, types } = useEntity();
+  const { entity, types } = useEntity();
   const { _splat: name = "" } = useParams({ from: "/entities/$ref/components/$" });
   const components = useSuspenseQuery(componentsQuery).data;
   const tab = entityTabs(entity.type, types, components).find((t) => t.component.name === name);
   usePageTitle(tab ? `${tab.label} of ${entity.title} (${entity.hrid})` : undefined);
-  if (!tab) return <NotFound />;
+  if (!tab) return <NoSuchTab />;
   return (
     <>
-      <EntityTabs entity={entity} type={type} />
       {tab.component.description ? <p className="muted">{tab.component.description}</p> : null}
       <Tab key={tab.component.name} tab={tab} entity={entity} types={types} />
     </>
