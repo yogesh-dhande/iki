@@ -97,6 +97,13 @@ export function checkedOutQuery(custodian?: string) {
   });
 }
 
+/** What was received into someone's custody without a location, and isn't put away yet. */
+export const awaitingPutAwayQuery = queryOptions({
+  queryKey: [...STORAGE, "awaiting-put-away"],
+  queryFn: async ({ signal }) =>
+    unwrap(await iki.GET("/api/v1/storage/awaiting-put-away", { signal })),
+});
+
 export function reconciliationsQuery(ref: string) {
   return queryOptions({
     queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],

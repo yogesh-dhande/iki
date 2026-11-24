@@ -1,6 +1,7 @@
 /**
- * Storage (ADR 0180): the freezers and other places at the top, what's checked out, and
- * each container's page, with its map of positions to open, select and move from.
+ * Storage (ADR 0180): the freezers and other places at the top, what's checked out, what
+ * was received without a location and awaits put-away, and each container's page, with its
+ * map of positions to open, select and move from.
  */
 
 import { unwrap } from "@ikisci/sdk";
@@ -14,6 +15,7 @@ import { personName, typeLabel, typesQuery } from "../entities";
 import { LabelDialog } from "../labels";
 import { usePageTitle } from "../layout";
 import {
+  awaitingPutAwayQuery,
   checkedOutQuery,
   containerQuery,
   freeSlots,
@@ -101,6 +103,7 @@ export function StoragePage() {
   const places = useQuery(placesQuery);
   const me = useQuery(meQuery).data;
   const out = useQuery({ ...checkedOutQuery(me?.id), enabled: !!me });
+  const awaiting = useQuery(awaitingPutAwayQuery);
   const types = useQuery(typesQuery).data ?? [];
   const open = useOpenScanned();
   const [scanned, setScanned] = useState<{ code: string; matches: ScanMatch[] } | null>(null);
@@ -236,6 +239,52 @@ export function StoragePage() {
               >
                 Check them all in
               </Button>
+            </div>
+          </>
+        ) : null}
+      </section>
+      <section className="card" aria-labelledby="awaiting-title">
+        <h2 className="section-title" id="awaiting-title">
+          Received, not yet put away
+        </h2>
+        {awaiting.error ? <ProblemAlert problem={problemOf(awaiting.error)} /> : null}
+        {awaiting.isPending ? <Loading label="Loading what’s waiting…" /> : null}
+        {awaiting.data && !awaiting.data.length ? <p className="muted">Nothing.</p> : null}
+        {awaiting.data?.length ? (
+          <>
+            <p className="muted">
+              Kept in someone’s custody when it was received. Each leaves this list once it’s put
+              away.
+            </p>
+            <div className="table-scroll">
+              <table className="table">
+                <caption className="visually-hidden">
+                  Received records held without a location
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Record</th>
+                    <th scope="col">Held by</th>
+                    <th scope="col">Since</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {awaiting.data.map((x) => (
+                    <tr key={x.id}>
+                      <th scope="row">
+                        <Link to="/entities/$ref/" params={{ ref: x.hrid }}>
+                          {x.hrid}
+                        </Link>
+                        {x.title !== x.hrid ? <span className="cell-meta">{x.title}</span> : null}
+                      </th>
+                      <td>{x.custodian.id === me?.id ? "You" : personName(x.custodian)}</td>
+                      <td>
+                        <Time value={x.custody_since} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </>
         ) : null}

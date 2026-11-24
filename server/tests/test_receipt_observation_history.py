@@ -360,7 +360,14 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     assert read(second, path) == before
     assert read(second, movements) == movements_before
     assert read(second, path + "/history") == history_before
-    final = change(second, "POST", path + "/complete", before, missing_rest=True)
+    final = change(
+        second,
+        "POST",
+        path + "/complete",
+        before,
+        missing_rest=True,
+        keep_in_custody=[scan["line"]],
+    )
     assert final["outcomes"]["matched"] == final["outcomes"]["missing"] == 1
     assert final["plan_revision"] == before["plan_revision"] + 1
     assert final["received_by"]["id"] == str(lab.users["core_qa"].pk)

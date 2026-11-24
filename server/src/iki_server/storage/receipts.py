@@ -17,6 +17,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import OuterRef, QuerySet, Subquery
 from django.utils import timezone
 
 from iki_server.accounts.models import User
@@ -77,6 +78,28 @@ def why_not_receiver(user: User, entity: Entity) -> str | None:
         named = " or ".join(lab_roles.label(r) for r in roles)
         return f"Receiving {entity.hrid} needs the {named} role in {request.service.name}."
     return None
+
+
+def awaiting_put_away(user: User) -> QuerySet[Place]:
+    """Accepted material the reader can see that is still held without a location."""
+    # A later receipt can take custody of the same record again, even to reject it.
+    last_received = ReceiptLine.objects.filter(
+        entity_id=OuterRef("pk"),
+        receipt__status=ReceiptStatus.COMPLETED,
+        removed=False,
+        outcome__in=(*RECEIVED, Outcome.REJECTED),
+    ).order_by("-receipt__completed_at", "-pk")
+    return (
+        Place.objects.filter(
+            entity__in=access.visible(user).values("pk"),
+            container__isnull=True,
+            custodian__isnull=False,
+        )
+        .alias(outcome=Subquery(last_received.values("outcome")[:1]))
+        .filter(outcome__in=RECEIVED)
+        .select_related("custodian")
+        .order_by("custody_since", "pk")
+    )
 
 
 def _expected(entity: Entity) -> list[Entity]:
@@ -480,10 +503,10 @@ def complete(
     put_away: Sequence[PutAway] = (),
     *,
     plan_revision: int,
+    keep_in_custody: Sequence[UUID] = (),
     missing_rest: bool = False,
 ) -> Receipt:
-    """Completes a receipt: custody of what was received, each put away where it's given,
-    as one change; the requester told of what didn't arrive as expected."""
+    """Put away or explicitly keep each accepted record, and report discrepancies atomically."""
     with transaction.atomic():
         receipt = _open(user, receipt, plan_revision)
         lines = list(
@@ -503,6 +526,9 @@ def complete(
             elif line.outcome in NOTED and not line.note:
                 wrong[f"lines/{line.pk}"] = [f"needs a note: say why it's {line.outcome}."]
         by_id = {str(line.pk): line for line in lines}
+        undecided = {
+            line.pk for line in lines if line.outcome in RECEIVED and line.entity_id is not None
+        }
         wanted: list[storage.Wanted] = []
         putting: list[ReceiptLine] = []
         for index, p in enumerate(put_away):
@@ -511,11 +537,23 @@ def complete(
                 wrong[f"put_away/{index}"] = ["isn't one of this receipt's lines."]
             elif chosen.outcome not in RECEIVED or chosen.entity is None:
                 wrong[f"put_away/{index}"] = ["is put away only once it's matched or damaged."]
-            elif chosen in putting:
+            elif chosen.pk not in undecided:
                 wrong[f"put_away/{index}"] = ["is put away twice."]
             else:
+                undecided.remove(chosen.pk)
                 putting.append(chosen)
                 wanted.append(storage.Wanted(chosen.entity, p.to, p.position))
+        for index, line_id in enumerate(keep_in_custody):
+            if line_id in undecided:
+                undecided.remove(line_id)
+            else:
+                wrong[f"keep_in_custody/{index}"] = [
+                    "must name a matched or damaged line of this receipt exactly once."
+                ]
+        for line_id in sorted(undecided):
+            wrong[f"lines/{line_id}"] = [
+                "choose where to put it away or explicitly keep it in custody."
+            ]
         if wrong:
             raise Wrong(wrong)
         request = receipt.request
