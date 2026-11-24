@@ -24,7 +24,39 @@ def test_overlapping_peptides_count_each_position_once(tmp_path):
     )
     got = SCRIPT["peptide_rows"](source, {"heavy": "ACMDG"})
     assert got["coverage"] == [{"chain": "heavy", "covered": 4, "length": 5, "percent": 80.0}]
-    assert got["peptides"][1]["modifications"] == [{"name": "UNIMOD:35", "chain_position": 3}]
+    assert got["peptides"][1]["modifications"] == [
+        {"name": "UNIMOD:35", "chain_position": 3, "site": "residue"}
+    ]
+
+
+def test_peptide_termini_and_the_first_residue_keep_separate_sites(tmp_path):
+    source = tmp_path / "synthetic.tsv"
+    source.write_text(
+        "chain\tstart\tsequence\tmodifications\nheavy\t2\tKAP\t0:UNIMOD:1;1:UNIMOD:1;4:UNIMOD:2\n"
+    )
+    result = SCRIPT["peptide_rows"](source, {"heavy": "AKAPG"})
+    assert result["coverage"][0]["covered"] == 3
+    assert result["peptides"][0]["modifications"] == [
+        {"name": "UNIMOD:1", "chain_position": 2, "site": "peptide_n_term"},
+        {"name": "UNIMOD:1", "chain_position": 2, "site": "residue"},
+        {"name": "UNIMOD:2", "chain_position": 4, "site": "peptide_c_term"},
+    ]
+
+
+@pytest.mark.parametrize("analysis", ["mass", "peptide"])
+@pytest.mark.parametrize("blank_lines", ["", "\n\n"])
+def test_header_without_observations_is_refused(tmp_path, analysis, blank_lines):
+    source = tmp_path / "empty.tsv"
+    if analysis == "mass":
+        headings = ["name", "analyte", "observed_da", "disulfides", *SCRIPT["GLYCANS"]]
+    else:
+        headings = ["chain", "start", "sequence", "modifications"]
+    source.write_text("\t".join(headings) + "\n" + blank_lines)
+    with pytest.raises(ValueError, match="The report has no observations"):
+        if analysis == "mass":
+            SCRIPT["mass_rows"](source, {}, {"heavy": "ACM"}, 1, "average", 10)
+        else:
+            SCRIPT["peptide_rows"](source, {"heavy": "ACM"})
 
 
 def test_an_adc_lot_must_belong_to_the_selected_conjugate():

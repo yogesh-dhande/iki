@@ -40,10 +40,14 @@ species or a separately assigned subunit delta for comparison.
 The peptide TSV requires `chain`, `start`, `sequence` and
 `modifications`. Use the start position on the reference chain, at
 1-based coordinates. Leave the modification column empty or give
-semicolon-separated `position:UNIMOD:id` assignments with 1-based
-positions inside the peptide. The importer checks every peptide against
-the reference, carries modifications at chain positions and counts each
-covered residue once, including across overlapping peptides.
+semicolon-separated `position:UNIMOD:id` assignments. Positions 1
+through the peptide's length name residues. Use 0 for the peptide
+N-terminus and the peptide's length plus 1 for its C-terminus. The
+importer records the site with its chain coordinate and counts each
+covered residue once, including across overlapping peptides. The
+position convention follows [mzTab 1.0](https://github.com/HUPO-PSI/mzTab).
+[Unimod's acetylation entry](https://www.unimod.org/modifications_view.php?editid1=1)
+gives an example with both terminal and residue sites.
 
 The original report and its SHA-256 stay linked to the result. In Research
 a reviewer signs off. In Regulated QC the analyst signs submission, the

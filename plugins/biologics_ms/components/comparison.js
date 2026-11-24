@@ -75,7 +75,15 @@ class BiologicsMSComparison extends HTMLElement {
       content.push(...report.coverage.map(coverage));
       const rows = report.peptides.map((peptide) => {
         const mods = peptide.modifications
-          .map((mod) => `${mod.name} at residue ${mod.chain_position}`)
+          .map((mod) => {
+            const terminus = {
+              peptide_n_term: "the peptide N-terminus",
+              peptide_c_term: "the peptide C-terminus",
+            }[mod.site];
+            return terminus
+              ? `${mod.name} at ${terminus} (residue ${mod.chain_position})`
+              : `${mod.name} at residue ${mod.chain_position}`;
+          })
           .join(", ");
         return node(
           "li",
