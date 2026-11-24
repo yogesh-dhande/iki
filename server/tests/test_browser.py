@@ -2696,6 +2696,13 @@ def test_a_proteins_sequence_in_its_viewer(open_as: Any, world: World, color_sch
 
 #: Stands in for the clipboard, keeping what the page copies: a test can't read the
 #: system's in every browser.
+# Whether the element is (at least partly) in the window, read at once: no waiting for it to
+# come back into view.
+IN_VIEW = """(selector) => {
+  const box = document.querySelector(selector)?.getBoundingClientRect();
+  return !!box && box.bottom > 0 && box.top < innerHeight;
+}"""
+
 CLIPBOARD = """() => {
   window.__copied = [];
   navigator.clipboard.writeText = (text) => {
@@ -2795,6 +2802,12 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     assert action.input_value() == action_name
     page.get_by_role("group", name="Sequence").get_by_text(accession).wait_for()
 
+    # The Lineage tab's count is held back until after the feature is shown, so the record's
+    # tabs settle (and the one you're on is brought into view across them) with the reader
+    # scrolled down to the feature: that mustn't take the page back up to the tabs.
+    lineage: list[Route] = []
+    graph = re.compile(r"/api/v1/entities/[^/]+/graph\?")
+    page.route(graph, lambda route: lineage.append(route))
     result = [
         {
             "type": "promoter",
@@ -2818,7 +2831,19 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     assert (
         row.get_by_role("button", name="Hide T7 promoter").get_attribute("aria-pressed") == "true"
     )
-    page.locator('.feature-shown[title="T7 promoter (promoter, 4984..5002)"]').wait_for()
+    # Where it is read from its box, and the tabs found by their class: with
+    # to_be_in_viewport here, axe below crashed Firefox's page in 3 of 20 runs (none of 20
+    # without it), and role lookups risk the same (see the section above).
+    shown = '.feature-shown[title="T7 promoter (promoter, 4984..5002)"]'
+    page.locator(shown).wait_for()
+    assert page.evaluate(IN_VIEW, shown)
+    tabs = page.locator("nav.record-tabs")
+    assert lineage and tabs.is_hidden()
+    page.unroute(graph)
+    for held in lineage:
+        held.continue_()
+    tabs.wait_for()
+    assert page.evaluate(IN_VIEW, shown)
     assert page.get_by_role("heading", name="Features", exact=True).is_visible()
     assert page.evaluate("() => document.documentElement.scrollWidth - innerWidth <= 1")
     assert_clean(page)
