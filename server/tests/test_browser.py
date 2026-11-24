@@ -723,6 +723,9 @@ def test_a_server_pages_header_is_the_apps(
         assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
         assert shown_at["x"] + shown_at["width"] <= 390
     if path == "/teams/structural-biology/":
+        # The desktop sidebar still covers the left edge while it slides away on resize.
+        page.locator("#sidebar").wait_for(state="hidden")
+        page.evaluate(NEXT_FRAMES)
         about = page.get_by_role("button", name="About Structural Biology")
         about.click()
         toggletip = page.get_by_role("dialog", name="About Structural Biology")
