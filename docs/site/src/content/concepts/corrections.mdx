@@ -1,0 +1,152 @@
+---
+title: Corrections
+description: How a wrong value, a reviewed result, an amount or a registry fact is corrected in Iki, with a reason, while what was recorded before stays in the record's history.
+audience: bench
+topic: Records
+order: 40
+useCases:
+  - {
+      label: Release a lot with a certificate of analysis,
+      href: /use-cases/release-a-lot-with-a-certificate-of-analysis/,
+    }
+---
+
+## In short
+
+In Iki a correction adds to a record's history and never rewrites it. The corrected value is a new
+revision, with who made it and why, and the value it replaces stays at the revision that recorded
+it, as do any signatures given on it.
+
+How a value is corrected depends on what's happened to the record since. An unreviewed value is
+edited. A value a state has locked, such as an approved result, is corrected by returning the
+record to an earlier state with a reason, which sends it back through review. An amount, a
+location and a registry fact each have a correction of their own.
+
+## How it works
+
+### Editing a value
+
+A value that no state locks is corrected by editing it. The edit is a revision of kind
+**Edited**, and the record's history keeps the value before it. A reason is optional, and kept when
+given; a field can ask for one when it's cleared, as the example LIMS plugin's **On hold** flag
+does.
+
+A record made in error is archived, saying why, rather than deleted: it keeps its ID, its history
+and everything that refers to it.
+
+### Correcting a locked record
+
+A state that locks a record can name where a correction returns it, such as In testing for an
+approved sample. When the record is in that state, editing a value is a correction:
+
+1. The form says where saving will take the record, such as "Saving these changes will return
+   Status from Approved to In testing", and asks why.
+2. Iki checks that the editor may edit the record and may set it to that state, its lab roles and
+   guards included.
+3. The return and the edit are saved together, as two revisions in that order, each with the
+   editor and the reason. If either is refused, neither is saved.
+
+The record is then unlocked, in the earlier state, and goes through its review again. The
+signatures given before stay with the revisions they signed, and still verify: they attest to what
+the record said then, not to the corrected value. A guard can read who edited the record since it
+returned, so that whoever corrected a result doesn't review it.
+
+A locking state that names no return is corrected by setting the record to another state, as
+its plugin allows. The example LIMS plugin's QA returns a released sample to testing, which takes a
+signature and a reason; the analyst then corrects and resubmits it.
+
+### Corrections with histories of their own
+
+- **An amount.** How much there is of a lot or a tube is adjusted to what it was found to be, with a
+  required reason. The adjustment is a new movement in its ledger; earlier movements never change.
+- **A location.** Moving a record that was put in the wrong place is an event in its location
+  history, with a required reason.
+- **A registry fact.** A fact shared by every project holding an entry is changed by one of the
+  registry's registrars, with a reason, and every holding project is told. A fixed fact isn't
+  changed at all: its entry is superseded with one that's right, and each project moves its record,
+  with a reason.
+- **A hold.** A record a rule held, such as a result out of its specification, stays held until
+  someone with the rule's lab role, other than whoever saved it, reviews the hold and says why it
+  may stand.
+- **A signature.** Its signer can withdraw it, with a reason, until the state it's for is set.
+
+## Worked example
+
+The example LIMS sample `SAM-000231` was approved on 18 November 2026, with a purity of 97.8%.
+On 19 November, Priya Natarajan, its analyst, finds that the chromatography report gives 97.3%:
+she typed it wrongly. The sample is locked by its Status (Approved), and Approved returns a
+correction to In testing.
+
+Priya edits the purity. The form tells her that saving will return its Status from Approved to In
+testing, and she gives the reason "Transcription error: the chromatography report gives 97.3%."
+Saving makes two revisions:
+
+| Revision | Kind          | Change                          | By              | Reason                                                       |
+| -------- | ------------- | ------------------------------- | --------------- | ------------------------------------------------------------ |
+| 6        | State changed | Status: In review to Approved   | Tomás Herrera   |                                                              |
+| 7        | State changed | Status: Approved to In testing  | Priya Natarajan | Transcription error: the chromatography report gives 97.3%. |
+| 8        | Edited        | Purity: 97.8% to 97.3%          | Priya Natarajan | Transcription error: the chromatography report gives 97.3%. |
+
+Tomás's review signature, carried by revision 6, stays where it is, bound to the values he reviewed,
+with 97.8%; its check still passes. Priya submits the sample again, signing for authorship, and
+Tomás reviews it again. Had Tomás made the correction himself, the plugin's guard on Approved would
+refuse his approval: he edited its results since it was last in testing, so someone else approves
+it.
+
+The same week, a recount of the Tris lot `RMG-000031` finds 985.0 g where its ledger says 987.9 g.
+Marta Okafor adjusts it to 985,000 mg with the reason "Recount on 21 Nov 2026: spill when weighing
+on 20 Nov". The ledger keeps the earlier movements, and the adjustment of −2,900 mg after them.
+
+## The rules in full
+
+### Corrections of locked records
+
+- A correction is offered only while every state field locking the record is in a state that names
+  a return. The API says so in the record's `can.correct`.
+- A correction needs a reason, up to 2,000 characters. Without one, the save is refused.
+- The return's destination is a live state that doesn't lock and isn't signed for. The editor must
+  hold one of its lab roles, and its guards must pass. If several state fields return, they return
+  in the order the type declares them, and each guard sees the returns before it.
+- The return and the edit are saved in one transaction, under the record's lock, against the
+  revision the editor read. A stale revision, a refused guard or a value that breaks a rule saves
+  nothing.
+- Submitting a value equal to the one stored changes nothing, and the record stays in its state.
+- Runs and bulk imports never correct a locked record: their changes to it are refused.
+- A result released to the project that requested it is final: its values and states can't change.
+- Archiving, restoring and moving to another registry entry need an unlocked record.
+
+### What a correction keeps
+
+- Every value a record has had is in its history, at the revision that set it, with who, how, when
+  and why.
+- A signature stays bound to the revision it signed. It's never moved to the corrected revision, and
+  a corrected record needs the signatures its states ask for again.
+- A record's audit trail lists the return and the edit as separate revisions, with the reason on
+  each.
+
+### Other corrections
+
+- An amount's adjustment needs a reason, names the balance it was made against, and is refused if
+  the amount moved since.
+- A move to another storage position needs a reason.
+- A registrar's change to a fact needs a reason, and is a revision of the entry. A move of a record
+  to the entry that superseded its own needs a reason, and repoints the project's references to the
+  old entry, each a revision with that reason.
+- Reviewing a hold needs a reason, and a person: not an agent or a service account, and not whoever
+  saved the record.
+
+## Reference
+
+- Field and state keys: [on_edit](/reference/plugin-spec/field/#states.on_edit),
+  [reason](/reference/plugin-spec/field/#states.reason),
+  [reason_on_clear](/reference/plugin-spec/field/#reason_on_clear) and
+  [guards](/reference/plugin-spec/field/#states.guards)
+- A rule that holds: [hold](/reference/plugin-spec/rule/#rule.hold)
+- Edit, correct, archive or restore: [PATCH /entities/\{ref\}](/reference/api/patch-entities-ref/)
+- Set a state with a reason: [POST /entities/\{ref\}/states/\{field\}](/reference/api/post-entities-ref-states-field/)
+- Adjust an amount: [POST /entities/\{ref\}/amount/adjust](/reference/api/post-entities-ref-amount-adjust/)
+- Review a hold: [POST /entities/\{ref\}/holds/\{hold_id\}/review](/reference/api/post-entities-ref-holds-hold-id-review/)
+- Change a registry fact: [PATCH /entries/\{ref\}](/reference/api/patch-entries-ref/), and move a
+  record to its entry's replacement: [POST /entities/\{ref\}/move](/reference/api/post-entities-ref-move/)
+- Withdraw a signature: [POST /signatures/\{id\}/withdrawal](/reference/api/post-signatures-signature-id-withdrawal/)
+- Record type: [iki/example_lims.Sample](repo:plugins/example_lims/types/sample.yaml)
