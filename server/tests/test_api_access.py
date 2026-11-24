@@ -1178,7 +1178,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Searching everything (ADR 0176): anyone signed in, finding only what they can read.
     ("GET", "/search", fixed("/search?q=kin"), row(200)),
     # Entities: read with a role in any of their projects, changed by the owner's Editors.
-    ("POST", "/plugins/{name}/preflight", plugin_candidate, ORG_ADMIN_ONLY),
+    ("POST", "/plugins/{name}/preflight", plugin_candidate, row(403)),
     ("GET", "/starters", fixed("/starters"), row(200)),
     (
         "GET",

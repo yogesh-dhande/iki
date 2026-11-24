@@ -2620,8 +2620,8 @@ export interface paths {
          * Check a candidate plugin against existing records
          * @description Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.
          *     The report gives exact impact counts where SQL can evaluate the change. It identifies checks
-         *     that ran on a sample and the number of records they checked. Requires an Org Admin and a token's
-         *     admin scope with access to all projects.
+         *     that ran on a sample and the number of records they checked. Requires an Org Admin who can read
+         *     every project, including archived projects. Tokens need read, admin, and access to all projects.
          */
         post: operations["iki_server_api_plugins_preflight"];
         delete?: never;

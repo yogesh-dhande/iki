@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from api_client import Api
 from org_world import World, build_world
+from test_oauth import bearer, signed_in_token
 
 from iki_server.accounts.models import User
 from iki_server.api import everything
@@ -347,6 +348,18 @@ def test_a_view_of_every_project_is_its_owners_and_opens_in_all_entities(world: 
     body = searched(Api(world.browser("viewer")), q="kinases", kind="saved_views")
     assert titles(body, "saved_views") == []
     assert group(body, "saved_views")["total"] == 0
+
+
+def test_limited_tokens_find_the_same_saved_views_in_search_and_the_list(world: World) -> None:
+    editor = world.users["editor"]
+    saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
+    saved_searches.create(editor, world.project, name="Kinases here", query={"q": "kinase"})
+    _, tokens = signed_in_token(world, scope="read", projects=[world.project])
+    token = tokens["access_token"]
+    listed = bearer(token, "GET", "/saved-searches").json()
+    found = bearer(token, "GET", "/search?q=kinases&kind=saved_views").json()
+    assert [s["name"] for s in listed] == titles(found, "saved_views") == ["Kinases here"]
+    assert group(found, "saved_views")["total"] == 1
 
 
 def test_with_no_text_recent_is_what_you_changed_or_ran(world: World, second: Project) -> None:

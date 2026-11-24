@@ -42,6 +42,7 @@ from django.db import connection, transaction
 from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
 from django.db.models.functions import Collate, Lower
 
+from iki_server.accounts.models import User
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import shape
@@ -136,8 +137,9 @@ def branches(user: Any, project: Project | None) -> tuple[QuerySet[File], QueryS
     )
 
 
-def filtered(files: QuerySet[File], filters: Filters) -> QuerySet[File]:
+def filtered(user: User, files: QuerySet[File], filters: Filters) -> QuerySet[File]:
     from iki_server.runs.models import RunFile, RunInput
+    from iki_server.runs.services import visible_runs
 
     if filters.q.strip():
         files = files.filter(name__icontains=filters.q.strip())
@@ -159,7 +161,9 @@ def filtered(files: QuerySet[File], filters: Filters) -> QuerySet[File]:
         held = FileUse.objects.filter(file=OuterRef("pk"), entity=filters.sample)
         read_with = RunFile.objects.filter(
             file=OuterRef("pk"),
-            run__in=RunInput.objects.filter(entity=filters.sample).values("run_id"),
+            run__in=RunInput.objects.filter(
+                entity=filters.sample, run__in=visible_runs(user)
+            ).values("run_id"),
         )
         files = files.filter(Q(Exists(held)) | Q(Exists(read_with)))
     return files
@@ -279,7 +283,7 @@ def page(
     filters = named(filters)
     found: list[File] = []
     for files in branches(user, project):
-        files = filtered(files, filters).annotate(lname=_NAME)
+        files = filtered(user, files, filters).annotate(lname=_NAME)
         if after is not None:
             files = files.filter(_after(sort, after))
         found += files.select_related("blob", "created_by", "agent").order_by(*_order(sort))[
@@ -296,7 +300,7 @@ def count(user: Any, project: Project | None, filters: Filters) -> tuple[int, bo
     filters = named(filters)
     total = 0
     for files in branches(user, project):
-        total += filtered(files, filters).values("pk")[: COUNT_CAP + 1 - total].count()
+        total += filtered(user, files, filters).values("pk")[: COUNT_CAP + 1 - total].count()
         if total > COUNT_CAP:
             return COUNT_CAP, True
     return total, False
@@ -308,7 +312,7 @@ def formats(user: Any, project: Project | None, filters: Filters) -> list[tuple[
     counts: dict[str, int] = {}
     unformatted = named(replace(filters, formats=()))
     for files in branches(user, project):
-        rows = filtered(files, unformatted).values("media_type").annotate(n=Count("pk"))
+        rows = filtered(user, files, unformatted).values("media_type").annotate(n=Count("pk"))
         for row in rows:
             counts[row["media_type"]] = counts.get(row["media_type"], 0) + row["n"]
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))

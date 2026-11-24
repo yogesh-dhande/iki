@@ -50,7 +50,7 @@ from iki_server.org.permissions import Action
 from iki_server.runs import catalog
 from iki_server.runs.models import ActionRun, RunStatus
 from iki_server.runs.services import visible_runs
-from iki_server.searches.models import SavedSearch
+from iki_server.searches import services as saved_searches
 from iki_spec import titles
 
 router = Router(tags=["search"])
@@ -390,14 +390,7 @@ def _projects(me: User, q: str, limit: int) -> _Group:
 
 def _saved_views(me: User, q: str, limit: int) -> _Group:
     group = _Group("saved_views")
-    # Your own and those shared, in projects you read; and your own of every project you
-    # read, which have no project and are never shared.
-    found = SavedSearch.objects.filter(
-        (Q(created_by=me) | Q(shared=True))
-        & Q(project__in=access.readable_projects(me).values("pk"))
-        | Q(created_by=me, project__isnull=True),
-        name__icontains=q,
-    )
+    found = saved_searches.everywhere(me).filter(name__icontains=q)
     group.total, group.more = _counted(found)
     shown = found.select_related("project").order_by("name", "pk")[:limit]
     group.items = [

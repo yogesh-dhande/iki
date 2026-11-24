@@ -77,6 +77,7 @@ ACTIONS: dict[str, str] = {
     "starter.applied": "Applied a project starter",
     "plugin.installed": "Installed a plugin",
     "plugin.updated": "Updated a plugin",
+    "plugin.preflight": "Checked a proposed plugin against existing records",
     "plugin.rules_checked": "Checked records against a plugin's changed rules",
     "plugin.detached": "Detached a plugin",
     "plugin.reattached": "Reattached a plugin",

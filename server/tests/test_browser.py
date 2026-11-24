@@ -879,6 +879,10 @@ def test_plugin_preflight_shows_and_downloads_the_checked_revision(
     from iki_server.entities import services as entities
     from iki_server.plugins import baseline
 
+    for project in (world.project, world.archived):
+        ProjectMembership.objects.create(
+            project=project, user=world.users["org_admin"], role=ProjectRole.VIEWER
+        )
     baseline.keep()  # The last successful deploy, before proposing a new manifest.
     type_name = "acme/dna.DNASequence"
     made = entities.create(

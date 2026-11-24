@@ -20,7 +20,8 @@ def add_command(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -
         help="Preview the effect of a proposed plugin on existing records.",
         description=(
             "Send a built plugin's manifest.json to the deployment for a read-only check. "
-            "Requires an Org Admin sign-in with the admin scope and access to all projects. "
+            "Requires an Org Admin who can read every project, including archived projects. "
+            "Tokens need read and admin scopes and access to all projects. "
             "Exits 0 for a clear report, 1 for blocking findings and 2 if the check failed."
         ),
     )

@@ -116,6 +116,18 @@ describe("plugin schema preflight", () => {
     expect(screen.queryByText(/No blocking findings/)).toBeNull();
   });
 
+  it("shows how to obtain the project access needed for preflight", async () => {
+    const user = userEvent.setup();
+    const detail =
+      "Checking a proposed plugin reads every project's records, including archived projects. " +
+      "Ask each project's Admin to add you as a Viewer, or sign in as someone who can read them all.";
+    answer("POST " + path, problem(403, "preflight_needs_every_project", detail));
+    render(<PluginPreflight plugin={plugin} />);
+    await user.upload(screen.getByLabelText("Proposed plugin manifest"), file());
+    await user.click(screen.getByRole("button", { name: "Run preflight" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(detail);
+  });
+
   it("shows an API refusal and allows retrying the same file", async () => {
     const user = userEvent.setup();
     answer(

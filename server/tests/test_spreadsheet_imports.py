@@ -7,6 +7,7 @@ import pytest
 from api_client import Api, problem
 from org_world import World, build_world
 from test_files import add, run_tasks
+from test_oauth import bearer, signed_in_token
 from workbook_files import XLSX_TYPE, Date, csv_text, xlsx
 
 from iki_server.audit.models import AuditEvent
@@ -636,6 +637,23 @@ def test_an_import_is_its_requesters_until_its_committed(world: World) -> None:
     assert seen["state"] == "imported" and seen["can"]["commit"] is False
     assert api_as(world, "outsider").get(url).status_code == 404
     assert api_as(world, "viewer").get(f"{url}/rows").status_code == 200
+
+
+def test_reading_ones_import_requires_current_project_access(world: World) -> None:
+    imported = started(world, xlsx(("Samples", MANIFEST)))
+    url = f"/spreadsheet-imports/{imported['id']}"
+    api = api_as(world)
+    other = Project.objects.create(team=world.team, name="Other imports")
+    ProjectMembership.objects.create(
+        project=other, user=world.users["editor"], role=ProjectRole.VIEWER
+    )
+    _, tokens = signed_in_token(world, "editor", scope="read", projects=[other])
+    for path in (url, f"{url}/rows"):
+        assert api.get(path).status_code == 200
+        assert bearer(tokens["access_token"], "GET", path).status_code == 404
+    ProjectMembership.objects.filter(project=world.project, user=world.users["editor"]).delete()
+    for path in (url, f"{url}/rows"):
+        assert api.get(path).status_code == 404
 
 
 def test_an_editor_removed_before_the_run_starts_imports_nothing(world: World) -> None:

@@ -276,7 +276,9 @@ def _browser(user: User) -> Any:
 # --- Samples and runs ----------------------------------------------------------------------------
 
 
-def test_a_samples_files_are_those_it_holds_and_those_a_run_read_with_it(world: World) -> None:
+def test_a_samples_files_are_those_it_holds_and_those_a_run_read_with_it(
+    world: World, other: Project
+) -> None:
     certificate = add(world.project, "coa-lot-12.pdf", "application/pdf")
     trace = add(world.project, "trace.pdb")
     add(world.project, "unrelated.pdb")
@@ -304,6 +306,11 @@ def test_a_samples_files_are_those_it_holds_and_those_a_run_read_with_it(world: 
     ]
     coa = viewer.get(f"/files/{certificate.pk}").json()
     assert [(s["hrid"], s["via_run"]) for s in coa["samples"]] == [(held.hrid, None)]
+    ActionRun.objects.filter(pk=ran.json()["id"]).update(project=other)
+    assert every(viewer, sample=str(alone.pk)) == []
+    assert viewer.get("/files/count", sample=str(alone.pk)).json()["total"] == 0
+    assert viewer.get("/files/formats", sample=str(alone.pk)).json() == []
+    assert every(viewer, sample=held.hrid) == ["coa-lot-12.pdf"]
     unknown = viewer.get("/files", sample="SMP-999999")
     assert problem(unknown, 422, "validation_failed")["errors"][0]["parameter"] == "sample"
 

@@ -99,15 +99,15 @@ Iki's rules for history (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migr
 ## `iki plugin preflight`
 
 Check a built plugin's manifest against the records in a deployment before
-promoting it there. Run as an Org Admin with access to all projects.
+promoting it there. Run as an Org Admin who can read every project, including archived projects.
 
 ```sh
 iki plugin preflight build/plugins/iki_plugin_iki__dna/manifest.json --url https://iki.example.org --json
 ```
 
 Sign in through the Python SDK with
-`iki.login("https://iki.example.org", scopes=["admin"])` or set `IKI_URL`
-and `IKI_TOKEN` with an all-project token with the `admin` scope. The CLI
+`iki.login("https://iki.example.org", scopes=["read", "admin"])` or set `IKI_URL`
+and `IKI_TOKEN` with an all-project token with the `read` and `admin` scopes. The CLI
 groups findings by type, with an affected count and up to five example
 HRIDs for each. SQL checks give exact counts. For checks that require
 a sample, the report names the check and gives the number of records

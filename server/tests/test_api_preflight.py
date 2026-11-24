@@ -7,8 +7,10 @@ from api_client import Api, problem
 from org_world import World, build_world
 from test_oauth import bearer, signed_in_token
 
+from iki_server.audit.models import AuditEvent
 from iki_server.entities import registry, services
 from iki_server.entities.models import Entity
+from iki_server.org.models import ProjectMembership, ProjectRole, TeamMembership
 from iki_server.plugins import preflight
 from iki_spec import API_VERSION
 from iki_spec.model import plugin_to_dict
@@ -26,14 +28,37 @@ def candidate() -> dict[str, Any]:
 
 def test_admin_checks_real_records() -> None:
     world = build_world()
+    api = Api(world.browser("org_admin"))
+    admin = world.users["org_admin"]
+    detail = (
+        "Checking a proposed plugin reads every project's records, including archived projects. "
+        "Ask each project's Admin to add you as a Viewer, or sign in as someone who can read "
+        "them all."
+    )
+    assert (
+        problem(api.post(PATH, candidate()), 403, "preflight_needs_every_project")["detail"]
+        == detail
+    )
+    ProjectMembership.objects.create(project=world.project, user=admin, role=ProjectRole.VIEWER)
+    assert (
+        problem(api.post(PATH, candidate()), 403, "preflight_needs_every_project")["detail"]
+        == detail
+    )
+    ProjectMembership.objects.create(project=world.archived, user=admin, role=ProjectRole.VIEWER)
     made = services.create(
         world.users["editor"], "acme/protein.Sample", world.project, {"label": "Specimen 17"}
     )
-    result = Api(world.browser("org_admin")).post(PATH, candidate())
+    result = api.post(PATH, candidate())
     assert result.status_code == 200, result.content[:500]
     report = result.json()
     assert report["blocking"] and report["version"] == "4.0.0"
     assert report["configuration_revision"] and report["candidate_revision"]
+    event = AuditEvent.objects.get(action="plugin.preflight", actor=admin)
+    assert event.data == {
+        "plugin": "acme/protein",
+        "configuration_revision": report["configuration_revision"],
+        "candidate_revision": report["candidate_revision"],
+    }
     row = next(row for row in report["types"] if row["type"] == "acme/protein.Sample")
     assert row["checked"] == row["total"] == 1
     assert not row["sampled"] and row["sampled_checks"] == []
@@ -44,9 +69,9 @@ def test_admin_checks_real_records() -> None:
 
 
 def test_api_preserves_exact_counts_alongside_sampled_rules(
+    world: World,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    world = build_world()
     type_name = "acme/protein.Batch"
     for name in ("L-1", "L-2"):
         services.create(
@@ -73,7 +98,9 @@ def test_api_preserves_exact_counts_alongside_sampled_rules(
 
 @pytest.fixture
 def world() -> World:
-    return build_world()
+    w = build_world()
+    TeamMembership.objects.create(team=w.other_team, user=w.users["org_admin"])
+    return w
 
 
 def test_preview_checks_role_and_csrf_before_reading_records(world: World) -> None:
@@ -83,8 +110,9 @@ def test_preview_checks_role_and_csrf_before_reading_records(world: World) -> No
     problem(Api(world.browser("org_admin")).post(PATH, body, csrf=False), 403, "csrf_failed")
 
 
-def test_admin_token_needs_admin_scope(world: World) -> None:
-    _, tokens = signed_in_token(world, "org_admin", scope="read")
+@pytest.mark.parametrize("scope", ["read", "admin"])
+def test_admin_token_needs_read_and_admin_scopes(world: World, scope: str) -> None:
+    _, tokens = signed_in_token(world, "org_admin", scope=scope)
     problem(bearer(tokens["access_token"], "POST", PATH, candidate()), 403, "insufficient_scope")
 
 

@@ -21,7 +21,7 @@ Read the upgrade output and confirm that it created representative samples, move
 
 ## Preflight the candidate and release
 
-Select the deployment to check with the Iki SDK sign-in or `IKI_URL` and an all-project `IKI_TOKEN` with the `admin` scope. Run as an Org Admin. Set `SKILL_DIR` to this skill directory and `PLUGIN_NAME` to the qualified plugin name. The script takes dependency directories as positional arguments. It uses `iki plugin build` to write a temporary compiled package, then runs `iki plugin preflight` with its `manifest.json`.
+Select the deployment to check with the Iki SDK sign-in or `IKI_URL` and an all-project `IKI_TOKEN` with the `read` and `admin` scopes. Run as an Org Admin with read access to every project, including archived projects. Set `SKILL_DIR` to this skill directory and `PLUGIN_NAME` to the qualified plugin name. The script takes dependency directories as positional arguments. It uses `iki plugin build` to write a temporary compiled package, then runs `iki plugin preflight` with its `manifest.json`.
 
 ```sh
 sh "$SKILL_DIR/scripts/build-and-preflight.sh" "$PLUGIN_NAME" "$PLUGIN" "$DNA"

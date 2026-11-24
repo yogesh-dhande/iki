@@ -1662,12 +1662,12 @@ def _fail(imported: SpreadsheetImport, why: str) -> None:
 
 
 def visible(user: User) -> QuerySet[SpreadsheetImport]:
-    """The imports ``user`` may see: their own, and committed ones in projects they read."""
+    """The imports ``user`` may see: their own and committed imports, in projects they read."""
     readable = access.readable_projects(user).values("pk")
     from django.db.models import Q
 
     return SpreadsheetImport.objects.filter(
-        Q(requested_by=user) | Q(state=ImportState.COMMITTED, project__in=readable)
+        Q(requested_by=user) | Q(state=ImportState.COMMITTED), project__in=readable
     )
 
 

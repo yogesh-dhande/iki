@@ -10,10 +10,14 @@ from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Any
 
+from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, connection
 from psycopg.errors import QueryCanceled
 
+from iki_server.accounts.models import User
 from iki_server.core.snapshots import snapshot
+from iki_server.entities import access
+from iki_server.org.models import Project
 from iki_server.plugins import baseline, candidate, preflight_records, preflight_rules
 from iki_server.plugins.preflight_records import Table, layout, records
 from iki_server.plugins.preflight_sql import Scope
@@ -37,6 +41,10 @@ class PreflightError(ValueError):
     """The proposed declarative schema cannot be compared with this deployment."""
 
 
+class NeedsEveryProject(PermissionDenied):
+    """The caller lacks read access to part of the deployment-wide snapshot."""
+
+
 @contextmanager
 def read_snapshot() -> Iterator[None]:
     try:
@@ -51,8 +59,15 @@ def read_snapshot() -> Iterator[None]:
         raise
 
 
-def preview_manifest(name: str, data: dict[str, Any]) -> Report:
+def preview_manifest(user: User, name: str, data: dict[str, Any]) -> Report:
     with read_snapshot():
+        # Authorize against the same snapshot as the deployment-wide comparison.
+        if Project.objects.exclude(pk__in=access.readable_projects(user).values("pk")).exists():
+            raise NeedsEveryProject(
+                "Checking a proposed plugin reads every project's records, including archived "
+                "projects. Ask each project's Admin to add you as a Viewer, or sign in as someone "
+                "who can read them all."
+            )
         state = baseline.current()
         if state is None:
             raise PreflightError(

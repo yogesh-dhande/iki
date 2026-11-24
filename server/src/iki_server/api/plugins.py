@@ -6,8 +6,9 @@ from django.http import HttpRequest
 from ninja import Field, Router, Schema
 from pydantic import ConfigDict
 
-from iki_server.api.common import caller, require
+from iki_server.api.common import caller, require, require_scope
 from iki_server.api.problems import Problem
+from iki_server.audit import log as audit
 from iki_server.org.permissions import Action
 from iki_server.plugins import preflight as impact
 
@@ -62,12 +63,27 @@ class PluginPreflightOut(Schema):
 def preflight(request: HttpRequest, name: str, payload: PluginCandidateIn) -> dict[str, Any]:
     """Send the proposed package's manifest.json from `iki plugin build` or `iki deploy build`.
     The report gives exact impact counts where SQL can evaluate the change. It identifies checks
-    that ran on a sample and the number of records they checked. Requires an Org Admin and a token's
-    admin scope with access to all projects."""
-    require(caller(request), Action.ORG_MANAGE)
+    that ran on a sample and the number of records they checked. Requires an Org Admin who can read
+    every project, including archived projects. Tokens need read, admin, and access to all projects.
+    """
+    me = caller(request)
+    require(me, Action.ORG_MANAGE)
+    require_scope(me, "read")
     try:
-        return impact.preview_manifest(name, payload.plugin).as_dict()
+        report = impact.preview_manifest(me, name, payload.plugin)
+    except impact.NeedsEveryProject as error:
+        raise Problem(403, str(error), code="preflight_needs_every_project") from error
     except impact.PreflightError as error:
         raise Problem(409, str(error), code="preflight_unavailable") from error
     except ValueError as error:
         raise Problem(422, str(error), code="invalid_manifest") from error
+    audit.record(
+        "plugin.preflight",
+        actor=me,
+        data={
+            "plugin": name,
+            "candidate_revision": report.candidate_revision,
+            "configuration_revision": report.configuration_revision,
+        },
+    )
+    return report.as_dict()
