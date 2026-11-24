@@ -1,0 +1,357 @@
+---
+title: Declare a record type and its fields
+description: A record type's name, IDs and title, its fields and their types, lists of rows, units, formats and patterns, IDs from other systems, removing fields, and adding fields to another plugin's type.
+audience: build
+order: 20
+reference:
+  - { label: Entity type, href: /reference/plugin-spec/entity-type/ }
+  - { label: Field, href: /reference/plugin-spec/field/ }
+  - { label: Entity type extension, href: /reference/plugin-spec/entity-type-extension/ }
+  - { label: Unit, href: /reference/plugin-spec/unit/ }
+---
+
+A record type is an `EntityType` manifest in `types/`. Each type is a table of its own, with a
+history table beside it that keeps every revision's values: see
+[Records and revisions](/concepts/records-and-revisions/). The template's sample type:
+
+```yaml
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+label: Sample
+label_plural: Samples
+schema_version: 1
+sample: true
+description: A physical sample in the lab.
+hrid: { prefix: SMP }
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  kind: { type: enum, values: [tissue, cells, blood, dna, rna, protein, other], required: true }
+  collected_on: { type: date }
+  volume: { type: quantity, unit: mL, display_unit: uL, min: 0 }
+  storage: { type: string, max_length: 100, indexed: true }
+  derived_from: { type: ref, to: Sample, description: The sample it was taken from. }
+  construct: { type: ref, to: iki/dna.DNASequence, description: The construct it carries. }
+  notes: { type: text }
+display:
+  title: "{{ name }}"
+```
+
+## A type's name, IDs and title
+
+- [`name`](/reference/plugin-spec/entity-type/#name) is PascalCase. In its own plugin the type is
+  `Sample`; elsewhere it's `acme/example.Sample`.
+- [`label`](/reference/plugin-spec/entity-type/#label) and
+  [`label_plural`](/reference/plugin-spec/entity-type/#label_plural) are what people see. They
+  default to the name split into words, and that plus "s".
+- [`schema_version`](/reference/plugin-spec/entity-type/#schema_version) is a whole number from 1.
+  Increase it whenever what the type's records may hold changes: a field added or removed, a
+  rule tightened. Plugins that use the type, and actions that read it, name the schema versions
+  they work with. A new label, description, display unit, link or index doesn't count.
+- [`hrid`](/reference/plugin-spec/entity-type/#hrid) gives records human-readable IDs: a
+  [`prefix`](/reference/plugin-spec/entity-type/#hrid.prefix) of 2 to 8 capital letters or digits,
+  starting with a letter, zero-padded to [`digits`](/reference/plugin-spec/entity-type/#hrid.digits).
+  `SMP-000123` is never reused. Every concrete type has one (`missing-hrid`), and plugins
+  installed together can't share a prefix (`duplicate-hrid-prefix`).
+- [`display.title`](/reference/plugin-spec/entity-type/#display.title) is what a record is called
+  in lists and on its page: text with `{{ a or b or "text" }}` parts naming fields or `hrid`, such
+  as `"{{ lot_number or hrid }}"` (`display-title`).
+- [`sample`](/reference/plugin-spec/entity-type/#sample) marks a type whose records are samples,
+  or material taken from them: a project's files are found by the sample they belong to. Its
+  subtypes' records are samples too.
+
+## Parent types
+
+[`extends`](/reference/plugin-spec/entity-type/#extends) names a parent type. Records of the type
+are also records of the parent, with its fields, its rules, its states and its notifications, and
+a reference to the parent takes them. A type that's
+[`abstract`](/reference/plugin-spec/entity-type/#abstract) has records only through its subtypes,
+and has no `hrid` (`hrid-on-abstract`). The inventory plugin's received stock lots are one abstract
+type with a subtype per unit:
+
+```yaml
+name: StockLot
+label: Received stock lot
+schema_version: 1
+abstract: true
+extends: iki/lots.Lot
+---
+name: MassStockLot
+label: Reagent mass lot
+schema_version: 1
+extends: StockLot
+hrid: { prefix: RMG }
+amount: { unit: "mg", label: Reagent mass, material: item }
+```
+
+A subtype's field, rule or notification can't reuse a name its parent has
+(`field-shadows-parent`, `rule-shadows-parent`, `notification-shadows-parent`), and no type may
+come before itself (`extends-cycle`).
+
+## Fields
+
+Each field has a [`type`](/reference/plugin-spec/field/#type), and may have:
+
+- [`label`](/reference/plugin-spec/field/#label) and
+  [`description`](/reference/plugin-spec/field/#description), which forms show;
+- [`required`](/reference/plugin-spec/field/#required): every record has a value;
+- [`immutable`](/reference/plugin-spec/field/#immutable): set once, as the record is made, and
+  never changed;
+- [`computed`](/reference/plugin-spec/field/#computed): set only by actions' runs, never by
+  people. A computed field can't be required (`computed-required`) or have a default
+  (`computed-with-default`);
+- [`indexed`](/reference/plugin-spec/field/#indexed): a database index for fast filtering and
+  sorting. Indexed strings are also fast to search for text they contain;
+- [`default`](/reference/plugin-spec/field/#default): the value new records get when none is
+  given (`invalid-default`);
+- [`removed`](/reference/plugin-spec/field/#removed): see
+  [Removing a field](#removing-a-field).
+
+Each type takes its own options, such as `max_length` for a string or `unit` for a quantity; the
+reference lists [which keys each type takes](/reference/plugin-spec/field/#by-type).
+
+| Type       | What it holds                                                                                                                                 |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `string`   | One line. Never empty unless `min_length: 0`. An indexed string has a `max_length` of at most 600 (`index-needs-max-length`).                 |
+| `text`     | Long text. Not indexable: searched by its words instead.                                                                                      |
+| `int`      | A 64-bit whole number.                                                                                                                        |
+| `float`    | A double-precision number.                                                                                                                    |
+| `bool`     | `true` or `false`.                                                                                                                            |
+| `enum`     | One of its `values`: letters, digits and `_ . + -`.                                                                                           |
+| `date`     | A day. Defaults are written `YYYY-MM-DD`.                                                                                                     |
+| `datetime` | A moment, always with a time zone. No default.                                                                                                |
+| `quantity` | A number in its `unit`, a UCUM code (below). `min` and `max` are in that unit.                                                                |
+| `file`     | A file, of `media_types` such as `[application/json, image/*]`, up to `max_size` such as `2GiB` (at most 5 TiB).                              |
+| `ref`      | A reference to another record, of the type `to` names or its subtypes; `iki/core.Entity` for any.                                             |
+| `person`   | Someone in the record's project: see [Name people in records](/guides/write-a-plugin/people/).                                                |
+| `list`     | A list of `items`: a type and its options without the flags, or rows (below). No lists of lists.                                              |
+| `json`     | JSON, matching its `schema`, a JSON Schema, if it has one (`invalid-json-schema`). Forms start from the schema's `default`. Not indexable.    |
+| `state`    | Where the record is in a process: see [Track where a record is with state fields](/guides/write-a-plugin/states/).                            |
+
+A reference's [`to`](/reference/plugin-spec/field/#to) may list several types, any one of which it
+may name, each with its subtypes: `to: [StockLot, iki/lots.Lot]`. The list can't name
+`iki/core.Entity` beside others, nor a type beside one of its subtypes. The database holds every
+reference to its types, whatever writes it.
+
+Field names are lower case with single underscores. Names every record already has (`id`, `hrid`,
+`type`, `project`, `created_at`, `revision`, `archived_at` and the like), names starting `iki_`,
+`locked` and `locked_by`, names ending in `_ptr`, Python keywords, Django model methods, and
+`models`, `datetime` and `checks`, which a plugin's generated models use, are reserved
+(`reserved-name`).
+
+## Units
+
+A quantity's [`unit`](/reference/plugin-spec/field/#unit) is a [UCUM](https://ucum.org) code, the
+units standard of lab systems, HL7 and FHIR. Values are stored in it, and people can enter and see
+any unit of the same kind; [`display_unit`](/reference/plugin-spec/field/#display_unit) is the one
+they're shown in by default (`display-unit-mismatch`). Codes are case-sensitive: `mg` is a
+milligram, `Mg` a megagram. Some codes people expect are spelled differently, and the validator
+suggests these (`unknown-unit`):
+
+| You might write | UCUM                          |
+| --------------- | ----------------------------- |
+| `Da`, `kDa`     | `u`, `ku` (or `g/mol`)        |
+| `°C`            | `Cel`                         |
+| `µg`            | `ug`                          |
+| `mM`, `nM`      | `mmol/L`, `nmol/L`            |
+| `hr`            | `h`                           |
+| `IU`, `ppm`     | `[IU]`, `[ppm]`               |
+| `bp`            | `{bp}` (a counted annotation) |
+
+Special units (`Cel`, `[degF]`, `[pH]`, decibels) can't be multiplied, divided or raised to a
+power; use `K` for temperature differences and rates. Iki reads the official UCUM table, version
+2.2, which ships unmodified under the
+[UCUM License](repo:spec/src/iki_spec/units/UCUM-LICENSE.md).
+
+## Formats and patterns
+
+A string's [`format`](/reference/plugin-spec/field/#format) is checked by the database too:
+`dna_sequence`, `rna_sequence` and `protein_sequence` (IUPAC codes, either case), `helm`, `email`,
+`uri` and `hostname` (a DNS name in lower case, such as `lims.example.org`).
+
+A [`pattern`](/reference/plugin-spec/field/#pattern) is a regular expression the whole value must
+match, checked by the database (`invalid-pattern`). It must work in both Python and PostgreSQL, so
+it can't use lookarounds, named groups, backreferences, inline flags or possessive quantifiers. Its
+[`pattern_help`](/reference/plugin-spec/field/#pattern_help) says what it asks for in words,
+finishing "Use …", such as `lower-case letters, digits and underscores, such as chain_a`. People
+entering a value read it instead of the pattern when a value doesn't match, as HTML's `title` is
+for an input's `pattern`. The inventory plugin's catalogue number takes any text that isn't blank:
+
+```yaml
+catalogue_number:
+  { type: string, required: true, immutable: true, max_length: 100, indexed: true, pattern: '.*\S.*' }
+```
+
+### Sequence and HELM formats
+
+- The sequence formats and `helm` are what [identities](/guides/write-a-plugin/identities-and-registries/#how-an-identity-reads-its-values)
+  read as the same molecule however it's written, with the
+  [`topology`](/reference/plugin-spec/field/#topology) and
+  [`strands`](/reference/plugin-spec/field/#strands) fields beside them.
+- `helm` is HELM 2, the Pistoia Alliance's notation for macromolecules (version 2.04 of its
+  specification), such as `RNA1{[dR](A)[sP].[dR](C)}$$$$V2.0`. The database checks its shape; Iki
+  reads the rest with iki-wasm, as browsers do, and says what's wrong and at which character. HELM
+  1 is read too, as HELM 2.
+
+## IDs from other systems
+
+An indexed string field may be [`unique`](/reference/plugin-spec/field/#unique): no two records in
+a project have the same value, or no two entries in a registry, for a field marked `registry`
+(`unique-needs-index`). It's for the ID a LIMS or ELN gives its record of the same thing. The
+database refuses a second one, whatever writes it. Another project may have a record with the
+same value, since projects are kept apart. A field can be made unique after records have values:
+the deploy fills them in, and stops, naming them, if any in a project share one.
+
+A string field may [`link`](/reference/plugin-spec/field/#link) to where its value leads in another
+system. `{value}` is the value and `{settings.name}` one of the plugin's settings, so each
+deployment points at its own LIMS. A link starts with `https://` or a setting
+(`link-not-https`, `link-without-value`, `link-unknown-placeholder`), and Iki shows only links
+that are https once the settings are filled in. The LIMS example's sample:
+
+```yaml
+lims_id:
+  type: string
+  label: LIMS ID
+  max_length: 64
+  indexed: true
+  unique: true
+  link: "https://{settings.lims_host}/samples/{value}"
+  description: Its record in the LIMS, when it came from there.
+```
+
+The API, the SDK and MCP look records up by a unique field's value, and an import matches its
+records to Iki's by one: see
+[Read a run's input and write its results](/guides/write-a-plugin/run-input-and-output/).
+
+## Lists of rows
+
+A list's [`items`](/reference/plugin-spec/field/#items) can be rows of typed fields, such as a
+specification's criteria, a mixture's ingredients or a sample's additions. Each row field is a
+field as a type's are, with a label, a description, `required` and a default, but no flags, lists,
+JSON or states, and can't be named `entity`, `position`, `id` or `pk`. The QC release plugin's
+specification version lists its acceptance criteria:
+
+```yaml
+criteria:
+  type: list
+  required: true
+  min_items: 1
+  max_items: 50
+  items:
+    type: row
+    fields:
+      attribute: { type: string, required: true, max_length: 120 }
+      method: { type: string, required: true, max_length: 200 }
+      unit: { type: string, required: true, max_length: 50 }
+      lower: { type: float, label: Inclusive lower limit }
+      upper: { type: float, label: Inclusive upper limit }
+      source: { type: string, max_length: 1000, label: Criterion source }
+```
+
+Rows can take roles. [`items.by`](/reference/plugin-spec/field/#items.by) names the row's required
+enum or string field that holds each row's role, and
+[`items.roles`](/reference/plugin-spec/field/#items.roles) says, per role, how many rows take it
+([`min`](/reference/plugin-spec/field/#items.roles.min),
+[`max`](/reference/plugin-spec/field/#items.roles.max); `max: 0` forbids it) and what each of the
+row's references may refer to in that role
+([`to`](/reference/plugin-spec/field/#items.roles.to)), among the types the field names. A buffer
+recipe whose ingredients are catalogue items, with exactly one solvent:
+
+```yaml
+ingredients:
+  type: list
+  items:
+    type: row
+    fields:
+      item: { type: ref, to: iki/reagents.StockItem, required: true }
+      amount: { type: quantity, unit: g, min: 0 }
+      role: { type: enum, values: [solvent, buffer, salt, additive], required: true }
+    by: role
+    roles:
+      solvent: { min: 1, max: 1 }
+```
+
+- An enum's values that `roles` doesn't name take any count. A string's roles, if it has any, are
+  every role a row may have: a row with another is refused, saying which it may have.
+- A record that doesn't fit is refused when it's saved, each problem pointing at its row and field
+  (`#/values/ingredients/1/item`). Anything subtler than a role's count and types is a
+  [rule's](/guides/write-a-plugin/rules-and-guards/).
+- [`items.identity`](/reference/plugin-spec/field/#items.identity) names the row fields that tell
+  two rows apart when the list is part of its type's identity.
+
+A list of rows is stored in its own table, a row per row and a column per row field, each with
+its foreign key and checks. Its value is a list of objects, one per row, always with every field
+(`null` where it's empty), and it changes as a whole. Its history keeps the rows as JSON, a lock
+freezes them, and its references are edges of the graph of what depends on what
+(`ingredients.item`). Search takes `has` with an object of row fields, which one row must all
+match: `{field: ingredients, op: has, value: {item: SCI-000014, role: solvent}}`, or
+`ingredients.item:SCI-000014 ingredients.role:solvent` in the web app's search box.
+
+### A subtype's roles
+
+A subtype narrows an inherited list's roles with
+[`refines`](/reference/plugin-spec/entity-type/#refines): it names a list of rows an ancestor
+declares and gives [the roles](/reference/plugin-spec/entity-type/#refines.roles) the subtype's
+rows take, all they may have. Each is no wider than its parent's: a role its `by` field takes, a
+count within its parent's, and types among those its parent refers to, given again
+(`refines-wider`). None of the roles its parent's rows must have can be left out
+(`refines-drops-role`). One list, declared once, then serves every subtype: each saves, checks and
+shows its own roles, and search and the graph read the one table.
+
+### Complexes
+
+`iki/core.Complex` is abstract, and every type whose records are made of other registered parts
+extends it. Its `components` are rows of a `part` (any registry entry), its `copies` and its
+`role` (a string), and its identity is its parts and their copies, whatever their roles or order,
+so one assembly is one entry whichever type registered it. Each part is given once, with its
+copies. Its `bonds`, a registry fact, are rows of a bond (`disulfide`, `isopeptide`, `thioether`
+or `other`) between a residue of one copy of a part and one of another (`part`, `copy`, `residue`,
+`partner`, `partner_copy`, `partner_residue`, each counted from 1), checked against the parts'
+sequences: a disulfide's two residues are cysteines, and no residue is in two bonds. Its formula,
+average and monoisotopic masses and chain count are derived from its parts and copies, each
+cysteine's thiol free; the complex plugin computes them for every complex type. A subtype says
+which roles its parts take with `refines`.
+
+## Removing a field
+
+A field is never deleted, because its history is kept. To stop using one, mark it
+[`removed: true`](/reference/plugin-spec/field/#removed): its column is dropped, and its values
+stay in the type's history. The LIMS example's tubes kept their box and volume as fields before
+Iki kept where a tube is and how much is in it:
+
+```yaml
+box: { type: ref, to: Box, removed: true }
+position: { type: string, removed: true }
+volume: { type: quantity, unit: uL, removed: true }
+stored: { type: bool, removed: true }
+```
+
+Identity fields can't be removed (`identity-removed`), and a state field moves its records' states
+when it's removed: see [Removing states](/guides/write-a-plugin/states/#removing-states).
+
+## Fields on another plugin's type
+
+A plugin adds fields to another plugin's type with an `EntityTypeExtension`. The fields live in
+the extending plugin's own table (`acme__example__iki__dna_dnasequence`), so removing the plugin
+leaves the other's data alone. The template's:
+
+```yaml
+apiVersion: iki/v1
+kind: EntityTypeExtension
+extends_type: iki/dna.DNASequence
+fields:
+  construct_id: { type: string, max_length: 50, indexed: true, pattern: "^[A-Z]{2,5}-[0-9]+$" }
+  sequence_verified: { type: bool, default: false }
+```
+
+- [`extends_type`](/reference/plugin-spec/entity-type-extension/#extends_type) is another plugin's
+  type, by its full name. It can't be `iki/core.Entity`, which would add the fields to every
+  record of every type (`extends-builtin`), nor the plugin's own type, whose fields go on the type
+  itself (`extension-of-own-type`). All the fields a plugin adds to a type are in one extension
+  (`duplicate-extension`).
+- Extension fields can't be `required`, since existing records and the owning plugin wouldn't have
+  them (`extension-field-required`), and can't reuse a name the type already has
+  (`extension-field-conflict`). An extension can't have a state field
+  (`state-field-in-extension`).
+- An extension's [`rules`](/reference/plugin-spec/entity-type-extension/#rules) read the type's
+  fields with its own, and are named `plugin:name`.
