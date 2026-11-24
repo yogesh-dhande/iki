@@ -83,8 +83,8 @@ image under Apptainer, once cosign has checked who signed the image. The
 worker follows each job in `squeue`, cancels it with `scancel`, and reads
 how it ended and what it used from `sacct`. Restarting the worker leaves
 its jobs running, and it picks them up again when it starts.
-[Running Iki's jobs on a Slurm cluster](../docs/slurm.md) is the
-administrators' runbook.
+[Run actions on a Slurm cluster](https://ikisci.org/guides/run-actions-on-slurm/)
+is the administrators' runbook.
 
 ## Running it on a deployment
 
