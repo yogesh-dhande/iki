@@ -11,8 +11,8 @@
 //!   Watson-Crick stacks, initiation, salt term and rounding from here.
 //!
 //! The parameters are SantaLucia's unified set (*Proc Natl Acad Sci USA* 95:1460-1465,
-//! 1998, <https://doi.org/10.1073/pnas.95.4.1460>), from the paper's table of unified
-//! oligonucleotide parameters. The temperature is
+//! 1998, <https://doi.org/10.1073/pnas.95.4.1460>), from Table 2 (stacks, initiation and symmetry).
+//! Equation 3 gives the temperature
 //!
 //! ```text
 //! Tm = 1000 * dH / (dS + R * ln(k)) - 273.15
@@ -20,8 +20,8 @@
 //!
 //! with dH in kcal/mol, dS in cal/(mol*K), R = 1.987 cal/(mol*K) as the reference uses
 //! it, and k the strands' total concentration divided by four for a strand and its
-//! complement, or the whole of it for a strand that pairs with itself, where the symmetry
-//! term also applies. Sodium enters through the entropy, by the paper's correction
+//! complement at equal concentrations. A self-complementary strand uses the sum of both
+//! input amounts and the symmetry term. Equation 8 gives the sodium correction
 //! `dS(Na+) = dS(1 M Na+) + 0.368 * (N - 1) * ln[Na+]` for a duplex of N bases.
 //!
 //! It needs nothing beyond `core`, so the record's measurement compiles to a module small
@@ -31,7 +31,7 @@
 pub const GAS_CONSTANT: f64 = 1.987;
 
 /// The entropy, in cal/(mol*K), that a self-complementary duplex loses to its symmetry:
-/// SantaLucia 1998's unified parameters.
+/// Table 2 of SantaLucia (1998).
 pub const SYMMETRY_ENTROPY: f64 = -1.4;
 
 /// The DNA sequence record's fixed conditions: 50 mM Na+, no Mg2+ or dNTPs, ...

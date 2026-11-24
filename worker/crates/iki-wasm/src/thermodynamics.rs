@@ -4,7 +4,7 @@
 //! A duplex is read as a run of neighbouring base pairs, each contributing an enthalpy
 //! and an entropy, plus a term for each end. The parameters are SantaLucia's unified set
 //! (SantaLucia, *Proc Natl Acad Sci USA* 95:1460-1465, 1998,
-//! <https://doi.org/10.1073/pnas.95.4.1460>), whose Watson-Crick stacks are those of
+//! <https://doi.org/10.1073/pnas.95.4.1460>, Table 2), whose Watson-Crick stacks are those of
 //! Allawi & SantaLucia (*Biochemistry* 36:10581-10594, 1997,
 //! <https://doi.org/10.1021/bi962590c>). A pair that isn't Watson-Crick takes an internal
 //! mismatch parameter (Allawi & SantaLucia 1997-1998 and Peyret et al., *Biochemistry*
@@ -21,9 +21,9 @@
 //! with dH in kcal/mol, dS in cal/(mol*K), R = 1.987 cal/(mol*K) the gas constant as the
 //! reference uses it, and k the concentration term of SantaLucia 1998 equation 3: the
 //! strands' concentration divided by four when a strand pairs with its complement, or the
-//! whole of it when it pairs with itself, where the symmetry term also applies.
+//! sum of both input amounts when it pairs with itself, where the symmetry term also applies.
 //!
-//! Monovalent salt enters through the entropy, by equation 7 of the same paper:
+//! Monovalent salt enters through the entropy, by equation 8 of the same paper:
 //!
 //! ```text
 //! dS(Na+) = dS(1 M Na+) + 0.368 * (N - 1) * ln[Na+]
@@ -32,7 +32,7 @@
 //! for a duplex of N bases.
 //!
 //! **One implementation.** The Watson-Crick part of all this -- the stacks, initiation,
-//! the symmetry term, equation 3's concentration and equation 7's sodium term, and the
+//! the symmetry term, equation 3's concentration and equation 8's sodium term, and the
 //! rounding -- is [`crate::oligo`], which is also the DNA sequence record's measurement
 //! (ADR 0191). A primer against its exact complement is computed there whole, by
 //! [`matched_melting_temperature`]; this module adds what a matched duplex doesn't need:
@@ -171,7 +171,7 @@ pub(crate) const TERMINAL_MISMATCH: [(&[u8; 5], f64, f64); 48] = [
 #[serde(rename_all = "lowercase")]
 pub enum Salt {
     /// SantaLucia's own correction: a term on the entropy, `0.368 * (N - 1) * ln[Na+]`
-    /// (*PNAS* 95:1460-1465, 1998, equation 7), with magnesium folded into a sodium
+    /// (*PNAS* 95:1460-1465, 1998, equation 8), with magnesium folded into a sodium
     /// equivalent by von Ahsen et al. It is what a primer's quoted melting temperature
     /// uses, and what von Ahsen et al. recommend inside a normal PCR buffer's range.
     SantaLucia,
@@ -507,7 +507,7 @@ fn owczarzy(conditions: &Conditions, fraction: f64, length: f64) -> Option<f64> 
 /// An oligo that is its own complement -- `GCGCGC`, and every palindrome -- is handled as
 /// SantaLucia's self-complementary case rather than as two different strands: there is no
 /// second species in the tube, so all the strands are at the concentration `conditions`
-/// gives for the first, and the duplex carries his symmetry term (1998, equation 3). Read
+/// gives for the first, and the duplex carries his Table 2 symmetry term (1998). Read
 /// as an oligo and a separate complement at the same total concentration, every palindrome
 /// of 4 to 10 bases melts 1.5 to 3.0 degrees lower at 50 mM Na+, which is the difference
 /// this avoids reporting. A primer on a template is that other reading, rightly: see
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn a_matched_primer_melts_where_the_reference_says() {
         // The M13/pUC primers, under the conditions Iki quotes a primer's Tm at.
-        // SantaLucia 1998, equations 3 and 7; cross-checked against Biopython's Tm_NN
+        // SantaLucia 1998, equations 3 and 8; cross-checked against Biopython's Tm_NN
         // with DNA_NN3 and saltcorr=5 in server/tests/test_plasmid_parity.py.
         for (bases, expected) in [
             (b"GTAAAACGACGGCCAGT".as_slice(), 49.2),
