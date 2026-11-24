@@ -1848,6 +1848,9 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
                 "column": "WTJ.1",
             },
         )
+        artifacts = api_call(alice, "GET", f"/runs/{imported['hrid']}/artifacts")
+        if [item["path"] for item in artifacts.json()] != ["selected.tsv"]:
+            fail(f"{imported['hrid']} did not retain the selected sample rows")
         effect = next(
             e for e in imported["effects"] if e["type"] == prefix + "SequencingAnalysisResult"
         )

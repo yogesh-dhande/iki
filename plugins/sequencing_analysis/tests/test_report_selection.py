@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 import runpy
 from pathlib import Path
 
@@ -47,3 +48,32 @@ def test_associations_keep_the_registry_identity():
     ]
     with pytest.raises(ValueError, match="outside the selected inputs"):
         SCRIPT["antibody_links"]("query-a\tABY-000002", selected)
+
+
+def test_selected_rows_use_the_worker_artifact_directory(tmp_path, monkeypatch):
+    source = Path(__file__).parent / "data/GSE176296-counts.tsv"
+    run = {
+        "params": {
+            "format": "counts",
+            "report": "counts",
+            "reference": "sacCer3",
+            "tool": "featureCounts",
+            "tool_version": "GEO GSE176296",
+            "column": "WTJ.1",
+        },
+        "inputs": {"library": [{"id": "library", "revision": 1, "values": {"sample": "sample"}}]},
+        "files": {"counts": {"name": source.name, "sha256": "fixture", "path": str(source)}},
+    }
+    input_path = tmp_path / "input.json"
+    input_path.write_text(json.dumps(run))
+    output = tmp_path / "output.json"
+    artifacts = tmp_path / "out"
+    artifacts.mkdir()
+    monkeypatch.setenv("IKI_INPUT", str(input_path))
+    monkeypatch.setenv("IKI_OUTPUT", str(output))
+    monkeypatch.setenv("IKI_OUT_DIR", str(artifacts))
+
+    SCRIPT["main"]()
+
+    assert output.is_file()
+    assert (artifacts / "selected.tsv").read_text().splitlines()[1] == "YDL248W\t679"
