@@ -2806,6 +2806,61 @@ def core_facility_requests(
             f"{request['hrid']}: {delivery['hrid']} returned its report "
             f"with {len(steps)} signatures"
         )
+        if prefix == "Research":
+            work_and_deliverable(analyst, reviewer, requester, core, request, report, evidence)
+
+
+def work_and_deliverable(
+    analyst: requests.Session,
+    reviewer: requests.Session,
+    requester: str,
+    service: dict[str, Any],
+    request: dict[str, Any],
+    report: str,
+    evidence: dict[str, Any],
+) -> None:
+    """Seed the work that stays with the service and the result the asking team receives."""
+    work = created(
+        analyst,
+        service,
+        LIMS_TYPE + "WorkItem",
+        {
+            "request": request["id"],
+            "priority": "high",
+            "scheduled_on": "2026-11-24",
+            "instrument": "Training bench",
+            "notes": "Prepare the workspace and check the handoff.",
+        },
+    )
+    work_path = f"/entities/{work['id']}"
+    if api_call(analyst, "GET", work_path).status_code != 200:
+        fail(f"the service could not read work item {work['hrid']}")
+    if bearer_call(requester, "GET", work_path).status_code != 404:
+        fail(f"work item {work['hrid']} was visible to the team that asked")
+
+    result = created(
+        analyst,
+        service,
+        LIMS_TYPE + "Deliverable",
+        {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
+    )
+    path = f"/entities/{result['id']}"
+    if bearer_call(requester, "GET", path).status_code != 404:
+        fail(f"{result['hrid']} was visible before it was delivered")
+    etag = api_call(reviewer, "GET", path).headers["ETag"]
+    delivered = api_call(
+        reviewer, "POST", f"{path}/states/status", {"state": "delivered"}, {"If-Match": etag}
+    )
+    if delivered.status_code != 200:
+        fail(
+            f"delivering {result['hrid']} gave HTTP {delivered.status_code}: {delivered.text[:300]}"
+        )
+    if bearer_call(requester, "GET", path).status_code != 200:
+        fail(f"{result['hrid']} was not visible after it was delivered")
+    ok(
+        f"{work['hrid']} stayed in the service project and "
+        f"{result['hrid']} reached the team that asked"
+    )
 
 
 #: Example LIMS types (ADR 0180).

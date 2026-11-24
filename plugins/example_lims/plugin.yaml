@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/example_lims
-version: 0.8.1
+version: 0.9.0
 title: Example LIMS
 description: >-
   Links each protein to its record in a LIMS: imports the LIMS's proteins
@@ -12,8 +12,9 @@ description: >-
   calendar of their bookings, tests samples against their specifications, and
   keeps tubes in boxes in racks on freezer shelves, receiving them from
   projects that send them. Its core facilities serve protein production and
-  sequencing requests with signed deliverables. A starting point for a
-  plugin that connects a real LIMS or ELN.
+  sequencing requests. Service projects track work privately and return
+  deliverables to the teams that asked. A starting point for a plugin
+  that connects a real LIMS or ELN.
 license: Apache-2.0
 homepage: https://ikisci.org/plugins/example_lims
 dependencies:

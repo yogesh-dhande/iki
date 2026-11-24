@@ -93,8 +93,14 @@ Archiving it is the asking project's.
 shares records, so a project that doesn't share its entities (ADR 0067)
 can't send requests, and a sent record must be one the asking project may
 share into the service's. What a request brought into a project goes no
-further: it can be read there, but not linked on to a third project, nor
-referenced from another, as it came for that request alone.
+further: it can be read and referenced by records in the project that received
+it. It cannot be linked to a third project or referenced by records there.
+
+**Work items stay in the service project.** A type can declare
+`work_item: { of: request }`, naming a required, immutable reference to a
+request. The service project creates them against a request sent to it.
+Only that project can keep or reference them, including when a person belongs
+to both projects. Work items have no result or release policy.
 
 **Results are the service's until it releases them.** A request's results
 are made in the service's project, which owns them, and reviewed there

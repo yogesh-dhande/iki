@@ -128,8 +128,7 @@ It shows the parts of Iki such a plugin needs:
   A core's admin accepts `ResearchCoreRequest` or `QCCoreRequest` in the
   service project's **Settings → Requests**, and names the projects that can
   send them. An intake for the parent `AnalysisRequest` accepts both
-  subtypes. Choose a concrete subtype to set one review flow for intake.
-  The request type determines which deliverable can be made for that request.
+  subtypes. The request type determines which deliverables the service can use.
 
   - The project asking for production names the protein and mass. For
     sequencing, it names the method and the tubes to send. It can provide a
@@ -150,6 +149,16 @@ It shows the parts of Iki such a plugin needs:
     submission and review. The requesting project can open the returned
     report and release receipt from its request. The core marks the request
     Delivered once its deliverables have been released.
+
+- **Internal work and delivery between teams.** The service project can create a
+  `WorkItem` for a request sent to it. Its analysts can record the priority,
+  schedule, instrument and internal notes, and move the work from Queued through
+  Scheduled and Running to Done. Cancelling takes a reason. The work item stays
+  in the service project and can only be referenced there.
+  For Research requests, a reviewer can also set a `Deliverable` to Delivered
+  without signing. Until then it is Recorded and only visible in the service
+  project. Delivery shares the result and its report with the team that asked.
+  Regulated QC uses its signed deliverable.
 
 - **How much of each there is**
   ([ADR 0139](../../docs/adr/0139-a-records-amount-is-a-ledger-of-what-moved.md)):

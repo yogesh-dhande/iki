@@ -31,6 +31,7 @@ from typing import Any
 import structlog
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from iki_server.accounts.models import Kind, User
@@ -763,7 +764,12 @@ class _Planner:
                 self.counts.renumbered += 1
         entity_type = registry.types().get(line["type"])
         if row.action in (EntityPlan.NEW, EntityPlan.UPDATE) and entity_type is not None:
-            clash = self._clash(entity_id, entity_type, values)
+            work_errors = requests.check_work_item(
+                self.made.project, entity_type.qualified_name, values
+            )
+            clash = "; ".join(message for errors in work_errors.values() for message in errors)
+            if not clash:
+                clash = self._clash(entity_id, entity_type, values)
             if clash:
                 row.action, row.adds, row.why = EntityPlan.CONFLICT, 0, clash
         if row.registers and row.action in (EntityPlan.NEW, EntityPlan.UPDATE):
@@ -834,7 +840,9 @@ class _Planner:
         ids = [o["id"] for o in lines]
         # A reference to a registry entry holds it only for a project with a record of it.
         here = set(
-            Entity.objects.filter(pk__in=ids, registry__isnull=True).values_list("pk", flat=True)
+            Entity.objects.filter(pk__in=ids, registry__isnull=True)
+            .filter(Q(owner_project=self.made.project) | ~Q(type__in=requests.work_item_types()))
+            .values_list("pk", flat=True)
         ) | set(
             access.held_entries(self.made.project).filter(pk__in=ids).values_list("pk", flat=True)
         )

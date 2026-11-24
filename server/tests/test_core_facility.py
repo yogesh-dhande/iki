@@ -7,12 +7,13 @@ from typing import Any
 
 import pytest
 from api_client import Api
+from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
-from iki_server.entities import requests, services, states
+from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
 from iki_server.files.models import Blob, File
@@ -32,6 +33,8 @@ RESEARCH = LIMS + "ResearchCoreRequest"
 REGULATED = LIMS + "QCCoreRequest"
 RESEARCH_DELIVERY = LIMS + "ResearchCoreDeliverable"
 REGULATED_DELIVERY = LIMS + "QCCoreDeliverable"
+BASIC_DELIVERY = LIMS + "Deliverable"
+WORK = LIMS + "WorkItem"
 REQUESTER = "outsider"
 
 
@@ -166,6 +169,8 @@ def _production(world: World, asking: Project) -> None:
         protein=str(protein.entry_id),
         requested_mass=1,
     )
+    with pytest.raises(Invalid, match="isn't a request sent to"):
+        _make(world, REQUESTER, WORK, asking, request=str(research.pk))
     _send(world, research)
     report_path = EXAMPLES / "P00330-production.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
@@ -185,7 +190,89 @@ def _production(world: World, asking: Project) -> None:
     assert Signature.objects.filter(entity=deliverable).count() == 1
     assert json.loads(review.content)["values"]["report"] == report
     assert ProjectLink.objects.get(entity=deliverable, project=asking).via_request_id == research.pk
+    _private_work_and_basic_deliveries(world, asking, research, fields)
     _status(world, research, "admin", "delivered")
+
+
+def _private_work_and_basic_deliveries(
+    world: World, asking: Project, request: Entity, fields: dict[str, Any]
+) -> None:
+    core = world.project
+    assert ProjectLink.objects.get(entity=request, project=core).via_request_id == request.pk
+    item = _make(
+        world,
+        "editor",
+        WORK,
+        core,
+        request=str(request.pk),
+        scheduled_on="2026-11-24",
+        instrument="Training bench",
+        notes="Internal queue notes",
+    )
+    cancelled = _make(world, "editor", WORK, core, request=str(request.pk))
+    assert item.owner_project_id == core.pk
+    assert states.values_of(item)["status"] == "queued"
+    assert services.current_values(services.specific(item))["priority"] == "routine"
+    with pytest.raises(Refused):
+        _status(world, item, "editor", "running")
+    with pytest.raises(PermissionDenied):
+        _status(world, item, "admin", "scheduled")
+    for target in ("scheduled", "running", "done"):
+        _status(world, item, "editor", target)
+    with pytest.raises(Invalid, match="needs a reason"):
+        _status(world, cancelled, "editor", "cancelled")
+    states.set_state(
+        world.users["editor"],
+        cancelled,
+        "status",
+        "cancelled",
+        expected_revision=cancelled.revision,
+        reason="Cancelled by the core",
+    )
+    cancelled.refresh_from_db()
+    assert states.values_of(cancelled)["status"] == "cancelled"
+
+    recorded = _make(world, "editor", BASIC_DELIVERY, core, **fields)
+    delivered = _make(world, "editor", BASIC_DELIVERY, core, **fields)
+    with pytest.raises(PermissionDenied):
+        _status(world, delivered, "viewer", "delivered")
+    _status(world, delivered, "admin", "delivered")
+    assert not Signature.objects.filter(entity=delivered).exists()
+    assert ProjectLink.objects.get(entity=delivered, project=asking).via_request_id == request.pk
+    assert not ProjectLink.objects.filter(
+        entity__in=[item, cancelled, recorded], project=asking
+    ).exists()
+
+    # As in the request access matrix, compare UUID reads, listings and search for both sides.
+    candidates = [item, cancelled, recorded, delivered]
+    all_ids = {str(record.pk) for record in candidates}
+    for who, expected in (("editor", all_ids), (REQUESTER, {str(delivered.pk)})):
+        api = Api(world.browser(who))
+        for record in candidates:
+            status = api.get(f"/entities/{record.pk}").status_code
+            assert status == (200 if str(record.pk) in expected else 404), (who, record.hrid)
+        visible = {str(pk) for pk in access.visible(world.users[who]).values_list("pk", flat=True)}
+        assert visible & all_ids == expected
+        found = api.post("/entities/search", {"limit": 100}).json()["items"]
+        assert {e["id"] for e in found} & all_ids == expected
+
+    request_view = Api(world.browser(REQUESTER)).get(f"/entities/{request.pk}/request").json()
+    assert str(delivered.pk) in {result["id"] for result in request_view["results"]}
+    assert not {str(item.pk), str(cancelled.pk), str(recorded.pk)} & {
+        result["id"] for result in request_view["results"]
+    }
+
+    # A person in both projects may see the work item in the core and still cannot share it.
+    analyst = world.users["editor"]
+    ProjectMembership.objects.create(project=asking, user=analyst, role=ProjectRole.EDITOR)
+    with pytest.raises(Refused, match="stays in"):
+        services.link(analyst, item, asking)
+    member = {"name": "Work collection", "members": [str(item.pk)]}
+    _make(world, "editor", "iki/core.Collection", core, **member)
+    with pytest.raises(Invalid, match="stays in"):
+        _make(world, "editor", "iki/core.Collection", asking, **member)
+    with pytest.raises(Invalid, match="isn't a request sent to"):
+        _make(world, "editor", WORK, asking, request=str(request.pk))
 
 
 def _sequencing(world: World, asking: Project, api: Api) -> None:
@@ -223,8 +310,9 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
         "report": report,
         "run_accession": "ERR13376132",
     }
-    with pytest.raises(Invalid):
-        _make(world, "editor", RESEARCH_DELIVERY, world.project, **fields)
+    for type_name in (RESEARCH_DELIVERY, BASIC_DELIVERY):
+        with pytest.raises(Invalid):
+            _make(world, "editor", type_name, world.project, **fields)
     duplicate_tube = _make(world, "editor", LIMS + "Tube", world.project, name="Unsent tube")
     with pytest.raises(Invalid, match="Name a tube on the request"):
         _make(

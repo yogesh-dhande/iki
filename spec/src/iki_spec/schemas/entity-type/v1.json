@@ -243,6 +243,18 @@
       },
       "additionalProperties": false
     },
+    "work_item": {
+      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
+      "type": "object",
+      "required": ["of"],
+      "properties": {
+        "of": {
+          "description": "The name of the required, immutable reference to the request.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      },
+      "additionalProperties": false
+    },
     "result": {
       "description": "Its records are what a service makes for a request (ADR 0132): made in the service's project, which owns them, and sent back to the asking project once the service's own state field says it's released.",
       "type": "object",
