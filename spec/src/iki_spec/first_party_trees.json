@@ -74,7 +74,8 @@
       "6be6dd9ca0ba774002e78478117129087fd8c8f0",
       "8625c8881beb984dbab149bd9ba6982808559fdb",
       "5530521ab01087113ab3dbf26c27708666a5c156",
-      "838315c5bd1a3bc87a2a9748bc3f6df09f493c9b"
+      "838315c5bd1a3bc87a2a9748bc3f6df09f493c9b",
+      "18b350417132e97faa4535fb40a1da426f001dee"
     ],
     "iki/equipment": [
       "6c7cf1848e82a5cacc7cce2d83a9be2683b4fa7d",
@@ -185,7 +186,8 @@
       "1fa958a8b571ce66856cdb6cc95756dfb3c5ba28",
       "5981da957b8979505e6bab34d75814929fe6d82b",
       "1982b5b66202981016f849f42aca1737f82451b1",
-      "118df138815593e9cc40611756dd0cedeae1e762"
+      "118df138815593e9cc40611756dd0cedeae1e762",
+      "deb9f8d3ee1c69011c0294441554705768cd024b"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",
@@ -219,6 +221,9 @@
     ],
     "iki/reagents": [
       "f292f6ca2072e01c3e5c31de06097104633b0b83"
+    ],
+    "iki/sequencing": [
+      "a5c9e5eb42fa4e5d19bcecbfceddcb8213cd8dd0"
     ],
     "iki/small_molecule": [
       "c37cd0b7ca39aa3ce2d99d989b5a04de828d496b",

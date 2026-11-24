@@ -39,6 +39,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
+from uuid import UUID
 
 import requests
 import urllib3.util.connection
@@ -1730,6 +1731,78 @@ def lims() -> None:
     reagent_stock(alice, project)
     dose_response_starters(alice, project)
     qc_release(alice, project)
+    sequencing(alice, project)
+
+
+def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Trace paired reads from a public yeast library to a signed quality summary."""
+    prefix = "iki/sequencing."
+    give_lab_roles(alice, project, prefix + "reviewer")
+    accession = "SRR8690267"
+    runs = matching_records(alice, project, prefix + "SequencingRun", "run_accession", accession)
+    run = (
+        runs[0]
+        if runs
+        else created(
+            alice,
+            project,
+            prefix + "SequencingRun",
+            {
+                "name": "Yeast RNA-seq excerpt",
+                "instrument_model": "Illumina HiSeq 2500",
+                "run_accession": accession,
+            },
+        )
+    )
+    read_sets = matching_records(alice, project, prefix + "ReadSet", "run", run["id"])
+    if read_sets:
+        reads = read_sets[0]
+    else:
+        sample = created(
+            alice,
+            project,
+            "acme/example.Sample",
+            {"name": "Saccharomyces cerevisiae SAMN11070697", "kind": "other"},
+        )
+        library = created(
+            alice,
+            project,
+            prefix + "SequencingLibrary",
+            {
+                "name": "SAMN11070697 RNA-Seq",
+                "sample": sample["id"],
+                "sample_accession": "SAMN11070697",
+                "strategy": "RNA-Seq",
+            },
+        )
+        directory = Path(__file__).resolve().parents[2] / "plugins/sequencing/tests/data"
+        files = {}
+        for mate in (1, 2):
+            fixture = directory / f"{accession}_{mate}.fastq"
+            files[f"read_{mate}"] = upload(
+                alice, project, fixture.name, fixture.read_bytes(), "text/plain"
+            )
+        reads = created(
+            alice,
+            project,
+            prefix + "ReadSet",
+            {"run": run["id"], "library": library["id"], **files},
+        )
+    summaries = matching_records(alice, project, prefix + "FASTQSummary", "read_set", reads["id"])
+    if summaries:
+        summary = record(alice, summaries[0]["id"])
+    else:
+        analysis = launch(alice, project, prefix + "summarize_fastq", {"reads": reads["id"]})
+        effect = next(e for e in analysis["effects"] if e["type"] == prefix + "FASTQSummary")
+        summary = record(alice, effect["entity"])
+    counts = [(row["reads"], row["q30_percent"]) for row in summary["values"]["statistics"]]
+    if counts != [(4, 90.0), (4, 14.0)]:
+        fail(f"{summary['hrid']} recorded unexpected FASTQ excerpt statistics {counts}")
+    if summary["values"]["review"] == "recorded":
+        signature = signing(alice, summary, "signed_off", "alice", field="review")
+        if signature["status"] != "signed" or not signature["set"]:
+            fail(f"signing {summary['hrid']} gave {signature}")
+    ok(f"{reads['hrid']}: signed quality summary for four public yeast read pairs")
 
 
 def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -2617,6 +2690,16 @@ def bench_material(
     ok(f"labels for {box['hrid']} and {tubes[0]['hrid']} came as ZPL with DataMatrix codes")
 
 
+def read_completed_receipt(alice: requests.Session, receipt_id: str) -> dict[str, Any]:
+    got = api_call(alice, "GET", f"/receipts/{receipt_id}")
+    if got.status_code != 200:
+        fail(f"reading receipt {receipt_id} answered HTTP {got.status_code}: {got.text[:300]}")
+    receipt: dict[str, Any] = got.json()
+    if receipt["status"] != "completed":
+        fail(f"receipt {receipt_id} has status {receipt['status']}")
+    return receipt
+
+
 def receive_at_core(
     alice: requests.Session,
     project: dict[str, Any],
@@ -2676,12 +2759,16 @@ def receive_at_core(
     )
     if described.status_code != 200:
         fail(f"recording the handover answered {described.status_code}: {described.text[:300]}")
+    incoming_code = "IKI:" + UUID(incoming["id"]).hex.upper()
     done = api_call(
         alice,
         "POST",
         f"{at}/complete",
         {
-            "put_away": [{"line": lines[c], "to": incoming["id"]} for c in (first, second)],
+            "put_away": [
+                {"line": lines[first], "to": incoming_code, "position": "A1"},
+                {"line": lines[second], "to": incoming_code, "position": "A2"},
+            ],
             "plan_revision": described.json()["plan_revision"],
         },
     )
@@ -2689,9 +2776,20 @@ def receive_at_core(
         fail(
             f"completing {request['hrid']}'s receipt answered {done.status_code}: {done.text[:300]}"
         )
-    outcomes = done.json()["outcomes"]
+    received = read_completed_receipt(alice, receipt["id"])
+    outcomes = received["outcomes"]
     if (outcomes["matched"], outcomes["damaged"]) != (1, 1):
         fail(f"{request['hrid']}'s receipt counted {outcomes}")
+    placed = {
+        line["entity"]: (line["outcome"], line["put_away"]["id"], line["put_away"]["position"])
+        for line in received["lines"]
+        if line["put_away"] and not line["received_unplaced"]
+    }
+    if len(received["lines"]) != 2 or placed != {
+        tubes[0]["id"]: ("matched", incoming["id"], "A1"),
+        tubes[1]["id"]: ("damaged", incoming["id"], "A2"),
+    }:
+        fail(f"{request['hrid']}'s receipt has the wrong tube placements: {received['lines']}")
     contents = api_call(alice, "GET", f"/storage/containers/{incoming['id']}").json()["contents"]
     if [(c["id"], c["position"]) for c in contents] != [
         (tubes[0]["id"], "A1"),
@@ -3646,15 +3744,25 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
         done = api_call(
-            alice, "POST", f"{at}/complete", {"plan_revision": custody.json()["plan_revision"]}
+            alice,
+            "POST",
+            f"{at}/complete",
+            {
+                "plan_revision": custody.json()["plan_revision"],
+                "keep_in_custody": [scanned.json()["line"]],
+            },
         )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
-    if len(completed) != 1 or [
-        (line["entity"], line["outcome"]) for line in completed[0]["lines"]
-    ] != [(tube_id, "matched")]:
-        fail(f"the receipt did not account for the starter tube: {completed}")
+    if len(completed) != 1:
+        fail(f"the starter request has {len(completed)} completed receipts")
+    received = read_completed_receipt(alice, completed[0]["id"])
+    if [
+        (line["entity"], line["outcome"], line["received_unplaced"], line["put_away"])
+        for line in received["lines"]
+    ] != [(tube_id, "matched", True, None)]:
+        fail(f"the starter tube was not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(

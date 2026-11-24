@@ -340,7 +340,11 @@ out.
   correction (his equation 7), at 50 mM Na⁺ with no Mg²⁺ or dNTPs and 25 nM of each
   strand. A primer's own record quotes a Tm in a PCR's buffer instead, several degrees
   higher (ADR 0201): a site's Tm here says how warm that primer's duplex with this
-  template is under stated, comparable conditions, which is a different question. They are computed by the molecular module, and
+  template is under stated, comparable conditions, which is a different question. A
+  primer that is its own reverse complement, as a restriction site is, pairs here with
+  the template, another molecule, so its site is read as two strands; its record's
+  50 mM Na⁺ Tm is of it against its own complement, one species, and 1.5 to 3 degrees
+  higher (−11.4 °C for `GGATCC` alone, −13.7 °C on a template). They are computed by the molecular module, and
   checked against Biopython's `MeltingTemp.Tm_NN` with `DNA_NN3`, `DNA_IMM1`, `DNA_TMM1`
   and `saltcorr=5`, which is where the same numbers used to come from. A site's Tm is of
   its annealed bases against the template's own, so a mismatch lowers it; where no

@@ -1907,6 +1907,65 @@
         "title": "AvailableMapping",
         "type": "object"
       },
+      "AwaitingPutAwayOut": {
+        "properties": {
+          "archived": {
+            "title": "Archived",
+            "type": "boolean"
+          },
+          "custodian": {
+            "$ref": "#/components/schemas/UserOut"
+          },
+          "custody_since": {
+            "format": "date-time",
+            "title": "Custody Since",
+            "type": "string"
+          },
+          "formerly": {
+            "description": "The HRIDs it had where it was imported from, when it got a new one here (ADR 0096): files made there, such as an alignment's, name it by them.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Formerly",
+            "type": "array"
+          },
+          "hrid": {
+            "title": "Hrid",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "purged": {
+            "description": "Its plugin's data was purged (ADR 0092): only its HRID and type are left.",
+            "title": "Purged",
+            "type": "boolean"
+          },
+          "title": {
+            "description": "What it's called: its type's display title, or its HRID.",
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hrid",
+          "title",
+          "type",
+          "archived",
+          "purged",
+          "id",
+          "custodian",
+          "custody_since"
+        ],
+        "title": "AwaitingPutAwayOut",
+        "type": "object"
+      },
       "BatchCan": {
         "properties": {
           "cancel": {
@@ -3243,7 +3302,17 @@
         "type": "object"
       },
       "CompleteReceiptIn": {
+        "additionalProperties": false,
         "properties": {
+          "keep_in_custody": {
+            "description": "IDs of received lines the receiver will hold without a storage location.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Keep In Custody",
+            "type": "array"
+          },
           "missing_rest": {
             "description": "Mark every unchecked expected line missing. Defaults to false.",
             "title": "Missing Rest",
@@ -17794,6 +17863,11 @@
             ],
             "description": "Where it was put away, once completed."
           },
+          "received_unplaced": {
+            "description": "It was accepted in custody without placement when this receipt completed.",
+            "title": "Received Unplaced",
+            "type": "boolean"
+          },
           "ref": {
             "anyOf": [
               {
@@ -17816,7 +17890,8 @@
           "note",
           "checked_by",
           "checked_at",
-          "put_away"
+          "put_away",
+          "received_unplaced"
         ],
         "title": "ReceiptLineOut",
         "type": "object"
@@ -42320,7 +42395,7 @@
     },
     "/api/v1/receipts/{receipt_id}/complete": {
       "post": {
-        "description": "Takes custody of what was received, puts each away where it's given, and tells the\nrequester of anything missing, extra, damaged or rejected: all of it, or none.",
+        "description": "Name each matched or damaged line once in put_away or keep_in_custody. Custody,\nplacements and discrepancy notices are recorded together.",
         "operationId": "iki_server_api_storage_complete_receipt",
         "parameters": [
           {
@@ -46008,6 +46083,41 @@
         "summary": "Preview a starter choice",
         "tags": [
           "starters"
+        ]
+      }
+    },
+    "/api/v1/storage/awaiting-put-away": {
+      "get": {
+        "description": "Matched and damaged records you can read that are still in custody without a location.",
+        "operationId": "iki_server_api_storage_list_awaiting_put_away",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AwaitingPutAwayOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Received material awaiting a storage location",
+        "tags": [
+          "storage"
         ]
       }
     },

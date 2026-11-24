@@ -222,16 +222,46 @@ lists each line changed since the reviewed revision, including removed extras.
 A change to the handoff alone returns an empty list. The receiver can read the
 current evidence before deciding whether to change it.
 
-**Completing it is one change.** Every expected line must have an outcome:
-"mark the rest missing" is a choice someone makes. Matched and damaged lines
-are received: each record's custody passes to the receiver (`received`), and
-each is put away into the position chosen for it, which Iki suggests as the
-next free positions of a box the receiver picks. A received record is moved
-from wherever its project recorded it: the receipt is the record that it
-isn't there any more. A rejected line is in the receiver's custody, not put
-away, until it's returned or destroyed; a missing one was never received.
-Completed, the receipt and its lines don't change. It's an audit event in
-both projects, `request.receipt_completed`, and a webhook event.
+**Completing it is one change.** Every expected line must have an outcome.
+The receiver can mark the remaining unchecked lines missing with
+`missing_rest: true`. For each active matched or damaged line linked to a
+record, the receiver chooses a storage destination or explicitly keeps it in
+custody without a position. A rejected record stays in the receiver's custody
+until returned or destroyed. A missing outcome leaves the tube’s recorded
+location unchanged.
+
+Read `GET /api/v1/receipts/{id}` and review its `lines` and `plan_revision`.
+Then submit `POST /api/v1/receipts/{id}/complete` with that revision and one
+choice for each matched or damaged record. This example puts one tube in A1
+and keeps the other in custody. Both line IDs come from the reviewed receipt.
+
+```json
+{
+  "plan_revision": 7,
+  "put_away": [
+    {
+      "line": "00000000-0000-4000-8000-000000000001",
+      "to": "IKI:00000000000040008000000000000003",
+      "position": "A1"
+    }
+  ],
+  "keep_in_custody": ["00000000-0000-4000-8000-000000000002"]
+}
+```
+
+Omitting or repeating a required line, including a line in both lists, or
+including a rejected, missing or extra line returns HTTP 422. A changed
+open receipt returns HTTP 409 for a stale `plan_revision`. These refusals
+leave the receipt, custody and placements unchanged.
+
+Completing clears the former recorded location of each accepted tube. Its
+completed receipt line records its `put_away` destination or sets `received_unplaced` when the
+receiver took custody without placement. These fields describe the receipt
+at completion. To find records still awaiting placement, read
+`GET /api/v1/storage/awaiting-put-away`. Each entry identifies a readable
+tube, its current `custodian` and `custody_since`. Completing also records
+`request.receipt_completed` in both projects' audit trails and emits a webhook
+event.
 
 **Discrepancies go back to the requester.** A receipt with any line that
 isn't matched tells whoever submitted the request, and its watchers, who can

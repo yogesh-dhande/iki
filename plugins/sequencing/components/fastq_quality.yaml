@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Component
+name: fastq_quality
+label: Read quality
+description: Compare read lengths and quality across the FASTQ files inspected by the action.
+module: ./components/fastq-quality.js
+element: fastq-quality
+slots: [{ slot: entity.tab, type: FASTQSummary }]

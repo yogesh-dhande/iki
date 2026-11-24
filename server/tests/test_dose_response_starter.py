@@ -157,10 +157,31 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     receipt = receipts.describe(
         admin, receipt, handed_over_by="Synthetic shipment", plan_revision=receipt.plan_revision
     )
-    assert (
-        receipts.complete(admin, receipt, plan_revision=receipt.plan_revision).received_by_id
-        == admin.pk
+    path = f"/receipts/{receipt.pk}"
+    line_id = str(scanned.line.pk)
+    reviewed = api.get(path).json()
+    assert [(line["id"], line["entity"], line["outcome"]) for line in reviewed["lines"]] == [
+        (line_id, str(tube.pk), "matched")
+    ]
+    revision = reviewed["plan_revision"]
+    repeated = api.post(
+        path + "/complete", {"plan_revision": revision, "keep_in_custody": [line_id, line_id]}
     )
+    assert repeated.status_code == 422, repeated.content
+    assert api.get(path).json() == reviewed
+    done = receipts.complete(
+        admin, receipt, plan_revision=revision, keep_in_custody=[scanned.line.pk]
+    )
+    assert done.received_by_id == admin.pk
+    [received] = api.get(path).json()["lines"]
+    assert (
+        received["id"] == line_id and received["received_unplaced"] and received["put_away"] is None
+    )
+
+    waiting = api.get("/storage/awaiting-put-away")
+    assert waiting.status_code == 200, waiting.content
+    [held] = [item for item in waiting.json() if item["id"] == str(tube.pk)]
+    assert held["custodian"]["id"] == str(admin.pk) and held["custody_since"]
 
     plate = UUID(ids["plate"])
     sample = UUID(ids["sample"])

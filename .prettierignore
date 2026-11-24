@@ -30,6 +30,9 @@ server/src/iki_plugin_iki__core/
 deploy/aws/modules/access/policies/
 # What ANARCI said, recorded byte for byte by server/tests/data/record_anarci.py.
 server/tests/data/anarci.json
+# What every module gave for 21,360 oligos, recorded by
+# server/tests/data/record_melting_temperatures.py.
+server/tests/data/melting_temperatures.json
 # Built from plugins/small_molecule/web by its build.js: RDKit.js's minified loader and
 # its WebAssembly, checked against them by its test.
 plugins/small_molecule/components/depiction.js

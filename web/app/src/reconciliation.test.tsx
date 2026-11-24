@@ -268,6 +268,64 @@ it("requires review after a newer count arrives and an older resolution response
   });
 });
 
+it("reviews a refused completion's count only once the latest one is shown", async () => {
+  const moved = tube(1, {
+    finding: "wrong_slot",
+    expected: "A2",
+    found: "A3",
+    resolution: "moved",
+    resolved_by: ME,
+  });
+  const { user } = await openInventory(moved);
+  const finish = within(screen.getByRole("region", { name: "Complete" }));
+  expect(finish.getByRole("list", { name: "Planned destinations" })).toHaveTextContent(
+    "TUB-000001 → BOX-000001, A3",
+  );
+  // A colleague found it in A4 meanwhile, and moved it there. The refusal comes back before
+  // the count as it is now does.
+  answer(`POST ${api}/complete`, problem(409, "conflict", "The count changed."));
+  const latest = inventory(2, { ...moved, found: "A4", line_revision: 2 });
+  const showLatest = holdResponse(`GET ${api}`, latest);
+  answer(
+    `GET ${api}/history`,
+    page([
+      event({
+        line_id: moved.id,
+        before: { position: "A3", observed: true, code: "LAB-000001" },
+        after: { position: "A4", observed: true, code: "LAB-000001" },
+        reason: "It was in A4",
+      }),
+    ]),
+  );
+  await user.click(complete());
+  expect(await finish.findByText(/^The count changed while you were looking at it/)).toBeVisible();
+  const review = finish.getByRole("button", { name: "Review latest count" });
+  // What changed is shown, but the count that has it isn't yet: there's nothing to review.
+  await waitFor(() => {
+    expect(finish.getByText(/Scan changed by Ada Lovelace/)).toBeVisible();
+  });
+  expect(review).toHaveAttribute("aria-disabled", "true");
+  await user.click(review);
+  expect(finish.queryByRole("list", { name: "Planned destinations" })).not.toBeInTheDocument();
+
+  await showLatest();
+  await waitFor(() => {
+    expect(review).not.toHaveAttribute("aria-disabled", "true");
+  });
+  await user.click(review);
+  expect(finish.getByRole("list", { name: "Planned destinations" })).toHaveTextContent(
+    "TUB-000001 → BOX-000001, A4",
+  );
+  answer(`POST ${api}/complete`, { ...latest, status: "completed", can_change: false });
+  answer(`GET ${api}`, { ...latest, status: "completed", can_change: false });
+  await user.click(complete());
+  expect(await screen.findByRole("heading", { name: "Completed" })).toBeVisible();
+  expect(calls("POST", `${api}/complete`).map((call) => call.body)).toEqual([
+    { plan_revision: 1, missing_rest: false, note: "" },
+    { plan_revision: 2, missing_rest: false, note: "" },
+  ]);
+});
+
 it("shows what changed, and who changed it, when a first decision is refused as stale", async () => {
   const moved = tube(1, { finding: "wrong_slot", expected: "A4", found: "A2" });
   const { user } = await openInventory(moved);

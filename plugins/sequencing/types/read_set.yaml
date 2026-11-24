@@ -1,0 +1,38 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ReadSet
+label: FASTQ read set
+schema_version: 1
+hrid: { prefix: READ }
+description: Single-end reads or two synchronized mates from one library in one run and lane.
+fields:
+  run: { type: ref, to: SequencingRun, required: true, immutable: true }
+  library: { type: ref, to: SequencingLibrary, required: true, immutable: true }
+  lane:
+    type: string
+    max_length: 100
+    immutable: true
+    description: Instrument lane or output partition, when known.
+  read_1:
+    type: file
+    label: FASTQ read 1
+    required: true
+    immutable: true
+    media_types:
+      [text/x-fastq, text/plain, application/gzip, application/x-gzip, application/octet-stream]
+    max_size: 100GiB
+    description: A FASTQ or gzipped FASTQ registered from its versioned source bucket.
+  read_2:
+    type: file
+    label: FASTQ read 2
+    immutable: true
+    media_types:
+      [text/x-fastq, text/plain, application/gzip, application/x-gzip, application/octet-stream]
+    max_size: 100GiB
+    description: The corresponding mate file for a paired-end run. Leave blank for a single-end run.
+rules:
+  distinct_mates:
+    check: record.read_2 == null || record.read_1 != record.read_2
+    message: Select two distinct FASTQ files for paired-end reads.
+    fields: [read_1, read_2]
+display: { title: "{{ hrid }}" }
