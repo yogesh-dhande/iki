@@ -1,0 +1,88 @@
+---
+title: Whole-plasmid alignments
+description: What a whole-plasmid alignment compares, how it calls and names each difference, and what it records.
+audience: bench
+topic: Lots and preps
+order: 50
+useCases:
+  - { label: Verify a plasmid prep, href: /use-cases/verify-a-plasmid-prep/ }
+---
+
+## In short
+
+A whole-plasmid alignment compares a prep's sequencing with the plasmid's registered DNA sequence,
+from end to end round the circle. Iki computes it on one of the lab's workers, and it can't be
+edited. It says whether the prep's sequence **matches** the plasmid's, **differs** from it, or is
+**incomplete**, and names each difference.
+
+The alignment is evidence. Whether the prep holds the right plasmid is a reviewer's outcome,
+recorded in a plasmid verification.
+
+## How it works
+
+An alignment starts from one of two kinds of sequencing:
+
+- **Long reads**, from nanopore or PacBio HiFi. Iki aligns the reads round the circle, calls a
+  consensus from them, polishes it, and compares it with the plasmid's sequence.
+- **A consensus** a sequencing service assembled for the prep, as one FASTA sequence. Iki compares
+  it with the plasmid's sequence directly.
+
+Either way the alignment records the plasmid's sequence as it was when it ran, the consensus, the
+agreement, and each difference. From reads it also records the depth at each position. The run
+that made it keeps the consensus FASTA, the depth and difference tables, and the reads'
+alignments.
+
+An alignment's **Map** tab shows read depth round the plasmid, the stretches under the minimum
+depth, the plasmid's features and a mark at each difference, with the same information in tables.
+
+## The rules in full
+
+### Agreement
+
+The agreement is one of three values:
+
+- **matches**: every base is called and agrees with the plasmid's sequence.
+- **differs**: at least one difference.
+- **incomplete**: nothing differs, but some bases aren't called.
+
+A base that the plasmid's sequence allows, such as A or G at an R, isn't a difference. Neither is
+an uncalled base (N).
+
+### Naming differences
+
+Each difference is named in HGVS, the standard notation for sequence changes: `o.` on a circular
+plasmid and `g.` on a linear one. Positions count from 1 on the plasmid's sequence, and an
+insertion or deletion is placed at its 3'-most position, so one deletion in a run of one base has
+one name. For example, `o.887del` is one base deleted at 887.
+
+Each difference also lists the plasmid's features it falls in and the length of the run of one
+base it lies in. From reads, it lists its depth and how many reads agree with it on each strand.
+
+### Reads round a circle
+
+A read can cross position 1 of a circular plasmid, and so can a difference. Iki aligns each read
+across the origin with minimap2, so such a read counts in one piece.
+
+The consensus takes the majority base at each position that at least the minimum depth of reads
+cover, 10 unless the analyst chose otherwise; a position with fewer reads is N. Iki then aligns
+the reads to that consensus again until it stops changing, in at most four rounds. It compares the
+consensus with the plasmid's sequence on either strand and from any starting point, and does the
+same with a service's consensus.
+
+### Runs of one base
+
+Nanopore errors cluster in runs of one base, and a majority call can keep such an error at modest
+depth. A one-base deletion in a run of six or more, supported by only part of the reads, is the
+typical case: check each difference's run length and support before treating it as real, or
+compare a sequencing service's polished consensus instead.
+
+### New sequencing
+
+An alignment never changes. New reads or a new consensus make a new alignment, and a prep can have
+several. A plasmid verification names the one it rests on.
+
+## Reference
+
+- Record type: [iki/plasmid_sequencing.WholePlasmidAlignment](repo:plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml)
+- Actions: [Verify a plasmid from its long reads](repo:plugins/plasmid_sequencing/actions/verify_plasmid_reads.yaml) and [Verify a plasmid from a service's consensus](repo:plugins/plasmid_sequencing/actions/verify_plasmid_consensus.yaml)
+- Every key of a record type: [the plugin spec](repo:spec/README.md)

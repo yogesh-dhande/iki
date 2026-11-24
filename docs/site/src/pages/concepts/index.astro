@@ -1,20 +1,21 @@
 ---
 import Listing from "../../components/listing/Listing.astro";
 import Doc from "../../layouts/Doc.astro";
-import { CONCEPTS } from "../../lib/site.ts";
+import { inSection, sitePages } from "../../lib/pages.ts";
+
+const concepts = inSection(await sitePages(), "Concepts");
 ---
 
 <Doc
   title="Concepts"
-  description="What records, reviews, plugins and compute are in Iki, and the rules each one follows."
+  description="How Iki behaves: its records, reviews and signatures, and the rules each one follows."
   section="Concepts"
 >
   <h1 class="doc-title">Concepts</h1>
   <p class="intro">
-    What records, reviews, plugins and compute are in Iki, and the rules each one follows, with a
-    worked example on real data.
+    How Iki behaves: its records, reviews and signatures, and the rules each one follows.
   </p>
-  <Listing items={CONCEPTS} />
+  <Listing items={concepts} />
 </Doc>
 
 <style>

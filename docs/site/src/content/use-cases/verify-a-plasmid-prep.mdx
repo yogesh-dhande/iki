@@ -1,0 +1,145 @@
+---
+title: Verify a plasmid prep
+description: Check that a plasmid prep holds the plasmid it should, from its long reads, and sign the outcome.
+audience: bench
+topic: Lots and preps
+order: 20
+facts:
+  - { label: Plugins, value: "iki/plasmid_sequencing, iki/sequencing, iki/lots", code: true }
+  - { label: Data, value: "41 public MinION reads of a pUC19 prep, against GenBank L09137.2" }
+  - { label: Review flow, value: Research or Regulated QC }
+  - { label: Roles, value: "Verification analyst, verification reviewer, lot QA" }
+concepts:
+  - { label: Whole-plasmid alignments, href: /concepts/whole-plasmid-alignments/ }
+reference:
+  - { label: "POST /actions/{name}/runs", href: /reference/api/post-actions-name-runs/ }
+  - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
+  - { label: iki/lots.PlasmidVerification, href: "repo:plugins/lots/types/plasmid_verification.yaml" }
+  - { label: iki/plasmid_sequencing.WholePlasmidAlignment, href: "repo:plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml" }
+---
+
+import Differences from "../../components/sequence/Differences.astro";
+import Stats from "../../components/sequence/Stats.astro";
+import Step from "../../components/assay/Step.astro";
+import Viewer from "../../components/Viewer.astro";
+import { puc19 } from "../../lib/examples.ts";
+import { github } from "../../lib/repo.ts";
+
+export const v = puc19.values;
+export const uncalled = puc19.uncalled[0];
+export const mcs = v.differences.filter((d) => d.features.length === 0);
+export const runs = v.differences.filter((d) => d.homopolymer >= 6);
+export const percent = (d) => `${Math.round(d.fraction * 100)}%`;
+export const number = (n) => n.toLocaleString("en-US");
+
+The example is a pUC19 prep sequenced on a MinION: {v.reads_total} public reads (BioSample
+{puc19.data.biosample}, every 900th read of SRA run {puc19.data.run}), checked against pUC19's
+record, GenBank {puc19.data.accession} ({number(v.reference_length)} bp, {v.topology}). The
+results below are the plasmid sequencing plugin's for these reads.
+
+The deployment needs the three plugins and a worker bound to the **long-read tools** environment.
+The prep is a **Plasmid prep** record in the lots plugin, made from the plasmid your lab
+registered, and the analyst and reviewer have the lots plugin's **Verification analyst** and
+**Verification reviewer** roles in the project.
+
+<Step n={1} id="reads" title="Register the reads" role="Verification analyst">
+
+Record the **Sequencing run**, the prep's **Sequencing library** and its **FASTQ read set** in the
+sequencing plugin. Register the basecalled FASTQ where it already lies, in a bucket your admin has
+approved: Iki records the file's version and checksum, and reads it from there.
+
+Basecalling is done with your own licensed tool before this step.
+
+</Step>
+
+<Step n={2} id="verify" title="Verify the plasmid from its reads" role="Verification analyst">
+
+Open the plasmid and run **Verify a plasmid from its long reads**. Choose the **Read set**, where
+the reads are from (**nanopore** or **PacBio HiFi**), and the **Minimum depth** a base needs to be
+called, 10 unless you change it.
+
+The run makes a **Whole-plasmid alignment** (WPA) on one of the lab's workers. If a sequencing
+service sent a consensus instead, run **Verify a plasmid from a service's consensus** with its one
+FASTA sequence and name the provider; the rest of this use case is the same.
+
+</Step>
+
+<Step n={3} id="read" title="Read the alignment" role="Verification analyst">
+
+The alignment's summary for the pUC19 reads:
+
+<Stats
+  label="The alignment's summary"
+  items={[
+    { label: "Reads aligned", value: `${v.reads_aligned} of ${v.reads_total}` },
+    { label: "Mean depth", value: String(v.mean_depth) },
+    { label: "Least depth", value: String(v.least_depth) },
+    { label: "Bases called", value: `${v.called_percent}%` },
+    { label: "Agreement", value: v.agreement },
+  ]}
+/>
+
+{v.reads_total - v.reads_aligned} short reads align nowhere. One base, at {uncalled.position} in a
+run of {uncalled.run} {uncalled.base}s, has no majority and is left uncalled. The alignment names
+{v.differences.length} differences:
+
+<Differences differences={v.differences} caption="The differences the alignment names" />
+
+The first {mcs.length} sit in the multiple cloning site, which the record doesn't annotate as a
+feature: this prep's plasmid differs there from {puc19.data.accession}. Every read supports the
+deletion and the substitution. The last {runs.length} are one-base deletions in runs of six or
+seven bases, a typical nanopore error, each supported by only part of the reads
+({runs.map(percent).join(", ")}).
+
+The alignment's **Map** tab shows read depth round the ring, the plasmid's features, and a mark at
+each difference. Choose a layer to show or hide it, or read the same in its tables.
+
+<figure class="figure viewer-figure">
+  <Viewer src="/viewers/whole-plasmid/puc19-srr17915342/" title={`Whole-plasmid map of pUC19 checked against ${puc19.data.accession}`} />
+  <figcaption>The alignment's Map tab. The data: <a href={github(puc19.data.reads)} class="out">the 41 reads</a> and <a href={github(puc19.data.reference)} class="out">L09137.2</a>.</figcaption>
+</figure>
+
+</Step>
+
+<Step n={4} id="record" title="Record the verification" role="Verification analyst">
+
+Open the prep and run **Record plasmid verification**. Choose the alignment, and add an
+**Externally reviewed report** if there is one. Record the **Outcome** the evidence supports,
+**match**, **discrepancy** or **inconclusive**, with **Notes** that explain it, and assign the
+**Reviewer**.
+
+A match over an alignment that differs or is incomplete needs a **Reason for overriding the
+verdict**. For this prep the outcome is **discrepancy**, with the note "Its multiple cloning site
+differs from L09137.2, every read agreeing."
+
+The verification records the plasmid's sequence as it was when it ran, so a later edit to the
+plasmid doesn't change what it says.
+
+</Step>
+
+<Step n={5} id="sign" title="Sign the outcome" role="Verification reviewer, lot QA">
+
+Which signatures the verification needs depends on the review flow your admin chose in the lots
+plugin's settings. A verification keeps the flow it was recorded under.
+
+<div class="table">
+  <table>
+    <thead>
+      <tr><th scope="col">Review flow</th><th scope="col">Who signs</th><th scope="col">State</th><th scope="col">Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Research</td><td>The assigned verification reviewer</td><td>Signed off</td><td>Verification</td></tr>
+      <tr><td rowspan="3">Regulated QC</td><td>The verification analyst</td><td>Submitted</td><td>Authorship</td></tr>
+      <tr><td>The assigned verification reviewer, who didn't create, submit or edit it</td><td>Reviewed</td><td>Review</td></tr>
+      <tr><td>Lot QA, someone else again</td><td>Released</td><td>Approval (QA release)</td></tr>
+    </tbody>
+  </table>
+</div>
+
+Signing locks the verification. Editing it afterwards returns it to **Recorded** for a new review,
+and the earlier signatures stay in its history. New sequencing of the same prep is a new
+verification.
+
+Releasing the lot the prep belongs to is a separate step, in the lots plugin.
+
+</Step>

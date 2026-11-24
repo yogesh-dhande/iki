@@ -44,62 +44,6 @@
   }
 }
 
-.or {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 24px;
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--border-strong);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted);
-}
-.or p {
-  margin: 0;
-}
-.or strong {
-  color: var(--text);
-}
-
-.flows {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
-  gap: 12px;
-  margin-top: 20px;
-}
-.flows > div {
-  min-width: 0;
-}
-.flows h3 {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.flows p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--muted);
-}
-.state {
-  color: var(--text);
-  font-weight: 500;
-}
-
-.after-table {
-  margin-top: 16px;
-}
-
-.verdict {
-  margin: 20px 0 0;
-  padding: 2px 0 2px 16px;
-  border-left: 3px solid var(--border-strong);
-}
-.verdict p {
-  margin: 0;
-}
-
 /* A side column's boxes. */
 .side {
   display: flex;

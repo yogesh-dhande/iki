@@ -33,17 +33,19 @@ BROWSERS = ["chromium", "firefox", "webkit"]
 WCAG_22_AA = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]
 WIDTHS = [390, 1440]
 
-PREP = "/concepts/prep-verification/"
+PREP = "/use-cases/verify-a-plasmid-prep/"
+ALIGNMENTS = "/concepts/whole-plasmid-alignments/"
 ASSAY = "/use-cases/dose-response-plate-assay/"
 SIGNATURES = "/reference/api/get-entities-ref-signatures/"
 
-#: Every kind of page: the home page, a concept with a viewer's frame, a use case with
-#: the live plate, the API's overview, a call and a schema, the sections' indexes, and
+#: Every kind of page: the home page, a use case with a viewer's frame, a use case with
+#: the live plate, a concept, the API's overview, a call and a schema, the sections' indexes, and
 #: the page a host serves for a missing path.
 PAGES = [
     "/",
     PREP,
     ASSAY,
+    ALIGNMENTS,
     "/reference/",
     "/reference/api/",
     SIGNATURES,
@@ -185,7 +187,7 @@ def test_every_kind_of_page_is_accessible_and_keeps_its_policy(
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])
-def test_the_concept_page_draws_the_plugins_own_map_in_its_theme(
+def test_the_prep_use_case_draws_the_plugins_own_map_in_its_theme(
     browser: Browser, site: str, scheme: Literal["light", "dark"]
 ) -> None:
     opened = open_page(browser, site, PREP, scheme=scheme)
@@ -329,7 +331,7 @@ def test_the_api_reference_links_a_call_to_the_guides_and_code_that_use_it(
     expect(page.get_by_role("heading", level=1)).to_have_text("A record's electronic signatures")
     related = page.get_by_role("complementary", name="Related")
     expect(related.get_by_role("link", name="Run a dose-response plate assay")).to_be_visible()
-    expect(related.get_by_role("link", name="Prep verification")).to_be_visible()
+    expect(related.get_by_role("link", name="Verify a plasmid prep")).to_be_visible()
     expect(related.get_by_role("link", name=re.compile("client.signatures.list"))).to_be_visible()
     expect(related.get_by_role("link", name=re.compile("get_signatures"))).to_be_visible()
     page.get_by_role("link", name="SignaturesOut").first.click()

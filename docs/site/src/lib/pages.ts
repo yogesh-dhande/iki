@@ -1,0 +1,46 @@
+// The site's pages of the three written sections, from their collections, as the
+// navigation lists them.
+import { getCollection } from "astro:content";
+
+import type { Page } from "./site.ts";
+
+export async function sitePages(): Promise<Page[]> {
+  const [guides, useCases, concepts] = await Promise.all([
+    getCollection("guides"),
+    getCollection("useCases"),
+    getCollection("concepts"),
+  ]);
+  return [
+    ...guides.map((entry) => ({
+      section: "Guides" as const,
+      audience: entry.data.audience,
+      label: entry.data.title,
+      href: `/guides/${entry.id}/`,
+      order: entry.data.order,
+      text: entry.data.description,
+    })),
+    ...useCases.map((entry) => ({
+      section: "Use cases" as const,
+      audience: entry.data.audience,
+      label: entry.data.title,
+      href: `/use-cases/${entry.id}/`,
+      order: entry.data.order,
+      text: entry.data.description,
+    })),
+    ...concepts.map((entry) => ({
+      section: "Concepts" as const,
+      audience: entry.data.audience,
+      label: entry.data.title,
+      href: `/concepts/${entry.id}/`,
+      order: entry.data.order,
+      text: entry.data.description,
+    })),
+  ];
+}
+
+/** A section's pages in their order. */
+export function inSection(pages: readonly Page[], section: Page["section"]): Page[] {
+  return pages
+    .filter((page) => page.section === section)
+    .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
+}

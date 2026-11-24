@@ -1,0 +1,64 @@
+---
+// A guide: one task for an admin or a plugin author, in order, with its reference.
+import { getCollection, render } from "astro:content";
+
+import ItemLink from "../../components/ItemLink.astro";
+import SectionNav from "../../components/SectionNav.astro";
+import Toc from "../../components/Toc.astro";
+import Doc from "../../layouts/Doc.astro";
+import { AUDIENCES, itemOf } from "../../lib/site.ts";
+
+export async function getStaticPaths() {
+  return (await getCollection("guides")).map((entry) => ({
+    params: { slug: entry.id },
+    props: { entry },
+  }));
+}
+
+const { entry } = Astro.props;
+const { Content, headings } = await render(entry);
+const { data } = entry;
+const sections = headings
+  .filter((heading) => heading.depth === 2)
+  .map((heading) => ({ id: heading.slug, label: heading.text }));
+---
+
+<Doc title={data.title} description={data.description} section="Guides" audience={data.audience}>
+  <SectionNav slot="nav" audience={data.audience} />
+  <nav class="breadcrumbs" aria-label="Breadcrumbs">
+    <a href={AUDIENCES[data.audience].all}>Guides</a> / {AUDIENCES[data.audience].label}
+  </nav>
+  <h1 class="doc-title">{data.title}</h1>
+  <p class="lede">{data.description}</p>
+  <div class="prose guide">
+    <Content />
+  </div>
+  <aside slot="aside" class="side" aria-label="On this page">
+    <Toc items={sections} />
+    {data.reference.length > 0 && (
+      <div class="side-box">
+        <h2>Reference</h2>
+        <ul>
+          {data.reference.map((link) => (
+            <li>
+              <ItemLink item={itemOf(link)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+  </aside>
+</Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .guide {
+    margin-top: 8px;
+  }
+</style>

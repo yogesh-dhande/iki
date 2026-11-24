@@ -4,23 +4,25 @@ import { getCollection } from "astro:content";
 import Listing from "../../components/listing/Listing.astro";
 import Doc from "../../layouts/Doc.astro";
 
-const items = (await getCollection("useCases")).map((entry) => ({
-  label: entry.data.title,
-  href: `/use-cases/${entry.id}/`,
-  text: entry.data.description,
-  note: entry.data.topic,
-}));
+const items = (await getCollection("useCases"))
+  .sort((a, b) => a.data.order - b.data.order || a.data.title.localeCompare(b.data.title))
+  .map((entry) => ({
+    label: entry.data.title,
+    href: `/use-cases/${entry.id}/`,
+    text: entry.data.description,
+    note: entry.data.topic,
+  }));
 ---
 
 <Doc
   title="Use cases"
-  description="Lab workflows in Iki from request to signed result, on public or simulated data, each step with the role that does it."
+  description="Lab workflows in Iki, each from its start to a signed result, its steps by the role that does them."
   section="Use cases"
 >
   <h1 class="doc-title">Use cases</h1>
   <p class="intro">
-    Lab workflows from request to signed result, on public or simulated data, each step with the
-    role that does it.
+    Lab workflows in Iki, each from its start to a signed result, its steps by the role that does
+    them, on public or simulated data.
   </p>
   <Listing items={items} />
 </Doc>

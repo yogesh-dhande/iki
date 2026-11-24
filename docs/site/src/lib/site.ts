@@ -11,7 +11,9 @@ export interface AudienceInfo {
   label: string;
   /** Who it's for, as a sentence. */
   who: string;
-  /** Where "All guides" goes. */
+  /** Its pages are in this section: the bench's are use cases, the others' guides. */
+  section: "Use cases" | "Guides";
+  /** Where the home page's link to all of them goes. */
   all: string;
 }
 
@@ -20,18 +22,21 @@ export const AUDIENCES: Record<Audience, AudienceInfo> = {
     id: "bench",
     label: "At the bench",
     who: "For scientists, QA and lab managers.",
-    all: "/guides/#bench",
+    section: "Use cases",
+    all: "/use-cases/",
   },
   run: {
     id: "run",
     label: "Running Iki",
     who: "For the admins who deploy and operate it.",
+    section: "Guides",
     all: "/guides/#run",
   },
   build: {
     id: "build",
     label: "Building on Iki",
     who: "For plugin authors, integrators and coding agents.",
+    section: "Guides",
     all: "/guides/#build",
   },
 };
@@ -80,19 +85,12 @@ export const TOP_NAV = [
 export type Section = (typeof TOP_NAV)[number]["label"];
 
 export const PAGES = {
-  doseResponse: "/use-cases/dose-response-plate-assay/",
-  prepVerification: "/concepts/prep-verification/",
   api: "/reference/api/",
-  signatures: "/reference/api/get-entities-ref-signatures/",
 } as const;
 
-/** What each door lists on the home page: tasks first. */
-export const DOORS: Record<Audience, Item[]> = {
-  bench: [
-    { label: "Run a dose-response plate assay", href: PAGES.doseResponse },
-    { label: "Check a plasmid prep against its sequence", href: PAGES.prepVerification },
-    { label: "Receive tubes against a request", source: "plugins/example_lims/README.md" },
-  ],
+/** What the home page lists for admins and plugin authors that isn't a page here yet: the
+ * repository's own documents. The bench's list is its use cases. */
+export const REPOSITORY_GUIDES: Record<"run" | "build", Item[]> = {
   run: [
     { label: "Run Iki on a laptop with kind", source: "deploy/dev/README.md" },
     { label: "Deploy on Google Cloud", source: "deploy/gcp/README.md" },
@@ -104,7 +102,6 @@ export const DOORS: Record<Audience, Item[]> = {
     { label: "Restore from a backup", source: "docs/disaster-recovery.md" },
   ],
   build: [
-    { label: "Start a plugin from the template", source: "plugin-template/README.md" },
     {
       label: "Validate and test a plugin in CI",
       source: "plugin-template/.agents/skills/iki-test-plugin/SKILL.md",
@@ -113,36 +110,45 @@ export const DOORS: Record<Audience, Item[]> = {
       label: "Upgrade a plugin without losing history",
       source: "plugin-template/.agents/skills/iki-upgrade-plugin/SKILL.md",
     },
-    { label: "Give a coding agent the plugin skills", source: "plugin-template/README.md" },
-    { label: "Look up a REST API call", href: PAGES.api },
   ],
 };
-
-/** The concept pages. */
-export const CONCEPTS: Item[] = [{ label: "Prep verification", href: PAGES.prepVerification }];
 
 /** The references. */
 export const REFERENCES: Item[] = [
   { label: "REST API", href: PAGES.api, note: "every call and schema" },
-  { label: "Plugin spec, iki/v1", source: "spec/README.md", note: "types, actions and views" },
+  { label: "Plugin spec", source: "spec/README.md", note: "every manifest kind and key" },
   { label: "The iki CLI", source: "cli/README.md", note: "plugin, bundle, deploy, starter" },
   { label: "Python SDK and MCP server", source: "sdk/python/README.md" },
 ];
 
-/** A door's left-hand navigation: its pages, grouped under the top navigation's own
- * section names, in its order, so a page is filed under one name everywhere. Only pages of
- * this site: nothing planned, and nothing elsewhere. */
-export const SIDE_NAV: Record<Audience, { section: Section; items: Item[] }[]> = {
-  bench: [
-    {
-      section: "Use cases",
-      items: [{ label: "Run a dose-response plate assay", href: PAGES.doseResponse }],
-    },
-    { section: "Concepts", items: [{ label: "Prep verification", href: PAGES.prepVerification }] },
-  ],
-  run: [],
-  build: [],
-};
+/** A page of one of the sections, as the navigation lists it. */
+export interface Page {
+  section: Section;
+  audience: Audience;
+  label: string;
+  href: string;
+  order: number;
+  text?: string;
+}
+
+/** A page's left-hand navigation: its audience's pages, and every concept, grouped under
+ * the top navigation's own section names in its order, so a page is filed under one name
+ * everywhere. Only this site's pages. */
+export function sideNav(
+  pages: readonly Page[],
+  audience: Audience,
+): { section: Section; items: Item[] }[] {
+  return TOP_NAV.map((entry) => entry.label)
+    .map((section) => ({
+      section,
+      items: pages
+        .filter((page) => page.section === section)
+        .filter((page) => page.audience === audience || section === "Concepts")
+        .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
+        .map((page) => ({ label: page.label, href: page.href })),
+    }))
+    .filter((group) => group.items.length > 0);
+}
 
 export const FOOTER: Item[] = [
   { label: "Contributing", source: "CONTRIBUTING.md" },

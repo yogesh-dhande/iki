@@ -1,10 +1,13 @@
 ---
+// A concept: how one part of Iki behaves, in increasing detail, with the use cases that
+// show it and its reference.
 import { getCollection, render } from "astro:content";
 
 import ItemLink from "../../components/ItemLink.astro";
+import SectionNav from "../../components/SectionNav.astro";
 import Toc from "../../components/Toc.astro";
 import Doc from "../../layouts/Doc.astro";
-import { itemOf, SIDE_NAV } from "../../lib/site.ts";
+import { itemOf } from "../../lib/site.ts";
 
 export async function getStaticPaths() {
   return (await getCollection("concepts")).map((entry) => ({
@@ -14,43 +17,53 @@ export async function getStaticPaths() {
 }
 
 const { entry } = Astro.props;
-const { Content } = await render(entry);
+const { Content, headings } = await render(entry);
 const { data } = entry;
-const layers = [
-  { id: "short", label: "In short" },
-  { id: "how", label: "How it works" },
-  { id: "example", label: "Worked example" },
-  { id: "rules", label: "The rules in full" },
-  { id: "ref", label: "Reference" },
-];
+const sections = headings
+  .filter((heading) => heading.depth === 2)
+  .map((heading) => ({ id: heading.slug, label: heading.text }));
 ---
 
 <Doc title={data.title} description={data.description} section="Concepts" audience={data.audience}>
-  <nav slot="nav" class="section-nav" aria-label="Pages for this audience">
-    {SIDE_NAV[data.audience].map((group) => (
-      <>
-        <h2>{group.section}</h2>
-        <ul>
-          {group.items.map((item) => (
-            <li>
-              <ItemLink item={item} />
-            </li>
-          ))}
-        </ul>
-      </>
-    ))}
-  </nav>
+  <SectionNav slot="nav" audience={data.audience} />
   <nav class="breadcrumbs" aria-label="Breadcrumbs">
     <a href="/concepts/">Concepts</a> / {data.topic}
   </nav>
   <h1 class="doc-title">{data.title}</h1>
-  <Content />
+  <p class="lede">{data.description}</p>
+  <div class="prose concept">
+    <Content />
+  </div>
   <aside slot="aside" class="side" aria-label="On this page">
-    <Toc items={layers} />
-    <div class="side-box audience">
-      <h2>Guides</h2>
-      <p>{data.guide.text}</p>
-      <ItemLink item={itemOf(data.guide)} />
-    </div>
+    <Toc items={sections} />
+    {data.useCases.length > 0 && (
+      <div class="side-box">
+        <h2>Use cases</h2>
+        <ul>
+          {data.useCases.map((link) => (
+            <li>
+              <ItemLink item={itemOf(link)} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
   </aside>
 </Doc>
+
+<style>
+  .lede {
+    margin: 14px 0 0;
+    max-width: 720px;
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .concept {
+    margin-top: 8px;
+  }
+  .concept > :global(h2) {
+    margin-top: 48px;
+    font-size: 26px;
+  }
+</style>
