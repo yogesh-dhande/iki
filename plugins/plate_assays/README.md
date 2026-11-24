@@ -4,6 +4,10 @@ Map an absorbance export to a 96- or 384-well plate, calculate a relative IC50
 or EC50, and sign the result. The result and its source readings have stable
 record IDs that another experiment can reference.
 
+For release testing, enter the analytical procedure ID and revision on the assay
+plate before previewing its file. The committed read and each fitted result
+retain those identifiers for comparison with the approved release criterion.
+
 ## Set up review
 
 Install `iki/plate_assays` with its declared dependencies and bind

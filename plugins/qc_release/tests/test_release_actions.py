@@ -187,6 +187,20 @@ def test_plate_fit_cannot_be_transcribed_to_a_different_physical_lot(
         qc_actions.record_test(run)
 
     assay["values"]["sample"] = "lot1"
+    criterion.update(procedure="SOP-A", procedure_revision="2")
+    assay["values"].update(procedure="SOP-B", procedure_revision="2")
+    with pytest.raises(ValueError, match="procedure"):
+        qc_actions.record_test(run)
+    assay["values"].update(procedure="SOP-A", procedure_revision="1")
+    with pytest.raises(ValueError, match="procedure"):
+        qc_actions.record_test(run)
+    del assay["values"]["procedure_revision"]
+    with pytest.raises(ValueError, match="procedure"):
+        qc_actions.record_test(run)
+    del criterion["procedure_revision"]
+    with pytest.raises(ValueError, match="procedure"):
+        qc_actions.record_test(run)
+    assay["values"]["procedure_revision"] = criterion["procedure_revision"] = "2"
     (measurement,) = qc_actions.record_test(run)["creates"]
     assert measurement["values"]["evidence"] == "assay1"
     assert measurement["values"]["evidence_revision"] == 4

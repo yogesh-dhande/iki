@@ -2,10 +2,12 @@ apiVersion: iki/v1
 kind: EntityType
 name: AssayResult
 abstract: true
-schema_version: 1
+schema_version: 2
 label: Assay result
 description: A four-parameter logistic fit of the selected sample's committed readings.
 fields:
+  procedure: { type: string, computed: true, max_length: 200, label: Analytical procedure ID }
+  procedure_revision: { type: string, computed: true, max_length: 80, label: Procedure revision }
   read: { type: ref, to: PlateRead, required: true, immutable: true }
   sample: { type: ref, to: iki/core.Entity, required: true, immutable: true }
   measurements:
