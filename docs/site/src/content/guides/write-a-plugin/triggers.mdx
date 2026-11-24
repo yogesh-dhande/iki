@@ -76,8 +76,8 @@ states ([Track a record's state](/guides/write-a-plugin/states/)).
 
 A change a triggered run makes never fires a trigger, so a trigger can't fire itself, or another
 that fires it back. The example LIMS plugin's nightly import is a triggered run, so the records it
-renames don't fire `send_renamed`. A run someone launches by hand is a person's change, and does. To run one action after another, chain them in a
-[workflow](/guides/write-a-plugin/workflows/).
+renames don't fire `send_renamed`. A run someone launches by hand is a person's change, and does.
+To run one action after another, chain them in a [workflow](/guides/write-a-plugin/workflows/).
 
 ## Give the action what's related to the record
 
