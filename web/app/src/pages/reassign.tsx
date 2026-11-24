@@ -9,7 +9,7 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { problemOf, useApiMutation } from "../api";
 import { inSentence, recordSearch, type Entity, type EntityType } from "../entities";
@@ -43,6 +43,8 @@ export function ReassignDialog({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshProblem, setRefreshProblem] = useState<unknown>(null);
   const note = useRef<HTMLDivElement>(null);
+  // Set by a refresh: the note that says what changed takes focus once it shows.
+  const focusNote = useRef(false);
   const fields = type.fields.filter((f) => f.assignment);
   const [name, setName] = useState(fields[0]?.name ?? "");
   const [person, setPerson] = useState<Picked | null>(null);
@@ -66,6 +68,13 @@ export function ReassignDialog({
   );
   const problem = assign.error ? problemOf(assign.error) : undefined;
   const stale = problem?.code === "stale" ? (problem.stale ?? []) : null;
+  // What changed takes focus, to be read before reassigning again: once the note has
+  // rendered, which in a busy browser can be after the next frame.
+  useEffect(() => {
+    if (!focusNote.current || !note.current) return;
+    focusNote.current = false;
+    note.current.focus();
+  });
   if (!field) return null;
   const records = `${String(reviewed.length)} ${inSentence(reviewed.length === 1 ? type.label : type.label_plural)}`;
   const linkTo = (s: { id: string; hrid: string }) => {
@@ -94,9 +103,8 @@ export function ReassignDialog({
           gone: stale.filter((s) => !ids.has(s.id)),
         });
         setRefreshing(false);
+        focusNote.current = true;
         assign.reset();
-        // What changed takes focus, to be read before reassigning again.
-        requestAnimationFrame(() => note.current?.focus());
       },
       (error: unknown) => {
         setRefreshProblem(error);
