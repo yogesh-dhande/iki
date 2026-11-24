@@ -180,6 +180,11 @@ svg {
   border-left: 3px solid var(--border-strong);
   color: var(--muted);
 }
+/* A link named for a type or a path, such as iki/plasmid_sequencing.WholePlasmidAlignment, breaks
+   where it must rather than widen a phone's page. */
+.prose a {
+  overflow-wrap: anywhere;
+}
 .prose :not(pre) > code {
   padding: 1px 4px;
   border-radius: 4px;
