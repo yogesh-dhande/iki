@@ -635,7 +635,7 @@ class Entities(_Part):
 
     def assign(
         self,
-        refs: Sequence[str | Mapping[str, Any]],
+        refs: Sequence[Mapping[str, Any]],
         field: str,
         person: str | None,
         *,
@@ -645,13 +645,15 @@ class Entities(_Part):
         """Names `person` (an ID or email address; None to empty it) in assignment field
         `field` of many records at once, each as its own revision. Records that can't
         change (you can't edit them, their state locks them, the person can't be named in
-        their project) are left as they are: ``skipped`` says why::
+        their project) are left as they are: ``skipped`` says why. Each record must include
+        the ID and revision you reviewed. A stale record refuses the entire operation::
 
             done = iki.entities.assign(late, "analyst", "ana@example.com", reason="Away")
             done["skipped"]
         """
         body = {
-            "entities": [self._client._entity_id(r) for r in refs],
+            "entities": [str(record["id"]) for record in refs],
+            "expected_revisions": {str(record["id"]): record["revision"] for record in refs},
             "field": field,
             "person": person,
             "op": op,

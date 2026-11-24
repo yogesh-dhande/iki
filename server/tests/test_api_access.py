@@ -251,7 +251,14 @@ def samples_assign(w: World) -> tuple[Any, ...]:
     found = entities.create(
         w.users["editor"], "acme/protein.Sample", w.project, {"label": "S-assign"}
     )
-    body = {"entities": [str(found.entity.pk)], "field": "analyst", "person": None}
+    assert found.revision is not None
+    pk = str(found.entity.pk)
+    body = {
+        "entities": [pk],
+        "expected_revisions": {pk: found.revision.number},
+        "field": "analyst",
+        "person": None,
+    }
     return "/entities/assign", body
 
 

@@ -894,7 +894,9 @@ export interface paths {
          *     grid's selection: each record you may edit changes as its own revision, and each person
          *     is told once. Records that can't change are skipped, with why: you can't edit them,
          *     their state locks them, their people with them, or the person can't be named
-         *     in their project. A record you can't read is 404, and changes nothing.
+         *     in their project. Send an observed revision in `expected_revisions` for every selected
+         *     entity. A stale selection answers 412 and identifies the changed records. A record
+         *     you can't read answers 404. Neither refusal changes any records.
          */
         post: operations["iki_server_api_work_assign"];
         delete?: never;
@@ -6113,6 +6115,13 @@ export interface components {
         AssignIn: {
             /** Entities */
             entities: string[];
+            /**
+             * Expected Revisions
+             * @description Required. Each selected entity's observed revision, by entity ID.
+             */
+            expected_revisions?: {
+                [key: string]: number;
+            } | null;
             /**
              * Field
              * @description An assignment field of theirs.

@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { entity, field, KINASE, nth, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import { ME as SEARCHER, searchWords, validateFilters } from "./filters";
 import { narrowNameable } from "./people";
-import { answer, calls, FakeEventSource, ME, page, type Sent } from "./test-server";
+import { answer, calls, FakeEventSource, ME, page, problem, type Sent } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000e601";
 const ANA = "00000000-0000-7000-8000-0000000000a1";
@@ -458,7 +458,7 @@ describe("reassigning from the grid", () => {
     withTypes();
     answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
     answer("GET /api/v1/projects", page([KINASE]));
-    const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002" });
+    const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002", revision: 4 });
     answer(
       "POST /api/v1/entities/search",
       page([
@@ -491,6 +491,88 @@ describe("reassigning from the grid", () => {
     expect(done).toHaveTextContent("SMP-000002: Its state locks it.");
     expect(calls("POST", "/api/v1/entities/assign").at(-1)?.body).toEqual({
       entities: [SAMPLE_ID, second.id],
+      expected_revisions: { [SAMPLE_ID]: 2, [second.id]: 4 },
+      field: "analyst",
+      person: BO,
+      op: "set",
+      reason: "Ana left",
+    });
+  });
+
+  it("assigns nothing if a picked record changed, and reassigns once the selection is refreshed", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    const first = sample();
+    const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002", revision: 4 });
+    answer("POST /api/v1/entities/search", page([first, second]));
+    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
+      { id: BO, name: "Bo Chen", email: "bo@example.com" },
+    ]);
+    answer(
+      "POST /api/v1/entities/assign",
+      problem(
+        412,
+        "stale",
+        "These records changed since you read them: SMP-000002. Refresh the selection and review it before reassigning.",
+        undefined,
+        {
+          stale: [{ id: second.id, hrid: "SMP-000002", expected_revision: 4, current_revision: 5 }],
+        },
+      ),
+    );
+    const { user } = await renderApp("/projects/kinase-atlas/entities/?type=iki/lims.Sample");
+    const grid = await screen.findByRole("table", { name: "2 samples" });
+    const rows = within(grid).getAllByRole("row");
+    await user.click(within(nth(rows, 1)).getByRole("checkbox"));
+    await user.click(within(nth(rows, 2)).getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "Reassign" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Reassign 2 samples" });
+    await user.selectOptions(within(dialog).getByRole("combobox", { name: "Field" }), "Analyst");
+    await user.type(within(dialog).getByRole("combobox", { name: /^Analyst/ }), "Bo");
+    await user.click(await screen.findByRole("option", { name: /Bo Chen/ }));
+    await user.type(within(dialog).getByRole("textbox", { name: /Reason/ }), "Ana left");
+    await user.click(within(dialog).getByRole("button", { name: "Reassign" }));
+
+    const refused = await within(dialog).findByRole("alert");
+    expect(refused).toHaveTextContent(
+      "Nothing was reassigned: one of these records changed after you selected it.",
+    );
+    const changed = within(refused).getByRole("list", { name: "Changed since you selected them" });
+    expect(within(changed).getByRole("listitem")).toHaveTextContent(
+      "SMP-000002: revision 4 when you selected it, revision 5 now.",
+    );
+    expect(within(changed).getByRole("link", { name: "SMP-000002" })).toHaveAttribute(
+      "href",
+      "/entities/SMP-000002/audit/",
+    );
+    expect(within(dialog).getByRole("button", { name: "Reassign" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+
+    answer("POST /api/v1/entities/search", page([first, { ...second, revision: 5 }]));
+    answer("POST /api/v1/entities/assign", {
+      changed: [SAMPLE_ID, second.id],
+      skipped: [],
+      group: "g1",
+    });
+    await user.click(within(refused).getByRole("button", { name: "Refresh the selection" }));
+    const refreshed = await within(dialog).findByRole("status");
+    expect(refreshed).toHaveTextContent(
+      "The selection is up to date. Check the record that changed before you reassign: SMP-000002.",
+    );
+    await waitFor(() => {
+      expect(refreshed).toHaveFocus();
+    });
+    // Nothing is sent again until the person reassigns.
+    expect(calls("POST", "/api/v1/entities/assign")).toHaveLength(1);
+    expect(within(dialog).getByRole("textbox", { name: /Reason/ })).toHaveValue("Ana left");
+    await user.click(within(dialog).getByRole("button", { name: "Reassign" }));
+    await screen.findByRole("alertdialog", { name: "Reassigned 2 of 2" });
+    expect(calls("POST", "/api/v1/entities/assign").at(-1)?.body).toEqual({
+      entities: [SAMPLE_ID, second.id],
+      expected_revisions: { [SAMPLE_ID]: 2, [second.id]: 5 },
       field: "analyst",
       person: BO,
       op: "set",

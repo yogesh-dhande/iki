@@ -66,6 +66,8 @@ export interface Problem {
   /** For `outside_api_not_approved`: the APIs, and Org Admins who can approve them. */
   apis?: string[];
   approvers?: string[];
+  /** For a bulk reassignment's `stale` (412): each record that changed since it was read. */
+  stale?: { id: string; hrid: string; expected_revision: number; current_revision: number }[];
   request_id?: string;
 }
 

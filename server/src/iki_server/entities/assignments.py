@@ -976,9 +976,19 @@ MAX_REASSIGN = 500
 REASSIGN_OPS = ("set", "add", "remove")
 
 
+class MissingAssignmentRecordsError(Exception):
+    def __init__(self, ids: set[uuid.UUID]) -> None:
+        self.ids = ids
+
+
+class StaleAssignmentsError(Exception):
+    def __init__(self, records: list[Entity]) -> None:
+        self.records = records
+
+
 def reassign(
     user: User,
-    ids: Sequence[uuid.UUID],
+    expected_revisions: Mapping[uuid.UUID, int],
     name: str,
     person: str | None,
     *,
@@ -989,7 +999,8 @@ def reassign(
     ``name`` of each record: ``set`` it, or for a list ``add`` or ``remove`` them. Each change
     is its record's own revision, audited as part of one reassignment, which tells each
     person once. A record that can't change (you can't edit it, its state locks it, the
-    field isn't its, the person can't be named in its project) is skipped, with why."""
+    field isn't its, the person can't be named in its project) is skipped, with why.
+    A missing or stale record refuses the whole operation before anything is written."""
     from django.db import transaction
 
     from iki_server.entities import services
@@ -999,17 +1010,27 @@ def reassign(
     group = uuid.uuid4().hex
     changed: list[Entity] = []
     skipped: list[Skipped] = []
-    wanted = list(dict.fromkeys(ids))
-    found = {
-        e.pk: e for e in access.visible(user).filter(pk__in=wanted).select_related("owner_project")
-    }
     with transaction.atomic(), batch(user):
+        found = {
+            e.pk: e
+            for e in access.visible(user)
+            .filter(pk__in=expected_revisions)
+            .select_related("owner_project")
+            .select_for_update(of=("self",))
+            .order_by("pk")
+        }
+        if missing := expected_revisions.keys() - found.keys():
+            raise MissingAssignmentRecordsError(missing)
+        stale = [
+            found[pk]
+            for pk, expected in expected_revisions.items()
+            if found[pk].revision != expected
+        ]
+        if stale:
+            raise StaleAssignmentsError(stale)
         values = services.current_values_of(list(found.values()))
-        for pk in wanted:
-            entity = found.get(pk)
-            if entity is None:
-                skipped.append(Skipped(pk, "", "No such entity, or you can't read it."))
-                continue
+        for pk, expected in expected_revisions.items():
+            entity = found[pk]
             why = _cannot_reassign(user, entity, name)
             if why is not None:
                 skipped.append(Skipped(pk, entity.hrid, why))
@@ -1022,16 +1043,13 @@ def reassign(
                         user,
                         entity,
                         {name: value},
-                        expected_revision=entity.revision,
+                        expected_revision=expected,
                         reason=reason,
                         group=group,
                     )
             except Invalid as error:
                 said = error.errors.get(name) or [str(error)]
                 skipped.append(Skipped(pk, entity.hrid, f"{assignment.label} {' '.join(said)}"))
-                continue
-            except services.Stale:
-                skipped.append(Skipped(pk, entity.hrid, "Someone changed it meanwhile."))
                 continue
             except Refused as error:
                 skipped.append(Skipped(pk, entity.hrid, str(error)))

@@ -450,15 +450,14 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
 
 def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:
     first, second = entity("SMP-000001"), entity("SMP-000002")
-    fake.on("GET", "/api/v1/entities/SMP-000002", second)
+    second["revision"] = 3
     done = {"changed": [first["id"]], "skipped": [], "group": "g"}
     fake.on("POST", "/api/v1/entities/assign", done)
-    answer = client.entities.assign(
-        [first, "SMP-000002"], "analyst", "ana@example.com", reason="Away"
-    )
+    answer = client.entities.assign([first, second], "analyst", "ana@example.com", reason="Away")
     assert answer == done
     assert fake.body("POST", "/api/v1/entities/assign") == {
         "entities": [first["id"], second["id"]],
+        "expected_revisions": {first["id"]: first["revision"], second["id"]: second["revision"]},
         "field": "analyst",
         "person": "ana@example.com",
         "op": "set",
