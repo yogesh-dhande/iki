@@ -187,6 +187,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
                     item.entry.name,
                     item.directory,
                     workspace / "worker-code" / naming.app_label(item.entry.name),
+                    pinned=item.entry.sha is not None,
                 )
             made = _bundles(fetched, bundles)
         except ValueError as error:

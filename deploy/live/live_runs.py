@@ -45,8 +45,13 @@ SHARED = (
     "deploy/worker.Dockerfile",
     "server/Dockerfile",
     "server/iki_wasm.wasm.sha256",
+    "server/iki_wasm.amd64.cwasm.sha256",
+    "server/iki_wasm.arm64.cwasm.sha256",
     "worker/Dockerfile",
     "scripts/build-dna-annotation-wasm.sh",
+    "scripts/build-oligo-wasm.sh",
+    "scripts/build-server-aot.sh",
+    "scripts/verify-server-aot.py",
     "scripts/verify-server-wasm.sh",
     "plugins/plasmid/data/dna-annotation.wasm.sha256",
     # What those images are built from besides the code below: the locked dependencies

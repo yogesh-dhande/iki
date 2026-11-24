@@ -233,5 +233,5 @@ def test_a_legal_hold_keeps_them_past_their_retention(world: World) -> None:
 
     assert artifacts.delete_expired() == 0
     assert RunArtifact.objects.get().deleted_at is None
-    holds.release(world.users["org_admin"], hold)
+    holds.release(world.users["org_admin"], hold, reason="Matter resolved")
     assert artifacts.delete_expired() == 1

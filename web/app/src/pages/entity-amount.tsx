@@ -1,22 +1,35 @@
 /**
  * How much there is of a record (ADR 0139): its amount, whether a state holds it, the
  * controls that draw, transfer, split and adjust it, and its ledger.
+ *
+ * An adjustment is a count: it's checked against the balance the person saw when they
+ * started it (If-Balance-Revision). If anything changed it since, nothing is recorded: the
+ * dialog shows the balance now and what changed it, keeps what they entered, and they
+ * recount before recording again.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
-import { infiniteQueryOptions, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  infiniteQueryOptions,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
 import { RecordPicker } from "../entity-inputs";
 import type { Picked } from "../entity-values";
+import { IKI_ID_REFUSED, ikiId, SCAN_REFUSED, type ScanMode } from "../storage";
 import {
   Button,
   ConfirmDialog,
   Loading,
   ProblemAlert,
+  RadioField,
+  RelativeTime,
   SelectField,
   TextField,
   Time,
@@ -24,6 +37,9 @@ import {
 } from "../ui";
 
 type Movement = Schemas["MovementOut"];
+type Amount = Schemas["AmountOut"];
+/** The balance revision of a record with no amount recorded yet. */
+const UNRECORDED = "unrecorded";
 const DRAW_PURPOSES = [
   { value: "routine", label: "Routine use" },
   { value: "qa_sampling", label: "QA sampling" },
@@ -38,13 +54,14 @@ export function movementsQuery(ref: string) {
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "movements", ref.toUpperCase()],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/amount/movements", {
           params: {
             path: { ref },
             query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -60,6 +77,55 @@ const KINDS: Record<Movement["kind"], string> = {
   aliquot: "Split from",
   adjusted: "Adjusted",
 };
+
+/** An ISO time in microseconds, as exact as the server's revisions: a JavaScript Date
+ * keeps only milliseconds, and two changes can fall within one. */
+function micros(iso: string): number {
+  const [, whole = iso, fraction = "", zone = ""] =
+    /^(.*T\d\d:\d\d:\d\d)(?:\.(\d+))?(.*)$/.exec(iso) ?? [];
+  return Date.parse(`${whole}${zone}`) * 1000 + Number(fraction.padEnd(6, "0").slice(0, 6));
+}
+
+/** What a movement changed, signed: "−20 uL", "+5 uL". */
+function changeOf(m: Movement): string {
+  return `${m.change.startsWith("-") ? `−${m.change.slice(1)}` : `+${m.change}`} ${m.unit}`;
+}
+
+/** The balance now, and the movements since the one a count was made against. */
+function useBalanceSince(observed: Amount | null, ref: string, enabled: boolean) {
+  const revision = observed?.updated_at ?? UNRECORDED;
+  const observedValue = observed?.value;
+  return useQuery({
+    queryKey: ["balance-since", ref, revision],
+    enabled,
+    gcTime: 0,
+    queryFn: async ({ signal }) => {
+      const [now, ledger] = await Promise.all([
+        iki.GET("/api/v1/entities/{ref}/amount", { params: { path: { ref } }, signal }),
+        iki.GET("/api/v1/entities/{ref}/amount/movements", {
+          params: { path: { ref }, query: { limit: 25 } },
+          signal,
+        }),
+      ]);
+      const moves = unwrap(ledger);
+      let since = moves.items;
+      if (revision !== UNRECORDED) {
+        // A change sets the balance, then writes its movement: the movement that made the
+        // balance counted from is the first one after its revision. It's dropped when its
+        // balance says so: what remains changed it since.
+        const seen = micros(revision);
+        since = since.filter((m) => micros(m.created_at) > seen);
+        const made = since.at(-1);
+        if (made && made.balance === observedValue) since = since.slice(0, -1);
+      }
+      return {
+        amount: now.response.status === 404 ? null : unwrap(now),
+        since,
+        refs: moves.refs as Record<string, Schemas["RefOut"]>,
+      };
+    },
+  });
+}
 
 /** A record's amount: shown with its controls, for a type that keeps one. */
 export function EntityAmount({
@@ -198,12 +264,19 @@ function AmountDialog({
   const [reason, setReason] = useState("");
   const [usedIn, setUsedIn] = useState<Picked | null>(null);
   const [scanned, setScanned] = useState("");
+  // A label several tubes share can't confirm which is in hand: its printed Iki ID can.
+  const [proofBy, setProofBy] = useState<ScanMode>("label");
   const purposes = DRAW_PURPOSES.filter((p) => entity.can.draw_purposes?.includes(p.value));
   const [purpose, setPurpose] = useState<Schemas["DrawPurpose"]>(purposes[0]?.value ?? "routine");
   const purposeAllowed = purposes.some((p) => p.value === purpose);
   const refusal = doing === "draw" && purposeAllowed ? entity.draw_refusals?.[purpose] : undefined;
   const own = ownFields(aliquotType, kept);
   const [names, setNames] = useState<Record<string, string>>({});
+  // The balance a count is made against: as the dialog opened, or as last recounted. A
+  // refetch behind the dialog doesn't change it.
+  const [observed, setObserved] = useState<Amount | null>(entity.amount ?? null);
+  const revision = observed?.updated_at ?? UNRECORDED;
+  const countRef = useRef<HTMLDivElement>(null);
   const { say } = useMessages();
   const client = useQueryClient();
   const ref = entity.id;
@@ -225,7 +298,7 @@ function AmountDialog({
                 purpose,
                 reason: reason.trim(),
                 used_in: usedIn?.id ?? null,
-                confirm: scanned.trim(),
+                confirm: proofBy === "iki_id" ? ikiId(scanned) : scanned.trim(),
               },
             }),
           ),
@@ -245,7 +318,7 @@ function AmountDialog({
         return {
           moved: unwrap(
             await iki.POST("/api/v1/entities/{ref}/amount/adjust", {
-              params: { path: { ref } },
+              params: { path: { ref }, header: { "If-Balance-Revision": revision } },
               body: { amount: quantity, reason: reason.trim() },
             }),
           ),
@@ -269,10 +342,17 @@ function AmountDialog({
     }
   }, [ENTITIES]);
   const problem = move.error ? problemOf(move.error) : undefined;
+  const stale = doing === "adjust" && problem?.code === "stale_balance";
+  const latest = useBalanceSince(observed, ref, stale);
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
+  // A typed Iki ID the server can't use: none matched, or one the person can't read did.
+  // Said in words that cover both, so neither is told apart.
+  const confirmError =
+    proofBy === "iki_id" && errors["confirm"] === SCAN_REFUSED ? IKI_ID_REFUSED : errors["confirm"];
   const shownProblem =
     problem &&
+    !stale &&
     !amountError &&
     !errors["purpose"] &&
     !errors["reason"] &&
@@ -286,7 +366,7 @@ function AmountDialog({
     draw: `Draw from ${entity.hrid}`,
     transfer: `Transfer from ${entity.hrid}`,
     split: `Split ${entity.hrid} into aliquots`,
-    adjust: entity.amount
+    adjust: observed
       ? `Adjust ${entity.hrid}’s ${kept.label.toLowerCase()}`
       : `Record ${entity.hrid}’s ${kept.label.toLowerCase()}`,
   };
@@ -294,7 +374,16 @@ function AmountDialog({
     draw: "Draw",
     transfer: "Transfer",
     split: "Split",
-    adjust: entity.amount ? "Adjust" : "Record",
+    adjust: observed ? "Adjust" : "Record",
+  };
+  const recount = () => {
+    if (!latest.data) return;
+    setObserved(latest.data.amount);
+    move.reset();
+    // What they entered stays, selected, to keep or count again against the new balance.
+    const field = countRef.current?.querySelector("input");
+    field?.focus();
+    field?.select();
   };
   return (
     <ConfirmDialog
@@ -303,7 +392,8 @@ function AmountDialog({
       confirmLabel={confirm[doing]}
       confirmVariant="primary"
       confirmDisabled={
-        doing === "draw" && (!purposeAllowed || !!refusal || (confirmDraw && !scanned.trim()))
+        stale ||
+        (doing === "draw" && (!purposeAllowed || !!refusal || (confirmDraw && !scanned.trim())))
       }
       busy={move.isPending}
       problem={shownProblem}
@@ -313,6 +403,10 @@ function AmountDialog({
           onError: (error) => {
             if (doing === "draw" && error.status === 403) {
               void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
+            }
+            // The page behind shows the balance now, as the dialog does.
+            if (error.problem.code === "stale_balance") {
+              void client.invalidateQueries({ queryKey: ENTITIES });
             }
           },
           onSuccess: ({ moved, aliquots }) => {
@@ -328,7 +422,22 @@ function AmountDialog({
         });
       }}
     >
-      {entity.amount ? (
+      {stale ? (
+        <StaleBalance
+          observed={observed}
+          latest={latest}
+          onRecount={recount}
+          what={kept.label.toLowerCase()}
+        />
+      ) : null}
+      {doing === "adjust" ? (
+        <p>
+          {observed
+            ? `It had ${observed.value} ${observed.unit} when this count began. If that changes before you record your count, you’ll recount it.`
+            : "None is recorded yet. If someone records it before you do, you’ll recount it."}{" "}
+          Each change is kept in its ledger, with your name and reason.
+        </p>
+      ) : entity.amount ? (
         <p>
           It has {entity.amount.value} {entity.amount.unit}. Each change is kept in its ledger, with
           your name and reason.
@@ -369,17 +478,40 @@ function AmountDialog({
         />
       ) : null}
       {doing === "draw" && confirmDraw ? (
-        <TextField
-          label="Scan its label"
-          value={scanned}
-          onChange={(v) => {
-            setScanned(v);
-            if (move.isError) move.reset();
-          }}
-          maxLength={200}
-          error={errors["confirm"]}
-          help={`Scan ${entity.hrid}’s own label, to confirm it’s the one in your hand.`}
-        />
+        <>
+          <RadioField
+            label="Confirm it’s the one in your hand"
+            value={proofBy}
+            onChange={(v) => {
+              setProofBy(v);
+              setScanned("");
+              if (move.isError) move.reset();
+            }}
+            options={[
+              { value: "label", label: "Scan its label" },
+              {
+                value: "iki_id",
+                label: "Type its printed Iki ID",
+                description: "For a label it shares with other tubes, such as a vendor barcode.",
+              },
+            ]}
+          />
+          <TextField
+            label={proofBy === "iki_id" ? "Iki ID" : "Scan its label"}
+            value={scanned}
+            onChange={(v) => {
+              setScanned(v);
+              if (move.isError) move.reset();
+            }}
+            maxLength={200}
+            error={confirmError}
+            help={
+              proofBy === "iki_id"
+                ? `The Iki ID printed on its label, such as ${entity.hrid}. Only Iki IDs are matched, not vendor barcodes.`
+                : `Scan ${entity.hrid}’s own label, to confirm it’s the one in your hand.`
+            }
+          />
+        </>
       ) : null}
       {doing === "transfer" ? (
         <TextField
@@ -400,7 +532,7 @@ function AmountDialog({
           error={errors["count"]}
         />
       ) : null}
-      <div className="amount-unit">
+      <div className="amount-unit" ref={countRef}>
         <TextField
           label={doing === "split" ? "Each holds" : doing === "adjust" ? "It has" : "How much"}
           value={value}
@@ -443,6 +575,77 @@ function AmountDialog({
         }
       />
     </ConfirmDialog>
+  );
+}
+
+/** A count refused because the balance changed after it was started: the balance now,
+ * what changed it, and the way to recount. */
+function StaleBalance({
+  observed,
+  latest,
+  onRecount,
+  what,
+}: {
+  observed: Amount | null;
+  latest: ReturnType<typeof useBalanceSince>;
+  onRecount: () => void;
+  what: string;
+}) {
+  const now = latest.data?.amount;
+  const since = latest.data?.since ?? [];
+  const refs = latest.data?.refs ?? {};
+  return (
+    <div className="alert alert-warning" role="alert">
+      <p>
+        <strong>Your count wasn’t recorded:</strong> the {what} changed after you started counting.
+      </p>
+      {latest.isPending ? <Loading label="Reading the balance now…" /> : null}
+      {latest.error ? <ProblemAlert problem={problemOf(latest.error)} /> : null}
+      {latest.data ? (
+        <>
+          <p>
+            {now ? (
+              <>
+                It has {now.value} {now.unit} now
+                {observed ? (
+                  <>
+                    , not the {observed.value} {observed.unit} you started from
+                  </>
+                ) : null}
+                .
+              </>
+            ) : (
+              "None is recorded now."
+            )}
+          </p>
+          {since.length ? (
+            <ul aria-label="Changed since you started">
+              {since.map((m) => {
+                const other = m.counterpart ? refs[m.counterpart] : undefined;
+                return (
+                  <li key={m.id}>
+                    {KINDS[m.kind]}
+                    {other ? ` ${other.hrid}` : ""}: {changeOf(m)}, by {personName(m.user)},{" "}
+                    <RelativeTime value={m.created_at} />
+                    {m.reason ? ` (“${m.reason}”)` : ""}.
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <p>Recount it against this balance. What you entered is kept.</p>
+        </>
+      ) : null}
+      <div className="actions">
+        <Button
+          busy={latest.isPending}
+          busyText="Reading…"
+          onClick={latest.error ? () => void latest.refetch() : onRecount}
+        >
+          {latest.error ? "Try again" : "Recount"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -499,7 +702,7 @@ function Ledger({ entity, label }: { entity: Entity; label: string }) {
                       ) : null}
                     </td>
                     <td className="numeric">
-                      {m.change.startsWith("-") ? `−${m.change.slice(1)}` : `+${m.change}`} {m.unit}
+                      {changeOf(m)}
                       {m.given && m.given.unit !== m.unit ? (
                         <span className="cell-meta">
                           {m.given.value} {m.given.unit}

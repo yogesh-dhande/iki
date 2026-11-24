@@ -26,16 +26,7 @@ import { getPositionTable } from "molstar/lib/mol-model/structure/structure/util
 import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder.js";
 import type { Expression } from "molstar/lib/mol-script/language/expression.js";
 
-/** Residues of a chain, by its authors' numbering, from `start` to `end`, each with its
- * insertion code if it has one. */
-export interface Span {
-  chain: string;
-  start: number;
-  end: number;
-  start_insertion?: string;
-  end_insertion?: string;
-}
-
+import type { Span } from "../structure-viewer.js";
 /** At most this many ranges of residues are kept of a structure's selection. */
 export const MAX_SPANS = 500;
 

@@ -117,6 +117,18 @@ def declared(
         )
         return None
     number, effect = found
+    if "receipt" in item and (effect.receive_into is None or counts is None):
+        report(
+            pointer(*at, "receipt"),
+            "Only an inline create declaring receive_into may receive stock.",
+        )
+        return None
+    if effect.receive_into is not None and "receipt" not in item:
+        report(
+            pointer(*at, "receipt"),
+            "This create must include the receipt for its starting amount and placement.",
+        )
+        return None
     if effect.cardinality == "one":
         if counts is None:
             report(

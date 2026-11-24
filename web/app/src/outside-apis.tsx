@@ -19,17 +19,18 @@ export const OUTSIDE_APIS = ["outside-apis"] as const;
 /** Every installed outside API, with each project's approval: for Org Admins. */
 export const outsideApisQuery = queryOptions({
   queryKey: [...OUTSIDE_APIS, "all"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/outside-apis")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/outside-apis", { signal })),
 });
 
 /** Every installed outside API, with whether it's approved for the project. */
 export function projectOutsideApisQuery(projectId: string) {
   return queryOptions({
     queryKey: [...OUTSIDE_APIS, "project", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/outside-apis", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ),
   });

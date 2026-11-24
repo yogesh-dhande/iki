@@ -123,6 +123,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 cardinality=c.get("cardinality", "one"),
                 derived_from=tuple(c.get("derived_from", ())),
                 match_on=c.get("match_on"),
+                receive_into=c.get("receive_into"),
             )
             for c in effects.get("creates", ())
         ),
@@ -652,6 +653,47 @@ class _Rules:
                 "already (ADR 0115).",
             )
 
+    def receipt(
+        self,
+        action: Action,
+        effect: Creates,
+        target: EntityType | None,
+        source: Document,
+        path: Path,
+    ) -> None:
+        name = effect.receive_into
+        assert name is not None  # noqa: S101 - caller checked
+        dest = action.inputs.get(name)
+        if dest is None:
+            self.unknown_input(action, name, source, path)
+            return
+        if dest.optional or dest.cardinality != "one":
+            self.add(
+                "receipt-container-input",
+                "Receiving needs one required storage input.",
+                source,
+                path,
+            )
+        if effect.match_on is not None:
+            self.add(
+                "receipt-match", "A receipt creates a fresh record for the delivery.", source, path
+            )
+        if target is None:
+            return
+        lineage = [target, *self.s.ancestors(target)]
+        if not any(t.amount for t in lineage) or self.s.storage_of(target) is None:
+            self.add(
+                "receipt-lot-type", "A received type needs an amount and storage.", source, path
+            )
+        container = self.s.types.get(dest.type)
+        if container is None:
+            return
+        storage = self.s.storage_of(container)
+        if storage is None or not {t.qualified_name for t in lineage}.intersection(storage.holds):
+            self.add(
+                "receipt-container-type", f"`{dest.type}` must hold `{effect.type}`.", source, path
+            )
+
     def effects(self, action: Action, source: Document) -> None:
         for index, creates in enumerate(action.creates):
             path: Path = ("effects", "creates", index)
@@ -667,6 +709,8 @@ class _Rules:
             for n, name in enumerate(creates.derived_from):
                 if name not in action.inputs:
                     self.unknown_input(action, name, source, (*path, "derived_from", n))
+            if creates.receive_into is not None:
+                self.receipt(action, creates, target, source, (*path, "receive_into"))
             if creates.match_on is not None and target is not None:
                 self.match_on(creates.match_on, target, source, (*path, "match_on"))
         seen: dict[str, int] = {}

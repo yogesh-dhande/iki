@@ -6,6 +6,7 @@ and a preview, to one run and the records it wrote. Every step passes axe in bot
 and fits a phone's width."""
 
 import re
+import time
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from org_world import World
 from playwright.sync_api import Page, expect
 from real_server import Server
 from test_browser import (  # noqa: F401 - fixtures
+    PAGE_ERRORS,
     _orm_beside_playwright,
     assert_clean,
     browser,
@@ -266,3 +268,189 @@ def test_a_workbook_already_in_the_project_is_picked_from_its_files(
     (kept,) = File.objects.filter(project=world.project, name="kinase-domains-batch-12.xlsx")
     imports = SpreadsheetImport.objects.filter(project=world.project).order_by("created_at")
     assert [i.file_id for i in imports] == [kept.pk, kept.pk]
+
+
+# --- Choices saved in order -------------------------------------------------------------------
+
+
+def mapping_step(open_as: Any, color_scheme: str = "light") -> tuple[Page, str]:
+    """The kinase manifest uploaded, at its sheet and rows: About chosen, as Iki first
+    chooses the first sheet with rows. Returns the page and the import's ID."""
+    page = open_as("editor", f"/projects/kinase-atlas/entities/import/?type={SAMPLE}", color_scheme)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    page.get_by_role("heading", level=2, name="Import a spreadsheet").wait_for()
+    page.locator("input[type=file]").first.set_input_files(
+        {
+            "name": "kinase-domains-batch-12.xlsx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "buffer": xlsx(("About", ABOUT), ("Samples", SAMPLES)),
+        }
+    )
+    page.wait_for_url(re.compile(r"/entities/import/[0-9a-f-]+/$"), timeout=60_000)
+    page.get_by_role("heading", level=3, name="Sheet and rows").wait_for(timeout=60_000)
+    found = re.search(r"/entities/import/([0-9a-f-]+)/$", page.url)
+    assert found is not None
+    expect(page.get_by_role("combobox", name="Sheet")).to_have_value("About")
+    return page, found.group(1)
+
+
+def on_screen(page: Page) -> dict[str, Any]:
+    """The sheet and rows as the page shows them, and what it says is wrong."""
+    return {
+        "sheet": page.get_by_role("combobox", name="Sheet").input_value(),
+        "header_row": page.get_by_role("spinbutton", name="Header row").input_value(),
+        "first_row": page.get_by_role("spinbutton", name="First row").input_value(),
+        "skip": page.get_by_role("textbox", name=re.compile("Rows to leave out")).input_value(),
+        "errors": page.locator(".sheet-card .field-error").all_inner_texts(),
+    }
+
+
+def saved(page: Page, import_id: str) -> dict[str, Any]:
+    """The sheet and rows as the server has them, read apart from the page's own reads."""
+    answer = page.context.request.get(f"/api/v1/spreadsheet-imports/{import_id}")
+    assert answer.ok, answer.text()
+    found = answer.json()
+    return {
+        "sheet": found["sheet"],
+        "header_row": str(found["header_row"]),
+        "first_row": str(found["first_row"]),
+        "skip": ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in found["skip"]),
+        "errors": [],
+    }
+
+
+def press_header_row(page: Page, row: str) -> None:
+    """Types a header row as people do: into the box, then Enter."""
+    header = page.get_by_role("spinbutton", name="Header row")
+    header.click()
+    header.press("ControlOrMeta+a")
+    header.press(row)
+    header.press("Enter")
+
+
+@pytest.mark.parametrize("slow", ["request", "answer"])
+def test_a_sheet_and_its_header_row_chosen_in_quick_succession_are_saved_as_chosen(
+    open_as: Any, world: World, tasks: Server, slow: str
+) -> None:
+    """The sheet's request is slow to reach Iki, or its answer slow to come back, and the
+    header row is typed meanwhile: what's saved is what the person chose, and the page
+    shows what's saved."""
+    page, import_id = mapping_step(open_as)
+    held: list[tuple[Any, Any]] = []
+    sent: list[dict[str, Any]] = []
+    answered: list[int] = []
+
+    def intercept(route: Any) -> None:
+        if route.request.method != "PATCH":
+            route.fallback()
+            return
+        body = route.request.post_data_json
+        sent.append(body)
+        if "sheet" in body and not held:
+            # Held until the header row's been typed: unsent, or sent and its answer held.
+            held.append((route, route.fetch() if slow == "answer" else None))
+            return
+        route.fallback()
+
+    def answer(response: Any) -> None:
+        if response.request.method == "PATCH" and response.url.endswith(import_id):
+            answered.append(response.status)
+
+    page.on("response", answer)
+    page.route(f"**/api/v1/spreadsheet-imports/{import_id}", intercept)
+
+    # Samples, from the keyboard: S, on the sheet box.
+    sheet = page.get_by_role("combobox", name="Sheet")
+    sheet.focus()
+    sheet.press("s")
+    deadline = time.monotonic() + 10
+    while not held and time.monotonic() < deadline:
+        page.wait_for_timeout(20)
+    assert held, sent
+    press_header_row(page, "3")
+    # Time for the header row's request to go, if it goes before the sheet's answer.
+    page.wait_for_timeout(1_000)
+    before_the_sheet = list(sent)
+    route, response = held[0]
+    if response is None:
+        route.fallback()
+    else:
+        route.fulfill(response=response)
+    deadline = time.monotonic() + 15
+    while len(answered) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(20)
+    assert len(answered) == 2, (sent, answered)
+    page.wait_for_timeout(300)
+
+    # The page shows what's saved, and what's saved is what was chosen.
+    shown = on_screen(page)
+    assert shown == saved(page, import_id), (slow, sent, answered)
+    assert shown == {
+        "sheet": "Samples",
+        "header_row": "3",
+        "first_row": "4",
+        "skip": "",
+        "errors": [],
+    }
+    # The header row waited for the sheet: each was sent from the revision before it.
+    assert before_the_sheet == [{"sheet": "Samples"}]
+    assert answered == [200, 200]
+    # Opened afresh, it's the same.
+    again = open_as("editor", f"/projects/kinase-atlas/entities/import/{import_id}/")
+    again.get_by_role("heading", level=3, name="Sheet and rows").wait_for()
+    assert on_screen(again) == shown
+    checked(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_change_made_in_another_tab_is_shown_not_overwritten(
+    open_as: Any, world: World, tasks: Server, color_scheme: str
+) -> None:
+    page, import_id = mapping_step(open_as, color_scheme)
+    page.get_by_role("combobox", name="Sheet").select_option("Samples")
+    press_header_row(page, "3")
+    expect(page.get_by_role("spinbutton", name="First row")).to_have_value("4")
+    expect(page.get_by_text("Saving…")).to_have_count(0)
+
+    # In another tab, the first row is moved on.
+    other = open_as("editor", f"/projects/kinase-atlas/entities/import/{import_id}/", color_scheme)
+    first = other.get_by_role("spinbutton", name="First row")
+    expect(first).to_have_value("4")
+    first.click()
+    first.press("ControlOrMeta+a")
+    first.press("5")
+    first.press("Enter")
+    expect(other.get_by_text("Saving…")).to_have_count(0)
+    deadline = time.monotonic() + 10
+    while saved(other, import_id)["first_row"] != "5" and time.monotonic() < deadline:
+        other.wait_for_timeout(50)
+
+    # This tab still shows the first row it had, and leaves a row out.
+    expect(page.get_by_role("spinbutton", name="First row")).to_have_value("4")
+    skip = page.get_by_role("textbox", name=re.compile("Rows to leave out"))
+    skip.click()
+    skip.press("1")
+    skip.press("1")
+    skip.press("Enter")
+    alert = page.get_by_role("alert").filter(has_text="changed in another tab or session")
+    alert.wait_for()
+    expect(alert).to_contain_text("with its first row as changed there")
+    expect(alert.get_by_role("listitem")).to_have_text(["Rows to leave out: 11"])
+    # What's saved, and what the person chose that wasn't, still in its box.
+    expect(page.get_by_role("spinbutton", name="First row")).to_have_value("5")
+    expect(skip).to_have_value("11")
+    assert saved(page, import_id)["skip"] == ""
+    # The API answers the stale change with a 412, which Chromium and WebKit log as a failed
+    # load: that, and nothing else.
+    errors = PAGE_ERRORS[page]
+    assert sum("status of 412 (Precondition Failed)" in e for e in errors) <= 1, errors
+    errors[:] = [e for e in errors if "status of 412 (Precondition Failed)" not in e]
+    checked(page)
+    fits_a_phone(page)
+
+    alert.get_by_role("button", name="Save my change").click()
+    expect(alert).to_have_count(0)
+    expect(page.get_by_text("Saving…")).to_have_count(0)
+    shown = on_screen(page)
+    assert shown == saved(page, import_id)
+    assert (shown["first_row"], shown["skip"]) == ("5", "11")

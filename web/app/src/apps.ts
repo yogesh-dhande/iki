@@ -53,8 +53,8 @@ export interface AppSpec {
 export function entityAppsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "apps", ref.toUpperCase()],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/apps", { params: { path: { ref } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(await iki.GET("/api/v1/entities/{ref}/apps", { params: { path: { ref } }, signal })),
   });
 }
 
@@ -72,10 +72,11 @@ export function dashboardKey(projectId: string) {
 export function dashboardQuery(projectId: string) {
   return queryOptions({
     queryKey: dashboardKey(projectId),
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/dashboard", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ),
   });
@@ -85,10 +86,11 @@ export function dashboardQuery(projectId: string) {
 export function dashboardChoicesQuery(projectId: string) {
   return queryOptions({
     queryKey: [...dashboardKey(projectId), "choices"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/dashboard/choices", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ),
   });
@@ -98,10 +100,11 @@ export function dashboardChoicesQuery(projectId: string) {
 export function appDraftQuery(id: string) {
   return queryOptions({
     queryKey: ["app-drafts", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/apps/drafts/{draft_id}", {
           params: { path: { draft_id: id } },
+          signal,
         }),
       ),
     retry: false,

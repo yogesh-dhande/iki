@@ -27,9 +27,10 @@ FROM ${BASE}
 
 # mkdssp, and the mmCIF dictionaries it checks files against. Debian's security
 # updates too: official base images can lag days behind them.
-RUN apt-get update \
- && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends dssp=4.4.10-1+b1 libcifpp-data \
+ARG APT_RETRY="-o Acquire::Retries=8 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+RUN apt-get $APT_RETRY update \
+ && apt-get $APT_RETRY upgrade -y --no-install-recommends \
+ && apt-get $APT_RETRY install -y --no-install-recommends dssp=4.4.10-1+b1 libcifpp-data \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=ccd /components.cif /usr/share/libcifpp/components.cif
 

@@ -47,7 +47,13 @@ export interface WalkFilter {
   type: string;
 }
 
-async function walk(ref: string, direction: Direction, filter: WalkFilter, cursor?: string) {
+async function walk(
+  ref: string,
+  direction: Direction,
+  filter: WalkFilter,
+  signal: AbortSignal,
+  cursor?: string,
+) {
   const query = {
     depth: filter.depth,
     limit: PAGE,
@@ -55,7 +61,7 @@ async function walk(ref: string, direction: Direction, filter: WalkFilter, curso
     ...(filter.type ? { type: [filter.type] } : {}),
     ...(cursor ? { cursor } : {}),
   };
-  const params = { params: { path: { ref }, query } };
+  const params = { params: { path: { ref }, query }, signal };
   return unwrap(
     direction === "upstream"
       ? await iki.GET("/api/v1/entities/{ref}/upstream", params)
@@ -67,7 +73,7 @@ export function lineageWalkQuery(ref: string, direction: Direction, filter: Walk
   return infiniteQueryOptions({
     queryKey: [...ENTITIES, "lineage", ref.toUpperCase(), direction, filter],
     initialPageParam: undefined as string | undefined,
-    queryFn: ({ pageParam }) => walk(ref, direction, filter, pageParam),
+    queryFn: ({ pageParam, signal }) => walk(ref, direction, filter, signal, pageParam),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     placeholderData: keepPreviousData,
   });
@@ -84,10 +90,11 @@ export function lineageCsvUrl(ref: string, direction: Direction, filter: WalkFil
 export function lineageGraphQuery(ref: string, up: number, down: number, edges: EdgeKind[]) {
   return queryOptions({
     queryKey: [...ENTITIES, "lineage", ref.toUpperCase(), "graph", up, down, edges],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/graph", {
           params: { path: { ref }, query: { up, down, ...(edges.length ? { edges } : {}) } },
+          signal,
         }),
       ),
     placeholderData: keepPreviousData,

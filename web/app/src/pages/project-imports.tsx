@@ -69,10 +69,11 @@ const IMPORTS = "imports";
 function importsQuery(projectId: string) {
   return queryOptions({
     queryKey: [IMPORTS, "project", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/imports", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ).items,
     refetchInterval: (query) =>
@@ -85,8 +86,13 @@ function importsQuery(projectId: string) {
 function importQuery(id: string) {
   return queryOptions({
     queryKey: [IMPORTS, id],
-    queryFn: async () =>
-      unwrap(await iki.GET("/api/v1/imports/{import_id}", { params: { path: { import_id: id } } })),
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.GET("/api/v1/imports/{import_id}", {
+          params: { path: { import_id: id } },
+          signal,
+        }),
+      ),
     refetchInterval: (query) =>
       query.state.data?.state === "planning" ||
       query.state.data?.state === "uploading" ||
@@ -108,7 +114,7 @@ function plannedQuery(made: Import, action: Action | undefined) {
   return infiniteQueryOptions({
     queryKey: [IMPORTS, made.id, made.planned_at, made.state, "entities", action ?? "all"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       planResponse(
         made.id,
         await iki.GET("/api/v1/imports/{import_id}/entities", {
@@ -121,6 +127,7 @@ function plannedQuery(made: Import, action: Action | undefined) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,
@@ -131,7 +138,7 @@ function peopleQuery(made: Import) {
   return infiniteQueryOptions({
     queryKey: [IMPORTS, made.id, made.planned_at, made.state, "people"],
     initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam }) =>
+    queryFn: async ({ pageParam, signal }) =>
       planResponse(
         made.id,
         await iki.GET("/api/v1/imports/{import_id}/people", {
@@ -143,6 +150,7 @@ function peopleQuery(made: Import) {
               ...(pageParam ? { cursor: pageParam } : {}),
             },
           },
+          signal,
         }),
       ),
     getNextPageParam: (last) => last.next_cursor ?? undefined,

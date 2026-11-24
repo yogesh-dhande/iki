@@ -4,55 +4,12 @@
  * Trusted Types policy that only allows the app's own worker scripts.
  */
 
+import type { Alphabet, Reading } from "@ikisci/science/parsers";
+
 import readerUrl from "./workers/reader.ts?worker&url";
 
-/** A row of an alignment: a FASTA record, gaps and all. */
-export interface AlignmentRow {
-  /** Its header's first word: a sequence's HRID when it's one in Iki. */
-  id: string;
-  description: string;
-  /** Its residues, `-` for a gap and `.` for a place it has no observation of. */
-  aligned: string;
-  /** How many residues it has, gaps aside. */
-  residues: number;
-  /** Its first residue's number in its own sequence: 1, or the start of a `name/4-7` header. */
-  start: number;
-  /** Whether its header names the part of its sequence it is, as `name/1-4` does: then its
-   * residues may be only part of it, even from 1. */
-  spanned: boolean;
-  /** Whether it's its sequence's other strand, headed `name/end-start` (`DNA-000001/2686-1`)
-   * as Rfam writes one: its residues are numbered down from `start`. */
-  reverse: boolean;
-}
-
-export type Alphabet = "nucleotide" | "protein";
-
-export type Reading =
-  | {
-      kind: "alignment";
-      rows: AlignmentRow[];
-      length: number;
-      alphabet: Alphabet;
-      /** Whether the alphabet was guessed from its letters, the file not saying. */
-      alphabet_guessed: boolean;
-      /** Clustal's marks, a column each: `*` identical, `:` strongly and `.` weakly alike. */
-      conservation: string;
-      /** Each column's commonest residue, `-` where every row has a gap. */
-      consensus: string;
-      /** Each column's share of rows that have its consensus residue, as a percentage. */
-      agreement: number[];
-      identical: number;
-      gapped: number;
-    }
-  | {
-      kind: "sequences";
-      alphabet: Alphabet;
-      records: { id: string; description: string; length: number }[];
-    }
-  | { kind: "error"; message: string; line: number | null };
-
-/** The most a file may be to be read in the browser, as iki-wasm also checks. */
-export const MAX_READ_BYTES = 64 * 1024 * 1024;
+export { MAX_READ_BYTES } from "@ikisci/science/parsers";
+export type { AlignmentRow, Alphabet, Reading } from "@ikisci/science/parsers";
 
 interface TrustedTypesWindow {
   trustedTypes?: {
@@ -105,10 +62,10 @@ export function readInWorker(
   return new Promise<Reading>((resolve, reject) => {
     worker.addEventListener(
       "message",
-      (event: MessageEvent<{ json?: string; error?: string }>) => {
+      (event: MessageEvent<{ reading?: Reading; error?: string }>) => {
         worker.terminate();
-        const { json, error } = event.data;
-        if (json !== undefined) resolve(JSON.parse(json) as Reading);
+        const { reading, error } = event.data;
+        if (reading !== undefined) resolve(reading);
         else reject(new Error(error ?? "The parsers stopped."));
       },
       { once: true },

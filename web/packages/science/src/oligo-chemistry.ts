@@ -1,0 +1,219 @@
+import { disclosure, element } from "./molecular-dom.js";
+export type { DetailsChange } from "./molecular-dom.js";
+
+export interface Monomer {
+  symbol: string;
+  name: string;
+  modified?: boolean;
+}
+export interface Nucleotide {
+  position: number;
+  base?: string | null;
+  nucleobase?: Monomer | null;
+  sugar?: Monomer | null;
+  linker?: Monomer | null;
+  others?: readonly Monomer[];
+}
+export interface OligoChemistryData {
+  nucleotides: readonly Nucleotide[];
+  ends?: Partial<Record<"5′" | "3′", readonly Monomer[]>>;
+  emptyMessage?: string;
+}
+
+const STYLE = `
+  :host { display: block; color: var(--text, CanvasText); background: var(--surface, Canvas); padding: 1rem; border-radius: 8px; font: 14px/1.45 var(--font, system-ui, sans-serif); min-width: 0; overflow-x: auto; }
+  h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+  p { margin: 0 0 0.75rem; max-width: 70ch; }
+  .strand { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.75rem 0;
+    margin: 0 0 1rem; padding: 0; list-style: none; }
+  .end { display: grid; place-items: center; padding: 0.25rem 0.5rem; margin: 0 0.25rem;
+    border: 2px dashed currentColor; border-radius: 6px; font-size: 0.8rem; max-width: 12rem;
+    text-align: center; }
+  .nt { display: grid; grid-template-rows: auto auto auto; justify-items: center;
+    min-width: 2.75rem; padding: 0.25rem 0.125rem 0.375rem; border-radius: 6px;
+    border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); margin-right: 2px; }
+  .nt.modified { border: 2px solid var(--warning, var(--mod, #8a4b00)); }
+  .pos { font-size: 0.7rem; color: color-mix(in srgb, CanvasText 75%, Canvas); }
+  .base { font: 700 1.25rem ui-monospace, monospace; }
+  .sugar, .link { font: 0.72rem ui-monospace, monospace; }
+  .sugar.modified, .link.modified, .base.modified { color: var(--warning, var(--mod, #8a4b00)); }
+  @media (prefers-color-scheme: dark) { :host { --mod: #ffb366; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; margin: 0 0 1rem; padding: 0;
+    list-style: none; font-size: 0.85rem; }
+  table { border-collapse: collapse; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.25rem 0.75rem 0.25rem 0;
+    border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, transparent); }
+  td.modified::after { content: " (modified)"; font-size: 0.75rem; }
+  details { margin-top: 0.5rem; }
+  summary { cursor: pointer; }
+  summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+`;
+
+/** The text for one monomer: its symbol, as HELM writes it. */
+type MaybePart = Monomer | null | undefined;
+
+function symbol(part: MaybePart) {
+  if (!part) return "";
+  return part.symbol.length > 1 ? `[${part.symbol}]` : part.symbol;
+}
+
+/** What a screen reader says for one nucleotide. */
+function spoken(nt: Nucleotide) {
+  const parts = [`Position ${String(nt.position)}`];
+  const base = nt.nucleobase
+    ? `${nt.nucleobase.name}${nt.nucleobase.modified ? ", modified" : ""}`
+    : "no base, an abasic site";
+  const sugar = nt.sugar ? `${nt.sugar.name}${nt.sugar.modified ? ", modified" : ""}` : "no sugar";
+  parts.push(`${base} on ${sugar}`);
+  if (nt.linker) parts.push(`then ${nt.linker.name}${nt.linker.modified ? ", modified" : ""}`);
+  for (const other of nt.others ?? []) parts.push(other.name);
+  return parts.join("; ");
+}
+
+function strand(positions: OligoChemistryData) {
+  const list = element("ol", { class: "strand", "aria-label": "Nucleotides, 5′ to 3′" });
+  const ends = positions.ends ?? {};
+  for (const group of ends["5′"] ?? []) {
+    list.append(
+      element("li", { class: "end", "aria-label": `5′ end: ${group.name}` }, `5′ ${symbol(group)}`),
+    );
+  }
+  for (const nt of positions.nucleotides) {
+    const modified = [nt.sugar, nt.nucleobase, nt.linker].some((p) => p?.modified);
+    const item = element("li", {
+      class: modified ? "nt modified" : "nt",
+      "aria-label": spoken(nt),
+    });
+    const cls = (p: MaybePart, name: string) => (p?.modified ? `${name} modified` : name);
+    item.append(
+      element("span", { class: "pos", "aria-hidden": "true" }, String(nt.position)),
+      element("span", { class: cls(nt.nucleobase, "base"), "aria-hidden": "true" }, nt.base ?? "–"),
+      element(
+        "span",
+        { class: cls(nt.sugar, "sugar"), "aria-hidden": "true" },
+        symbol(nt.sugar) || "–",
+      ),
+      element(
+        "span",
+        { class: cls(nt.linker, "link"), "aria-hidden": "true" },
+        symbol(nt.linker) || " ",
+      ),
+    );
+    list.append(item);
+  }
+  for (const group of ends["3′"] ?? []) {
+    list.append(
+      element("li", { class: "end", "aria-label": `3′ end: ${group.name}` }, `3′ ${symbol(group)}`),
+    );
+  }
+  return list;
+}
+
+function legend(positions: OligoChemistryData) {
+  const seen = new Map<string, Monomer>();
+  for (const nt of positions.nucleotides) {
+    for (const part of [nt.sugar, nt.nucleobase, nt.linker, ...(nt.others ?? [])]) {
+      if (part) seen.set(part.symbol, part);
+    }
+  }
+  const list = element("ul", { class: "legend", "aria-label": "Monomers" });
+  for (const part of [...seen.values()].sort((a, b) => a.symbol.localeCompare(b.symbol))) {
+    list.append(
+      element(
+        "li",
+        {},
+        element("code", { class: part.modified ? "sugar modified" : "sugar" }, symbol(part)),
+        ` ${part.name}${part.modified ? " (modified)" : ""}`,
+      ),
+    );
+  }
+  return list;
+}
+
+function table(positions: OligoChemistryData) {
+  const head = element(
+    "tr",
+    {},
+    ...["Position", "Base", "Nucleobase", "Sugar", "Linker"].map((t) =>
+      element("th", { scope: "col" }, t),
+    ),
+  );
+  const body = element("tbody");
+  for (const nt of positions.nucleotides) {
+    const cell = (part: MaybePart) =>
+      element("td", part?.modified ? { class: "modified" } : {}, part ? part.name : "—");
+    body.append(
+      element(
+        "tr",
+        {},
+        element("th", { scope: "row" }, String(nt.position)),
+        element("td", {}, nt.base ?? "—"),
+        cell(nt.nucleobase),
+        cell(nt.sugar),
+        cell(nt.linker),
+      ),
+    );
+  }
+  return disclosure(
+    "positions",
+    "Each position",
+    element("table", {}, element("thead", {}, head), body),
+  );
+}
+
+export class OligoChemistry extends HTMLElement {
+  readonly #root = this.attachShadow({ mode: "open" });
+  #data: OligoChemistryData = { nucleotides: [] };
+
+  connectedCallback() {
+    this.render();
+  }
+  get data() {
+    return this.#data;
+  }
+  set data(value: OligoChemistryData) {
+    this.#data = value;
+    this.render();
+  }
+
+  private render() {
+    const style = element("style", {}, STYLE);
+    const positions = this.#data;
+    if (!positions.nucleotides.length) {
+      this.#root.replaceChildren(
+        style,
+        element(
+          "p",
+          { role: "status" },
+          positions.emptyMessage ?? "No nucleotide positions supplied.",
+        ),
+      );
+      return;
+    }
+    const count = positions.nucleotides.length;
+    const modified = positions.nucleotides.filter((nt) =>
+      [nt.sugar, nt.nucleobase, nt.linker].some((p) => p?.modified),
+    ).length;
+    const summary = element(
+      "p",
+      {},
+      `${String(count)} nucleotide${count === 1 ? "" : "s"}, 5′ to 3′; ${String(modified)} modified, outlined, with what's modified in colour. Each shows its base's natural analogue, its sugar and the linker after it.`,
+    );
+    this.#root.replaceChildren(
+      style,
+      element("h2", {}, "Nucleotides"),
+      summary,
+      strand(positions),
+      legend(positions),
+      table(positions),
+    );
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "iki-oligo-chemistry": OligoChemistry;
+  }
+}
+if (!customElements.get("iki-oligo-chemistry"))
+  customElements.define("iki-oligo-chemistry", OligoChemistry);

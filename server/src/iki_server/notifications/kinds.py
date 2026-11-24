@@ -243,6 +243,14 @@ WORKFLOW_STEP_DECLINED = register(
         group="Runs",
     )
 )
+LOW_STOCK = register(
+    Kind(
+        "stock.low",
+        "Low stock",
+        "Available stock for an item reaches or falls below the project's reorder threshold.",
+        group="Inventory",
+    )
+)
 BUDGET_THRESHOLD = register(
     Kind(
         "budget.threshold_reached",

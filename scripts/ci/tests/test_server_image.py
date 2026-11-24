@@ -12,6 +12,31 @@ ROOT = Path(__file__).resolve().parents[3]
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
+def test_amd64_producer_verifies_the_export_before_uploading_it() -> None:
+    workflow = yaml.safe_load((WORKFLOWS / "build-server-wasm.yml").read_text())
+    job = workflow["jobs"]["build"]
+    assert job["runs-on"] == "ubuntu-24.04"
+    steps = job["steps"]
+    export = next(s for s in steps if s.get("uses", "").startswith("docker/build-push-action@"))
+    verify = next(
+        s
+        for s in steps
+        if shlex.split(s.get("run", ""))
+        == ["scripts/verify-server-wasm.sh", "$RUNNER_TEMP/server-wasm"]
+    )
+    upload = next(s for s in steps if s.get("uses", "").startswith("actions/upload-artifact@"))
+    assert steps.index(export) < steps.index(verify) < steps.index(upload)
+    assert {"if", "continue-on-error"}.isdisjoint(verify)
+    assert export["with"]["target"] == "server-wasm-artifacts"
+    assert export["with"]["platforms"] == "linux/amd64"
+    assert export["with"]["outputs"] == "type=local,dest=" + upload["with"]["path"]
+    assert upload["with"]["path"] == "${{ runner.temp }}/server-wasm"
+    assert job["outputs"]["artifact-id"] == "${{ steps." + upload["id"] + ".outputs.artifact-id }}"
+    events = workflow.get("on", workflow.get(True))
+    output = events["workflow_call"]["outputs"]["artifact-id"]
+    assert output["value"] == "${{ jobs.build.outputs.artifact-id }}"
+
+
 @pytest.mark.parametrize(
     ("job_name", "platform"),
     [("server-image", "linux/amd64"), ("server-image-arm64", "linux/arm64")],
@@ -66,7 +91,9 @@ def test_server_gate_builds_and_runs_the_final_image(job_name: str, platform: st
     artifact = "$RUNNER_TEMP/server-wasm"
     assert build[build.index("--build-context") + 1] == f"server-wasm-artifacts={artifact}"
     verifier = ["scripts/verify-server-wasm.sh", artifact]
-    assert commands.index(verifier) < commands.index(build)
+    verify_at = commands.index(verifier)
+    assert job["steps"].index(downloader) < verify_at < commands.index(build)
+    assert {"if", "continue-on-error"}.isdisjoint(job["steps"][verify_at])
 
     tag = build[build.index("--tag") + 1]
     smoke = ["scripts/ci/smoke-server-image.sh", tag, platform, artifact]

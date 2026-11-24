@@ -1,6 +1,6 @@
 """The API's conventions: problems, auth and CSRF, rate limits, pagination, audit."""
 
-from typing import Any
+from typing import Any, NotRequired, get_args, get_origin, get_type_hints
 
 import pytest
 from api_client import Api, problem
@@ -80,6 +80,35 @@ def test_openapi_is_published_without_a_bundled_ui() -> None:
     assert schema.status_code == 200
     assert "/api/v1/projects" in schema.json()["paths"]
     problem(api.get("/docs"), 404, "not_found")
+
+
+def test_receipt_and_count_write_bodies_publish_only_the_fields_callers_must_supply() -> None:
+    from iki import schema
+
+    published = Api().get("/openapi.json").json()["components"]["schemas"]
+    for body, required in {
+        "ReceiptIn": {"plan_revision"},
+        "ReceiptLineIn": {"outcome"},
+        "ScansIn": {"scans"},
+        "ResolveIn": {"line_revision", "resolution"},
+        "CompleteReceiptIn": {"plan_revision"},
+        "CompleteReconciliationIn": {"plan_revision"},
+        "ReviewedExtraIn": {"line_revision", "reason"},
+        "CancelReceiptIn": {"plan_revision", "reason"},
+        "CancelReconciliationIn": {"plan_revision", "reason"},
+    }.items():
+        assert set(published[body]["required"]) == required, body
+        fields = get_type_hints(getattr(schema, body), include_extras=True)
+        assert {
+            name for name, kind in fields.items() if get_origin(kind) is not NotRequired
+        } == required, body
+        for name in {"note", "reason"}.intersection(fields):
+            published_field = published[body]["properties"][name]
+            if name in required:
+                assert published_field["type"] == "string" and fields[name] is str, (body, name)
+            else:
+                assert {kind["type"] for kind in published_field["anyOf"]} == {"string", "null"}
+                assert get_args(fields[name]) == (str | None,), (body, name)
 
 
 def test_no_two_schemas_share_a_name() -> None:

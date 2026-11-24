@@ -18,7 +18,8 @@ import { MolScriptBuilder as MS } from "molstar/lib/mol-script/language/builder.
 import type { Expression } from "molstar/lib/mol-script/language/expression.js";
 import { Script } from "molstar/lib/mol-script/script.js";
 import { describe, expect, it } from "vitest";
-import { fit, spansOf, spanTest, type Span } from "./residues";
+import type { Span } from "../structure-viewer.js";
+import { fit, spansOf, spanTest } from "./residues.js";
 
 const THREE: Record<string, string> = {
   A: "ALA",
