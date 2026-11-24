@@ -1,0 +1,36 @@
+apiVersion: iki/v1
+kind: Action
+name: import_search
+label: Import proteomics search reports
+description: Read identification and quantification tables from mzTab, MaxQuant, DIA-NN or FragPipe.
+inputs:
+  dataset: { type: ProteomicsDataset }
+  proteins:
+    type: iki/protein.Protein
+    optional: true
+    cardinality: many
+    max: 200
+    description: Registered proteins to link by exact UniProt accession.
+params:
+  format:
+    type: enum
+    values: [mztab, maxquant, diann, fragpipe]
+    required: true
+  version:
+    { type: string, required: true, max_length: 120, label: Search engine or exporter version }
+  reports:
+    type: list
+    required: true
+    max_items: 8
+    items:
+      type: file
+      media_types:
+        [text/plain, text/tab-separated-values, application/octet-stream, application/gzip]
+      max_size: 1GiB
+effects:
+  creates: [{ type: ProteomicsResult, derived_from: [dataset, proteins] }]
+runs_on: { tier: backend, environment: report-tools }
+command: [python, ./scripts/import_search.py]
+artifacts: { keep: [identifications.jsonl] }
+deterministic: true
+timeout: 30m
