@@ -12,14 +12,15 @@ const link = z.object({
 });
 
 export const collections = {
-  /** Tasks for admins and plugin authors. */
+  /** Tasks for admins and plugin authors. A guide in several pages is a page and a
+   * directory of the same name: `write-a-plugin.mdx`, then `write-a-plugin/fields.mdx`. */
   guides: defineCollection({
-    loader: glob({ pattern: "*.mdx", base: "./src/content/guides" }),
+    loader: glob({ pattern: "**/*.mdx", base: "./src/content/guides" }),
     schema: z.object({
       title: z.string(),
       description: z.string(),
       audience: z.enum(["run", "build"]),
-      /** Its order in its section's lists: lower first. */
+      /** Its order in its section's lists, or among its guide's pages: lower first. */
       order: z.number().default(100),
       reference: z.array(link).default([]),
     }),

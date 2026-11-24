@@ -9,6 +9,9 @@ interface Props {
   audience: Audience;
 }
 const groups = sideNav(await sitePages(), Astro.props.audience);
+const here = Astro.url.pathname;
+/** A guide's other pages show while one of its pages is open. */
+const open = (href: string | undefined) => href !== undefined && here.startsWith(href);
 ---
 
 <nav class="section-nav" aria-label="Pages for this audience">
@@ -19,9 +22,26 @@ const groups = sideNav(await sitePages(), Astro.props.audience);
         {group.items.map((item) => (
           <li>
             <ItemLink item={item} />
+            {item.children && open(item.href) && (
+              <ul class="pages">
+                {item.children.map((child) => (
+                  <li>
+                    <ItemLink item={child} />
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
     </>
   ))}
 </nav>
+
+<style>
+  .pages {
+    margin: 2px 0 6px 10px;
+    padding-left: 6px;
+    border-left: 1px solid var(--border);
+  }
+</style>

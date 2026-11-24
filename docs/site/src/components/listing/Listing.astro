@@ -15,6 +15,15 @@ const { items } = Astro.props;
       <ItemLink item={item} class="listing-link" />
       {item.text && <p>{item.text}</p>}
       {item.note && <p class="note">{item.note}</p>}
+      {item.children && (
+        <ul class="pages" aria-label={`${item.label}: its pages`}>
+          {item.children.map((child) => (
+            <li>
+              <ItemLink item={child} />
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   ))}
 </ul>
@@ -42,5 +51,18 @@ const { items } = Astro.props;
   }
   .listing .note {
     font-size: 13px;
+  }
+  .listing .pages {
+    margin: 10px 0 0;
+    padding: 0 0 0 16px;
+    border-left: 2px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
+  }
+  .listing .pages li {
+    padding: 0;
+    border: 0;
   }
 </style>

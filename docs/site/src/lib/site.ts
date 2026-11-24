@@ -50,6 +50,8 @@ export interface Item {
   source?: string;
   /** A short qualifier after it: "plugin, bundle, deploy, starter". */
   note?: string;
+  /** The other pages of a guide in several pages, under its first. */
+  children?: Item[];
 }
 
 /** A link as a page's frontmatter writes it: a site path, or `repo:<path>` for a file in the
@@ -129,6 +131,28 @@ export interface Page {
   href: string;
   order: number;
   text?: string;
+  /** The first page of the guide in several pages it's one of, by its path. */
+  parent?: string;
+}
+
+function inOrder(a: Page, b: Page): number {
+  return a.order - b.order || a.label.localeCompare(b.label);
+}
+
+/** Pages as a list: each guide in several pages once, its other pages under its first. */
+export function nested(pages: readonly Page[]): (Item & { text?: string })[] {
+  const sorted = [...pages].sort(inOrder);
+  const item = (page: Page): Item & { text?: string } => {
+    const children = sorted.filter((child) => child.parent === page.href).map(item);
+    return {
+      label: page.label,
+      href: page.href,
+      ...(page.text === undefined ? {} : { text: page.text }),
+      ...(children.length > 0 ? { children } : {}),
+    };
+  };
+  const hrefs = new Set(sorted.map((page) => page.href));
+  return sorted.filter((page) => !page.parent || !hrefs.has(page.parent)).map(item);
 }
 
 /** A page's left-hand navigation: its audience's pages, and every concept, grouped under
@@ -138,16 +162,40 @@ export function sideNav(
   pages: readonly Page[],
   audience: Audience,
 ): { section: Section; items: Item[] }[] {
+  const bare = (item: Item): Item => ({
+    label: item.label,
+    ...(item.href === undefined ? {} : { href: item.href }),
+    ...(item.children ? { children: item.children.map(bare) } : {}),
+  });
   return TOP_NAV.map((entry) => entry.label)
     .map((section) => ({
       section,
-      items: pages
-        .filter((page) => page.section === section)
-        .filter((page) => page.audience === audience || section === "Concepts")
-        .sort((a, b) => a.order - b.order || a.label.localeCompare(b.label))
-        .map((page) => ({ label: page.label, href: page.href })),
+      items: nested(
+        pages
+          .filter((page) => page.section === section)
+          .filter((page) => page.audience === audience || section === "Concepts"),
+      ).map(bare),
     }))
     .filter((group) => group.items.length > 0);
+}
+
+/** The pages before and after a page of a guide in several pages, in the guide's order:
+ * its first page, then the others. */
+export function pager(
+  pages: readonly Page[],
+  href: string,
+): { previous?: Item | undefined; next?: Item | undefined } {
+  const page = pages.find((candidate) => candidate.href === href);
+  const first = page?.parent ?? href;
+  const guide = [
+    ...pages.filter((candidate) => candidate.href === first),
+    ...pages.filter((candidate) => candidate.parent === first).sort(inOrder),
+  ];
+  const at = guide.findIndex((candidate) => candidate.href === href);
+  if (guide.length < 2 || at < 0) return {};
+  const link = (found: Page | undefined) =>
+    found ? { label: found.label, href: found.href } : undefined;
+  return { previous: link(guide[at - 1]), next: link(guide[at + 1]) };
 }
 
 export const FOOTER: Item[] = [

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { REFERENCES, REPOSITORY_GUIDES, TOP_NAV, hrefOf, sideNav, type Page } from "./site.ts";
+import {
+  REFERENCES,
+  REPOSITORY_GUIDES,
+  TOP_NAV,
+  hrefOf,
+  nested,
+  pager,
+  sideNav,
+  type Page,
+} from "./site.ts";
 
 const sections: string[] = TOP_NAV.map((entry) => entry.label);
 
@@ -40,6 +49,22 @@ const pages: Page[] = [
     href: "/concepts/corrections/",
     order: 40,
   },
+  {
+    section: "Guides",
+    audience: "build",
+    label: "Track a record's state",
+    href: "/guides/write-a-plugin/states/",
+    order: 40,
+    parent: "/guides/write-a-plugin/",
+  },
+  {
+    section: "Guides",
+    audience: "build",
+    label: "Declare a type's fields",
+    href: "/guides/write-a-plugin/fields/",
+    order: 20,
+    parent: "/guides/write-a-plugin/",
+  },
 ];
 
 describe("the side navigation", () => {
@@ -72,6 +97,30 @@ describe("the side navigation", () => {
     ]);
     expect(sideNav(pages, "build").map((group) => group.section)).toEqual(["Guides", "Concepts"]);
     expect(sideNav(pages, "run").map((group) => group.section)).toEqual(["Concepts"]);
+  });
+});
+
+describe("a guide in several pages", () => {
+  it("is listed once, its other pages under its first in their order", () => {
+    const guides = nested(pages.filter((page) => page.section === "Guides"));
+    expect(guides.map((item) => item.label)).toEqual(["Write a plugin"]);
+    expect(guides[0]?.children?.map((item) => item.href)).toEqual([
+      "/guides/write-a-plugin/fields/",
+      "/guides/write-a-plugin/states/",
+    ]);
+    expect(sideNav(pages, "build")[0]?.items[0]?.children).toHaveLength(2);
+  });
+
+  it("links each page to the ones before and after it", () => {
+    expect(pager(pages, "/guides/write-a-plugin/")).toEqual({
+      previous: undefined,
+      next: { label: "Declare a type's fields", href: "/guides/write-a-plugin/fields/" },
+    });
+    expect(pager(pages, "/guides/write-a-plugin/states/")).toEqual({
+      previous: { label: "Declare a type's fields", href: "/guides/write-a-plugin/fields/" },
+      next: undefined,
+    });
+    expect(pager(pages, "/concepts/corrections/")).toEqual({});
   });
 });
 

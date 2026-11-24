@@ -18,6 +18,7 @@ export async function sitePages(): Promise<Page[]> {
       href: `/guides/${entry.id}/`,
       order: entry.data.order,
       text: entry.data.description,
+      ...guideParent(entry.id),
     })),
     ...useCases.map((entry) => ({
       section: "Use cases" as const,
@@ -36,6 +37,13 @@ export async function sitePages(): Promise<Page[]> {
       text: entry.data.description,
     })),
   ];
+}
+
+/** A page of a guide in several pages is under its first: `write-a-plugin/fields` is
+ * under `write-a-plugin`. */
+export function guideParent(id: string): { parent?: string } {
+  const slash = id.lastIndexOf("/");
+  return slash > 0 ? { parent: `/guides/${id.slice(0, slash)}/` } : {};
 }
 
 /** A section's pages in their order. */
