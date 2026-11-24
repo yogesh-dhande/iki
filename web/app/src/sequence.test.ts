@@ -285,9 +285,10 @@ describe("what a stretch of bases is", () => {
     expect(gcContent("NNRY")).toBeNull();
   });
 
-  it("melts as the DNA plugin's primers do: SantaLucia 1998, 50 mM Na+, 50 nM strands", () => {
-    // plugins/dna/scripts/sequences.py's melting_temperature, and Biopython's Tm_NN with
-    // DNA_NN3, Na=50, saltcorr=5, dnac1=dnac2=25, of the same bases.
+  it("melts a selected stretch in sodium alone: SantaLucia 1998, 50 mM Na+, 50 nM strands", () => {
+    // Biopython's Tm_NN with DNA_NN3, Na=50, saltcorr=5, dnac1=dnac2=25, of the same
+    // bases. Not a primer's own melting_temperature, which is quoted in a PCR buffer and
+    // reads several degrees higher (ADR 0201).
     expect(meltingTemperature("GTAAAACGACGGCCAGT")).toBe(49.2); // M13/pUC forward
     expect(meltingTemperature("CAGGAAACAGCTATGAC")).toBe(43.6); // M13/pUC reverse
     expect(meltingTemperature(PUC19C.slice(0, 24))).toBe(64.2);

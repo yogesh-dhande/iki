@@ -1,0 +1,145 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: scheduled_service_keeps_the_qc_flow
+action: schedule_service
+description: A synthetic appointment with the archival NIST reference cited in the plugin guide.
+# Published optical reference, Table 1a: https://tsapps.nist.gov/srmext/certificates/archives/930e.pdf
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer, service: in_service } }]
+settings: { review_flow: regulated_qc }
+params:
+  kind: calibration
+  due_on: "2026-01-05"
+  procedure: "Demonstration optical check · NIST SRM 930e, Table 1a"
+expect:
+  output:
+    creates:
+      - type: iki/equipment.EquipmentService
+        values:
+          instrument: 00000000-0000-7000-8003-000000000001
+          kind: calibration
+          due_on: "2026-01-05"
+          review_flow: regulated_qc
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: maintenance_uses_the_configured_research_flow
+action: schedule_service
+description: Synthetic preventive maintenance following the deployment's default flow.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer, service: in_service } }]
+params: { kind: maintenance, due_on: "2026-01-05", procedure: Demonstration maintenance revision 1 }
+expect:
+  output:
+    creates:
+      - type: iki/equipment.EquipmentService
+        values: { kind: maintenance, due_on: "2026-01-05", review_flow: research }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: measurement_pins_the_calibration_and_result
+action: record_instrument_use
+description: Synthetic laboratory records and times.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer } }]
+  result: [{ type: iki/example_lims.AnalysisResult, values: {} }]
+  calibration:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: in_tolerance
+        review: signed_off
+        performed_at: "2026-01-05T09:00:00Z"
+        valid_until: "2026-02-05T09:00:00Z"
+params: { measurement_at: "2026-01-05T01:00:00-08:00" }
+expect:
+  output:
+    creates:
+      - type: iki/equipment.InstrumentUse
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+          - 00000000-0000-7000-8003-000000000003
+        values:
+          instrument: 00000000-0000-7000-8003-000000000001
+          result: 00000000-0000-7000-8003-000000000002
+          result_record_id: 00000000-0000-7000-8003-000000000002
+          result_revision: 1
+          calibration: 00000000-0000-7000-8003-000000000003
+          calibration_revision: 1
+          measurement_at: "2026-01-05T09:00:00+00:00"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: the_calibration_expiry_is_exclusive
+action: record_instrument_use
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer } }]
+  result: [{ type: iki/example_lims.AnalysisResult, values: {} }]
+  calibration:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: in_tolerance
+        review: released
+        performed_at: "2026-01-05T09:00:00Z"
+        valid_until: "2026-02-05T09:00:00Z"
+params: { measurement_at: "2026-02-05T09:00:00Z" }
+expect: { error: The selected calibration does not cover the measurement time. }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: failed_calibration_traces_through_recovery
+action: trace_failed_calibrations
+description: A synthetic failure. The window includes its start and ends before recovery.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer } }]
+  calibrations:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: signed_off
+        review_flow: research
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: in_tolerance
+        review: released
+        performed_at: "2026-01-15T09:00:00Z"
+  uses:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000010
+        measurement_at: "2026-01-08T09:59:59Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000011
+        measurement_at: "2026-01-08T10:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000012
+        measurement_at: "2026-01-13T10:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000013
+        measurement_at: "2026-01-15T09:00:00Z"
+expect:
+  output:
+    creates:
+      - type: iki/equipment.CalibrationImpact
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+          - 00000000-0000-7000-8003-000000000005
+        values:
+          failure: 00000000-0000-7000-8003-000000000002
+          failure_revision: 1
+          use: 00000000-0000-7000-8003-000000000005
+          result: 00000000-0000-7000-8003-000000000011
+          review_flow: research
+      - type: iki/equipment.CalibrationImpact
+        values:
+          result: 00000000-0000-7000-8003-000000000012

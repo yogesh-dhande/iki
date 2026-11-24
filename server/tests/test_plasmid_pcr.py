@@ -305,6 +305,9 @@ def test_the_m13_pair_amplifies_puc19s_polylinker(tmp_path: Path) -> None:
     assert values["reverse_melting_temperature"] == 43.6
     assert values["products_found"] == 1
     assert values["tm_method"].startswith("SantaLucia 1998 nearest-neighbour")
+    # The two primers pair with each other over four bases at best: nothing a polymerase
+    # would rather amplify than the 103 bp between them (ADR 0201).
+    assert values["primer_dimer_free_energy"] > -9
     assert output["metrics"] == {"products": 1, "length": 103}
     assert "amplify 1 molecule" in log
 
@@ -397,6 +400,9 @@ def test_several_products_register_none_and_say_which(tmp_path: Path) -> None:
     assert values["products_found"] == 2
     assert values["product_length"] is None
     assert values["forward_melting_temperature"] is None
+    # The primers' dimer is not the template's business, so it is still reported where
+    # no one product is: the pair is the same pair whatever it was put in a tube with.
+    assert values["primer_dimer_free_energy"] is not None
     said = output["messages"][0]
     assert said["level"] == "warning"
     assert "amplify 2 molecules of this template (103 bp, 303 bp)" in said["text"]
@@ -417,3 +423,36 @@ def test_a_reaction_worked_out_again_gives_the_same_molecule(tmp_path: Path) -> 
     again, _ = command(tmp_path / "b", "pcr", reaction(given(bases), forward, reverse))
     assert first["creates"] == again["creates"]
     assert first["creates"][0]["values"]["bases"] == bases[378:481]
+
+
+def test_a_pair_that_would_rather_pair_with_each_other_says_so(tmp_path: Path) -> None:
+    """Two primers carrying complementary GC tails amplify the template as before and
+    dimerise with each other far more stably than a design should allow: the reaction's
+    record carries the free energy, so the pair can be rejected on it."""
+    bases, _, _ = read("L09137.2")
+    forward, reverse = pair()
+    # A 5' tail on each, so both still bind by their 3' ends and the product is the same.
+    tail = "GCGCGCGCGCGC"
+    sticky_forward = {**forward, "values": {**forward["values"], "bases": tail + M13_FORWARD}}
+    sticky_reverse = {**reverse, "values": {**reverse["values"], "bases": tail + M13_REVERSE}}
+    output, _ = command(tmp_path, "pcr", reaction(given(bases), sticky_forward, sticky_reverse))
+    values = output["updates"]["pcr"][0]["values"]
+    assert values["products_found"] == 1
+    # Twelve alternating G and C against their complement: about -22 kcal/mol, where IDT
+    # and Benchling both call anything below -9 worth redesigning.
+    assert values["primer_dimer_free_energy"] < -20
+
+
+def test_a_primer_with_ambiguity_codes_has_no_dimer_rather_than_a_wrong_one(
+    tmp_path: Path,
+) -> None:
+    """The nearest-neighbour parameters say nothing about N, so no free energy is
+    reported: an invented one would be read as a measurement."""
+    bases, _, _ = read("L09137.2")
+    forward, reverse = pair()
+    # N at the 5' end, so the 3' end still binds and the product is still found.
+    ambiguous = {**forward, "values": {**forward["values"], "bases": "N" + M13_FORWARD[1:]}}
+    output, _ = command(tmp_path, "pcr", reaction(given(bases), ambiguous, reverse))
+    values = output["updates"]["pcr"][0]["values"]
+    assert values["products_found"] == 1
+    assert values["primer_dimer_free_energy"] is None

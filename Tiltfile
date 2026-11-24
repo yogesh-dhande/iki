@@ -94,8 +94,13 @@ custom_build(
         'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'tsconfig.base.json', 'web',
         # iki-wasm, built in the image's own stage, and for `iki deploy build` (ADR 0127).
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
-        'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh',
-        'scripts/build-dna-annotation-wasm.sh',
+        'worker/crates', 'worker/.cargo', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
+        'scripts/build-oligo-wasm.sh', 'scripts/build-dna-annotation-wasm.sh',
+        'scripts/verify-server-wasm.sh',
+        'scripts/build-server-aot.sh', 'scripts/verify-server-aot.py',
+        # The plugins' modules, built in the same stage and checked against their digests.
+        'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
+        'plugins/plasmid/data/plasmid-tools.wasm.sha256', 'plugins/dna/data/oligo-checks.wasm.sha256',
         # The plugins and how they're added.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'deploy/dev/build-server.sh',
         'deploy/plugins.Dockerfile',
@@ -109,8 +114,8 @@ custom_build(
         # A local `make web` build; the image builds its own.
         'server/src/iki_server/web/static/app',
         # What deploy/dev/build-wasm.sh writes.
-        '**/iki_spec/iki_wasm*', '**/iki_spec/dna-annotation.wasm',
-        '**/iki_spec/rust-standard-library.html',
+        '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm', '**/iki_spec/dna-annotation.wasm',
+        '**/iki_spec/rust-standard-library.html', '**/iki_spec/modules/*.wasm',
     ],
 )
 
@@ -121,15 +126,18 @@ custom_build(
     deps=[
         'worker/Cargo.toml', 'worker/Cargo.lock', 'worker/rust-toolchain.toml',
         'worker/crates', 'worker/.cargo', 'worker/Dockerfile', 'deploy/worker.Dockerfile',
-        'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh',
-        'server/Dockerfile', 'scripts/build-dna-annotation-wasm.sh',
+        'deploy/dev/build-worker.sh', 'deploy/dev/build-wasm.sh', 'scripts/build-wasm-image.sh',
+        'server/Dockerfile', 'scripts/build-oligo-wasm.sh', 'scripts/build-dna-annotation-wasm.sh',
+        'scripts/verify-server-wasm.sh', 'server/iki_wasm.wasm.sha256',
+        'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
         # What `iki deploy build --workers` reads and runs.
         'deploy/dev/plugins.lock.yaml', 'deploy/dev/settings', 'plugins', 'plugin-template',
         'cli', 'spec/src',
     ],
     ignore=[
-        '**/__pycache__', '**/iki_spec/iki_wasm*', '**/iki_spec/dna-annotation.wasm',
-        '**/iki_spec/rust-standard-library.html',
+        '**/__pycache__', '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm',
+        '**/iki_spec/dna-annotation.wasm', '**/iki_spec/rust-standard-library.html',
+        '**/iki_spec/modules/*.wasm',
     ],
 )
 

@@ -137,6 +137,12 @@ class SigningIn(Schema):
         le=4,
         description="Which of its signatures you give, from 0. Without it, the first you may.",
     )
+    entry_revision: int | None = Field(
+        None,
+        ge=1,
+        description="Required for a record of a registry entry. Send `entry.revision` from "
+        "the record you reviewed.",
+    )
     reason: str = Field(
         "", max_length=2000, description="Why: the state may require it. It's signed."
     )
@@ -225,7 +231,7 @@ class SigningKeysOut(Schema):
 
 
 class WithdrawalIn(Schema):
-    reason: str = Field("", max_length=2000)
+    reason: str = Field(max_length=2000, description="Why you withdraw the pending signature.")
 
 
 # --- The organization ---------------------------------------------------------------------------
@@ -414,8 +420,8 @@ def verify_signature(request: HttpRequest, signature_id: UUID) -> dict[str, Any]
 def withdraw_signature(
     request: HttpRequest, signature_id: UUID, payload: WithdrawalIn
 ) -> dict[str, Any]:
-    """Takes back your signature while setting the state waits for others. Once the
-    state is set with it, it stays."""
+    """Takes back your signature, with a reason, while setting the state waits for others.
+    Once the state is set with it, it stays."""
     me = caller(request)
     found = _signature(me, signature_id)
     try:
@@ -457,9 +463,11 @@ def start_signing(
     """Starts giving one of the signatures setting the record's state needs (ADR 0126),
     as the person in
     the web app's browser session: send the browser to `sign_in_url`, where the identity
-    provider signs them in again, however recently they did (ADR 0124). Its answer signs
-    the revision you read (send its ETag as If-Match), and comes back to `return_to`. No
-    token, app or AI agent can sign: they're refused with 403."""
+    provider signs them in again, however recently they did (ADR 0124). Send the ETag of
+    the record you reviewed as If-Match and, if it has a registry entry, send its
+    `entry.revision` as `entry_revision`. Both revisions are checked when signing starts
+    and finishes. The identity provider's answer comes back to `return_to`. Tokens,
+    apps and AI agents are refused with 403."""
     me = caller(request)
     entity = _find(me, ref, project)
     expected = _expected(if_match)
@@ -473,6 +481,7 @@ def start_signing(
             payload.state,
             index=payload.index,
             expected_revision=expected,
+            expected_entry_revision=payload.entry_revision,
             reason=payload.reason,
             return_to=payload.return_to,
             acknowledge=payload.acknowledge,
@@ -482,8 +491,7 @@ def start_signing(
     except services.Stale as stale:
         raise Problem(
             412,
-            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
-            "Read it again, then sign what you read.",
+            f"It changed since you read it. {stale} Read it again before signing.",
             code="stale",
             headers={"ETag": f'"{stale.current}"'},
         ) from None

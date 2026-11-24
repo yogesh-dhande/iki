@@ -8,39 +8,53 @@ GC content counts G, C and S (G or C) among the bases whose pairing is known (A,
 G, T, U, S and W); other IUPAC codes, such as N, are left out of it. A sequence with
 none has no GC content.
 
-Melting temperature uses SantaLucia's unified nearest-neighbour parameters (PNAS 95,
-1460; 1998) with his salt correction, at 50 mM Na+, sodium alone: no Mg2+ or dNTPs. Its
-strands are 50 nM in all, his CT, the total strand concentration: 25 nM each of the
-primer and its complement, so Tm = ΔH / (ΔS + R ln(CT/4)), or 50 nM of a primer that
-pairs with itself, at CT (his equation 3). That's not Primer3's default buffer, which
-adds 1.5 mM Mg2+ and 0.6 mM dNTPs and gives a Tm some 5 to 6 °C higher; a PCR buffer's Tm
-needs those. It's computed only for primers of A, C, G and T alone.
+A primer carries two melting temperatures, each under its own stated conditions.
+
+`melting_temperature` is the packaged oligo measurement, the same number the server and the
+web app quote for any stretch of DNA (ADR 0191): SantaLucia's unified nearest-neighbour
+parameters (PNAS 95, 1460; 1998) with his salt correction, at 50 mM Na+ alone, no Mg2+ or
+dNTPs. Its strands are 50 nM in all, his CT, the total strand concentration: 25 nM each of
+the primer and its complement, so Tm = ΔH / (ΔS + R ln(CT/4)), or 50 nM of a primer that
+pairs with itself, at CT (his equation 3). The mutagenesis and guide designs compare
+against it. It's computed only for primers of A, C, G and T alone.
+
+The rest of a primer's checks -- `buffer_melting_temperature`, its Tm in the buffer a PCR
+runs in (Primer3's default: 1.5 mM Mg2+ and 0.6 mM dNTPs besides the 50 mM Na+, corrected
+for the magnesium by Owczarzy et al. 2008), the hairpin it folds into, the dimer it forms
+with another copy of itself, how firmly its 3' end sits and its longest run of one base --
+are computed by the packaged checks module (ADR 0201, `oligos.py`), not here.
 """
 
 import json
 import math
 import os
 import sys
+from functools import cache
 from pathlib import Path
+from typing import Any
+
+import oligos
+import wasmtime
 
 GC = frozenset("GCS")
 KNOWN = frozenset("ACGTUSW")
-
-#: ΔH (kcal/mol) and ΔS (cal/K/mol) for each pair of neighbours, 5'→3' on one strand.
-NEIGHBOURS = {
-    "AA": (-7.9, -22.2), "AT": (-7.2, -20.4), "TA": (-7.2, -21.3), "CA": (-8.5, -22.7),
-    "GT": (-8.4, -22.4), "CT": (-7.8, -21.0), "GA": (-8.2, -22.2), "CG": (-10.6, -27.2),
-    "GC": (-9.8, -24.4), "GG": (-8.0, -19.9),
-}  # fmt: skip
-#: Initiation, by the base pair at each end.
-INITIATION = {"G": (0.1, -2.8), "C": (0.1, -2.8), "A": (2.3, 4.1), "T": (2.3, 4.1)}
-SYMMETRY = (0.0, -1.4)
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
-GAS_CONSTANT = 1.987  # cal/K/mol
-SODIUM = 0.05  # mol/L
-#: SantaLucia's CT, all the strands together (mol/L): 25 nM each of the primer and its
-#: complement, or 50 nM of a primer that pairs with itself.
-STRANDS = 50e-9
+MEASUREMENT = Path(__file__).resolve().parent.parent / "data" / "oligo-measurement.wasm"
+#: What the checks module reports per oligo, and the field each value goes in. A value the
+#: module leaves out -- an oligo with ambiguity codes has no thermodynamics, and an oligo
+#: that folds into nothing has no hairpin -- leaves its field alone.
+CHECKED = {
+    "melting_temperature": "buffer_melting_temperature",
+    "end_stability": "end_stability",
+    "longest_run": "longest_run",
+}
+
+
+@cache
+def _measurement_module() -> tuple[wasmtime.Engine, wasmtime.Module]:
+    """Compile the action archive's pinned module once per process for a batch of records."""
+    engine = wasmtime.Engine()
+    return engine, wasmtime.Module.from_file(engine, str(MEASUREMENT))
 
 
 def gc_content(bases: str) -> float | None:
@@ -56,27 +70,27 @@ def reverse_complement(bases: str) -> str:
 
 def melting_temperature(bases: str) -> float | None:
     """°C, or None for a primer with other bases than A, C, G and T, or fewer than two."""
-    bases = bases.upper()
-    if len(bases) < 2 or set(bases) - set("ACGT"):
+    if not bases.isascii() or len(bases) < 2:
         return None
-    enthalpy = INITIATION[bases[0]][0] + INITIATION[bases[-1]][0]
-    entropy = INITIATION[bases[0]][1] + INITIATION[bases[-1]][1]
-    for i in range(len(bases) - 1):
-        pair = bases[i : i + 2]
-        dh, ds = NEIGHBOURS.get(pair) or NEIGHBOURS[reverse_complement(pair)]
-        enthalpy += dh
-        entropy += ds
-    # One strand pairs with itself, at CT; otherwise with an equal amount of its
-    # complement, at CT/4 (SantaLucia 1998, equation 3).
-    if bases == reverse_complement(bases):
-        enthalpy += SYMMETRY[0]
-        entropy += SYMMETRY[1]
-        strands = STRANDS
-    else:
-        strands = STRANDS / 4
-    entropy += 0.368 * (len(bases) - 1) * math.log(SODIUM)
-    kelvin = 1000 * enthalpy / (entropy + GAS_CONSTANT * math.log(strands))
-    return round(kelvin - 273.15, 1)
+    engine, module = _measurement_module()
+    with wasmtime.Store(engine) as store:
+        exports = wasmtime.Instance(store, module, []).exports(store)
+        memory = exports["memory"]
+        allocate = exports["iki_input"]
+        measure = exports["iki_melting_temperature_value"]
+        if not (
+            isinstance(memory, wasmtime.Memory)
+            and isinstance(allocate, wasmtime.Func)
+            and isinstance(measure, wasmtime.Func)
+        ):
+            raise RuntimeError("The packaged oligo measurement has an incompatible ABI.")
+        encoded = bases.encode("ascii")
+        at = allocate(store, len(encoded))
+        if not at:
+            raise ValueError("The oligo exceeds the measurement module’s 64 MiB input limit.")
+        memory.write(store, encoded, at)
+        result = float(measure(store))
+        return None if math.isnan(result) else result
 
 
 def composition(bases: str) -> dict[str, float]:
@@ -87,22 +101,57 @@ def composition(bases: str) -> dict[str, float]:
     return values
 
 
-def primer(bases: str) -> dict[str, float]:
-    values = composition(bases)
-    tm = melting_temperature(bases)
-    if tm is not None:
-        values["melting_temperature"] = tm
-    return values
+def primers(entities: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each primer's length and GC content, and the checks the module computes, in one
+    call: compiling the module costs more than folding a plate of oligos."""
+    asked = [
+        {
+            "hrid": entity["hrid"],
+            "name": entity.get("values", {}).get("name") or "",
+            "bases": entity["values"]["bases"],
+        }
+        for entity in entities
+    ]
+    answer = oligos.call("iki_check_oligos", {"oligos": asked})
+    if "error" in answer:
+        raise RuntimeError(f"The primer checks were refused: {answer['error']}")
+    by_hrid = {checked["oligo"]: checked for checked in answer["oligos"]}
+    out = []
+    for entity in entities:
+        bases = entity["values"]["bases"]
+        values: dict[str, Any] = composition(bases)
+        tm = melting_temperature(bases)
+        if tm is not None:
+            values["melting_temperature"] = tm
+        checked = by_hrid.get(entity["hrid"], {})
+        for key, field in CHECKED.items():
+            if checked.get(key) is not None:
+                values[field] = (
+                    round(checked[key], 2) if isinstance(checked[key], float) else checked[key]
+                )
+        for kind, field in (
+            ("hairpin", "hairpin_free_energy"),
+            ("self_dimer", "self_dimer_free_energy"),
+        ):
+            structure = checked.get(kind)
+            if structure is not None:
+                values[field] = round(structure["free_energy"], 2)
+        out.append(values)
+    return out
 
 
 def main() -> None:
     kind = sys.argv[1]
-    compute, name = {"composition": (composition, "sequence"), "primers": (primer, "primer")}[kind]
+    name = {"composition": "sequence", "primers": "primer"}[kind]
     run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
     entities = run["inputs"][name]
+    computed = (
+        primers(entities)
+        if kind == "primers"
+        else [composition(entity["values"]["bases"]) for entity in entities]
+    )
     updates = []
-    for done, entity in enumerate(entities, start=1):
-        values = compute(entity["values"]["bases"])
+    for done, (entity, values) in enumerate(zip(entities, computed, strict=True), start=1):
         updates.append({"entity": entity["id"], "values": values})
         print(f"{entity['hrid']}: {', '.join(f'{k} {v}' for k, v in values.items())}")
         print(f"::progress {done / len(entities):.2f} {done} of {len(entities)}")

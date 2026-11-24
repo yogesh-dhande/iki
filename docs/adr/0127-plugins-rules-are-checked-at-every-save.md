@@ -41,8 +41,8 @@ There are three kinds:
   with each reference one step deep, as the referenced record's fields), and
   `now` and `today`. `when` limits it to some records, and `fields` says which
   fields its message points at. The default is the fields it reads.
-- **`unique: [fields]`**: no two of a project's records share them together,
-  such as `[box, position]`. The database holds it.
+- **`unique: [fields]`**: no two of a project's records share the values of
+  a field or combination of fields, such as `[box, position]`. The database holds it.
 - **`no_overlap: {from, to, per}`**: no two of a project's records' ranges
   overlap, with the same `per` values, such as an instrument's bookings. The
   database holds it with an exclusion constraint (`btree_gist`). Datetimes and
@@ -90,7 +90,9 @@ fields: `{"pointer": "#/values/purity", "detail": "…", "rule": "…", "hold": 
 the save is kept and the record is **held**: an open hold per rule, which
 keeps the rule's label, message and roles as they were, who saved it, through
 which agent, when, why, and the revision. Breaking the rule again while it's
-held adds to the same hold. A held record:
+held adds an observation to the same hold. Each observation keeps its own
+message, actor, time, reason and revision, including its registry entry revision
+when the record has one. A held record:
 
 - keeps its hold if it's edited back within the rule, so it's not "tested into
   compliance": only a review clears a hold;
@@ -98,19 +100,21 @@ held adds to the same hold. A held record:
   released while a result is being investigated;
 - is reviewed by a person, not an app's or agent's token or a service account,
   who has one of the rule's lab roles in the record's project and didn't save
-  what held it, with a reason (`POST /entities/{ref}/holds/{id}/review`), as
-  run approvals are kept from agents (ADR 0013).
+  any of the hold's observations. Review requires a reason, the current record
+  ETag and the version of the hold evidence and deployed rules the reviewer read
+  (`POST /entities/{ref}/holds/{id}/review`). A change requires a new review.
 
 A run's results, and a bulk import's lines, that break rules that hold are
 kept, held with a reason naming the run: they're what the instrument
 measured. Holds and reviews are audited (`entity.held`,
 `entity.hold_reviewed`) and sent to webhooks (identifiers and the rule, never
 the message, which can quote values). The rule's reviewers are told in Iki.
-A record's history keeps each hold with the revision that opened it
-(`holds` on its revisions): the rule, why it was saved anyway, and once it's
-reviewed, who reviewed it, when and why, so its readers see it after the
-hold is cleared, not only the audit log's readers. A review isn't a revision:
-it changes no value, so it doesn't make what was signed stale.
+A record's history keeps each observation with the revision that recorded it
+(`holds` on its revisions). Once reviewed, it shows who reviewed the hold,
+when and why. Earlier holds may have incomplete evidence of repeated failures.
+Those gaps stay visible, and someone who contributed during that interval must
+leave the review to someone else. A review changes no record values and creates
+no revision.
 
 **Records saved before a rule are reported, not stranded.** `sync_plugins`
 checks every record again for each type whose checks, or whose plugins'

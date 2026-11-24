@@ -213,7 +213,8 @@ describe("an entity's lineage page", () => {
   it("starts with what it was derived from, and says what it can't show", async () => {
     onEntity();
     const { user } = await renderApp("/entities/PRT-000001/");
-    await user.click(screen.getByRole("link", { name: "Lineage" }));
+    const tabs = await screen.findByRole("navigation", { name: "Record" });
+    await user.click(within(tabs).getByRole("link", { name: /^Lineage\b/ }));
     expect(
       await screen.findByText(
         "Nothing you can read that ABL1 kinase was derived from, within 10 steps.",

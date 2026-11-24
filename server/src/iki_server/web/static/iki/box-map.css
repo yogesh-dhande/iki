@@ -1,0 +1,309 @@
+/* Its findings' colors: each with a text color on its fill at 4.5:1, and an edge at 3:1. */
+:root {
+  --slot-size: 44px;
+  --slot-compact: 28px;
+  --wrong-slot: #6b3fb8;
+  --wrong-slot-bg: #f3edfc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --wrong-slot: #c4a5f5;
+    --wrong-slot-bg: #251c38;
+  }
+}
+
+/* --- A container's map --------------------------------------------------------------- */
+
+.box-map-scroll {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 4px;
+  margin: 0 -4px 0.75rem;
+}
+
+.box-map {
+  --slot: var(--slot-size);
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.box-map-compact .box-map {
+  --slot: var(--slot-compact);
+  gap: 2px;
+}
+
+.box-map-row {
+  display: flex;
+  gap: 4px;
+}
+
+.box-map-compact .box-map-row {
+  gap: 2px;
+}
+
+.box-map-corner,
+.box-map-rowhead,
+.box-map-colhead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.box-map-corner,
+.box-map-rowhead {
+  flex: 0 0 1.5rem;
+}
+
+.box-map-colhead {
+  flex: 0 0 var(--slot);
+  height: 1.5rem;
+}
+
+.box-map-slot {
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  flex: 0 0 var(--slot);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: var(--slot);
+  overflow: hidden;
+  font-size: var(--text-xs);
+  line-height: 1.1;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px dashed var(--input-border);
+  border-radius: 50%;
+  cursor: default;
+  user-select: none;
+}
+
+.box-map-open .box-map-taken,
+.box-map-select .box-map-taken,
+.box-map-pick .box-map-slot {
+  cursor: pointer;
+}
+
+.box-map-name {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.box-map-pos {
+  color: var(--muted);
+  font-size: calc(10rem / 13);
+}
+
+.box-map-what {
+  max-width: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.box-map-compact .box-map-pos {
+  display: none;
+}
+
+.box-map-compact .box-map-what {
+  font-size: calc(9rem / 13);
+}
+
+.box-map-taken {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+
+.box-map-container {
+  border-radius: var(--radius-sm);
+}
+
+/* Checked out: its position kept for it, hatched so it doesn't read as color alone. */
+.box-map-out {
+  background: repeating-linear-gradient(135deg, var(--warning-bg) 0 4px, var(--surface) 4px 8px);
+  border: 1px solid var(--warning);
+}
+
+.box-map-hidden {
+  background: repeating-linear-gradient(45deg, var(--surface-3) 0 3px, var(--surface) 3px 6px);
+  border: 1px solid var(--border-strong);
+}
+
+.box-map-show-free {
+  background: var(--success-bg);
+  border: 2px dashed var(--success);
+}
+
+.box-map-selected {
+  color: var(--accent-text);
+  background: var(--accent);
+  border: 2px solid var(--accent);
+}
+
+.box-map-selected .box-map-pos {
+  color: inherit;
+}
+
+.box-map-selected::after {
+  content: "✓";
+  position: absolute;
+  top: 1px;
+  right: 6px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+/* A record's own position, on its page, and the one a scan's for: ringed, not just tinted. */
+.box-map-marked {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 5px var(--focus);
+  z-index: 1;
+}
+
+.box-map-slot:hover {
+  border-color: var(--text);
+}
+
+.box-map-slot:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  z-index: 2;
+}
+
+/* A reconciliation's findings, and where a receipt puts each: a fill, an edge, and a mark. */
+.box-map-finding::after {
+  position: absolute;
+  top: 1px;
+  right: 5px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.box-map-matched {
+  background: var(--success-bg);
+  border: 2px solid var(--success);
+}
+
+.box-map-matched.box-map-finding::after {
+  content: "✓";
+  color: var(--success);
+}
+
+.box-map-missing {
+  background: var(--error-bg);
+  border: 2px solid var(--error);
+}
+
+.box-map-missing.box-map-finding::after {
+  content: "✕";
+  color: var(--error);
+}
+
+.box-map-unexpected {
+  background: var(--warning-bg);
+  border: 2px solid var(--warning);
+}
+
+.box-map-unexpected.box-map-finding::after {
+  content: "!";
+  color: var(--warning);
+}
+
+.box-map-wrong_slot {
+  background: var(--wrong-slot-bg);
+  border: 2px solid var(--wrong-slot);
+}
+
+.box-map-wrong_slot.box-map-finding::after {
+  content: "↔";
+  color: var(--wrong-slot);
+}
+
+.box-map-empty {
+  background: var(--surface);
+  border: 1px solid var(--input-border);
+}
+
+.box-map-checked_out {
+  background: var(--warning-bg);
+  border: 1px solid var(--warning);
+}
+
+.box-map-suggested {
+  color: var(--accent-text);
+  background: var(--accent);
+  border: 2px solid var(--accent);
+}
+
+.box-map-suggested .box-map-pos {
+  color: inherit;
+}
+
+.box-map-suggested.box-map-finding::after {
+  content: "+";
+}
+
+.box-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.box-map-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.box-map-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.box-map-swatch.box-map-free {
+  border: 1px dashed var(--input-border);
+}
+
+@media (max-width: 36rem) {
+  :root {
+    --slot-size: 34px;
+  }
+}
+
+@media (forced-colors: active) {
+  .box-map-slot {
+    border: 1px solid CanvasText;
+  }
+
+  .box-map-selected,
+  .box-map-suggested {
+    forced-color-adjust: none;
+    color: HighlightText;
+    background: Highlight;
+  }
+
+  .box-map-marked {
+    outline: 3px solid Highlight;
+  }
+}

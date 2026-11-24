@@ -33,6 +33,7 @@ from playwright.sync_api import (
     Page,
     Playwright,
     Route,
+    expect,
     sync_playwright,
 )
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
@@ -326,7 +327,11 @@ def session_cookie(user: User) -> str:
 
 @pytest.fixture
 def open_as(
-    browser: Browser, server: Server, world: World, request: pytest.FixtureRequest
+    browser: Browser,
+    server: Server,
+    world: World,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[Any]:
     contexts: list[BrowserContext] = []
     since = len(server.output)
@@ -340,6 +345,21 @@ def open_as(
             timezone_id=timezone_id,
         )
         contexts.append(context)
+        close = context.close
+
+        def close_context(*, reason: str | None = None) -> None:
+            if context.is_closed():
+                return
+            # Tests also close their contexts directly. A parked request may never finish;
+            # retire its handler before closing disposes the request client used by fetch().
+            try:
+                for tab in context.pages:
+                    tab.unroute_all(behavior="ignoreErrors")
+                context.unroute_all(behavior="ignoreErrors")
+            finally:
+                close(reason=reason)
+
+        monkeypatch.setattr(context, "close", close_context)
         user = world.users[principal]
         # The server runs without HTTPS, so its cookie has no __Host- prefix.
         context.add_cookies(
@@ -361,6 +381,45 @@ def open_as(
     for context in contexts:
         context.close()
     quiet()
+
+
+@pytest.mark.parametrize("scope", ["page", "context"])
+def test_a_retired_route_cannot_fail_the_next_browser_context(open_as: Any, scope: str) -> None:
+    """Leave a real response body unread until the context that requested it has closed."""
+    first: Page = open_as("org_admin", "/admin/sign-in/")
+    following: Page = open_as("org_admin", "/admin/sign-in/")
+
+    def roles(route: Route) -> None:
+        response = route.fetch()
+        following.evaluate("document.documentElement.dataset.rolesFetched = 'yes'")
+        try:
+            following.locator("html[data-read-roles]").wait_for(timeout=10000)
+            route.fulfill(json=response.json())
+        finally:
+            following.evaluate("document.documentElement.dataset.handlerReturned = 'yes'")
+
+    url = "**/api/v1/lab-roles"
+    owner = first if scope == "page" else first.context
+    owner.route(url, roles)
+    first.evaluate("() => { void fetch('/api/v1/lab-roles') }")
+    following.locator("html[data-roles-fetched]").wait_for()
+    first.context.close()
+    following.evaluate("document.documentElement.dataset.readRoles = 'yes'")
+    following.locator("html[data-handler-returned]").wait_for()
+    assert following.title()
+
+
+def test_a_live_route_still_reports_its_handler_error(open_as: Any) -> None:
+    page: Page = open_as("org_admin", "/admin/sign-in/")
+
+    def broken(route: Route) -> None:
+        route.fulfill(json=[])
+        raise ValueError("broken lab roles fixture")
+
+    page.route("**/api/v1/lab-roles", broken)
+    with pytest.raises(ValueError, match="broken lab roles fixture"):
+        page.evaluate("fetch('/api/v1/lab-roles').then(r => r.json())")
+        page.title()
 
 
 def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
@@ -723,6 +782,9 @@ def test_a_server_pages_header_is_the_apps(
         assert heading["y"] + heading["height"] <= shown_at["y"], (heading, shown_at)
         assert shown_at["x"] + shown_at["width"] <= 390
     if path == "/teams/structural-biology/":
+        # The desktop sidebar still covers the left edge while it slides away on resize.
+        page.locator("#sidebar").wait_for(state="hidden")
+        page.evaluate(NEXT_FRAMES)
         about = page.get_by_role("button", name="About Structural Biology")
         about.click()
         toggletip = page.get_by_role("dialog", name="About Structural Biology")
@@ -791,6 +853,26 @@ def test_a_compute_admin_registers_and_changes_self_hosted_machines(
 
 
 NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <= 1"
+
+
+def test_a_plugin_preflight_form_can_recover_if_its_module_doesnt_load(open_as: Any) -> None:
+    page: Page = open_as("org_admin", "/admin/sign-in/")
+    chunk = frontend.manifest()["src/plugin-preflight.tsx"]["file"]
+    module_url = urllib.parse.urljoin(page.url, f"/static/app/{chunk}")
+    page.route(module_url, lambda route: route.abort())
+    page.get_by_role("navigation", name="Admin").get_by_role("link", name="Plugins").click()
+
+    preflight = page.get_by_role("region", name="Schema preflight")
+    alert = preflight.get_by_role("alert")
+    alert.get_by_text("The preflight form couldn’t load.").wait_for()
+    assert preflight.get_by_text("iki plugin preflight", exact=True).is_visible()
+    assert page.page_errors(filter="since-navigation") == []
+
+    page.unroute(module_url)
+    alert.get_by_role("button", name="Reload the page").click()
+    preflight.get_by_role("button", name="Run preflight").wait_for()
+    assert alert.is_hidden()
+    page.context.close()
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -886,6 +968,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     # A server page, in the same frame, and from it the app's.
     admin.get_by_role("link", name="Plugins").click()
     page.get_by_role("heading", name="Plugins", level=1).wait_for()
+    # The server draws the heading before the preflight form's module has loaded.
+    page.get_by_role("button", name="Run preflight").wait_for()
     admin = page.get_by_role("navigation", name="Admin")
     assert admin.get_by_role("link", name="Plugins").get_attribute("aria-current") == "page"
     assert page.get_by_role("navigation", name="Main").count() == 0
@@ -907,6 +991,10 @@ def test_the_admin_area_has_a_frame_of_its_own(
         page.goto(path)
         if heading:
             page.get_by_role("heading", name=heading, level=1).wait_for()
+            # The empty Workers list wraps to a second line at this width.
+            page.get_by_role("region", name="Workers", exact=True).get_by_text(
+                "No workers have registered yet."
+            ).wait_for()
         admin = page.get_by_role("navigation", name="Admin")
         admin.wait_for(state="hidden")
         menu = page.get_by_role("button", name="Menu", exact=True)
@@ -1286,6 +1374,184 @@ def test_a_projects_automation_and_tabs_fit_any_screen(
         box["x"] <= current["x"] and current["x"] + current["width"] <= box["x"] + box["width"] + 1
     )
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    page.context.close()
+
+
+@pytest.mark.parametrize("press", ["across", "after"])
+def test_a_projects_tabs_stay_put_as_their_counts_and_tabs_arrive(
+    open_as: Any, world: World, press: str
+) -> None:
+    """A tab is where it's first drawn. The Entities count and the installed types (which
+    say whether there's a Requests tab) are held back, then answered, while Runs is pressed
+    on a phone: "across" presses it as soon as it can be pressed, and lets go after they
+    arrive; "after" clicks, once they have, where Runs was first drawn. Either opens Runs.
+    It didn't: drawn before them, Runs moved right as they arrived, so a press that began
+    on it ended on Entities, and Firefox clicked their row instead, which opens nothing;
+    and a click where it had been opened Entities or Requests."""
+    from iki_server.entities import requests
+
+    # A service: it has a Requests tab, which it knows of once the types are answered.
+    requests.set_intake(
+        world.project,
+        types=["acme/protein.AssayRequest"],
+        from_registry=True,
+        sources=[],
+        by=world.users["admin"],
+    )
+    page: Page = open_as("admin", f"/projects/{world.project.slug}/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    held: list[Route] = []
+    counts = re.compile(rf"/api/v1/entities/counts\?project={world.project.id}$")
+    types = re.compile(r"/api/v1/entity-types$")
+    page.route(counts, lambda route: held.append(route))
+    page.route(types, lambda route: held.append(route))
+    page.reload()
+    deadline = time.monotonic() + 10
+    while len(held) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert len(held) == 2, [r.request.url for r in held]
+
+    def answer_them() -> None:
+        for route in held:
+            route.continue_()
+        page.unroute(counts)
+        page.unroute(types)
+
+    tabs = page.get_by_role("navigation", name="Project")
+    runs = tabs.get_by_role("link", name="Runs", exact=True)
+    page.evaluate(NEXT_FRAMES)
+    # What's in the tabs' place while they're held: as tall as the tabs, where they'll be.
+    holding = page.locator(".tabs.project-tabs:visible").bounding_box()
+    # Where Runs can first be pressed: now, if the tabs can be pressed before they're known.
+    early = runs.is_visible()
+    if not early:
+        answer_them()
+    runs.wait_for()
+    first = runs.bounding_box()
+    assert first
+    x, y = first["x"] + first["width"] / 2, first["y"] + first["height"] / 2
+
+    def answered() -> None:
+        tabs.get_by_role("link", name=re.compile(r"^Entities \d")).wait_for()
+        tabs.get_by_role("link", name=re.compile(r"^Requests\b")).wait_for()
+        page.evaluate(NEXT_FRAMES)
+
+    if press == "across":
+        page.mouse.move(x, y)
+        page.mouse.down()
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.up()
+    else:
+        if early:
+            answer_them()
+        answered()
+        settled = runs.bounding_box()
+        page.mouse.click(x, y)
+    try:
+        page.wait_for_url(re.compile(r"/runs/$"), timeout=5000)
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(
+            f"Pressed Runs at {(x, y)}, drawn at {first}, then at {settled}. " + what_happened(page)
+        ) from error
+    assert settled == first
+    assert holding == tabs.bounding_box()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
+    page.context.close()
+
+
+@pytest.mark.parametrize("press", ["across", "after"])
+def test_a_records_tabs_stay_put_as_its_links_and_apps_arrive(
+    open_as: Any, world: World, press: str
+) -> None:
+    """A record's tab is where it's first drawn, as a project's is. Its links, which its
+    Lineage tab counts, and the apps about it, each a tab of its own, are held back, then
+    answered, while Audit trail is pressed on a phone: "across" presses it as soon as it can
+    be pressed, and lets go after they arrive; "after" clicks, once they have, where it was
+    first drawn. Either opens its audit trail. It didn't: drawn before them, Audit trail
+    moved 31 px right as Lineage's count arrived, so a press near its start that began on
+    it ended on Lineage, and a click there opened Lineage."""
+    from iki_server.entities import services as entities
+
+    made = entities.create(
+        world.users["admin"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": "MLEICLKLVG", "name": "ABL1"},
+    )
+    hrid = Entity.objects.get(pk=made.entity.pk).hrid
+    page: Page = open_as("admin", f"/entities/{hrid}/")
+    page.set_viewport_size({"width": 390, "height": 844})
+    held: list[Route] = []
+    # By its HRID, or its ID if it's a registry entry's record.
+    graph = re.compile(r"/api/v1/entities/[^/?]+/graph\?up=1&down=1$")
+    apps = re.compile(r"/api/v1/entities/[^/?]+/apps$")
+    page.route(graph, lambda route: held.append(route))
+    page.route(apps, lambda route: held.append(route))
+    page.reload()
+    deadline = time.monotonic() + 10
+    while len(held) < 2 and time.monotonic() < deadline:
+        page.wait_for_timeout(50)
+    assert sorted(r.request.url.rsplit("/", 1)[-1] for r in held) == [
+        "apps",
+        "graph?up=1&down=1",
+    ], [r.request.url for r in held]
+
+    def answer_them() -> None:
+        for route in held:
+            route.continue_()
+        page.unroute(graph)
+        page.unroute(apps)
+
+    tabs = page.get_by_role("navigation", name="Record")
+    trail = tabs.get_by_role("link", name=re.compile(r"^Audit trail\b"))
+    page.evaluate(NEXT_FRAMES)
+    # What's in the tabs' place while they're held: as tall as the tabs, where they'll be.
+    holding = page.locator(".tabs.record-tabs:visible").bounding_box()
+    # Where Audit trail can first be pressed: now, if the tabs can be pressed before
+    # they're known.
+    early = trail.is_visible()
+    if not early:
+        answer_them()
+    trail.wait_for()
+    first = trail.bounding_box()
+    assert first
+    # Near its start, as a thumb reaching from the left takes it: its count makes it wide
+    # enough that its middle stays on it when it moves.
+    x, y = first["x"] + 8, first["y"] + first["height"] / 2
+
+    def answered() -> None:
+        tabs.get_by_role("link", name=re.compile(r"^Lineage\W+\d")).wait_for()
+        page.evaluate(NEXT_FRAMES)
+
+    if press == "across":
+        page.mouse.move(x, y)
+        page.mouse.down()
+        if early:
+            answer_them()
+        answered()
+        settled = trail.bounding_box()
+        page.mouse.up()
+    else:
+        if early:
+            answer_them()
+        answered()
+        settled = trail.bounding_box()
+        page.mouse.click(x, y)
+    try:
+        page.wait_for_url(re.compile(rf"/entities/{hrid}/audit/"), timeout=5000)
+    except PlaywrightTimeoutError as error:
+        raise AssertionError(
+            f"Pressed Audit trail at {(x, y)}, drawn at {first}, then at {settled}. "
+            + what_happened(page)
+        ) from error
+    assert settled == first
+    assert holding == tabs.bounding_box()
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    assert_clean(page)
     page.context.close()
 
 
@@ -2210,6 +2476,129 @@ def test_approving_a_run_an_ai_agent_asked_for(
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_declining_a_run_an_ai_agent_asked_for_says_why(
+    open_as: Any, world: World, color_scheme: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A decline is kept with its reason, which the agent that asked reads: the dialog
+    sends none until one is given, and a blank or only spaces isn't one."""
+    from iki_server.audit import log as audit
+    from iki_server.audit.models import Via
+    from iki_server.entities import services as entities
+    from iki_server.runs import approvals, catalog, services
+    from iki_server.runs.models import ActionRun, RunApproval, RunStatus
+
+    admin = world.users["admin"]
+    action = catalog.action("acme/protein.compute_properties")
+    assert action is not None
+    made = entities.create(
+        admin, "acme/protein.Protein", world.project, {"sequence": "MKV", "name": "ABL1"}
+    )
+    monkeypatch.setattr(approvals, "APPROVAL_TIERS", approvals.APPROVAL_TIERS | {"backend"})
+    with audit.using(audit.Context(via=Via.MCP, oauth_client="Claude")):
+        (run,) = services.launch_each(
+            admin, action, world.project, "protein", [made.entity.pk], {}, {}
+        )
+
+    page = open_as("admin", f"/runs/{run.hrid}/", color_scheme)
+    request = page.locator(
+        "section", has=page.get_by_role("heading", name="Waiting for your approval")
+    )
+    request.get_by_role("button", name="Decline").click()
+    dialog = page.get_by_role("alertdialog", name=f"Decline {run.hrid}?")
+    reason = dialog.get_by_role("textbox", name="Reason")
+    for blank in ("", "   "):
+        reason.fill(blank)
+        dialog.get_by_role("button", name="Decline").click()
+        expect(reason).to_have_attribute("aria-invalid", "true")
+        expect(dialog.get_by_text("Say why it’s declined.")).to_be_visible()
+        expect(reason).to_be_focused()
+    assert RunApproval.objects.get().state == "pending"
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    reason.fill("  Not on the shared tier this week ")
+    expect(reason).not_to_have_attribute("aria-invalid", "true")
+    with page.expect_response(lambda r: r.url.endswith("/decline")) as declined:
+        dialog.get_by_role("button", name="Decline").click()
+    assert declined.value.status == 200, declined.value.text()
+    assert declined.value.request.post_data_json == {"note": "Not on the shared tier this week"}
+    page.get_by_text(f"Declined {run.hrid}.").wait_for()
+    page.get_by_text(
+        re.compile(r"^Declined by .+: Not on the shared tier this week$")
+    ).first.wait_for()
+    decided = RunApproval.objects.get()
+    assert (decided.state, decided.note) == ("declined", "Not on the shared tier this week")
+    assert ActionRun.objects.get(pk=run.pk).status == RunStatus.DECLINED
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_org_admin_releases_a_legal_hold_saying_why(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Releasing a hold opens its row asking why, as the service requires: a blank reason
+    isn't sent, one of only spaces is refused with the reason kept to fix, and the reason
+    given is kept with the hold and in its audit event (ADR 0092)."""
+    from iki_server.audit.models import AuditEvent
+    from iki_server.org import holds
+    from iki_server.org.models import LegalHold
+
+    hold = holds.place(world.users["org_admin"], world.project, "Case 24-117")
+    page = open_as("org_admin", "/admin/legal-holds/", color_scheme)
+    held = page.get_by_role("list").filter(has_text="Case 24-117").get_by_role("listitem")
+    assert_clean(page)
+    held.get_by_role(
+        "link", name=f"Release the hold on {world.project.name} for Case 24-117…"
+    ).click()
+    form = page.get_by_role(
+        "form", name=f"Release the hold on {world.project.name} for Case 24-117"
+    )
+    reason = form.get_by_role("textbox", name="Reason for releasing it")
+
+    def checked(page: Page) -> None:
+        # Playwright's Firefox crashes in axe on this page while a release form, named by
+        # its heading, is open (see assert_clean); Chromium and WebKit check it.
+        assert_clean(page, axe_in_firefox=False)
+
+    expect(reason).to_be_focused()
+    release = form.get_by_role("button", name="Release the hold")
+    # The browser asks for one before sending.
+    release.click()
+    assert reason.evaluate("(e) => e.validity.valueMissing")
+    assert holds.is_held(world.project)
+    checked(page)
+
+    reason.fill("   ")
+    release.click()
+    summary = page.get_by_role("alert").filter(has_text="There’s a problem")
+    expect(summary).to_contain_text("Say why the legal hold is being released.")
+    expect(reason).to_have_attribute("aria-invalid", "true")
+    assert holds.is_held(world.project)
+    checked(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    checked(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    reason.fill("Case closed; counsel confirmed on 2026-11-20.")
+    release.click()
+    page.get_by_text(f"Released the hold on {world.project.name} for Case 24-117.").wait_for()
+    page.get_by_text("Case closed; counsel confirmed on 2026-11-20.").wait_for()
+    assert not holds.is_held(world.project)
+    hold = LegalHold.objects.get(pk=hold.pk)
+    assert (hold.released_by, hold.release_reason) == (
+        world.users["org_admin"],
+        "Case closed; counsel confirmed on 2026-11-20.",
+    )
+    event = AuditEvent.objects.get(action="legal_hold.released", target_id=hold.pk)
+    assert event.data["reason"] == "Case closed; counsel confirmed on 2026-11-20."
+    assert_clean(page)
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
 def test_following_lineage_from_entity_to_entity(
     open_as: Any, world: World, color_scheme: str
 ) -> None:
@@ -2483,13 +2872,18 @@ def test_a_duplex_in_its_viewer_shows_both_strands_and_says_what_is_selected(
     assert (gc, tm) == (62.5, 64.2)
     readout = page.get_by_text(re.compile("^Bases 1–24 selected"))
     readout.wait_for()
-    assert readout.text_content() == f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C"
+    assert readout.text_content() == (
+        f"Bases 1–24 selected: 24 bp · GC {gc:g}% · Tm {tm} °C (50 mM Na⁺)"
+    )
     assert_clean(page)
     page.get_by_role("button", name="Copy", exact=True).click()
     page.get_by_role("status").filter(has_text="Copied 24 bases.").wait_for()
     page.get_by_role("button", name="Copy reverse complement").click()
     page.get_by_role("status").filter(has_text="reverse complement").wait_for()
-    assert page.evaluate("window.__copied") == [first, sequences.reverse_complement(first)]
+    # Spelled out rather than taken from the plugin: what is under test is the button, and
+    # a reverse complement the test computed the same way the page does would prove nothing.
+    backwards = first.translate(str.maketrans("ACGT", "TGCA"))[::-1]
+    assert page.evaluate("window.__copied") == [first, backwards]
 
     # By keyboard: the whole of it, whose GC content is what compute_composition records.
     rows.focus()
@@ -3544,6 +3938,37 @@ def test_org_admins_who_arent_members_see_how_to_join(open_as: Any) -> None:
     assert_clean(page)
 
 
+def test_pressing_the_new_project_icon_while_saved_views_arrive(open_as: Any) -> None:
+    page = open_as("team_member", "/")
+    deferred: list[Route] = []
+    saved_views = "**/api/v1/saved-searches?*"
+    page.route(saved_views, lambda route: deferred.append(route))
+    with page.expect_request(saved_views):
+        page.reload()
+
+    sidebar = page.locator("iki-sidebar")
+    add = sidebar.get_by_role("link", name="New project", exact=True)
+    # Capture the native down target on the link: its icon has a separate hit-tested path.
+    add.evaluate("""link => link.addEventListener("pointerdown", event => {
+        window.pressedNewProjectPath = event.target.matches("svg path");
+    }, {once: true, capture: true})""")
+    add.locator("svg path").hover()
+    page.mouse.down()
+    assert page.evaluate("window.pressedNewProjectPath") is True
+    # The empty saved-views result refreshes the sidebar without moving the plus.
+    before = sidebar.evaluate_handle("sidebar => sidebar.data")
+    assert len(deferred) == 1
+    with page.expect_response(saved_views) as response:
+        deferred[0].continue_()
+    assert response.value.json() == []
+    page.wait_for_function(
+        "before => document.querySelector('iki-sidebar').data !== before", arg=before
+    )
+    page.mouse.up()
+    page.wait_for_url("**/projects/new/")
+    page.get_by_role("textbox", name="Project name").wait_for()
+
+
 def test_creating_a_project(open_as: Any, world: World) -> None:
     page = open_as("team_member", "/")
     page.get_by_role("link", name="New project").first.click()
@@ -3660,6 +4085,89 @@ def test_a_registrar_supersedes_an_entry_and_a_project_moves_its_record(
     record.get_by_role("heading", name=f"Registry entry {new}").wait_for()
     assert_clean(record)
     assert Entity.objects.get(pk=wrong.entity.pk).entry_id == right.entity.entry_id
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """A stock count is checked against the balance its counter saw (If-Balance-Revision).
+    When someone draws meanwhile, nothing is recorded: the dialog says who drew what, keeps
+    the count, and records it only once it's recounted against the new balance."""
+    from decimal import Decimal
+
+    from iki_server.amounts import services as amounts
+    from iki_server.amounts.models import Amount, Movement
+    from iki_server.entities import services as entities
+
+    made: Any = entities.create(
+        world.users["admin"],
+        "acme/protein.Sample",
+        world.project,
+        {"label": "S-1"},
+        amount={"value": 100, "unit": "uL"},
+    )
+    sample = made.entity
+    seen = Amount.objects.get(entity=sample).updated_at.isoformat()
+    page = open_as("admin", f"/entities/{sample.hrid}/", color_scheme)
+    volume = page.get_by_role("region", name="Volume")
+    volume.get_by_role("button", name="Adjust").click()
+    dialog = page.get_by_role("alertdialog", name=f"Adjust {sample.hrid}’s volume")
+    expect(dialog).to_contain_text("It had 100 uL when this count began.")
+    count = dialog.get_by_role("textbox", name="It has")
+    count.fill("95")
+    dialog.get_by_role("textbox", name="Reason").fill("Monthly count")
+    assert_clean(page)
+
+    amounts.draw(
+        world.users["editor"],
+        Entity.objects.get(pk=sample.pk),
+        amounts.Given(Decimal(20), "uL"),
+        reason="Western blot",
+    )
+    with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as refused:
+        dialog.get_by_role("button", name="Adjust").click()
+    assert refused.value.status == 409, refused.value.text()
+    assert refused.value.request.headers["if-balance-revision"] == seen
+    stale = dialog.get_by_role("alert")
+    expect(stale).to_contain_text(
+        "Your count wasn’t recorded: the volume changed after you started counting."
+    )
+    expect(stale).to_contain_text("It has 80 uL now, not the 100 uL you started from.")
+    since = stale.get_by_role("list", name="Changed since you started")
+    expect(since.get_by_role("listitem")).to_have_count(1)
+    expect(since.get_by_role("listitem")).to_contain_text(
+        re.compile(r"^Drawn: \u221220 uL, by Editor, .+ \(“Western blot”\)\.$")
+    )
+    expect(count).to_have_value("95")
+    expect(dialog.get_by_role("button", name="Adjust")).to_have_attribute("aria-disabled", "true")
+    # Chromium and WebKit log the refusal's 409 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    assert Amount.objects.get(entity=sample).value == Decimal(80)
+
+    stale.get_by_role("button", name="Recount").click()
+    expect(stale).to_be_hidden()
+    expect(dialog).to_contain_text("It had 80 uL when this count began.")
+    expect(count).to_be_focused()
+    expect(count).to_have_value("95")
+    count.fill("78")
+    with page.expect_response(lambda r: r.url.endswith("/amount/adjust")) as recorded:
+        dialog.get_by_role("button", name="Adjust").click()
+    assert recorded.value.status == 200, recorded.value.text()
+    assert recorded.value.request.headers["if-balance-revision"] != seen
+    page.get_by_text(f"{sample.hrid} has 78 uL now.").wait_for()
+    # Playwright's Firefox crashes in axe on the record's page once the count is recorded
+    # (see assert_clean); the dialog's states above are checked in all three.
+    assert_clean(page, axe_in_firefox=False)
+    assert Amount.objects.get(entity=sample).value == Decimal(78)
+    assert list(
+        Movement.objects.filter(entity=sample).order_by("created_at").values_list("kind", "reason")
+    ) == [("recorded", ""), ("drawn", "Western blot"), ("adjusted", "Monthly count")]
 
 
 def test_an_org_admin_adds_a_registry_and_a_new_project_goes_in_it(
@@ -4366,6 +4874,50 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     page.context.close()
 
 
+def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world: World) -> None:
+    """A page's reads stop once a navigation away begins, not only at pagehide: WebKit
+    refuses a fetch the departing document starts in between, and raised an access-control
+    error for it. Here the starters arrive just after the Admin heads elsewhere, and the
+    card they draw would ask for every project."""
+    page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
+    _starter_api(page)
+    card = page.get_by_role("region", name="Dose-response plate assay")
+    card.wait_for()
+    every_project = re.compile(r"/api/v1/projects\?limit=100$")
+    starters = re.compile(r"/api/v1/starters\?project=")
+    elsewhere = re.compile(r"/account/apps/$")
+    held: dict[str, Route] = {}
+
+    def hold(name: str) -> Any:
+        return lambda route: held.__setitem__(name, route)
+
+    # The starters wait for the test, ahead of the answers _starter_api gives.
+    page.route(starters, hold("starters"))
+    with page.expect_request(starters):
+        page.reload()
+    assert not card.is_visible()
+    asked: list[str] = []
+    page.on("request", lambda r: asked.append(r.url) if every_project.search(r.url) else None)
+
+    # The next page waits too, so the old one stays while the starters come.
+    page.route(elsewhere, hold("elsewhere"))
+    with page.expect_request(elsewhere):
+        page.evaluate("setTimeout(() => location.assign('/account/apps/'))")
+    # Chromium keeps the old page's loads until the next page arrives, so it draws the card
+    # from the starters and its effects start the card's reads. Firefox and WebKit cut the
+    # old page's loads off as the navigation begins, and a query would try one again after a
+    # second's wait: WebKit reports each read begun meanwhile.
+    with contextlib.suppress(Exception):
+        held["starters"].fallback()
+    page.wait_for_timeout(2500)
+    held["elsewhere"].continue_()
+    page.wait_for_url(elsewhere)
+    shown(page)
+    assert asked == []
+    assert_clean(page)
+    page.context.close()
+
+
 def test_a_guard_refuses_a_state_and_says_why(open_as: Any, world: World) -> None:
     """A guard (ADR 0128): whoever submitted a batch for review doesn't approve it. The
     state's control says so in the guard's words, and won't set it."""
@@ -4511,6 +5063,96 @@ def test_people_take_work_name_who_has_it_next_and_reassign_it(open_as: Any, wor
     page.context.close()
 
 
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_a_reassignment_of_a_changed_selection_assigns_nothing_until_refreshed(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    """Reassigning sends each picked record's revision as the grid showed it. When one
+    changed meanwhile, the server refuses the whole batch (412): the dialog names it, keeps
+    what was chosen, and reassigns all of them once the selection is refreshed."""
+    from iki_server.entities import services as entities
+    from iki_server.org import permissions
+    from iki_server.org.models import LabRoleGrant
+
+    grant = world.project.memberships.get(user=world.users["viewer"])
+    LabRoleGrant.objects.create(
+        membership=grant, role="acme/protein.analyst", granted_by=world.users["admin"]
+    )
+    permissions.forget(world.users["viewer"])
+    admin = world.users["admin"]
+    made = [
+        cast(
+            "Entity",
+            entities.create(admin, "acme/protein.Sample", world.project, {"label": label}).entity,
+        )
+        for label in ("Lot 11", "Lot 12")
+    ]
+    page = open_as(
+        "admin", "/projects/kinase-atlas/entities/?type=acme/protein.Sample", color_scheme
+    )
+    grid = page.get_by_role("table", name=re.compile(r"^2 samples$"))
+    for record in made:
+        grid.get_by_role("checkbox", name=f"Select {record.hrid}").check()
+    page.get_by_role("button", name="Reassign").click()
+    dialog = page.get_by_role("alertdialog", name="Reassign 2 samples")
+    dialog.get_by_role("combobox", name="Field").select_option("Analyst")
+    dialog.get_by_role("combobox", name="Analyst").fill("view")
+    page.get_by_role("option").filter(has_text="viewer@example.com").click()
+    page.get_by_role("listbox").wait_for(state="hidden")
+    dialog.get_by_role("textbox", name="Reason").fill("Editor is away")
+
+    changed = made[1]
+    entities.update(admin, changed, {"label": "Lot 12b"}, expected_revision=1, reason="Relabelled")
+    with page.expect_response(lambda r: r.url.endswith("/entities/assign")) as refused:
+        dialog.get_by_role("button", name="Reassign").click()
+    assert refused.value.status == 412, refused.value.text()
+    assert refused.value.request.post_data_json["expected_revisions"] == {
+        str(made[0].pk): 1,
+        str(changed.pk): 1,
+    }
+    alert = dialog.get_by_role("alert")
+    expect(alert).to_contain_text(
+        "Nothing was reassigned: one of these records changed after you selected it."
+    )
+    expect(
+        alert.get_by_role("list", name="Changed since you selected them").get_by_role("listitem")
+    ).to_have_text(f"{changed.hrid}: revision 1 when you selected it, revision 2 now.")
+    expect(dialog.get_by_role("button", name="Reassign")).to_have_attribute("aria-disabled", "true")
+    for record in made:
+        saved = type(record)._default_manager.get(pk=record.pk)
+        assert entities.current_values(saved).get("analyst") is None
+    # Chromium and WebKit log the refusal's 412 as a failed load: that, and nothing else.
+    PAGE_ERRORS[page][:] = [
+        e for e in PAGE_ERRORS[page] if "status of 412 (Precondition Failed)" not in e
+    ]
+    assert_clean(page)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
+    assert_clean(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+
+    alert.get_by_role("button", name="Refresh the selection").click()
+    refreshed = dialog.get_by_role("status")
+    expect(refreshed).to_have_text(
+        "The selection is up to date. Check the record that changed before you reassign: "
+        f"{changed.hrid}."
+    )
+    expect(refreshed).to_be_focused()
+    expect(dialog.get_by_role("textbox", name="Reason")).to_have_value("Editor is away")
+    assert_clean(page)
+    with page.expect_response(lambda r: r.url.endswith("/entities/assign")) as accepted:
+        dialog.get_by_role("button", name="Reassign").click()
+    assert accepted.value.status == 200, accepted.value.text()
+    assert accepted.value.request.post_data_json["expected_revisions"] == {
+        str(made[0].pk): 1,
+        str(changed.pk): 2,
+    }
+    page.get_by_role("alertdialog", name="Reassigned 2 of 2").wait_for()
+    for record in made:
+        saved = type(record)._default_manager.get(pk=record.pk)
+        assert str(entities.current_values(saved)["analyst"]) == str(world.users["viewer"].pk)
+
+
 def test_signing_a_record_signs_in_again_and_shows_the_signature(
     open_as: Any, world: World, fake_idp: Any
 ) -> None:
@@ -4620,14 +5262,23 @@ def test_an_ended_session_signs_in_again_and_comes_back(open_as: Any, world: Wor
 
 def test_the_apps_files_are_cached_for_ever(open_as: Any) -> None:
     page = open_as("admin", "/projects/")
-    script = page.locator("script[type=module]").first.get_attribute("src")
-    stylesheet, react_aria = (
-        link.get_attribute("href") for link in page.locator("link[rel=stylesheet]").all()
+    script = page.locator('script[type=module][src^="/static/app/assets/main-"]').get_attribute(
+        "src"
     )
     assert script and re.fullmatch(r"/static/app/assets/main-[\w-]+\.js", script)
-    assert stylesheet and re.fullmatch(r"/static/iki/iki\.[0-9a-f]{12}\.css", stylesheet)
-    assert react_aria and re.fullmatch(r"/static/iki/react-aria\.[0-9a-f]{12}\.css", react_aria)
-    for url in (script, stylesheet, react_aria):
+
+    assets = [script]
+    styles = set()
+    for link in page.locator("link[rel=stylesheet]").all():
+        href = link.get_attribute("href")
+        assert href
+        name = re.fullmatch(r"/static/iki/([\w-]+)\.[0-9a-f]{12}\.css", href)
+        assert name, href
+        styles.add(name[1])
+        assets.append(href)
+    assert {"iki", "react-aria", "tokens", "fonts", "button"} <= styles
+
+    for url in assets:
         response = page.request.get(url)
         assert response.ok, url
         assert "immutable" in response.headers["cache-control"], url

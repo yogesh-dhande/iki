@@ -48,6 +48,7 @@ from iki_spec.model import (
     Action,
     Amount,
     Component,
+    DrawTarget,
     EntityType,
     Environment,
     Export,
@@ -57,10 +58,12 @@ from iki_spec.model import (
     Guard,
     LabRole,
     Plugin,
+    ReportExport,
     RequestSpec,
     ResultSpec,
     RowRole,
     State,
+    StockCatalogue,
     Storage,
     Track,
     Trigger,
@@ -763,6 +766,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             n: tuple(lab_role_name(role, plugin) for role in policy["by"])
             for n, policy in (body.get("draw_purposes") or {}).items()
         },
+        draw_target=_draw_target(body.get("draw_target"), plugin),
         notifications={
             n: TypeNotification.from_manifest(n, x, plugin=plugin)
             for n, x in (body.get("notifications") or {}).items()
@@ -778,6 +782,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         else None,
         amount=_amount(body.get("amount"), plugin),
         draws_received=body.get("draws_received"),
+        stock_catalogue=StockCatalogue.read(body["stock_catalogue"], plugin)
+        if body.get("stock_catalogue")
+        else None,
         storage=_storage(body.get("storage"), plugin),
         refines={
             name: {
@@ -788,6 +795,21 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             for name, body_refines in (body.get("refines") or {}).items()
             if isinstance(body_refines, dict)
         },
+    )
+
+
+def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
+    if data is None:
+        return None
+    return DrawTarget(
+        from_field=data["from"],
+        source=data["source"],
+        state_field=data["state"]["field"],
+        state=data["state"]["is"],
+        by=tuple(lab_role_name(role, plugin) for role in data["by"]),
+        ready=data["ready"],
+        amount=data["amount"],
+        stored=data.get("stored", False),
     )
 
 
@@ -805,6 +827,7 @@ def _amount(data: Any, plugin: str) -> Amount | None:  # noqa: ANN401 - YAML
         aliquots_of=aliquots.get("of"),
         material=data.get("material"),
         follows=tuple(data.get("follows") or ()),
+        whole_units=data.get("whole_units", False),
     )
 
 
@@ -895,7 +918,9 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
-def _export(body: dict[str, Any]) -> Export:
+def _export(body: dict[str, Any]) -> Export | ReportExport:
+    if body["export"] == "signed_report":
+        return ReportExport(body["export"], body["report"], body["review"], tuple(body["issued"]))
     return Export(
         export=body["export"],
         sequence=body["sequence"],
@@ -961,6 +986,9 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
         self.types.update(self.plugin.types)
+        self.stock_lots = {
+            t.stock_catalogue.lots.type: t for t in self.types.values() if t.stock_catalogue
+        }
         #: Lab roles it can require: its own, and its dependencies' (ADR 0116).
         self.roles: dict[str, LabRole] = {}
         for other in others.values():
@@ -1356,8 +1384,118 @@ class _Semantics:
             self.result(entity_type, source, every)
         self.amount(entity_type, source, every)
         self.draws_received(entity_type, source, every)
+        self.stock_catalogue(entity_type, source)
+        if entity_type.draw_target is not None:
+            self.draw_target(entity_type.draw_target, source, names)
         if entity_type.storage is not None:
             self.storage(entity_type, source, every)
+
+    def stock_catalogue(self, entity_type: EntityType, source: Document) -> None:
+        # Validate a lot in its own plugin too. A later plugin can introduce new
+        # stock lot subtypes after the catalogue that declared their ledger contract.
+        chain = [entity_type, *self.ancestors(entity_type)]
+        if not entity_type.abstract:
+            for ancestor in chain:
+                catalogue = self.stock_lots.get(ancestor.qualified_name)
+                if catalogue is None or catalogue.stock_catalogue is None:
+                    continue
+                spec = catalogue.stock_catalogue
+                unit_field = self.all_fields(catalogue).get(spec.unit)
+                amount = next((t.amount for t in chain if t.amount), None)
+                if (
+                    amount is None
+                    or amount.material != spec.lots.item
+                    or (unit_field and amount.unit not in unit_field[0].values)
+                ):
+                    self.add(
+                        "stock-catalogue-lot",
+                        f"{entity_type.name} needs a ledger in a catalogue unit "
+                        "with its item as material.",
+                        source,
+                        ("amount",) if entity_type.amount else ("name",),
+                    )
+        config = entity_type.stock_catalogue
+        if config is None:
+            return
+        at: Path = ("stock_catalogue",)
+        for index, role in enumerate(config.notify):
+            self.lab_role(role, source, (*at, "notify", index))
+
+        def field_of(owner: EntityType, name: str, kinds: set[str], path: Path) -> Field | None:
+            found = self.all_fields(owner).get(name)
+            if (
+                found
+                and not found[0].removed
+                and found[0].type in kinds
+                and found[0].registry is None
+            ):
+                return found[0]
+            self.add(
+                "stock-catalogue-field",
+                f"`{name}` on {owner.name} must be a record field of type "
+                f"{' or '.join(sorted(kinds))}.",
+                source,
+                (*at, *path),
+            )
+            return None
+
+        field_of(entity_type, config.name, {"string", "text"}, ("name",))
+        unit = field_of(entity_type, config.unit, {"enum"}, ("unit",))
+        if unit and not (unit.required and unit.immutable):
+            self.add(
+                "stock-catalogue-unit",
+                "The stock unit must be required and immutable.",
+                source,
+                (*at, "unit"),
+            )
+        threshold = field_of(entity_type, config.threshold, {"int", "float"}, ("threshold",))
+        if threshold and (not threshold.required or threshold.min is None or threshold.min < 0):
+            self.add(
+                "stock-catalogue-threshold",
+                "The low-stock threshold must be required and have a nonnegative minimum.",
+                source,
+                (*at, "threshold"),
+            )
+        for key, mapping in (("lots", config.lots), ("orders", config.orders)):
+            owner = self.reference(mapping.type, source, (*at, key, "type"))
+            if owner is None:
+                continue
+            item = field_of(owner, mapping.item, {"ref"}, (key, "item"))
+            if item and (
+                item.to != (entity_type.qualified_name,) or not item.required or not item.immutable
+            ):
+                self.add(
+                    "stock-catalogue-item",
+                    "The item reference must be required, immutable and point to this catalogue.",
+                    source,
+                    (*at, key, "item"),
+                )
+            if key == "orders":
+                ordered = field_of(owner, config.orders.ordered, {"int"}, (key, "ordered"))
+                received = field_of(owner, config.orders.received, {"int"}, (key, "received"))
+                if ordered and (
+                    not ordered.required
+                    or not ordered.immutable
+                    or not ordered.min
+                    or ordered.min < 1
+                ):
+                    self.add(
+                        "stock-catalogue-order",
+                        "Ordered packs must be required, immutable and positive.",
+                        source,
+                        (*at, key, "ordered"),
+                    )
+                if received and (not received.computed or received.min is None or received.min < 0):
+                    self.add(
+                        "stock-catalogue-order",
+                        "Received packs must be computed and nonnegative.",
+                        source,
+                        (*at, key, "received"),
+                    )
+                field_of(owner, config.orders.reference, {"string", "text"}, (key, "reference"))
+            else:
+                field_of(owner, config.lots.number, {"string", "text"}, (key, "number"))
+                field_of(owner, config.lots.expiry, {"date"}, (key, "expiry"))
 
     def draws_received(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -1395,6 +1533,40 @@ class _Semantics:
                 source,
                 ("draws_received",) if entity_type.draws_received else ("name",),
             )
+
+    def draw_target(self, target: DrawTarget, source: Document, fields: dict[str, Field]) -> None:
+        """A target opts in using an assigned container and amount, both fixed at creation."""
+        for key, name, kind in (
+            ("from", target.from_field, "ref"),
+            ("source", target.source, "ref"),
+            ("amount", target.amount, "quantity"),
+        ):
+            field = fields.get(name)
+            if field is None or field.type != kind or not field.immutable or not field.required:
+                self.add(
+                    "invalid-draw-target",
+                    f"`{name}` must be a required, immutable {kind} field.",
+                    source,
+                    ("draw_target", key),
+                )
+        field = fields.get(target.state_field)
+        if field is None or field.type != "state" or target.state not in field.live_states:
+            self.add(
+                "invalid-draw-target",
+                "Name a live state of the draw target.",
+                source,
+                ("draw_target", "state"),
+            )
+        prepared = fields.get(target.ready)
+        if prepared is None or not prepared.computed:
+            self.add(
+                "invalid-draw-target",
+                f"`{target.ready}` must be a computed field set when preparing the record.",
+                source,
+                ("draw_target", "ready"),
+            )
+        for index, role in enumerate(target.by):
+            self.lab_role(role, source, ("draw_target", "by", index))
 
     # Where material is kept (ADR 0180) --------------------------------------------------------
 
@@ -2647,6 +2819,9 @@ class _Semantics:
                     hint="Give each export once: its files are offered on the record's page.",
                 )
             seen.add(export.export)
+            if isinstance(export, ReportExport):
+                self.report_export(export, source, path, fields)
+                continue
             for role, wanted, kinds in self._export_roles():
                 name = getattr(export, role)
                 if not name:
@@ -2664,6 +2839,42 @@ class _Semantics:
                         source,
                         (*path, role),
                     )
+
+    def report_export(
+        self, export: ReportExport, source: Document, path: Path, fields: dict[str, Field]
+    ) -> None:
+        report, review = fields.get(export.report), fields.get(export.review)
+        if report is None or report.type != "json":
+            self.add(
+                "export-field",
+                f"`{export.report}` must be a JSON field for a signed report.",
+                source,
+                (*path, "report"),
+            )
+        if review is None or review.type != "state":
+            self.add(
+                "export-field",
+                f"`{export.review}` must be a state field for a signed report.",
+                source,
+                (*path, "review"),
+            )
+            return
+        for index, name in enumerate(export.issued):
+            state = review.states.get(name)
+            if (
+                state is None
+                or state.removed
+                or not state.signatures
+                or not state.locks
+                or state.on_edit
+            ):
+                self.add(
+                    "export-state",
+                    f"`{name}` must be a signed locking state of `{export.review}` with no "
+                    "edit destination.",
+                    source,
+                    (*path, "issued", index),
+                )
 
     def _export_roles(self) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
         return (
@@ -2694,7 +2905,7 @@ class _Semantics:
         declared = next((t.exports for t in [target, *self.ancestors(target)] if t.exports), ())
         fields = {n: f for n, (f, _) in self.all_fields(target).items()}
         return any(
-            e.export == "sequence"
+            isinstance(e, Export)
             and (f := fields.get(e.sequence)) is not None
             and f.type == "string"
             and f.format in NUCLEIC_FORMATS
@@ -2985,6 +3196,14 @@ class _Semantics:
                     "creating an entity couldn't fill them in.",
                     source,
                     (*path, "required"),
+                    key=True,
+                )
+            if f.reason_on_clear and (f.computed or f.immutable or f.registry or f.removed):
+                self.add(
+                    "clear-reason-field",
+                    "Only an editable record field can require a reason when it is cleared.",
+                    source,
+                    (*path, "reason_on_clear"),
                     key=True,
                 )
             if f.indexed:

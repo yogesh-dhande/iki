@@ -70,6 +70,7 @@ from psycopg import sql
 from iki_server.audit import log as audit
 from iki_server.core import db_roles
 from iki_server.entities import constraints, registry, targets, unique
+from iki_server.entities import holds as rule_holds
 from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
 from iki_server.graph import edges
 from iki_server.org import holds
@@ -207,6 +208,7 @@ def migrate_deployment(
     _migrate_iki(stdout, installed)
     try:
         with audit.cli(), transaction.atomic():
+            rule_holds.lock_rule_deploy(shared=False)
             if purging:
                 report.purged = _purge(purging, archive, applied)
             to_reverse = [k for k in unknown if k[0] in installed]

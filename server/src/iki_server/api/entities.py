@@ -33,7 +33,7 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
-from pydantic import ConfigDict, ValidationError
+from pydantic import ConfigDict, ValidationError, field_serializer
 
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
@@ -76,6 +76,8 @@ from iki_server.entities.models import (
     RevisionKind,
     RuleBreach,
     RuleHold,
+    RuleHoldOccurrence,
+    RulesChecked,
 )
 from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
 from iki_server.notifications import declared
@@ -91,6 +93,7 @@ from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
     EntityType,
+    ReportExport,
     Rule,
     State,
     Track,
@@ -296,6 +299,9 @@ class FieldOut(Schema):
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
     computed: bool = Field(description="Set only by actions.")
+    reason_on_clear: bool | None = Field(
+        None, description="True when clearing this Boolean requires a reason."
+    )
     unique: bool = Field(
         description="No two entities in a project have the same value, such as a LIMS record's ID."
     )
@@ -435,8 +441,11 @@ ViewerOut = Annotated[
 ]
 
 
+ExportFormat = Literal["genbank", "fasta", "signed-report-html", "signed-report-json"]
+
+
 class FileFormatOut(Schema):
-    format: Literal["genbank", "fasta"] = Field(description="What `/entities/{ref}/export` takes.")
+    format: ExportFormat = Field(description="What `/entities/{ref}/export` takes.")
     label: str = Field(description="Its name, such as GenBank.")
     extension: str = Field(description="Its file name's, such as gb.")
     media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
@@ -456,6 +465,14 @@ class FileExportOut(Schema):
         description="A json field of features (type, start, end, name, strand) it adds "
         "along the sequence, or null. A record page draws them as a map."
     )
+
+
+class SignedReportExportOut(Schema):
+    export: Literal["signed_report"]
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    report: str = Field(description="The JSON field holding the report.")
+    review: str = Field(description="The state field whose signed transitions issue the report.")
+    issued: list[str] = Field(description="States in which a signed report has been issued.")
 
 
 class TypeNotificationOut(Schema):
@@ -511,6 +528,9 @@ class ResultTypeOut(Schema):
 
 class TypeAmountOut(Schema):
     unit: str = Field(description="The UCUM unit it's kept in, such as uL, mg or {vial}.")
+    whole_units: bool = Field(
+        False, description="Whether quantities must be whole numbers in this ledger unit."
+    )
     label: str = Field(description="What it's called, such as Volume.")
     description: str | None
     display_unit: str | None = Field(description="The unit it's shown in, if not `unit`.")
@@ -590,7 +610,9 @@ class EntityTypeOut(Schema):
         description="Iki's own viewers on its entities' pages, each a tab: its own, or its "
         "nearest parent's."
     )
-    exports: list[FileExportOut] = Field(
+    exports: list[
+        Annotated[FileExportOut | SignedReportExportOut, Field(discriminator="export")]
+    ] = Field(
         default_factory=list,
         description="The files Iki writes of its records (ADR 0171), from "
         "`/entities/{ref}/export`: its own, or its nearest parent's.",
@@ -803,6 +825,24 @@ class EntryRefOut(Schema):
     )
 
 
+class HoldOccurrenceOut(Schema):
+    """Evidence of one save that broke the rule and was kept under a hold (ADR 0127)."""
+
+    id: UUID
+    label: str
+    message: str | None = Field(description="What the save was told, when kept in the evidence.")
+    held_by: UserOut | None = Field(description="Who saved it, when known.")
+    agent: str | None = Field(None, description="The app or agent that saved it for them.")
+    held_at: datetime | None = Field(description="When the save was held, when known.")
+    reason: str | None = Field(description="Why it was saved anyway, when recorded.")
+    revision: int = Field(description="The record revision this evidence is about.")
+    entry_id: UUID | None = Field(None, description="The registry entry read with the record.")
+    entry_revision: int | None = Field(None, description="The registry entry revision, if known.")
+    legacy_gap: bool = Field(
+        False, description="Earlier repeated failures have incomplete evidence."
+    )
+
+
 class HoldOut(Schema):
     """A rule holding the record for review (ADR 0127): a save broke it, and was kept
     with a reason."""
@@ -810,7 +850,7 @@ class HoldOut(Schema):
     id: UUID
     rule: str
     label: str
-    message: str = Field(description="What the save that held it was told.")
+    message: str | None = Field(description="What the opening save was told, when known.")
     reviewed_by: list[str] = Field(description="The lab roles whose holders may review it.")
     held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
     agent: str | None = Field(None, description="The app or agent that saved it for them.")
@@ -818,23 +858,32 @@ class HoldOut(Schema):
     reason: str = Field(description="Why it was saved anyway.")
     revision: int = Field(description="The revision that held it.")
     last_revision: int = Field(description="The latest revision that broke the rule again.")
+    occurrences: list[HoldOccurrenceOut] = Field(
+        description="The observations that broke the rule, in the order they were saved."
+    )
+    review_version: str = Field(description="The version of the hold and record you reviewed.")
     can_review: bool = Field(description="You may review it now.")
     why_not: str | None = Field(None, description="Why you may not, when you may not.")
 
 
 class HeldOut(Schema):
-    """A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
-    was kept, and its review, once someone has reviewed it."""
+    """Evidence of a rule that a revision broke (ADR 0127), with the hold's review."""
 
     id: UUID
+    occurrence_id: UUID
     rule: str
     label: str
-    message: str = Field(description="What the save that held it was told.")
-    held_by: UserOut | None = Field(description="Who saved it; null for a deploy's check.")
+    message: str | None = Field(description="What the save was told, when kept in the evidence.")
+    held_by: UserOut | None = Field(description="Who saved it, when known.")
     agent: str | None = Field(None, description="The app or agent that saved it for them.")
-    held_at: datetime
-    reason: str = Field(description="Why it was saved anyway.")
-    revision: int = Field(description="The revision that held it.")
+    held_at: datetime | None
+    reason: str | None = Field(description="Why it was saved anyway, when recorded.")
+    revision: int = Field(description="The record revision this evidence is about.")
+    entry_id: UUID | None = Field(None, description="The registry entry read with the record.")
+    entry_revision: int | None = Field(None, description="The registry entry revision, if known.")
+    legacy_gap: bool = Field(
+        False, description="Earlier repeated failures have incomplete evidence."
+    )
     last_revision: int = Field(description="The latest revision that broke the rule again.")
     reviewer: UserOut | None = Field(description="Who reviewed it; null while it's held.")
     reviewed_at: datetime | None
@@ -892,7 +941,16 @@ class AmountOut(Schema):
         description="The state field whose state holds it, such as quarantine: none of it is "
         "drawn, transferred or split off until that changes. None if nothing holds it."
     )
-    updated_at: datetime
+    updated_at: datetime = Field(
+        description="The balance revision. Send this exact string in If-Balance-Revision "
+        "when recording an absolute count.",
+        json_schema_extra={"format": "date-time"},
+    )
+
+    @field_serializer("updated_at")
+    def serialize_updated_at(self, value: datetime) -> str:
+        # Django's JSON encoder rounds datetimes to milliseconds.
+        return value.isoformat()
 
 
 class EntityOut(Schema):
@@ -974,6 +1032,9 @@ class HoldReviewIn(Schema):
     reason: str = Field(
         min_length=1, max_length=2000, description="Why the record may stand as it is."
     )
+    review_version: str = Field(
+        pattern=r"^[0-9a-f]{64}$", description="The `review_version` from the hold you read."
+    )
 
 
 class CreatedOut(EntityOut):
@@ -1015,7 +1076,8 @@ class EntityPatch(Schema):
         "",
         max_length=2000,
         description="Why the values changed. Required for an edit that returns a state "
-        "field to its declared `on_edit` destination.",
+        "field to its declared `on_edit` destination or clears a true Boolean with "
+        "`reason_on_clear`.",
     )
     hold_reason: str | None = Field(
         None,
@@ -1262,6 +1324,7 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
+        "reason_on_clear": f.reason_on_clear or None,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
         "display_unit": f.display_unit,
@@ -1380,8 +1443,11 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
             {
                 "export": e.export,
                 "formats": [asdict(f) for f in exports.FORMATS[e.export]],
-                "sequence": e.sequence,
-                "features": e.features or None,
+                **(
+                    {"report": e.report, "review": e.review, "issued": e.issued}
+                    if isinstance(e, ReportExport)
+                    else {"sequence": e.sequence, "features": e.features or None}
+                ),
             }
             for e in registry.exports(entity_type)
         ],
@@ -1474,6 +1540,7 @@ def _type_amount(type_name: str) -> dict[str, Any] | None:
     if wanted is None:
         return None
     return {
+        "whole_units": wanted.whole_units,
         "unit": wanted.unit,
         "label": wanted.label,
         "description": wanted.description,
@@ -1704,6 +1771,10 @@ def _gone(user: User, ref: str) -> None:
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    # Read these versions before the values. A concurrent change may show newer values
+    # alongside an older version, which the review or signature then refuses.
+    entries = _entries_of(user, entities)
+    held, breaches = _holds_of(user, entities, entries)
     values = services.current_values_of(entities)
     projects = {
         p.pk: p
@@ -1715,11 +1786,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     asked = requests.summaries(user, entities)
     refs, files = _referenced(user, entities, values)
     frozen = {t for t in {e.type for e in entities} if services.frozen(shape(t)) is not None}
-    entries = _entries_of(user, entities)
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
-    held, breaches = _holds_of(user, entities)
     belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
     from iki_server.storage import services as storage
@@ -1833,7 +1902,7 @@ def _projects_of(user: User, entities: list[Entity]) -> dict[Any, list[Any]]:
 
 
 def _holds_of(
-    user: User, entities: list[Entity]
+    user: User, entities: list[Entity], entries: dict[Any, dict[str, Any]]
 ) -> tuple[dict[Any, list[dict[str, Any]]], dict[Any, list[dict[str, Any]]]]:
     """The open holds and the breaches of these records (ADR 0127), as ``HoldOut`` and
     ``BreachOut``, by record."""
@@ -1843,20 +1912,27 @@ def _holds_of(
     breaches: dict[Any, list[dict[str, Any]]] = defaultdict(list)
     if not ids:
         return held, breaches
-    rows = (
+    rows = list(
         RuleHold.objects.filter(entity_id__in=ids, reviewed_at__isnull=True)
         .select_related("held_by", "held_agent")
         .order_by("held_at")
     )
+    generations = RulesChecked.objects.in_bulk({by_id[row.entity_id].type for row in rows})
+    occurrences: dict[UUID, list[RuleHoldOccurrence]] = defaultdict(list)
+    for occurrence in RuleHoldOccurrence.objects.filter(hold__in=rows).select_related(
+        "held_by", "held_agent"
+    ):
+        occurrences[occurrence.hold_id].append(occurrence)
     for row in rows:
         entity = by_id[row.entity_id]
-        refusal = holds.why_not_review(user, entity, row)
+        evidence = occurrences[row.pk]
+        refusal = holds.why_not_review(user, entity, row, evidence)
         held[row.entity_id].append(
             {
                 "id": row.pk,
                 "rule": row.rule,
                 "label": row.label,
-                "message": row.message,
+                "message": evidence[0].message if evidence else row.message,
                 "reviewed_by": list(row.roles),
                 "held_by": row.held_by,
                 "agent": row.held_agent.client_name if row.held_agent is not None else None,
@@ -1864,6 +1940,14 @@ def _holds_of(
                 "reason": row.reason,
                 "revision": row.revision,
                 "last_revision": row.last_revision,
+                "occurrences": [_hold_occurrence(occurrence) for occurrence in evidence],
+                "review_version": holds.review_version(
+                    row,
+                    entity.revision,
+                    entries.get(entity.entry_id, {}).get("revision"),
+                    generations.get(entity.type),
+                    evidence,
+                ),
                 "can_review": refusal is None,
                 "why_not": refusal[0] if refusal is not None else None,
             }
@@ -1878,6 +1962,22 @@ def _holds_of(
             }
         )
     return held, breaches
+
+
+def _hold_occurrence(occurrence: RuleHoldOccurrence) -> dict[str, Any]:
+    return {
+        "id": occurrence.pk,
+        "label": occurrence.label,
+        "message": occurrence.message,
+        "held_by": occurrence.held_by,
+        "agent": occurrence.held_agent.client_name if occurrence.held_agent is not None else None,
+        "held_at": occurrence.held_at,
+        "reason": occurrence.reason,
+        "revision": occurrence.revision,
+        "entry_id": occurrence.entry_id,
+        "entry_revision": occurrence.entry_revision,
+        "legacy_gap": occurrence.legacy_gap_ended_at is not None,
+    }
 
 
 def _can_correct(
@@ -2663,18 +2763,24 @@ def get_entity(
     ``project`` to say whose, when you read more than one."""
     me = caller(request)
     entity = _find(me, ref, project)
-    # The clock or a role grant can change draw or correction eligibility without a revision.
+    # A draw guard, registry entry or hold review can change what a reader sees without
+    # changing the record's write ETag.
     if (
         if_none_match is not None
         and _etag(entity) in _etags(if_none_match)
+        and entity.entry_id is None
         and not entity.locked
         and not eligibility.draw_guards(entity.type)
         and not eligibility.purpose_roles(entity.type)
+        and not RuleHold.objects.filter(entity=entity).exists()
     ):
         unchanged = HttpResponse(status=304)  # no body, as RFC 9110 says
         unchanged["ETag"] = _etag(entity)
         return unchanged
-    return _one(me, entity, response)
+    read = _one(me, entity, response)
+    if entity.entry_id is not None or read["holds"]:
+        response["Cache-Control"] = "no-store"
+    return read
 
 
 def _etags(header: str) -> set[str]:
@@ -2837,6 +2943,13 @@ def patch_entity(
             "Correcting this record needs a reason.",
             errors=[{"pointer": "#/reason", "detail": " ".join(error.errors["reason"])}],
         ) from None
+    except services.ClearReasonRequired as error:
+        raise Problem(
+            422,
+            "Clearing this flag needs a reason.",
+            code="clear_reason_required",
+            errors=[{"pointer": "#/reason", "detail": " ".join(error.errors["reason"])}],
+        ) from None
     except states.GuardRefused as refused:
         raise Problem(
             409, str(refused), code="guard_refused", extensions={"guard": refused.guard}
@@ -2927,21 +3040,37 @@ def review_hold(
     hold_id: UUID,
     payload: HoldReviewIn,
     response: HttpResponse,
+    if_match: Annotated[str | None, HeaderEx(alias="If-Match")] = None,
     project: UUID | None = None,
 ) -> dict[str, Any]:
-    """Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
-    cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
-    an app or agent's token, with one of the rule's lab roles in the record's project, and
-    not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
-    record back within the rule doesn't clear a hold; only a review does."""
+    """Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
+    record's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the
+    record, hold or deployed rule changed, it answers 412 and you need to read it again.
+    It takes a person with one of the rule's lab roles in the record's project, other than
+    whoever saved what held it: `holds[].can_review` says whether you may."""
     me = caller(request)
     entity = _find(me, ref, project)
+    expected = _expected(if_match)
     try:
-        holds.review(me, entity, hold_id, payload.reason)
+        holds.review(
+            me,
+            entity,
+            hold_id,
+            payload.reason,
+            expected_revision=expected,
+            expected_version=payload.review_version,
+        )
     except RuleHold.DoesNotExist:
         raise Problem(404, "It has no such hold.") from None
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
+    except holds.ReviewChanged as changed:
+        raise Problem(
+            412,
+            "The record, hold or its rules changed. Read the record again before reviewing.",
+            code="hold_changed",
+            headers={"ETag": f'"{changed.current}"'},
+        ) from None
     except Invalid as error:
         raise Problem(
             422,
@@ -3078,32 +3207,26 @@ def project_changes(
 
 
 def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
-    """The holds each of a record's revisions opened (ADR 0127), as ``HeldOut``, by
-    revision number: reviewed or not, as its history keeps them."""
+    """The hold evidence of each revision (ADR 0127), as ``HeldOut``, with the hold's
+    review when it is available."""
     numbers = [r.number for r in revisions if r.entity_id == entity.pk]
     if not numbers or entity.registry_id is not None:
         return {}
     out: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for row in (
-        RuleHold.objects.filter(entity_id=entity.pk, revision__in=numbers)
-        .select_related("held_by", "held_agent", "reviewed_by")
-        .order_by("held_at", "pk")
-    ):
-        out[row.revision].append(
+    for occurrence in RuleHoldOccurrence.objects.filter(
+        hold__entity=entity, revision__in=numbers
+    ).select_related("hold__reviewed_by", "held_by", "held_agent"):
+        hold = occurrence.hold
+        out[occurrence.revision].append(
             {
-                "id": row.pk,
-                "rule": row.rule,
-                "label": row.label,
-                "message": row.message,
-                "held_by": row.held_by,
-                "agent": row.held_agent.client_name if row.held_agent is not None else None,
-                "held_at": row.held_at,
-                "reason": row.reason,
-                "revision": row.revision,
-                "last_revision": row.last_revision,
-                "reviewer": row.reviewed_by,
-                "reviewed_at": row.reviewed_at,
-                "review_reason": row.review_reason,
+                **_hold_occurrence(occurrence),
+                "id": hold.pk,
+                "occurrence_id": occurrence.pk,
+                "rule": hold.rule,
+                "last_revision": hold.last_revision,
+                "reviewer": hold.reviewed_by,
+                "reviewed_at": hold.reviewed_at,
+                "review_reason": hold.review_reason,
             }
         )
     return out
@@ -3155,10 +3278,7 @@ def get_revision(
 
 
 class ExportParams(Schema):
-    format: Literal["genbank", "fasta"] = Field(
-        description="Which file: `genbank` (with its features) or `fasta`, as its type's "
-        "`exports` list them."
-    )
+    format: ExportFormat = Field(description="Which file, as its type's `exports` list them.")
     revision: int | None = Field(
         None, ge=1, description="Which revision, as it was then. Its latest if left out."
     )
@@ -3175,7 +3295,12 @@ class ExportParams(Schema):
         "responses": {
             200: {
                 "description": "The file, as an attachment named for the record.",
-                "content": {"chemical/seq-na-genbank": {}, "chemical/seq-na-fasta": {}},
+                "content": {
+                    "chemical/seq-na-genbank": {},
+                    "chemical/seq-na-fasta": {},
+                    "text/html": {},
+                    "application/json": {},
+                },
             }
         }
     },

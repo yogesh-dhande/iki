@@ -48,8 +48,18 @@ export interface Problem {
     rule?: string;
     hold?: boolean;
   }[];
+  /** Readable alternatives when a scan needs an explicit choice (`scan_ambiguous`). */
+  candidates?: Schemas["ScanCandidateOut"][];
+  /** Zero-based index of the scan that needs a choice in a submitted rack. */
+  index?: number;
+  /** Destination slot when an unregistered tube may be an earlier observation. */
+  position?: string;
+  /** Previous slots offered by a `count_unregistered_choice` response. */
+  observations?: { line_id: string; line_revision: number; position: string }[];
   /** For `guard_refused`: the plugin's guard (ADR 0128) that refused the state. */
   guard?: string;
+  /** On a storage observation conflict, the affected lines and their current revisions. */
+  affected_lines?: { line_id: string; line_revision: number }[];
   /** For `inputs_outside_project`: the inputs that aren't in the run's project. */
   entities?: { id: string; hrid: string; type: string }[];
   /**
@@ -60,6 +70,8 @@ export interface Problem {
   /** For `outside_api_not_approved`: the APIs, and Org Admins who can approve them. */
   apis?: string[];
   approvers?: string[];
+  /** For a bulk reassignment's `stale` (412): each record that changed since it was read. */
+  stale?: { id: string; hrid: string; expected_revision: number; current_revision: number }[];
   request_id?: string;
 }
 

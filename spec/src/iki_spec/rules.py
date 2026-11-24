@@ -268,6 +268,14 @@ def guard_variables(
             },
         },
         "holds": {"type": "list", "items": {"type": "string", "label": "A rule"}},
+        "draws": {
+            "type": "list",
+            "items": {
+                "type": "object",
+                "label": "A recorded draw into this record",
+                "fields": {"on": dict(_TIMESTAMP)},
+            },
+        },
         "signatures": {
             "type": "list",
             "items": {

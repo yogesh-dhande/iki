@@ -74,9 +74,12 @@ FAILURE_WINDOW = dt.timedelta(minutes=15)
 
 
 class Stale(Exception):  # noqa: N818 - reads as "the revision was stale"
-    def __init__(self, current: int) -> None:
+    def __init__(self, current: int, *, entry_revision: int | None = None) -> None:
         self.current = current
-        super().__init__(f"It's at revision {current} now.")
+        if entry_revision is not None:
+            super().__init__(f"Its registry entry is at revision {entry_revision} now.")
+        else:
+            super().__init__(f"It’s at revision {current} now.")
 
 
 # --- Who may sign -------------------------------------------------------------------------------
@@ -194,6 +197,18 @@ def _entry_revisions(entities: Iterable[Entity]) -> dict[Any, int | None]:
     entries = {e.entry_id for e in entities if e.entry_id is not None}
     found = dict(Entity.objects.filter(pk__in=entries).values_list("pk", "revision"))
     return {e.pk: found.get(e.entry_id) if e.entry_id else None for e in entities}
+
+
+def _locked_entry_revision(entity: Entity) -> int | None:
+    """Keep the entry's shared facts fixed through the signing transaction."""
+    if entity.entry_id is None:
+        return None
+    revision: int = (
+        Entity.objects.select_for_update(no_key=True)
+        .values_list("revision", flat=True)
+        .get(pk=entity.entry_id)
+    )
+    return revision
 
 
 def _qualifies(user: User, owner: Project, roles: tuple[str, ...]) -> bool:
@@ -386,6 +401,7 @@ def begin(
     *,
     index: int | None,
     expected_revision: int,
+    expected_entry_revision: int | None,
     reason: str,
     return_to: str,
     acknowledge: bool,
@@ -393,8 +409,8 @@ def begin(
     """Starts giving one of the signatures setting state field ``field`` to ``state``
     needs, on the record, for the person in this browser session: they sign in again
     next. Raises :class:`PermissionDenied` when they may not give it, :class:`Refused`
-    when the record can't take it now, :class:`Invalid` for a missing reason or
-    acknowledgment, and :class:`Stale`."""
+    when the record can't take it now, :class:`Invalid` for missing signing input,
+    and :class:`Stale` when a reviewed revision is no longer current."""
     if not session_key:
         raise PermissionDenied(why_cant_sign(user) or "Signing needs a browser session.")
     cant = why_cant_sign(user)
@@ -406,9 +422,18 @@ def begin(
             .select_related("owner_project")
             .get(pk=entity.pk)
         )
-        change = changes.find(locked, field, state)
         if locked.revision != expected_revision:
             raise Stale(locked.revision)
+        entry_revision = _locked_entry_revision(locked)
+        if entry_revision != expected_entry_revision:
+            if entry_revision is None:
+                raise Invalid({"entry_revision": ["This record has no registry entry."]})
+            if expected_entry_revision is None:
+                raise Invalid(
+                    {"entry_revision": ["Send the registry entry revision you reviewed."]}
+                )
+            raise Stale(locked.revision, entry_revision=entry_revision)
+        change = changes.find(locked, field, state)
         given = pending([locked]).get(locked.pk, [])
         found = slots(user, locked, change, given=given, cant=cant)
         if index is None:
@@ -447,7 +472,8 @@ def begin(
             session=_session_hash(session_key),
             entity=locked,
             revision=locked.revision,
-            entry_revision=_entry_revisions([locked])[locked.pk],
+            entry_revision=entry_revision,
+            entry_revision_reviewed=entry_revision is not None,
             field=change.field,
             state=change.to,
             index=slot.index,
@@ -470,6 +496,7 @@ def begin(
                 "index": slot.index,
                 "meaning": slot.wanted.meaning,
                 "revision": locked.revision,
+                "entry_revision": entry_revision,
             },
         )
     return signing
@@ -616,6 +643,11 @@ def _check_evidence(s: Signing, evidence: Evidence) -> None:
 def _sign(s: Signing, evidence: Evidence) -> Signature:
     """Checks it all again and signs, under the record's lock; the last of the signatures
     a change needs makes it."""
+    if s.entry_revision is not None and not s.entry_revision_reviewed:
+        raise Failure(
+            "changed",
+            "Read the record again and start a new signing to confirm the registry entry revision.",
+        )
     user = s.user
     seen = history_seen()
     locked = (
@@ -623,16 +655,16 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
         .select_related("owner_project")
         .get(pk=s.entity_id)
     )
-    try:
-        change = changes.find(locked, s.field, s.state)
-    except Refused as refused:
-        raise Failure("refused", str(refused)) from None
-    if locked.revision != s.revision or _entry_revisions([locked])[locked.pk] != s.entry_revision:
+    if locked.revision != s.revision or _locked_entry_revision(locked) != s.entry_revision:
         raise Failure(
             "changed",
             f"{locked.hrid} changed while you were signing in, so it didn’t sign what you "
             "read. Read it again, then sign.",
         )
+    try:
+        change = changes.find(locked, s.field, s.state)
+    except Refused as refused:
+        raise Failure("refused", str(refused)) from None
     given = pending([locked]).get(locked.pk, [])
     slot = slots(user, locked, change, given=given, cant=why_cant_sign(user))[s.index]
     if slot.why_not is not None:
@@ -962,8 +994,12 @@ def withdraw(user: User, signature: Signature, reason: str) -> Withdrawal:
                 "The state it signed for was set with it, so it stays: setting another state "
                 "reverses it."
             )
-        if locked.revision != signature.revision:
+        if locked.revision != signature.revision or (
+            _locked_entry_revision(locked) != signature.entry_revision
+        ):
             raise Refused(f"It lapsed when {locked.hrid} changed: it counts for nothing now.")
+        if not reason:
+            raise Invalid({"reason": ["Withdrawing a signature needs a reason."]})
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in at most {MAX_REASON} characters."]})
         withdrawal = Withdrawal.objects.create(signature=signature, by=user, reason=reason)

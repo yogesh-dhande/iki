@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: equipment_service
+label: Service schedule
+description: Calibration readiness, scheduled work and service evidence for an instrument.
+module: ./components/equipment.js
+element: iki-equipment-service
+entities:
+  type: EquipmentService
+  fields:
+    [
+      instrument,
+      kind,
+      due_on,
+      procedure,
+      performed_at,
+      performed_by,
+      outcome,
+      valid_until,
+      suspect_since,
+      review,
+      report,
+    ]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: iki/example_lims.Instrument
+    search:
+      where: { field: instrument, op: eq, value: "{{ entity }}" }
+      sort: due_on
+events: { run: { actions: [schedule_service, record_instrument_use, trace_failed_calibrations] } }

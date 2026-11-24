@@ -11,7 +11,11 @@
  *    what's wrong with each by its column.
  * 5. The import: one run writes them all, or none, and links to its records.
  *
- * Each step is a component of its own, which a plugin's page can use too.
+ * Each step is a component of its own, which a plugin's page can use too. Each choice is
+ * saved as it's made, one after another from the revision the one before left
+ * (useImportSaves): what the page shows is what's saved, with what's on its way. If the
+ * import changed elsewhere, nothing is overwritten: the page shows what's saved and what
+ * the person chose that wasn't, to save on it or let go.
  */
 
 import {
@@ -23,13 +27,13 @@ import {
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useId, useRef, useState, type ReactNode, type SubmitEvent } from "react";
 
-import { fieldErrors, problemOf, useApiMutation, type Project } from "../api";
+import { problemOf, useApiMutation, type Project } from "../api";
 import { formatSize, inSentence, typesQuery, type EntityType } from "../entities";
 import { FilePicker } from "../file-picker";
 import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
 import {
-  changeImport,
+  CHOICES,
   columnName,
   columnsWith,
   commitImport,
@@ -37,22 +41,26 @@ import {
   DATE_ORDERS,
   DECIMALS,
   discardImport,
+  edit,
   importable,
   importQuery,
+  isStale,
   OUTCOMES,
   parseRanges,
   plural,
-  previewImport,
   rangesText,
   rowsQuery,
   saveMapping,
+  shownWith,
   SPREADSHEETS,
   startImport,
   STATES,
+  useImportSaves,
   WORKBOOK_ACCEPT,
   WORKBOOK_TYPES,
+  type Choose,
+  type ImportSaves,
   type Outcome,
-  type SheetChange,
   type SheetColumn,
   type SheetField,
   type SheetImport,
@@ -356,10 +364,12 @@ function RowNumber({
   const id = useId();
   const [text, setText] = useState(value == null ? "" : String(value));
   const [shown, setShown] = useState(value);
-  // The import's value, when it changes: another choice may have moved it.
+  // The import's value, when it changes: another choice may have moved it. Not over what
+  // the person is typing, though: that's theirs until they leave the box or press Enter.
   if (shown !== value) {
+    const typing = text !== (shown == null ? "" : String(shown));
     setShown(value);
-    setText(value == null ? "" : String(value));
+    if (!typing) setText(value == null ? "" : String(value));
   }
   const commit = () => {
     const trimmed = text.trim();
@@ -419,9 +429,11 @@ function RowsToSkip({
   const [text, setText] = useState(said);
   const [shown, setShown] = useState(said);
   const [wrong, setWrong] = useState<string>();
+  // As for a row number: what the person is typing stays theirs.
   if (shown !== said) {
+    const typing = text !== shown;
     setShown(said);
-    setText(said);
+    if (!typing) setText(said);
   }
   const commit = () => {
     try {
@@ -468,13 +480,13 @@ function RowsToSkip({
 export function ChooseRows({
   made,
   change,
-  problem,
+  errors = {},
 }: {
   made: SheetImport;
-  change: (choice: SheetChange) => void;
-  problem?: ReturnType<typeof problemOf> | undefined;
+  change: Choose;
+  /** What's wrong with the choices made, by where. */
+  errors?: Record<string, string>;
 }) {
-  const errors = fieldErrors(problem);
   const sheet = made.sheets.find((s) => s.name === made.sheet);
   const id = useId();
   return (
@@ -487,7 +499,7 @@ export function ChooseRows({
           label="Sheet"
           value={made.sheet}
           onChange={(value) => {
-            change({ sheet: value });
+            change(`Sheet: ${value}`, { sheet: value });
           }}
           error={errors["sheet"]}
           options={made.sheets.map((s) => ({
@@ -510,7 +522,7 @@ export function ChooseRows({
           help="Its columns’ names. 0 when it has none."
           error={errors["header_row"]}
           onCommit={(value) => {
-            change({ header_row: value ?? 0 });
+            change(`Header row: ${value ? String(value) : "none"}`, { header_row: value ?? 0 });
           }}
         />
         <RowNumber
@@ -518,7 +530,7 @@ export function ChooseRows({
           value={made.first_row}
           error={errors["first_row"]}
           onCommit={(value) => {
-            if (value != null) change({ first_row: value });
+            if (value != null) change(`First row: ${String(value)}`, { first_row: value });
           }}
         />
         <RowNumber
@@ -528,7 +540,9 @@ export function ChooseRows({
           help="Empty for the sheet’s last."
           error={errors["last_row"]}
           onCommit={(value) => {
-            change({ last_row: value ?? 0 });
+            change(`Last row: ${value ? String(value) : "the sheet’s last"}`, {
+              last_row: value ?? 0,
+            });
           }}
         />
       </div>
@@ -536,7 +550,7 @@ export function ChooseRows({
         value={made.skip}
         error={errors["skip"]}
         onCommit={(ranges) => {
-          change({ skip: ranges });
+          change(`Rows to leave out: ${rangesText(ranges) || "none"}`, { skip: ranges });
         }}
       />
       <SheetSample made={made} />
@@ -613,20 +627,25 @@ function fieldLabel(f: SheetField): string {
 export function MapColumns({
   made,
   change,
-  problem,
+  errors = {},
+  keep,
 }: {
   made: SheetImport;
-  change: (choice: SheetChange) => void;
-  problem?: ReturnType<typeof problemOf> | undefined;
+  change: Choose;
+  /** What's wrong with the choices made, by where. */
+  errors?: Record<string, string>;
+  /** Saves the mapping to the project, after the changes on their way. */
+  keep?: Keep;
 }) {
   const id = useId();
-  const errors = fieldErrors(problem);
   const fields = new Map(made.fields.map((f) => [f.name, f]));
   const mappable = made.fields.filter((f) => !f.why_not);
   const unmappable = made.fields.filter((f) => f.why_not);
   const taken = new Set(made.columns.flatMap((c) => (c.field ? [c.field] : [])));
-  const set = (index: number, update: Parameters<typeof columnsWith>[2]) => {
-    change({ columns: columnsWith(made.columns, index, update) });
+  // Made of the columns as they're saved when it's sent: another column's choice on its
+  // way isn't undone.
+  const set: SetColumn = (index, update, said) => {
+    change(said, (latest) => ({ columns: columnsWith(latest.columns, index, update) }));
   };
   return (
     <section className="card sheet-card" aria-labelledby={`${id}-title`}>
@@ -639,7 +658,7 @@ export function MapColumns({
           : "Iki matched columns to fields by their headers. "}
         Check each, and choose Not imported for those to leave out.
       </p>
-      <SavedMappings made={made} change={change} />
+      <SavedMappings made={made} change={change} keep={keep} />
       {made.warnings.length ? (
         <div className="alert alert-warning" role="status">
           <ul className="plain-list">
@@ -688,7 +707,12 @@ export function MapColumns({
                       aria-invalid={wrong ? "true" : undefined}
                       aria-describedby={wrong ? `${id}-error-${String(at)}` : undefined}
                       onChange={(event) => {
-                        set(column.index, { field: event.target.value || null });
+                        const chosen = fields.get(event.target.value);
+                        set(
+                          column.index,
+                          { field: event.target.value || null },
+                          `${columnName(column)}: ${chosen ? chosen.label : "not imported"}`,
+                        );
                       }}
                     >
                       <option value="">Not imported</option>
@@ -743,6 +767,11 @@ export function MapColumns({
   );
 }
 
+type SetColumn = (index: number, update: Parameters<typeof columnsWith>[2], said: string) => void;
+
+/** Saves the import's mapping to its project, as `name`, or as `replace`. */
+export type Keep = (name: string, replace?: string) => Promise<unknown>;
+
 const SEPARATORS = [
   { value: ";", label: "Separated by ;" },
   { value: ",", label: "Separated by ," },
@@ -761,7 +790,7 @@ function ColumnOptions({
   made: SheetImport;
   column: SheetColumn;
   field: SheetField;
-  set: (index: number, update: Parameters<typeof columnsWith>[2]) => void;
+  set: SetColumn;
 }) {
   const id = useId();
   const type = f.item_type ?? f.type;
@@ -776,7 +805,11 @@ function ColumnOptions({
         label={`Unit of ${columnName(column)}’s cells`}
         value={column.unit ?? unit}
         onChange={(value) => {
-          set(column.index, { unit: value === unit ? null : value });
+          set(
+            column.index,
+            { unit: value === unit ? null : value },
+            `${columnName(column)}: in ${value}`,
+          );
         }}
         options={units.map((u) => ({
           value: u,
@@ -793,7 +826,11 @@ function ColumnOptions({
         label={`How ${columnName(column)}’s items are separated`}
         value={(column.separator || ";") as ";"}
         onChange={(value) => {
-          set(column.index, { separator: value === ";" ? null : value });
+          set(
+            column.index,
+            { separator: value === ";" ? null : value },
+            `${columnName(column)}: separated by ${value}`,
+          );
         }}
         options={SEPARATORS}
       />,
@@ -812,7 +849,13 @@ function ColumnOptions({
           defaultValue={column.time_zone ?? ""}
           onBlur={(event) => {
             const zone = event.target.value.trim() || null;
-            if (zone !== column.time_zone) set(column.index, { time_zone: zone });
+            if (zone !== column.time_zone) {
+              set(
+                column.index,
+                { time_zone: zone },
+                `${columnName(column)}: ${zone ? `in ${zone}` : "no time zone"}`,
+              );
+            }
           }}
         />
       </span>,
@@ -846,7 +889,7 @@ function Spellings({
   made: SheetImport;
   column: SheetColumn;
   field: SheetField;
-  set: (index: number, update: Parameters<typeof columnsWith>[2]) => void;
+  set: SetColumn;
 }) {
   const choices = f.type === "bool" || f.item_type === "bool" ? ["true", "false"] : f.choices;
   const plain = (s: string) => s.trim().toLowerCase();
@@ -873,7 +916,11 @@ function Spellings({
                 Object.entries(column.values).filter(([spelled]) => spelled !== cell),
               );
               if (value) next[cell] = value;
-              set(column.index, { values: Object.keys(next).length ? next : null });
+              set(
+                column.index,
+                { values: Object.keys(next).length ? next : null },
+                `${columnName(column)}: “${cell}” is ${value || "not said"}`,
+              );
             }}
             options={[
               { value: "", label: `“${cell}” is…` },
@@ -890,16 +937,21 @@ function Spellings({
 function SavedMappings({
   made,
   change,
+  keep,
 }: {
   made: SheetImport;
-  change: (choice: SheetChange) => void;
+  change: Choose;
+  keep?: Keep | undefined;
 }) {
   const client = useQueryClient();
   const { say } = useMessages();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState(made.mapping?.name ?? "");
   const save = useApiMutation(
-    (vars: { name: string; replace?: string }) => saveMapping(made.id, vars.name, vars.replace),
+    (vars: { name: string; replace?: string }) =>
+      keep
+        ? keep(vars.name, vars.replace)
+        : saveMapping(made.id, made.revision, vars.name, vars.replace),
     [[SPREADSHEETS, made.id]],
   );
   const others = made.mappings.filter((m) => m.id !== made.mapping?.id);
@@ -910,7 +962,8 @@ function SavedMappings({
           label="Map by a saved mapping"
           value=""
           onChange={(value) => {
-            if (value) change({ mapping: value });
+            const saved = others.find((m) => m.id === value);
+            if (saved) change(`Mapped by “${saved.name}”`, { mapping: saved.id });
           }}
           options={[
             { value: "", label: "Choose one…" },
@@ -971,22 +1024,16 @@ function SavedMappings({
 
 /** How the sheet writes numbers and dates, and its own cells as they read so: those that
  * read two ways are flagged, never guessed. */
-export function NumbersAndDates({
-  made,
-  change,
-}: {
-  made: SheetImport;
-  change: (choice: SheetChange) => void;
-}) {
+export function NumbersAndDates({ made, change }: { made: SheetImport; change: Choose }) {
   const id = useId();
   const columns = new Map(made.columns.map((c) => [c.index, c]));
   const numbers = made.readings.some((r) => r.kind === "numbers");
   const dates = made.readings.some((r) => r.kind === "dates");
   const ambiguous = made.readings.flatMap((r) => r.cells).filter((c) => c.ambiguous).length;
   const locale = made.locale;
-  // The locale is said whole: what's changed, and the rest as it was.
-  const say = (next: Partial<SheetLocaleChange>) => {
-    change({ locale: { ...locale, ...next } as SheetLocaleChange });
+  // The locale is said whole: what's changed, and the rest as it's saved when it's sent.
+  const say = (next: Partial<SheetLocaleChange>, said: string) => {
+    change(said, (latest) => ({ locale: { ...latest.locale, ...next } as SheetLocaleChange }));
   };
   return (
     <section className="card sheet-card" aria-labelledby={`${id}-title`}>
@@ -1012,7 +1059,10 @@ export function NumbersAndDates({
           label="Decimal mark"
           value={(locale.decimal ?? "") as (typeof DECIMALS)[number]["value"]}
           onChange={(value) => {
-            say({ decimal: value || null });
+            say(
+              { decimal: value || null },
+              `Decimal mark: ${DECIMALS.find((d) => d.value === value)?.label ?? value}`,
+            );
           }}
           options={DECIMALS}
         />
@@ -1020,7 +1070,10 @@ export function NumbersAndDates({
           label="Dates written as numbers"
           value={(locale.dates ?? "") as (typeof DATE_ORDERS)[number]["value"]}
           onChange={(value) => {
-            say({ dates: value || null });
+            say(
+              { dates: value || null },
+              `Dates written as numbers: ${DATE_ORDERS.find((d) => d.value === value)?.label ?? value}`,
+            );
           }}
           options={DATE_ORDERS}
         />
@@ -1029,7 +1082,12 @@ export function NumbersAndDates({
           help="As when a date column lost its format: 46023 is 1 January 2026."
           checked={locale.serial_dates}
           onChange={(checked) => {
-            say({ serial_dates: checked });
+            say(
+              { serial_dates: checked },
+              checked
+                ? "Plain numbers in date columns are Excel serial dates"
+                : "Plain numbers in date columns aren’t Excel serial dates",
+            );
           }}
         />
       </div>
@@ -1292,8 +1350,10 @@ export function CommitImport({
   const typeLabel = type ? inSentence(type.label_plural) : made.type;
   const [leaveOut, setLeaveOut] = useState(false);
   const [reason, setReason] = useState("");
+  const client = useQueryClient();
+  // What was checked is what's imported: the revision whose preview the person read.
   const commit = useApiMutation(
-    () => commitImport(made.id, { skip_problems: leaveOut, reason: reason.trim() }),
+    () => commitImport(made.id, made.revision, { skip_problems: leaveOut, reason: reason.trim() }),
     [[SPREADSHEETS, made.id]],
   );
   const blocked = (problems > 0 && !leaveOut) || rows === 0;
@@ -1307,6 +1367,11 @@ export function CommitImport({
         commit.mutate(undefined, {
           onSuccess: (next) => {
             onCommitted?.(next);
+          },
+          onError: (error) => {
+            // It changed elsewhere since it was checked: show what it is now.
+            if (isStale(error))
+              void client.invalidateQueries({ queryKey: [SPREADSHEETS, made.id] });
           },
         });
       }}
@@ -1530,6 +1595,66 @@ export function SpreadsheetImportStart() {
   );
 }
 
+/** The import changed elsewhere, in another tab or session: the page shows what's saved
+ * now, and what the person chose that wasn't saved, to save on it or let go. */
+export function ImportMoved({ made, saves }: { made: SheetImport; saves: ImportSaves }) {
+  const moved = saves.conflict;
+  if (!moved) return null;
+  const held = saves.unsaved.filter((u) => u.state === "held" && u.edit.keys.length);
+  const kept = held.filter((u) => !u.clashes);
+  const clashed = held.filter((u) => u.clashes);
+  const changed = moved.changed.map((k) => CHOICES[k]);
+  return (
+    <div className="alert alert-warning sheet-moved" role="alert">
+      <p>
+        <strong>{made.file.name}’s import changed in another tab or session</strong> since this page
+        last saved it, so nothing more was saved here. The page shows what’s saved now
+        {changed.length ? `, with its ${listed(changed).toLowerCase()} as changed there` : ""}.
+      </p>
+      {kept.length ? (
+        <>
+          <p>Not saved yet, and shown below:</p>
+          <ul>
+            {kept.map((u) => (
+              <li key={u.id}>{u.edit.said}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {clashed.length ? (
+        <>
+          <p>Changed there too, so these were let go: choose them again if you still want them.</p>
+          <ul>
+            {clashed.map((u) => (
+              <li key={u.id}>{u.edit.said}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      {moved.preview ? (
+        <p>Its rows weren’t checked: look it over, then check every row again.</p>
+      ) : null}
+      <div className="actions">
+        {kept.length ? (
+          <>
+            <Button variant="primary" onClick={saves.saveHeld}>
+              Save {kept.length === 1 ? "my change" : "my changes"}
+            </Button>
+            <Button onClick={saves.keepSaved}>Keep what’s saved</Button>
+          </>
+        ) : (
+          <Button onClick={saves.keepSaved}>OK</Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function listed(items: readonly string[]): string {
+  if (items.length < 2) return items.join("");
+  return `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`;
+}
+
 /** An import, at whichever step it's at. */
 export function SpreadsheetImportPage() {
   const project = useProject();
@@ -1541,13 +1666,12 @@ export function SpreadsheetImportPage() {
   const { say } = useMessages();
   const [step, setStep] = useState<"rows" | "columns">("rows");
   const [discarding, setDiscarding] = useState(false);
-  const change = useApiMutation((choice: SheetChange) => changeImport(importId, choice), []);
-  const preview = useApiMutation(() => previewImport(importId), []);
+  const saves = useImportSaves(importId);
   const discard = useApiMutation(() => discardImport(importId), [[SPREADSHEETS, importId]]);
-  const made = found.data;
-  usePageTitle(made ? `Import of ${made.file.name} · ${project.name}` : project.name);
+  const saved = found.data;
+  usePageTitle(saved ? `Import of ${saved.file.name} · ${project.name}` : project.name);
   if (found.isPending) return <Loading label="Loading the import…" />;
-  if (found.isError || !made) {
+  if (found.isError || !saved) {
     return (
       <>
         <ImportHeading title="Import a spreadsheet" />
@@ -1555,14 +1679,17 @@ export function SpreadsheetImportPage() {
       </>
     );
   }
+  // What's saved, with what the person chose that's on its way or held back.
+  const made = shownWith(saved, saves.unsaved);
   const type = types.find((t) => t.name === made.type);
-  const apply = (choice: SheetChange) => {
-    change.mutate(choice, {
-      onSuccess: (next) => {
-        client.setQueryData(importQuery(importId).queryKey, next);
-      },
-    });
+  const apply: Choose = (said, change) => {
+    saves.save(edit(said, change, saved));
   };
+  const keep: Keep = (name, replace) =>
+    saves.inTurn((latest) => saveMapping(importId, latest.revision, name, replace));
+  // Nothing's checked while a choice is refused or held back: the page shows it, not what's
+  // saved.
+  const unsettled = saves.unsaved.some((u) => u.state !== "saving") || saves.conflict !== null;
   const current =
     made.state === "mapping" || made.state === "reading"
       ? step
@@ -1572,7 +1699,7 @@ export function SpreadsheetImportPage() {
   const back = (to: "rows" | "columns") => {
     // Back from the preview: it's started afresh once anything changes.
     setStep(to);
-    if (made.state === "previewed" || made.state === "previewing") apply({});
+    if (made.state === "previewed" || made.state === "previewing") apply("", {});
   };
   return (
     <>
@@ -1594,6 +1721,7 @@ export function SpreadsheetImportPage() {
         }
       />
       <ImportSteps current={current} />
+      <ImportMoved made={saved} saves={saves} />
       {made.state === "reading" ? <Loading label={`Reading ${made.file.name}…`} /> : null}
       {made.state === "failed" && !made.run ? (
         <div className="alert alert-error" role="alert">
@@ -1610,22 +1738,18 @@ export function SpreadsheetImportPage() {
       ) : null}
       {made.state === "mapping" ? (
         <>
+          {saves.problem ? <ProblemAlert problem={problemOf(saves.problem)} /> : null}
           {step === "rows" ? (
-            <ChooseRows
-              made={made}
-              change={apply}
-              problem={change.error ? problemOf(change.error) : undefined}
-            />
+            <ChooseRows made={made} change={apply} errors={saves.errors} />
           ) : (
             <>
-              <MapColumns
-                made={made}
-                change={apply}
-                problem={change.error ? problemOf(change.error) : undefined}
-              />
+              <MapColumns made={made} change={apply} errors={saves.errors} keep={keep} />
               <NumbersAndDates made={made} change={apply} />
             </>
           )}
+          <p className="sheet-saving muted" role="status">
+            {saves.saving ? "Saving…" : ""}
+          </p>
           <div className="actions sheet-actions">
             {step === "columns" ? (
               <Button
@@ -1648,22 +1772,18 @@ export function SpreadsheetImportPage() {
             ) : (
               <Button
                 variant="primary"
-                busy={preview.isPending || change.isPending}
+                busy={saves.previewing}
                 busyText="Checking…"
-                disabled={!made.can["preview"]}
+                disabled={!made.can["preview"] || unsettled}
                 onClick={() => {
-                  preview.mutate(undefined, {
-                    onSuccess: (next) => {
-                      client.setQueryData(importQuery(importId).queryKey, next);
-                    },
-                  });
+                  saves.preview();
                 }}
               >
                 Check every row
               </Button>
             )}
           </div>
-          {preview.error ? <ProblemAlert problem={problemOf(preview.error)} /> : null}
+          {saves.previewProblem ? <ProblemAlert problem={problemOf(saves.previewProblem)} /> : null}
         </>
       ) : null}
       {made.state === "previewing" && made.preview ? (

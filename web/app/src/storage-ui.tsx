@@ -1,9 +1,11 @@
 /**
- * What the storage pages share (ADR 0180): the scan box, the camera, a record's path, and
- * the dialogs that move records, check them out and in, and hand them over.
+ * What the storage pages share (ADR 0180): the scan box, the camera, which tube a scan
+ * identifies (a choice among readable tubes, the refusal when one can't be read, and a typed
+ * Iki ID), a record's path, and the dialogs that move records, check them out and in, and
+ * hand them over.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
@@ -12,14 +14,24 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { fieldErrors, iki, meQuery, problemOf, useApiMutation } from "./api";
 import { ENTITIES, typesQuery } from "./entities";
 import { PersonPicker } from "./entity-inputs";
-import { cameraUnavailable, makeDetector, useScanner } from "./scan";
+import { cameraUnavailable, makeDetector, useScanner, type ScanRejection } from "./scan";
 import {
+  candidatePlace,
   containerQuery,
+  ikiId,
   indexOf,
+  resolveScan,
+  IKI_ID_REFUSED,
+  SCAN_REFUSED,
+  scanRefusal,
   slotsOf,
   STORAGE,
   stepName,
   type Location,
+  type Proof,
+  type ScanCandidate,
+  type ScanMode,
+  type ScanResolved,
   type Step,
 } from "./storage";
 import { Button, ProblemAlert, RadioField, TextField, useMessages } from "./ui";
@@ -29,7 +41,8 @@ import { Button, ProblemAlert, RadioField, TextField, useMessages } from "./ui";
 /**
  * Where a code is scanned or typed. A keyboard-mode scanner's code goes here wherever focus
  * is on the page, unless it's in another text field; a camera reads one where the browser
- * can. `onScan` is given each code.
+ * can. `onScan` is given each code exactly as it was read or typed: it's trimmed only to
+ * tell that it's empty, so what's recorded is what the scanner sent.
  */
 export function ScanBar({
   label = "Scan or type a code",
@@ -46,18 +59,17 @@ export function ScanBar({
 }) {
   const id = useId();
   const [text, setText] = useState("");
-  const [unread, setUnread] = useState(false);
+  const [unread, setUnread] = useState<ScanRejection | null>(null);
   const [camera, setCamera] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const take = (code: string) => {
-    setUnread(false);
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    onScan(trimmed);
+    setUnread(null);
+    if (!code.trim()) return;
+    onScan(code);
   };
-  useScanner((code) => {
-    if (code === null) setUnread(true);
-    else take(code);
+  useScanner((result) => {
+    if (result.kind === "rejected") setUnread(result.reason);
+    else take(result.code);
   }, !disabled && !camera);
   const submit = (event: SyntheticEvent) => {
     event.preventDefault();
@@ -103,7 +115,10 @@ export function ScanBar({
       </div>
       {unread && (
         <p className="field-error" role="alert">
-          Couldn’t read the scan. Scan again or type the code.
+          {unread === "early-key"
+            ? "A key arrived before the rest of the scan."
+            : "Couldn’t read the scan."}{" "}
+          Scan again or type the code.
         </p>
       )}
       {camera ? (
@@ -239,6 +254,206 @@ export function CameraDialog({
   );
 }
 
+// --- Which tube a scan identifies ---------------------------------------------------------------
+
+/**
+ * Said when a scan can't identify a tube here: a record the person can't read is involved.
+ * Nothing about how many matched, or which: the same words whatever's behind it. For a typed
+ * Iki ID, words that also cover one that matched nothing, so neither is told apart.
+ */
+export function ScanRefusedNote({ mode = "label" }: { mode?: ScanMode | undefined }) {
+  return (
+    <div className="alert alert-warning scan-refused" role="alert">
+      <p>{mode === "iki_id" ? IKI_ID_REFUSED : SCAN_REFUSED}</p>
+    </div>
+  );
+}
+
+/** A candidate's name, project and place, as a chooser shows it. */
+function CandidateText({ candidate: c }: { candidate: ScanCandidate }) {
+  return (
+    <>
+      <span className="scan-choice-name">
+        <strong className="storage-code">{c.hrid}</strong>
+        {c.title && c.title !== c.hrid ? <span> {c.title}</span> : null}
+      </span>
+      <span className="scan-choice-meta">
+        <span>{c.owner_project ? c.owner_project.name : "A project you can’t open"}</span>
+        <span>{candidatePlace(c)}</span>
+      </span>
+    </>
+  );
+}
+
+/**
+ * The readable records a scan matched, each with its project and where it is: the person
+ * picks the one in hand. Without `onChoose`, only shown: a physical confirmation needs the
+ * tube's own Iki label or its printed Iki ID, which `then` asks for.
+ */
+export function ScanChooser({
+  code,
+  candidates,
+  noun = "tube",
+  onChoose,
+  onCancel,
+  then,
+  busy = false,
+}: {
+  code: string;
+  candidates: readonly ScanCandidate[];
+  /** What the candidates are: “tube”, or “container” for where to put them. */
+  noun?: string;
+  onChoose?: (candidate: ScanCandidate) => void;
+  onCancel?: () => void;
+  /** What to do instead of choosing, when there's no choice. */
+  then?: string;
+  busy?: boolean;
+}) {
+  const id = useId();
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    // Said, and where the keyboard goes next: the scanner still works from here.
+    heading.current?.focus();
+  }, [code, candidates]);
+  return (
+    <section className="scan-chooser" aria-labelledby={`${id}-title`}>
+      <h3 className="scan-chooser-title" id={`${id}-title`} ref={heading} tabIndex={-1}>
+        “{code.trim()}” matches more than one {noun}
+      </h3>
+      <p className="scan-chooser-help">
+        {onChoose
+          ? `Choose the ${noun} in your hand. Each is shown with its project and where it’s kept.`
+          : then}
+      </p>
+      {onChoose ? (
+        <ul className="scan-choices" aria-label={`${noun}s with this code`}>
+          {candidates.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                className="scan-choice"
+                disabled={busy}
+                onClick={() => {
+                  onChoose(c);
+                }}
+              >
+                <CandidateText candidate={c} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <ul className="scan-choices" aria-label={`${noun}s with this code`}>
+          {candidates.map((c) => (
+            <li key={c.id} className="scan-choice scan-choice-shown">
+              <CandidateText candidate={c} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {onCancel ? (
+        <div className="actions">
+          <Button variant="quiet" onClick={onCancel} disabled={busy}>
+            {onChoose ? "None of these" : "Dismiss"}
+          </Button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Typing the Iki ID printed on a tube's label, such as TUBE-000012: matched only against
+ * Iki IDs, never against vendor barcodes, for a label that can't identify it alone. Shown
+ * when asked for, or at once after a scan couldn't identify one.
+ */
+export function IkiIdEntry({
+  onEnter,
+  open: opened = false,
+  busy = false,
+  disabled = false,
+}: {
+  onEnter: (hrid: string) => void;
+  /** Open from the start: a scan was just refused, and this is the way on. */
+  open?: boolean;
+  busy?: boolean;
+  disabled?: boolean;
+}) {
+  const id = useId();
+  const [asked, setAsked] = useState(false);
+  const [text, setText] = useState("");
+  const [missing, setMissing] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const open = opened || asked;
+  const shown = missing ? "Type the Iki ID printed on the label." : undefined;
+  if (!open) {
+    return (
+      <div className="iki-id-ask">
+        <Button
+          variant="quiet"
+          disabled={disabled}
+          onClick={() => {
+            setAsked(true);
+            window.setTimeout(() => input.current?.focus(), 0);
+          }}
+        >
+          Type its printed Iki ID instead
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <form
+      className="iki-id-entry"
+      noValidate
+      aria-label="Enter a printed Iki ID"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!text.trim()) {
+          setMissing(true);
+          input.current?.focus();
+          return;
+        }
+        onEnter(text);
+        setText("");
+      }}
+    >
+      <div className={shown ? "field field-invalid" : "field"}>
+        <label htmlFor={`${id}-hrid`}>Iki ID</label>
+        {shown ? (
+          <p className="field-error" id={`${id}-error`} role="alert">
+            {shown}
+          </p>
+        ) : null}
+        <div className="scan-bar-row">
+          <input
+            id={`${id}-hrid`}
+            ref={input}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              if (e.target.value.trim()) setMissing(false);
+            }}
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={200}
+            disabled={disabled}
+            aria-invalid={shown ? "true" : undefined}
+            aria-describedby={[shown ? `${id}-error` : "", `${id}-help`].filter(Boolean).join(" ")}
+          />
+          <Button type="submit" busy={busy} busyText="Checking…" disabled={disabled}>
+            Use Iki ID
+          </Button>
+        </div>
+        <p className="field-help" id={`${id}-help`}>
+          As printed on its label, such as TUBE-000012. Only Iki IDs are matched, not vendor
+          barcodes.
+        </p>
+      </div>
+    </form>
+  );
+}
+
 // --- Where something is -------------------------------------------------------------------------
 
 /** A step's link: a container's map. */
@@ -299,43 +514,225 @@ function useConfirms(records: readonly Chosen[], what: "move" | "draw") {
   );
 }
 
-/** Scanning each record's label to say it's the one in hand. */
+/** What a confirmation said last: who's confirmed, or why the scan wasn't taken. */
+type Heard =
+  | { kind: "said"; text: string; problem?: boolean }
+  | { kind: "refused"; mode: ScanMode }
+  | {
+      kind: "ambiguous";
+      code: string;
+      candidates: ScanCandidate[];
+      /** The record a refused submit found this label no longer confirms. */
+      lost?: Chosen;
+    };
+
+/** Whether a proof already given is this one again. */
+function sameProof(proof: Proof | undefined, code: string, mode: ScanMode): boolean {
+  if (proof === undefined) return false;
+  const given = typeof proof === "string" ? proof : proof.code;
+  const givenMode: ScanMode = typeof proof === "string" ? "label" : proof.mode;
+  return givenMode === mode && given.trim().toUpperCase() === code.trim().toUpperCase();
+}
+
+function proofParts(proof: Proof): { code: string; mode: ScanMode } {
+  return typeof proof === "string" ? { code: proof, mode: "label" } : proof;
+}
+
+/** The records a refused move or check-in said it couldn't confirm, by their item. */
+function unconfirmedBy(
+  problem: Problem,
+  selected: readonly Chosen[],
+  needed: readonly Chosen[],
+): Chosen[] {
+  if (problem.status !== 422) return [];
+  const asked = new Set(needed.map((r) => r.id));
+  return (problem.errors ?? []).flatMap((e) => {
+    const at = /^#\/items\/(\d+)$/.exec(e.pointer ?? "");
+    const record = at ? selected[Number(at[1])] : undefined;
+    return record && asked.has(record.id) ? [record] : [];
+  });
+}
+
+/**
+ * Scanning each record's label to say it's the one in hand. Each scan is checked by the
+ * server against the whole selection and where each one is kept, before it's ticked: a
+ * label several tubes share confirms none of them, so the tube's own Iki label or its
+ * printed Iki ID is asked for. A record already confirmed is never ticked again.
+ */
 function Confirmations({
+  selected,
   needed,
   confirmed,
   onConfirm,
+  failed,
 }: {
+  /** Every record in the change, the ones that need no scan too. */
+  selected: readonly Chosen[];
   needed: readonly Chosen[];
-  confirmed: Record<string, string>;
-  onConfirm: (next: Record<string, string>) => void;
+  confirmed: Record<string, Proof>;
+  onConfirm: (next: Record<string, Proof>) => void;
+  /** Why the move or check-in was refused, if it was: its items in `selected`'s order. */
+  failed?: unknown;
 }) {
-  const [wrong, setWrong] = useState<string | null>(null);
+  const [heard, setHeard] = useState<Heard | null>(null);
+  const [checking, setChecking] = useState(false);
+  // The newest, for answers that come back after another scan was ticked.
+  const latest = useRef(confirmed);
+  useEffect(() => {
+    latest.current = confirmed;
+  }, [confirmed]);
+  const records = selected.map((r) => r.id);
+  // A move or check-in refused, rechecked under its lock: a record's proof no longer
+  // identifies it, such as a label another tube now shares. Its tick is taken back, the
+  // selection kept, and why is asked of the resolver, so a refusal stays neutral.
+  useEffect(() => {
+    if (!failed) return;
+    const lost = unconfirmedBy(problemOf(failed), selected, needed).filter(
+      (r) => latest.current[r.id],
+    );
+    const first = lost[0];
+    const proof = first ? latest.current[first.id] : undefined;
+    if (!first || !proof) return;
+    const gone = new Set(lost.map((r) => r.id));
+    const next = Object.fromEntries(
+      Object.entries(latest.current).filter(([record]) => !gone.has(record)),
+    );
+    latest.current = next;
+    onConfirm(next);
+    let stale = false;
+    const { code, mode } = proofParts(proof);
+    resolveScan({ scope: "confirmation", code, mode, records }).then(
+      (found) => {
+        if (stale) return;
+        if (found.status === "ambiguous") {
+          setHeard({ kind: "ambiguous", code, candidates: found.candidates, lost: first });
+          return;
+        }
+        setHeard({
+          kind: "said",
+          text: `${first.hrid} couldn’t be confirmed as it’s kept now. Scan its Iki label, or type its printed Iki ID.`,
+          problem: true,
+        });
+      },
+      (error: unknown) => {
+        if (stale) return;
+        const refusal = scanRefusal(problemOf(error));
+        setHeard(
+          refusal
+            ? { kind: "refused", mode }
+            : { kind: "said", text: problemOf(error).detail, problem: true },
+        );
+      },
+    );
+    return () => {
+      stale = true;
+    };
+    // Only a newly refused submit rechecks: not each tick or change of selection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [failed]);
   if (!needed.length) return null;
   const left = needed.filter((r) => !confirmed[r.id]);
+  const check = async (code: string, mode: ScanMode) => {
+    const now = latest.current;
+    const again = needed.find((r) => sameProof(now[r.id], code, mode));
+    if (again) {
+      setHeard({ kind: "said", text: `${again.hrid} is already confirmed. Nothing changed.` });
+      return;
+    }
+    if (!needed.some((r) => !now[r.id])) {
+      setHeard({ kind: "said", text: "All are confirmed. Nothing changed." });
+      return;
+    }
+    setChecking(true);
+    // One question for the whole selection: which of them, if any, this is.
+    let found: ScanResolved;
+    try {
+      found = await resolveScan({ scope: "confirmation", code, mode, records });
+    } catch (error) {
+      setChecking(false);
+      const refusal = scanRefusal(problemOf(error));
+      setHeard(
+        refusal?.kind === "ambiguous"
+          ? { kind: "ambiguous", code, candidates: refusal.candidates }
+          : refusal
+            ? { kind: "refused", mode }
+            : { kind: "said", text: problemOf(error).detail, problem: true },
+      );
+      return;
+    }
+    setChecking(false);
+    if (found.status === "ambiguous") {
+      setHeard({ kind: "ambiguous", code, candidates: found.candidates });
+      return;
+    }
+    const match = found.status === "one" ? found.candidates[0] : undefined;
+    const record = match ? needed.find((r) => r.id === match.id) : undefined;
+    // Only the record the server identified is ticked, and only if it's still open.
+    if (record && !latest.current[record.id]) {
+      const next = { ...latest.current, [record.id]: mode === "iki_id" ? ikiId(code) : code };
+      latest.current = next;
+      onConfirm(next);
+      setHeard({ kind: "said", text: `${record.hrid} confirmed.` });
+      return;
+    }
+    if (record) {
+      setHeard({ kind: "said", text: `${record.hrid} is already confirmed. Nothing changed.` });
+      return;
+    }
+    if (match && selected.some((r) => r.id === match.id)) {
+      setHeard({ kind: "said", text: `${match.hrid} needs no scan. Nothing changed.` });
+      return;
+    }
+    setHeard({
+      kind: "said",
+      text:
+        mode === "iki_id"
+          ? `${code.trim()} isn’t the Iki ID of one still to confirm.`
+          : `${code.trim()} isn’t one of these.`,
+      problem: true,
+    });
+  };
+  const blocked = heard?.kind === "refused" || heard?.kind === "ambiguous";
   return (
     <div className="confirmations">
       <ScanBar
         label="Scan each label to confirm"
         help="Its type asks for each record’s own label to be scanned before it moves."
+        busy={checking}
         onScan={(code) => {
-          const match = needed.find(
-            (r) =>
-              r.code?.toLowerCase() === code.toLowerCase() ||
-              r.hrid.toLowerCase() === code.toLowerCase(),
-          );
-          if (match) {
-            setWrong(null);
-            onConfirm({ ...confirmed, [match.id]: code });
-          } else {
-            setWrong(`${code} isn’t one of these.`);
-          }
+          void check(code, "label");
         }}
       />
-      {wrong ? (
+      {heard?.kind === "refused" ? <ScanRefusedNote mode={heard.mode} /> : null}
+      {heard?.kind === "ambiguous" ? (
+        <ScanChooser
+          code={heard.code}
+          candidates={heard.candidates}
+          then={
+            heard.lost
+              ? `This label now matches more than one tube, so nothing was moved and ${heard.lost.hrid} isn’t confirmed. Scan its Iki label, or type the Iki ID printed on it.`
+              : "A label several tubes share can’t confirm which is in your hand. Scan the tube’s Iki label, or type the Iki ID printed on it."
+          }
+          onCancel={() => {
+            setHeard(null);
+          }}
+        />
+      ) : null}
+      <IkiIdEntry
+        open={blocked}
+        busy={checking}
+        onEnter={(hrid) => {
+          void check(hrid, "iki_id");
+        }}
+      />
+      {heard?.kind === "said" && heard.problem ? (
         <p className="field-error" role="alert">
-          {wrong}
+          {heard.text}
         </p>
       ) : null}
+      <p className="scan-heard" role="status" aria-live="polite">
+        {heard?.kind === "said" && !heard.problem ? heard.text : ""}
+      </p>
       <ul className="confirm-list" aria-label="Confirmed">
         {needed.map((r) => (
           <li key={r.id} className={confirmed[r.id] ? "confirm-done" : undefined}>
@@ -348,6 +745,14 @@ function Confirmations({
       </p>
     </div>
   );
+}
+
+type MoveItems = Schemas["MovesIn"]["items"];
+
+interface CheckedMove {
+  plan: Schemas["MovesOut"];
+  items: MoveItems;
+  choice: ScanCandidate | null;
 }
 
 /**
@@ -399,7 +804,7 @@ export function MoveDialog({
   records: readonly Chosen[];
   /** The container they're moved from, which suggests itself as where to. */
   from?: string | undefined;
-  /** The container's bulk action commits exactly the destinations in the plan on screen. */
+  /** The box map's bulk Move commits every placement exactly as shown. */
   commitReviewedPositions?: boolean;
   onClose: () => void;
   onMoved?: () => void;
@@ -409,39 +814,88 @@ export function MoveDialog({
   const [to, setTo] = useState(from ?? "");
   const [start, setStart] = useState("");
   const [reason, setReason] = useState("");
-  const [confirmed, setConfirmed] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState<Record<string, Proof>>({});
   const needed = useConfirms(records, "move");
   const { say } = useMessages();
   const client = useQueryClient();
-  const preview = useApiMutation(async () => {
-    const positions =
-      where === "out" || !start.trim()
-        ? []
-        : await fromPosition(client, to.trim(), start.trim(), records);
-    const requested = records.map((r, i) => ({
-      record: r.id,
-      to: where === "out" ? null : to.trim(),
-      position: positions[i] ?? null,
-    }));
-    const plan = await sendMoves({
-      items: requested,
-      reason: reason.trim(),
-      confirmations: {},
-      preview: true,
-    });
-    return {
-      plan,
-      itemsToMove: commitReviewedPositions
-        ? plan.items.map(({ record, to }) => ({
-            record: record.id,
-            to: to?.id ?? null,
-            position: to?.position ?? null,
-          }))
-        : requested,
-    };
-  }, []);
-  const reviewed = preview.data;
-  const move = useApiMutation(sendMoves, [STORAGE, ENTITIES]);
+  /**
+   * What moving them would do, with the scans given so far; or, for a code several
+   * containers share, those to choose from.
+   */
+  const preview = useApiMutation(
+    async ({
+      choice,
+      proofs,
+      prior,
+    }: {
+      choice: ScanCandidate | null;
+      proofs: Record<string, Proof>;
+      prior?: CheckedMove;
+    }): Promise<CheckedMove | { choose: ScanCandidate[] }> => {
+      const destination = where === "out" ? null : to.trim();
+      const checkItems = async (requested: MoveItems): Promise<CheckedMove> => {
+        const plan = await sendMoves({
+          items: requested,
+          reason: reason.trim(),
+          confirmations: proofs,
+          preview: true,
+        });
+        if (!commitReviewedPositions) return { plan, items: requested, choice };
+        const byRecord = new Map(requested.map((item) => [item.record, item]));
+        const items = plan.items.map((item) => {
+          const original = byRecord.get(item.record.id);
+          return {
+            ...original,
+            record: item.record.id,
+            to: destination,
+            // The server rechecks the original label against the destination shown.
+            ...(item.to ? { to_choice: item.to.id } : {}),
+            // A refused position isn't allocated. Keep the request for that record
+            // so a subsequent proof check cannot turn its position into next-free.
+            position: item.to?.position ?? original?.position ?? null,
+          };
+        });
+        return { plan, items, choice };
+      };
+      // A new source proof rechecks the same reviewed placements, even if another slot is free.
+      if (prior && commitReviewedPositions) return checkItems(prior.items);
+      let box: string | null = null;
+      if (where === "container" && to.trim()) {
+        if (choice) box = choice.id;
+        else {
+          const found = await resolveScan({ scope: "destination", code: to });
+          if (found.status === "ambiguous") return { choose: found.candidates };
+          box = found.candidates[0]?.id ?? null;
+        }
+      }
+      const at =
+        where === "out" || !start.trim() || !box
+          ? []
+          : await fromPosition(client, box, start.trim(), records);
+      const requested = records.map((record, i) => ({
+        record: record.id,
+        to: destination,
+        ...(destination && choice ? { to_choice: choice.id } : {}),
+        position: at[i] ?? null,
+      }));
+      return checkItems(requested);
+    },
+    [],
+  );
+  const reviewed = preview.data && "plan" in preview.data ? preview.data : undefined;
+  const toOptions = preview.data && "choose" in preview.data ? preview.data.choose : undefined;
+  const move = useApiMutation(
+    ({
+      checked,
+      reason,
+      confirmations,
+    }: {
+      checked: CheckedMove;
+      reason: string;
+      confirmations: Record<string, Proof>;
+    }) => sendMoves({ items: checked.items, reason, confirmations, preview: false }),
+    [STORAGE, ENTITIES],
+  );
   const problem = move.error
     ? problemOf(move.error)
     : preview.error
@@ -451,8 +905,11 @@ export function MoveDialog({
   const blocked = reviewed?.plan.items.some((x) => x.problems.length);
   const rejectedItems =
     commitReviewedPositions &&
-    move.error?.status === 422 &&
-    Object.keys(errors).some((field) => field === "items" || field.startsWith("items/"));
+    move.error &&
+    reviewed === move.variables.checked &&
+    (move.error.status === 409 ||
+      move.error.status === 404 ||
+      Object.keys(errors).some((field) => field === "items" || field.startsWith("items/")));
   const unconfirmed = needed.some((r) => !confirmed[r.id]);
   const n = records.length;
   const named = n === 1 ? (records[0]?.hrid ?? "") : `${String(n)} records`;
@@ -476,9 +933,7 @@ export function MoveDialog({
           </Heading>
           <MoveProblems
             problem={problem}
-            records={
-              move.error && reviewed ? reviewed.plan.items.map((item) => item.record) : records
-            }
+            records={move.variables?.checked.plan.items.map((item) => item.record) ?? records}
           />
           <fieldset disabled={commitReviewedPositions && move.isPending} aria-label="Move settings">
             <RadioField
@@ -506,7 +961,7 @@ export function MoveDialog({
                     setTo(v);
                     changed();
                   }}
-                  maxLength={64}
+                  maxLength={200}
                   error={errors["items/0/to"]}
                   help="Its ID or barcode, such as BOX-000014: scan its label."
                 />
@@ -540,7 +995,32 @@ export function MoveDialog({
               error={errors["reason"]}
               help="Why they’re moved. It’s kept in each one’s location history."
             />
-            <Confirmations needed={needed} confirmed={confirmed} onConfirm={setConfirmed} />
+            {toOptions ? (
+              <ScanChooser
+                code={to}
+                candidates={toOptions}
+                noun="container"
+                busy={preview.isPending}
+                onChoose={(c) => {
+                  preview.mutate({ choice: c, proofs: confirmed });
+                }}
+                onCancel={() => {
+                  preview.reset();
+                }}
+              />
+            ) : null}
+            <Confirmations
+              selected={records}
+              needed={needed}
+              confirmed={confirmed}
+              onConfirm={(next) => {
+                setConfirmed(next);
+                // What it shows is checked again with them: a scan can clear or add a problem.
+                if (reviewed)
+                  preview.mutate({ choice: reviewed.choice, proofs: next, prior: reviewed });
+              }}
+              failed={move.error}
+            />
           </fieldset>
           {reviewed ? (
             <div className="table-scroll">
@@ -586,12 +1066,7 @@ export function MoveDialog({
                 disabled={unconfirmed}
                 onClick={() => {
                   move.mutate(
-                    {
-                      items: reviewed.itemsToMove,
-                      reason: reason.trim(),
-                      confirmations: confirmed,
-                      preview: false,
-                    },
+                    { checked: reviewed, reason: reason.trim(), confirmations: confirmed },
                     {
                       onSuccess: () => {
                         say(`Moved ${named}.`);
@@ -611,7 +1086,7 @@ export function MoveDialog({
                 busyText="Checking…"
                 onClick={() => {
                   move.reset();
-                  preview.mutate(undefined);
+                  preview.mutate({ choice: null, proofs: confirmed });
                 }}
               >
                 Check where they go
@@ -677,7 +1152,7 @@ export function CustodyDialog({
   const me = useQuery(meQuery).data;
   const [reason, setReason] = useState("");
   const [person, setPerson] = useState<{ id: string; hrid: string; title: string } | null>(null);
-  const [confirmed, setConfirmed] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState<Record<string, Proof>>({});
   const needed = useConfirms(doing === "check-in" ? records : [], "move");
   const { say } = useMessages();
   const run = useApiMutation(async () => {
@@ -768,7 +1243,13 @@ export function CustodyDialog({
             error={errors["reason"]}
             help="It’s kept in each one’s location history."
           />
-          <Confirmations needed={needed} confirmed={confirmed} onConfirm={setConfirmed} />
+          <Confirmations
+            selected={records}
+            needed={needed}
+            confirmed={confirmed}
+            onConfirm={setConfirmed}
+            failed={run.error}
+          />
           <div className="actions">
             <Button
               variant="primary"

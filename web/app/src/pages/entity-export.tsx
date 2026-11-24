@@ -37,8 +37,17 @@ function leftOutText(saved: Saved, format: FormatName): string {
 }
 
 /** The files a type's records export as: none, for most. */
-export function exportFormats(type: EntityType | undefined): Format[] {
-  return (type?.exports ?? []).flatMap((e) => e.formats);
+export function exportFormats(
+  type: EntityType | undefined,
+  states: Record<string, unknown>,
+): Format[] {
+  return (type?.exports ?? []).flatMap((definition) => {
+    if (definition.export === "signed_report") {
+      const state = states[definition.review];
+      if (typeof state !== "string" || !definition.issued.includes(state)) return [];
+    }
+    return definition.formats;
+  });
 }
 
 /** A download icon: an arrow down to a line. */
@@ -59,13 +68,17 @@ export function ExportButton({
   entity,
   type,
   revision,
+  change,
 }: {
   entity: Entity;
   type: EntityType | undefined;
   revision?: number;
+  change?: { field: string; to: string } | null;
 }) {
   const [open, setOpen] = useState(false);
-  if (!exportFormats(type).length) return null;
+  const states =
+    revision === undefined ? entity.values : change ? { [change.field]: change.to } : {};
+  if (!exportFormats(type, states).length) return null;
   return (
     <>
       {revision === undefined ? (
@@ -92,6 +105,7 @@ export function ExportButton({
       <ExportDialog
         entity={entity}
         type={type}
+        states={states}
         {...(revision === undefined ? {} : { revision })}
         isOpen={open}
         onClose={() => {
@@ -110,19 +124,23 @@ export function ExportDialog({
   revision,
   isOpen,
   onClose,
+  states = entity.values,
 }: {
   entity: Entity;
   type: EntityType | undefined;
   revision?: number;
   isOpen: boolean;
   onClose: () => void;
+  states?: Record<string, unknown>;
 }) {
-  const formats = exportFormats(type);
+  const formats = exportFormats(type, states);
   const [chosen, setChosen] = useState<FormatName | undefined>(undefined);
   const { say } = useMessages();
   const format = chosen ?? formats[0]?.format;
   const download = useApiMutation(async (wanted: FormatName): Promise<Saved> => {
     const result = await iki.GET("/api/v1/entities/{ref}/export", {
+      // The person started a download, which can finish after leaving this page.
+      fetch: globalThis.fetch,
       params: {
         path: { ref: entity.id },
         query: { format: wanted, ...(revision === undefined ? {} : { revision }) },

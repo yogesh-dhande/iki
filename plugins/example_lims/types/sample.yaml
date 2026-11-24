@@ -3,14 +3,15 @@ apiVersion: iki/v1
 kind: EntityType
 name: Sample
 label: Sample
-schema_version: 2
+schema_version: 3
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
 description: >-
   A sample of a protein, as the lab tests it: received, tested by an analyst,
   reviewed, then released by QA. Correcting an approved sample requires a
   reason and sends it back to testing. Submitting,
-  approving, releasing and rejecting it are electronic signatures (21 CFR Part
+  approving, releasing, returning a release for retesting and rejecting it
+  are electronic signatures (21 CFR Part
   11): each signer signs in again, and the signature shows with the sample.
   Its analyst, reviewer and QA are assigned it in turn, and each has it on My
   work while it's theirs.
@@ -84,7 +85,7 @@ fields:
   analyst:
     type: person
     role: analyst
-    assignment: { field: status, states: [received, in_testing] }
+    assignment: { field: status, states: [received, in_testing, retesting] }
     description: Who tests it. Received samples nobody has are open to analysts.
   reviewer:
     type: person
@@ -114,15 +115,40 @@ fields:
         reason: required
         # Nothing's drawn from a sample the lab hasn't received.
         holds_amount: true
+        guards:
+          outside_retesting:
+            check: state.from != "released" && state.from != "retesting"
+            message: QA signs a return from Released, and the analyst submits from Returned to testing.
       received:
         label: Received
         description: In the lab, waiting to be tested.
         set_by: [coordinator, analyst]
+        guards:
+          outside_retesting:
+            check: state.from != "released" && state.from != "retesting"
+            message: QA signs a return from Released, and the analyst submits from Returned to testing.
       in_testing:
         label: In testing
         description: An analyst is testing it and recording the results.
         set_by: [analyst, reviewer, qa]
         reason: optional
+        guards:
+          outside_retesting:
+            check: state.from != "released" && state.from != "retesting"
+            message: QA signs a return from Released, and the analyst submits from Returned to testing.
+      retesting:
+        label: Returned to testing
+        description: QA returned this released sample to the analyst for retesting.
+        set_by: [qa]
+        reason: required
+        signatures:
+          - meaning: approval
+            label: QA return to testing
+            statement: I return this released sample to testing for the reason recorded.
+        guards:
+          previously_released:
+            check: state.from == "released"
+            message: Only a released sample is returned to testing by QA.
       in_review:
         label: In review
         description: Its results wait for a reviewer.
@@ -134,8 +160,8 @@ fields:
         guards:
           tested:
             description: It's submitted for review once it's been tested.
-            check: state.from == "in_testing"
-            message: A sample is submitted for review from In testing.
+            check: state.from in ["in_testing", "retesting"]
+            message: Submit a sample for review after testing or retesting it.
           has_result:
             check: record.result != null
             message: Record its result, pass or fail, before submitting it for review.
@@ -161,7 +187,8 @@ fields:
               You submitted it for review, so someone else approves it.
           independent_measurement:
             check: >-
-              edits.status.in_testing.all(e, e.by != actor.person ||
+              (last.status.retesting == null ? edits.status.in_testing : edits.status.retesting)
+              .all(e, e.by != actor.person ||
               !e.fields.exists(f, f in ["purity", "concentration", "result", "notes"]))
             message: You edited the test results, so someone else approves this sample.
       released:
@@ -187,7 +214,8 @@ fields:
             message: You approved it, so someone else in QA releases it.
           independent_measurement:
             check: >-
-              edits.status.in_testing.all(e, e.by != actor.person ||
+              (last.status.retesting == null ? edits.status.in_testing : edits.status.retesting)
+              .all(e, e.by != actor.person ||
               !e.fields.exists(f, f in ["purity", "concentration", "result", "notes"]))
             message: You edited the test results, so someone else in QA releases this sample.
       rejected:

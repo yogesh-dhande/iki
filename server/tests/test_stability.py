@@ -1,0 +1,297 @@
+"""The installed workflow through scheduling, storage, the draw ledger and signatures."""
+
+import datetime as dt
+import importlib
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from threading import Barrier
+from typing import Any
+from uuid import uuid4
+
+import pytest
+from django.core.exceptions import PermissionDenied
+from django.db import connection, transaction
+from django.utils import timezone
+from first_party_dependencies import PLUGINS, ROOT, build_order
+from org_world import build_world
+from test_plugin_migrations import database, django, iki, migrate, sync
+from test_signatures import begin, ready, signed
+
+from iki_server.accounts.models import User
+from iki_server.amounts import services as amounts
+from iki_server.amounts.models import Amount, DrawPurpose, Movement
+from iki_server.entities import registry, services, states
+from iki_server.entities.models import Entity
+from iki_server.files.models import Blob, File
+from iki_server.org.models import LabRoleGrant
+from iki_server.org.services import Refused
+from iki_server.runs import catalog, queue, results
+from iki_server.runs import services as runs
+from iki_server.runs.models import ActionRun, Job
+from iki_server.signatures.models import Signature
+from iki_server.signatures.services import verify
+from iki_server.storage import services as storage
+from iki_spec.compute import Binding
+
+__all__ = ["database"]
+
+PLUGIN = PLUGINS / "stability"
+PREFIX = "iki/stability."
+
+
+def test_study_draw_and_both_review_paths(tmp_path: Path, database: str) -> None:
+    build = tmp_path / "build"
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
+    assert built.returncode == 0, built.stdout + built.stderr
+    (build / "iki_plugin_iki__stability" / "settings.json").write_text(
+        '{"review_flow":"research"}', encoding="utf-8"
+    )
+    migrate(build, database)
+    sync(build, database)
+    exercise = django(
+        build,
+        database,
+        "-c",
+        "import django; django.setup(); from test_stability import exercise_stability; "
+        "exercise_stability()",
+    )
+    assert exercise.returncode == 0, exercise.stdout + exercise.stderr
+
+
+def exercise_stability() -> None:
+    sys.path.insert(0, str(PLUGIN / "scripts"))
+    workflow = importlib.import_module("stability")
+    world = build_world("stability-")
+    ready(world)
+    editor = world.users["editor"]
+    for who, grants in {
+        "editor": (PREFIX + "coordinator", PREFIX + "analyst", PREFIX + "reviewer", "iki/lots.qa"),
+        "runner": (PREFIX + "reviewer",),
+        "admin": (PREFIX + "qa", "iki/lots.qa"),
+    }.items():
+        membership = world.project.memberships.get(user=world.users[who])
+        for grant in grants:
+            LabRoleGrant.objects.create(membership=membership, role=grant)
+
+    def make(type_name: str, **values: Any) -> Entity:
+        return Entity.objects.get(
+            pk=services.create(editor, type_name, world.project, values).entity.pk
+        )
+
+    # The material's public identity is aspirin, PubChem CID 2244. The lot, tests,
+    # method, amounts, assay observations and comment below are synthetic fixtures.
+    compound = make(
+        "iki/small_molecule.Compound",
+        name="Aspirin",
+        smiles="CC(=O)OC1=CC=CC=C1C(=O)O",
+        inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
+    )
+    lot = make("iki/lots.GenericLot", lot_number="Synthetic lot", of=str(compound.pk))
+    container = make("iki/example_lims.Box", name="Stability box", rows=1, columns=2)
+    tube = make("iki/example_lims.Tube", barcode="STUDY-001", lot=str(lot.pk))
+    wrong_tube = make("iki/example_lims.Tube", barcode="STUDY-002", lot=str(lot.pk))
+    for item in [tube, wrong_tube]:
+        amounts.adjust(
+            editor,
+            item,
+            amounts.Given.of({"value": 100, "unit": "uL"}),
+            reason="Fixture",
+            expected_revision=amounts.UNRECORDED_REVISION,
+        )
+
+    tool = PREFIX + "stability-tools"
+    catalog.compute().bindings[tool] = Binding(environment=tool, templates=(("backend-small", 0),))
+
+    def start(
+        name: str, input_name: str, entity: Entity, **params: Any
+    ) -> tuple[ActionRun, dict[str, Any]]:
+        action = catalog.action(PREFIX + name)
+        assert action is not None
+        run = runs.launch(
+            editor, action, world.project, {input_name: [entity.pk]}, params, reuse_results=False
+        )
+        job = Job.objects.get(run=run)
+        job.lease_token, job.lease_expires_at = uuid4(), timezone.now() + queue.LEASE_TTL
+        return run, queue.payload(job, run)
+
+    def commit(run: ActionRun, output: dict[str, Any]) -> None:
+        with transaction.atomic():
+            results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
+
+    today = dt.datetime.now(dt.UTC).date()
+
+    # ICH Q1A(R2) §2.1.7.1 gives 25 °C ± 2 °C and 60% RH ± 5% RH general-case long term.
+    # https://database.ich.org/sites/default/files/Q1A%28R2%29%20Step4.pdf
+    def study_on(revision: str, start_date: dt.date) -> Entity:
+        study = make(
+            PREFIX + "Study",
+            name="Illustrative lot study",
+            material=str(compound.pk),
+            lot=str(lot.pk),
+            protocol="Stability protocol",
+            protocol_revision=revision,
+            starts_on=start_date.isoformat(),
+            owner=str(editor.pk),
+            conditions=[
+                {
+                    "code": "long_term",
+                    "label": "Long term",
+                    "temperature": 25,
+                    "temperature_tolerance": 2,
+                    "humidity": 60,
+                    "humidity_tolerance": 5,
+                }
+            ],
+            time_points=[{"month": 0, "days_before": 0, "days_after": 0}],
+            assignments=[
+                {"condition": "long_term", "month": 0, "tube": str(tube.pk), "volume_ul": 12}
+            ],
+            tests=[{"test": "Demo peak area", "method": "Synthetic method v1", "unit": "AU"}],
+        )
+        run, doc = start("schedule_pulls", "study", study)
+        pending, old = start("schedule_pulls", "study", study)
+        commit(run, workflow.schedule(doc))
+        with pytest.raises(results.Rejected, match="revision"):
+            commit(pending, workflow.schedule(old))
+        study.refresh_from_db()
+        return study
+
+    def pull_for(study: Entity) -> Entity:
+        candidates = list(Entity.objects.filter(type=PREFIX + "Pull"))
+        values = services.current_values_of(candidates)
+        [pull] = [
+            candidate for candidate in candidates if values[candidate.pk]["study"] == study.pk
+        ]
+        return pull
+
+    def draw(
+        into: Entity,
+        *,
+        source: Entity | None = None,
+        user: User | None = None,
+        volume: int = 12,
+        purpose: DrawPurpose = DrawPurpose.QA_SAMPLING,
+        confirm: str = "STUDY-001",
+    ) -> Movement:
+        return amounts.draw(
+            user or editor,
+            source or tube,
+            amounts.Given.of({"value": volume, "unit": "uL"}),
+            purpose=purpose,
+            used_in=into,
+            confirm=confirm,
+        )
+
+    def set_status(pull: Entity, state: str, reason: str = "") -> None:
+        pull.refresh_from_db()
+        states.set_state(
+            editor, pull, "status", state, expected_revision=pull.revision, reason=reason
+        )
+
+    def observation(pull: Entity) -> Entity:
+        prior = set(Entity.objects.filter(type=PREFIX + "Measurement").values_list("pk", flat=True))
+        report = File.objects.create(
+            name="Synthetic report.csv",
+            media_type="text/csv",
+            project=world.project,
+            blob=Blob.objects.get_or_create(
+                sha256="e" * 64,
+                defaults={"size": 22, "storage_uri": "s3://test/stability-report"},
+            )[0],
+        )
+        run, doc = start("record_measurement", "pull", pull, test="Demo peak area", value=1.25)
+        commit(run, workflow.measure(doc))
+        found = Entity.objects.filter(type=PREFIX + "Measurement").exclude(pk__in=prior).get()
+        services.update(editor, found, {"report": str(report.pk)}, expected_revision=found.revision)
+        return found
+
+    research_study = study_on("01", today)
+    pull = pull_for(research_study)
+    with pytest.raises(states.GuardRefused, match="scan-confirmed draw"):
+        set_status(pull, "pulled")
+    with pytest.raises(states.GuardRefused, match="last date"):
+        set_status(pull, "missed", "Window still open")
+    with pytest.raises(amounts.Wrong, match="storage position"):
+        draw(pull)
+    storage.move(
+        editor,
+        [storage.Wanted(tube, container, "A1"), storage.Wanted(wrong_tube, container, "A2")],
+        reason="Place synthetic study tubes",
+    )
+    with pytest.raises(amounts.Wrong, match="assigned"):
+        draw(pull, source=wrong_tube, confirm="STUDY-002")
+    with pytest.raises(amounts.Wrong, match="planned amount"):
+        draw(pull, volume=13)
+    with pytest.raises(amounts.Wrong, match="Scan"):
+        draw(pull, confirm="")
+    with pytest.raises(PermissionDenied):
+        draw(pull, user=world.users["admin"])
+    with pytest.raises(amounts.Wrong, match="quarantined"):
+        draw(pull, purpose=DrawPurpose.ROUTINE)
+
+    between = Barrier(2, timeout=10)
+
+    def compete(_: int) -> Movement | None:
+        try:
+            between.wait()
+            return draw(pull)
+        except amounts.Wrong as refusal:
+            assert "already recorded" in str(refusal)
+            return None
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        won = [result for result in pool.map(compete, range(2)) if result is not None]
+    assert len(won) == 1
+    movement = won[0]
+    assert (movement.used_in_id, movement.source_id, movement.confirmed) == (
+        pull.pk,
+        lot.pk,
+        "STUDY-001",
+    )
+    assert movement.change == -12 and Amount.objects.get(entity=tube).value == 88
+    with pytest.raises(states.GuardRefused, match="match the UTC date"):
+        set_status(pull, "pulled")
+    pull.refresh_from_db()
+    services.update(editor, pull, {"pulled_on": today.isoformat()}, expected_revision=pull.revision)
+    set_status(pull, "pulled")
+    with pytest.raises(amounts.Wrong, match="not awaiting a draw"):
+        draw(pull)
+
+    # The deployment changes its choice. Older studies still use their pinned flow.
+    registry.settings("iki/stability")["review_flow"] = "regulated_qc"
+    research = observation(pull)
+    with pytest.raises(Refused, match="QC measurement"):
+        begin(world, "editor", str(research.pk), "submitted", field="review")
+    sign = signed(world, "runner", str(research.pk), "signed", field="review").signature
+    assert sign is not None and all(check.ok for check in verify(sign))
+
+    previous_day = today - dt.timedelta(days=1)
+    qc = pull_for(study_on("02", previous_day))
+    draw(qc)
+    services.update(editor, qc, {"pulled_on": today.isoformat()}, expected_revision=qc.revision)
+    with pytest.raises(states.GuardRefused, match="recorded draw as a pull"):
+        set_status(qc, "missed", "Try to erase late pull")
+    with pytest.raises(states.GuardRefused, match="Explain the deviation"):
+        set_status(qc, "pulled")
+    services.update(
+        editor, qc, {"window_note": "Illustrative deviation"}, expected_revision=qc.revision
+    )
+    set_status(qc, "pulled")
+
+    result = observation(qc)
+    with pytest.raises(Refused, match="research measurement"):
+        begin(world, "runner", str(result.pk), "signed", field="review")
+    signed(world, "editor", str(result.pk), "submitted", field="review")
+    with pytest.raises(Refused, match="independent"):
+        begin(world, "editor", str(result.pk), "reviewed", field="review")
+    signed(world, "runner", str(result.pk), "reviewed", field="review")
+    signed(world, "admin", str(result.pk), "released", field="review")
+    assert Signature.objects.filter(entity=result).count() == 3
+
+    missed = pull_for(study_on("03", previous_day))
+    set_status(missed, "missed", "Illustrative missing sample")
+    with pytest.raises(amounts.Wrong, match="not awaiting a draw"):
+        draw(missed)

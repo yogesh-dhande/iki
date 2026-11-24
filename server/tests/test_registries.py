@@ -322,8 +322,18 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     # Registering it again is refused, naming the replacement.
     again = problem(create(outsider, rival, {"sequence": SEQUENCE + "K"}), 409, "refused")
     assert right["hrid"] in str(again)
+    # The rival's independent holder must state why it is moving its record.
+    ref = f"/entities/{theirs['id']}"
+    for body in ({}, {"reason": "   "}):
+        invalid = problem(outsider.post(f"{ref}/move", body), 422, "validation_failed")
+        assert invalid["errors"][0]["pointer"] == "#/reason"
+        unchanged = outsider.get(ref).json()
+        assert unchanged["entry"]["id"] == wrong["entry"]["id"]
+        assert unchanged["revision"] == theirs["revision"]
+    assert not AuditEvent.objects.filter(action="entity.moved").exists()
+
     # The rival moves its record: its HRID is the replacement's now.
-    moved = outsider.post(f"/entities/{theirs['id']}/move", {"reason": "Superseded"})
+    moved = outsider.post(f"{ref}/move", {"reason": "  Use the curator's corrected entry  "})
     assert moved.status_code == 200, moved.content
     assert moved.json()["hrid"] == right["hrid"]
     assert moved.json()["entry"]["id"] == right["entry"]["id"]
@@ -335,7 +345,11 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
         editor.get(f"/entities/{citing['id']}").json()["values"]["source"] == wrong["entry"]["id"]
     )
     assert AuditEvent.objects.filter(action="entry.superseded").count() == 1
-    assert AuditEvent.objects.filter(action="entity.moved").count() == 1
+    event = AuditEvent.objects.get(action="entity.moved", target_id=theirs["id"])
+    assert event.actor_id == world.users["outsider"].pk
+    assert event.data["reason"] == "Use the curator's corrected entry"
+    revision = outsider.get(f"{ref}/revisions/{moved.json()['revision']}").json()
+    assert revision["reason"] == event.data["reason"]
 
 
 # --- Several projects, several registries ------------------------------------------------------

@@ -1,0 +1,15 @@
+apiVersion: iki/v1
+kind: Component
+name: case_certificate
+label: Certificate
+description: The certificate assembled for a lot release case.
+module: ./components/release-records.js
+element: case-certificate
+entities:
+  type: ReleaseCertificate
+  fields: [version, testing_on]
+slots:
+  - slot: entity.tab
+    type: ReleaseCase
+    search:
+      where: { field: case, op: eq, value: "{{ entity }}" }

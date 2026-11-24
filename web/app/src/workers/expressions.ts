@@ -8,44 +8,12 @@
  * network beyond Iki's origin, which it loads the module from, and no `eval`.
  */
 
-import wasmUrl from "../../wasm/iki_wasm.wasm?url";
-
-interface Exports {
-  memory: WebAssembly.Memory;
-  iki_input: (len: number) => number;
-  iki_render: () => void;
-  iki_evaluate_rules: () => void;
-  iki_helm: () => void;
-  iki_output: () => number;
-  iki_output_len: () => number;
-}
+import { loadParsers } from "@ikisci/science/parsers";
 
 const scope = self as unknown as {
   postMessage: (message: unknown) => void;
   addEventListener: (type: "message", listener: (event: MessageEvent) => void) => void;
 };
-
-async function instantiate(): Promise<Exports> {
-  const response = await fetch(wasmUrl);
-  if (!response.ok) throw new Error(`Expressions didn’t load (${String(response.status)}).`);
-  const { instance } = await WebAssembly.instantiate(await response.arrayBuffer(), {});
-  return instance.exports as unknown as Exports;
-}
-
-/** What a page may ask the module for: apps' templates, rules' expressions, or HELM read
- * (ADR 0144). */
-const CALLS = { render: "iki_render", rules: "iki_evaluate_rules", helm: "iki_helm" } as const;
-type Call = keyof typeof CALLS;
-
-function render(wasm: Exports, request: string, call: Call = "render"): string {
-  const bytes = new TextEncoder().encode(request);
-  const at = wasm.iki_input(bytes.length);
-  new Uint8Array(wasm.memory.buffer, at, bytes.length).set(bytes);
-  wasm[CALLS[call]]();
-  // Read the memory after the call: it may have grown, which replaces its buffer.
-  const out = new Uint8Array(wasm.memory.buffer, wasm.iki_output(), wasm.iki_output_len());
-  return new TextDecoder().decode(out);
-}
 
 // What the module renders once before it says it's ready, so that browsers which run a
 // module's first calls slowly, before compiling them fully, do so here and not in the
@@ -57,18 +25,23 @@ const WARM_UP = JSON.stringify({
 
 // The module loads and warms up first, and the page hears when it's ready, so that the
 // time a rendering may take is the rendering's alone.
-instantiate().then(
+loadParsers().then(
   (wasm) => {
     try {
-      render(wasm, WARM_UP);
+      wasm.requestJson("render", WARM_UP);
     } catch (error) {
       scope.postMessage({ failed: error instanceof Error ? error.message : String(error) });
       return;
     }
     scope.addEventListener("message", (event) => {
-      const { request, call } = event.data as { request: string; call?: Call };
+      const { request, call } = event.data as {
+        request: string;
+        call?: "render" | "rules" | "helm";
+      };
       try {
-        scope.postMessage({ json: render(wasm, request, call && call in CALLS ? call : "render") });
+        scope.postMessage({
+          json: wasm.requestJson(call === "rules" || call === "helm" ? call : "render", request),
+        });
       } catch (error) {
         scope.postMessage({ error: error instanceof Error ? error.message : String(error) });
       }

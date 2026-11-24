@@ -264,17 +264,62 @@ and `align_multiple` MAFFT 7.505, so each alignment they make is recorded as mad
   how many columns it left out.
 
 GC content counts G, C and S among the bases whose pairing is known (A, C, G,
-T, U, S and W). Other IUPAC codes, such as N, are left out. Melting
-temperature uses SantaLucia's unified nearest-neighbour parameters (1998) with
-his salt correction, at 50 mM Na⁺, with sodium alone: no Mg²⁺ or dNTPs. Its
-strands are 50 nM in all, his CT, the total strand concentration: 25 nM each
-of the primer and its complement, so the Tm is at CT/4, or 50 nM of a primer
-that pairs with itself, at CT. (Biopython's `Tm_NN` takes each strand's:
-`dnac1=25, dnac2=25`, its defaults. At 50 nM of each, a primer's Tm is some
-0.8 °C higher.) That isn't Primer3's default buffer (1.5 mM Mg²⁺ and 0.6 mM
-dNTPs as well), under which the same primer's Tm is some 5 to 6 °C higher, so
-compare it with Tms computed for sodium alone. It's computed only for primers
-of A, C, G and T alone.
+T, U, S and W). Other IUPAC codes, such as N, are left out.
+
+A primer's own checks — its melting temperature, the hairpin it folds into, the
+dimer it forms with another copy of itself, how firmly its 3′ end is held and
+its longest run of one base — are computed by the packaged WebAssembly module
+`data/oligo-checks.wasm`, built from the Rust the server and the web app run
+([ADR 0201](../../docs/adr/0201-a-primers-checks-use-each-fields-own-parameter-set.md)),
+so a number on a record and the same number in a browser agree. The module is
+never committed: git holds the Rust and the digest beside it,
+`data/oligo-checks.wasm.sha256`, and `scripts/build-oligo-checks-wasm.sh`
+builds the bytes. Run that script once in a fresh checkout, or the action has no
+module to call. The digest is of the Linux x86-64 build, which is what an image
+and a deployment run; on another platform the script builds the module for the
+tests here and says it isn't comparing, because rustc's precompiled wasm32
+standard library differs between host platforms (ADR 0200).
+
+**Melting temperature** uses SantaLucia's unified nearest-neighbour parameters
+(_PNAS_ 95:1460, 1998) **in the buffer a PCR runs in**: 50 mM Na⁺, 1.5 mM Mg²⁺
+and 0.6 mM dNTPs, with 25 nM each of the primer and its complement, which is
+Primer3's default. The magnesium is corrected for by Owczarzy et al.'s measured
+equations (_Biochemistry_ 43:3537, 2004, equation 22; 47:5336, 2008, equation
+16), and is worth several degrees: a primer annealed at its sodium-only Tm runs
+cold. An oligo that is its own complement carries SantaLucia's symmetry term and
+all the strands are that one species, as Biopython's `Tm_NN` has it with
+`selfcomp=True`. It is computed only for primers of A, C, G and T alone.
+
+**Hairpins and self-dimers** are the most stable structure the primer folds into
+or pairs with itself as, by free energy at 37 °C, on the DNA parameters of the
+Nearest Neighbor Database (_Nucleic Acids Res_ 38:D280, 2010; _J Mol Biol_
+436:168549, 2024) — a different set from the melting temperature's, used whole,
+for the reasons ADR 0201 gives. Below about −9 kcal/mol is worth redesigning,
+which is where IDT's OligoAnalyzer draws the line; a primer that folds into
+nothing gets a positive free energy rather than no value, so the field can be
+filtered on. These numbers will not match Primer3's or IDT's to the decimal,
+because those tools use other parameter sets; expect agreement in the ordering
+and in what counts as concerning.
+
+**End stability** is the free energy of the last five bases against their
+complement: how firmly the 3′ end a polymerase extends from is held. **Longest
+run** is the longest stretch of one base, four or more G being the one that can
+stack into a quadruplex.
+
+The plugin pins the SHA-256 of its Linux x86-64 build in
+`data/oligo-measurement.sha256`. When building a deployment, Iki takes the compiled
+measurement from the installed `iki-spec` distribution and includes
+`data/oligo-measurement.wasm` in both the worker image and downloadable plugin archive.
+Release builds on Linux x86-64 compare its bytes with the pin. Other developer hosts
+require the built module and report why they skip that comparison. The dev cluster
+gets the verified Linux x86-64 bytes from Docker.
+The Rust standard library notice accompanies it in `data/rust-standard-library.html`.
+The worker runs it offline with the Wasmtime wheel in `sequence-tools`. The browser and
+server compile the same Rust source. In the Iki source checkout, `scripts/build-wasm.sh`
+builds the modules and places an ignored copy in the plugin for direct action invocations.
+After changing the Rust measurement, run `pnpm generate:temperature` to update its digest
+and the browser implementation. Deploy with an Iki release that supplies the pinned
+measurement. Retain previously shipped measurements when adding a new digest to a release.
 
 GenBank records give the name (LOCUS), description (DEFINITION), accession
 with its version (VERSION), organism, topology, strandedness and features.
@@ -480,9 +525,17 @@ its format; SnapGene opens the GenBank file with its features (ADR 0171).
 From the repository root:
 
 ```sh
+scripts/build-oligo-checks-wasm.sh                   # the primer checks' module
 uv run iki plugin validate plugins/dna
 cd plugins && uv run iki plugin makemigrations dna   # after changing a manifest
 ```
+
+The module isn't committed, so build it once in a fresh checkout. After a change
+to the Rust that is meant to change it, `--update` writes the digest to commit
+beside the source, building through the server image's wasm stage in Docker so
+the digest is the Linux x86-64 one wherever it is run — that being what an image
+and a deployment run, and the only platform the bytes can be compared on
+(ADR 0200).
 
 Its environment's packages are pinned, with their hashes, in
 `requirements.txt`, compiled from `requirements.in` as it says. Pin the same

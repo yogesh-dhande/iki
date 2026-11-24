@@ -650,7 +650,7 @@ def add_entry_record(
 
 
 class MoveIn(Schema):
-    reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reason: str = Field(min_length=1, max_length=2000, description="Why the holder is moving it.")
 
 
 class MovedOut(EntityOut):
@@ -675,7 +675,17 @@ def move_entity(
     record = _find(me, ref)
     assert record.owner_project_id is not None  # noqa: S101 - records have projects
     project(me, record.owner_project_id, Action.PROJECT_EDIT)
-    moved = entries.move(me, record, reason=payload.reason)
+    try:
+        moved = entries.move(me, record, reason=payload.reason)
+    except Invalid as error:
+        raise Problem(
+            422,
+            "It can’t be moved as requested.",
+            errors=[
+                {"pointer": f"#/{name}", "detail": " ".join(messages)}
+                for name, messages in error.errors.items()
+            ],
+        ) from None
     refs, _ = _lookup(me, {"ref": {e.pk for e in moved.repointed}, "file": set()})
     out = _one(me, Entity.objects.select_related("created_by").get(pk=record.pk), response)
     return {**out, "repointed": [refs[e.pk] for e in moved.repointed if e.pk in refs]}

@@ -209,6 +209,37 @@ def test_a_plugin_built_before_many_entities_reads_back(tmp_path: Path) -> None:
     assert plugin_from_dict(built) == plugin
 
 
+def test_a_components_search_can_filter_on_a_state(tmp_path: Path) -> None:
+    types = (
+        TYPES
+        + """\
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded: { label: Recorded }
+      signed: { label: Signed, set_by: [reviewer] }
+      released: { label: Released, set_by: [reviewer] }
+"""
+    )
+    slots = """
+  - slot: entity.tab
+    type: Assay
+    search:
+      where:
+        all:
+          - {field: assay, op: eq, value: "{{ entity }}"}
+          - {field: review, op: in, value: [signed, released]}
+"""
+    manifest = many(slots=slots, entities="{ type: Readout, fields: [review] }")
+    files = {
+        "plugin.yaml": PLUGIN + "roles: {reviewer: {label: Reviewer}}\n",
+        "types/types.yaml": types,
+    }
+    result = made(tmp_path, manifest, **files)
+    assert result.problems == []
+
+
 def test_the_places_that_show_many_need_entities(tmp_path: Path) -> None:
     for slots in (
         "[{ slot: search.results }]",

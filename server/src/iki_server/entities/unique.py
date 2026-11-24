@@ -49,6 +49,13 @@ __all__ = [
 #: The triggers' names start with this; ``sync_plugins`` drops those no field needs.
 TRIGGER_PREFIX = "iki_unique__"
 
+# Match codes.has_iki_prefix under any database locale. These are Python's leading
+# whitespace characters and the characters that uppercase to I and K.
+_RESERVED_VENDOR = (
+    r"^[\u0009-\u000D\u001C-\u0020\u0085\u00A0\u1680\u2000-\u200A"
+    r"\u2028\u2029\u202F\u205F\u3000]*[Ii\u0131][Kk][Ii\u0131]:"
+)
+
 
 @dataclass(frozen=True)
 class Column:
@@ -198,10 +205,15 @@ def clash_message(error: IntegrityError) -> str:
     return f"An entity in the project has `{found[1]}` “{found[2]}” already, or two lines do."
 
 
-def install(cursor: Any, wanted: list[Column]) -> list[str]:  # noqa: ANN401 - Django's cursor
+def install(
+    cursor: Any,  # noqa: ANN401 - Django's cursor
+    wanted: list[Column],
+    barcode_types: Mapping[str, list[str]],
+) -> list[str]:
     """Triggers keeping ``wanted`` columns' values, and the values already there. Drops
     triggers and values of fields no longer unique. Raises :class:`Clash` when entities in
-    a project already share a value: the deploy stops, saying which."""
+    a project already share a value or use a reserved vendor barcode. The deploy stops,
+    saying which."""
     keys = [c.key for c in wanted]
     cursor.execute(
         "SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
@@ -228,20 +240,43 @@ def install(cursor: Any, wanted: list[Column]) -> list[str]:  # noqa: ANN401 - D
             "`unique` off, then deploy again."
         )
     for c in wanted:
+        args = [c.column, c.key]
+        types = barcode_types.get(c.key)
+        if types:
+            # Plugin type names cannot contain array punctuation.
+            args.extend(["{" + ",".join(sorted(types)) + "}", _RESERVED_VENDOR])
         cursor.execute(
             sql.SQL(
                 "CREATE OR REPLACE TRIGGER {name} AFTER INSERT OR UPDATE OF {column} ON {table} "
-                "FOR EACH ROW EXECUTE FUNCTION iki_unique_value_keep({arg}, {key})"
+                "FOR EACH ROW EXECUTE FUNCTION iki_unique_value_keep({args})"
             ).format(
                 name=sql.Identifier(_trigger(c)),
                 column=sql.Identifier(c.column),
                 table=sql.Identifier(c.table),
-                arg=sql.Literal(c.column),
-                key=sql.Literal(c.key),
+                args=sql.SQL(", ").join(sql.Literal(arg) for arg in args),
             )
         )
+        if types:
+            # The trigger now holds the writer lock through this transaction. Check
+            # old rows before a deployment accepts writes with the new declaration.
+            _check_vendor_codes(cursor, c, types)
         _fill(cursor, c)
     return keys
+
+
+def _check_vendor_codes(cursor: Any, c: Column, types: list[str]) -> None:  # noqa: ANN401
+    cursor.execute(
+        sql.SQL(
+            "SELECT e.hrid FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
+            'WHERE e.type = ANY(%s) AND t.{column} COLLATE "C" ~ %s ORDER BY e.hrid LIMIT 10'
+        ).format(table=sql.Identifier(c.table), column=sql.Identifier(c.column)),
+        [types, _RESERVED_VENDOR],
+    )
+    if records := cursor.fetchall():
+        raise Clash(
+            f"Existing vendor barcodes in `{c.key}` start with the reserved IKI: prefix "
+            f"on {', '.join(hrid for (hrid,) in records)}. Correct them and deploy again."
+        )
 
 
 def _trigger(c: Column) -> str:

@@ -1,0 +1,18 @@
+apiVersion: iki/v1
+kind: Component
+name: case_results
+label: Release tests
+description: The test attempts for a lot release case, including every original out-of-specification result.
+module: ./components/release-records.js
+element: release-tests
+entities:
+  type: ReleaseTest
+  fields: [attribute, method, unit, value, outcome, sequence]
+  limit: 250
+slots:
+  - slot: entity.tab
+    type: ReleaseCase
+    search:
+      where: { field: case, op: eq, value: "{{ entity }}" }
+      sort: sequence
+events: { run: { actions: [record_test, prepare_certificate] } }

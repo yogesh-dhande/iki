@@ -65,9 +65,9 @@
           }
         },
         "unique": {
-          "description": "Fields no two of a project's records have the same values of, together, such as a box and a position in it. A record with any of them empty doesn't count. The database refuses a second, whatever writes it.",
+          "description": "One field or a combination of fields whose values two records in a project cannot share. A record with any of them empty doesn't count. The database refuses a second, whatever writes it.",
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
           "maxItems": 5,
           "uniqueItems": true,
           "items": {

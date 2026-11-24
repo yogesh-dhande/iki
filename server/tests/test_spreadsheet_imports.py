@@ -14,7 +14,7 @@ from iki_server.entities import services
 from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs.models import ActionRun, ExternalOrigin
-from iki_server.spreadsheets.models import PreviewRow, SpreadsheetImport
+from iki_server.spreadsheets.models import PreviewRow, SavedMapping, SpreadsheetImport
 
 pytestmark = pytest.mark.django_db
 
@@ -80,10 +80,15 @@ def proteins(world: World) -> dict[str, dict[str, Any]]:
 
 
 def started(
-    world: World, data: bytes, type_name: str = SAMPLE, name: str = "manifest.xlsx", **kw: Any
+    world: World,
+    data: bytes,
+    type_name: str = SAMPLE,
+    name: str = "manifest.xlsx",
+    *,
+    principal: str = "editor",
 ) -> dict[str, Any]:
-    file_id = workbook(world, data, name)
-    api = api_as(world)
+    file_id = workbook(world, data, name, principal)
+    api = api_as(world, principal)
     made = api.post(
         f"/projects/{world.project.pk}/spreadsheet-imports", {"file": file_id, "type": type_name}
     )
@@ -92,6 +97,20 @@ def started(
     run_tasks()
     body: dict[str, Any] = api.get(f"/spreadsheet-imports/{made.json()['id']}").json()
     return body
+
+
+def seen(imported: dict[str, Any]) -> dict[str, str]:
+    """If-Match: the revision of the import as it was read."""
+    return {"If-Match": f'"{imported["revision"]}"'}
+
+
+def change(
+    world: World, imported: dict[str, Any], body: dict[str, Any], principal: str = "editor"
+) -> Any:
+    """PATCHes the import from the revision it was read at."""
+    return api_as(world, principal).patch(
+        f"/spreadsheet-imports/{imported['id']}", body, headers=seen(imported)
+    )
 
 
 def settle() -> None:
@@ -103,7 +122,7 @@ def settle() -> None:
 
 def previewed(world: World, imported: dict[str, Any], principal: str = "editor") -> dict[str, Any]:
     api = api_as(world, principal)
-    asked = api.post(f"/spreadsheet-imports/{imported['id']}/preview")
+    asked = api.post(f"/spreadsheet-imports/{imported['id']}/preview", headers=seen(imported))
     assert asked.status_code == 202, asked.content
     settle()
     body: dict[str, Any] = api.get(f"/spreadsheet-imports/{imported['id']}").json()
@@ -121,7 +140,7 @@ def rows(world: World, imported: dict[str, Any], *outcomes: str) -> list[dict[st
 
 def committed(world: World, imported: dict[str, Any], **body: Any) -> dict[str, Any]:
     api = api_as(world)
-    asked = api.post(f"/spreadsheet-imports/{imported['id']}/commit", body)
+    asked = api.post(f"/spreadsheet-imports/{imported['id']}/commit", body, headers=seen(imported))
     assert asked.status_code == 202, asked.content
     settle()
     out: dict[str, Any] = api.get(f"/spreadsheet-imports/{imported['id']}").json()
@@ -165,12 +184,11 @@ def test_a_sample_manifest_is_imported_as_records(world: World) -> None:
     }
     assert imported["columns"][3]["unit"] == "ug/mL"
     # Reading them the way the sheet writes them is checked, and said.
-    changed = api_as(world).patch(
-        f"/spreadsheet-imports/{imported['id']}", {"locale": {"decimal": "point"}}
-    )
+    changed = change(world, imported, {"locale": {"decimal": "point"}})
     assert changed.status_code == 200, changed.content
+    assert changed["ETag"] == f'"{imported["revision"] + 1}"'
 
-    checked = previewed(world, imported)
+    checked = previewed(world, changed.json())
     assert checked["preview"]["counts"]["create"] == 3
     assert checked["preview"]["counts"]["problem"] == 0
 
@@ -268,11 +286,7 @@ def test_cells_that_read_two_ways_are_flagged_until_the_locale_is_said(world: Wo
         (3, "ambiguous"),
     }
 
-    api = api_as(world)
-    said = api.patch(
-        f"/spreadsheet-imports/{imported['id']}",
-        {"locale": {"decimal": "comma", "dates": "day_first"}},
-    )
+    said = change(world, checked, {"locale": {"decimal": "comma", "dates": "day_first"}})
     assert said.status_code == 200, said.content
     body = said.json()
     # Saying it starts the preview again.
@@ -296,9 +310,7 @@ def test_cells_that_read_two_ways_are_flagged_until_the_locale_is_said(world: Wo
 
 def test_a_locale_must_be_one_iki_reads(world: World) -> None:
     imported = started(world, csv_text(EUROPEAN).encode(), name="proben.csv")
-    wrong = api_as(world).patch(
-        f"/spreadsheet-imports/{imported['id']}", {"locale": {"decimal": "dot"}}
-    )
+    wrong = change(world, imported, {"locale": {"decimal": "dot"}})
     assert wrong.status_code == 422
 
 
@@ -308,11 +320,7 @@ def test_excel_serial_dates_are_read_once_the_person_says_so(world: World) -> No
     (reading,) = imported["readings"][0]["cells"]
     assert reading["stored"] is True
     assert "Excel serial dates (46388 is 1 January 2027)" in reading["problem"]
-    said = (
-        api_as(world)
-        .patch(f"/spreadsheet-imports/{imported['id']}", {"locale": {"serial_dates": True}})
-        .json()
-    )
+    said = change(world, imported, {"locale": {"serial_dates": True}}).json()
     assert said["readings"][0]["cells"][0]["reads_as"] == "2027-01-01"
     committed(world, previewed(world, said))
     assert str(values(records(world)["ABL1-KD-301"])["due_on"]) == "2027-01-01"
@@ -359,7 +367,7 @@ def test_rows_with_problems_stop_the_import_unless_theyre_left_out(world: World)
     proteins(world)
     checked = previewed(world, started(world, xlsx(("Samples", BAD))))
     api = api_as(world)
-    refused = api.post(f"/spreadsheet-imports/{checked['id']}/commit", {})
+    refused = api.post(f"/spreadsheet-imports/{checked['id']}/commit", {}, headers=seen(checked))
     assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
     assert not Entity.objects.filter(type=SAMPLE).exists()
     done = committed(world, checked, skip_problems=True, reason="Rows 3-5 fixed in the next batch")
@@ -406,7 +414,9 @@ def test_what_changed_since_the_preview_fails_the_run_and_says_where(world: Worl
 def test_a_plugin_that_changed_since_the_preview_means_previewing_again(world: World) -> None:
     checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
     SpreadsheetImport.objects.filter(pk=checked["id"]).update(schema="0" * 64)
-    refused = api_as(world).post(f"/spreadsheet-imports/{checked['id']}/commit", {})
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{checked['id']}/commit", {}, headers=seen(checked)
+    )
     assert "preview it again" in problem(refused, 409, "refused")["detail"]
 
 
@@ -616,7 +626,7 @@ def test_an_import_is_its_requesters_until_its_committed(world: World) -> None:
     url = f"/spreadsheet-imports/{imported['id']}"
     # Another Editor of the project neither sees nor changes it.
     assert api_as(world, "admin").get(url).status_code == 404
-    assert api_as(world, "admin").patch(url, {"header_row": 1}).status_code == 404
+    assert change(world, imported, {"header_row": 1}, "admin").status_code == 404
     assert api_as(world, "outsider").get(url).status_code == 404
     listed = api_as(world, "admin").get(f"/projects/{world.project.pk}/spreadsheet-imports").json()
     assert listed["items"] == []
@@ -632,7 +642,9 @@ def test_an_editor_removed_before_the_run_starts_imports_nothing(world: World) -
     proteins(world)
     checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
     asked = api_as(world).post(
-        f"/spreadsheet-imports/{checked['id']}/commit", {"skip_problems": True}
+        f"/spreadsheet-imports/{checked['id']}/commit",
+        {"skip_problems": True},
+        headers=seen(checked),
     )
     assert asked.status_code == 202, asked.content
     ProjectMembership.objects.filter(project=world.project, user=world.users["editor"]).delete()
@@ -649,8 +661,9 @@ def test_an_editor_removed_before_the_run_starts_imports_nothing(world: World) -
 def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     imported = started(world, csv_text(EUROPEAN, ";").encode("cp1252"), name="proben.csv")
     api = api_as(world)
-    api.patch(
-        f"/spreadsheet-imports/{imported['id']}",
+    mapped_now = change(
+        world,
+        imported,
         {
             "locale": {"decimal": "comma", "dates": "day_first"},
             "columns": [
@@ -660,15 +673,27 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
                 {"index": 3, "field": "due_on"},
             ],
         },
+    ).json()
+    # Its mapping as it was read, before that change, isn't what's kept.
+    stale = api.post(
+        f"/spreadsheet-imports/{imported['id']}/mappings",
+        {"name": "Plate reader export"},
+        headers=seen(imported),
     )
+    problem(stale, 412, "stale")
+    assert not SavedMapping.objects.exists()
     saved = api.post(
-        f"/spreadsheet-imports/{imported['id']}/mappings", {"name": "Plate reader export"}
+        f"/spreadsheet-imports/{imported['id']}/mappings",
+        {"name": "Plate reader export"},
+        headers=seen(mapped_now),
     )
     assert saved.status_code == 201, saved.content
     assert saved.json()["headers"] == ["Label", "Purity (%)", "Conc. (mg/mL)", "Due on"]
     assert saved.json()["locale"]["decimal"] == "comma"
     again = api.post(
-        f"/spreadsheet-imports/{imported['id']}/mappings", {"name": "Plate reader export"}
+        f"/spreadsheet-imports/{imported['id']}/mappings",
+        {"name": "Plate reader export"},
+        headers=seen(mapped_now),
     )
     assert again.status_code == 422
 
@@ -692,6 +717,187 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
         == 403
     )
     assert api.delete(f"/spreadsheet-mappings/{listed[0]['id']}").status_code == 204
+
+
+def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
+    owner, colleague = api_as(world), api_as(world, "via_team")
+    original = started(world, b"Label,Purity (%)\nS-1,95\n", name="first.csv")
+    ref = f"/spreadsheet-imports/{original['id']}"
+    saved = owner.post(f"{ref}/mappings", {"name": "Instrument v1"}, headers=seen(original))
+    assert saved.status_code == 201, saved.content
+    mapping_id = saved.json()["id"]
+    previewed(world, original)
+
+    next_sheet = started(
+        world, b"Label,Purity (%)\nS-2,85\n", name="second.csv", principal="via_team"
+    )
+    next_ref = f"/spreadsheet-imports/{next_sheet['id']}"
+    changed = colleague.patch(
+        next_ref, {"columns": [{"index": 0, "field": "label"}]}, headers=seen(next_sheet)
+    )
+    assert changed.status_code == 200, changed.content
+    replacement = colleague.post(
+        f"{next_ref}/mappings",
+        {"name": "Instrument v2", "replace": mapping_id},
+        headers=seen(changed.json()),
+    )
+    assert replacement.status_code == 201, replacement.content
+    assert replacement.json()["columns"] == [{"header": "Label", "field": "label"}]
+
+    accepted = owner.post(f"{ref}/commit", {}, headers=seen(original))
+    assert accepted.status_code == 202, accepted.content
+    pinned = accepted.json()["applied_mapping"]
+    assert pinned["template"] == {"id": mapping_id, "name": "Instrument v1", "match": 1.0}
+    assert [(c["index"], c["field"]) for c in pinned["columns"]] == [(0, "label"), (1, "purity")]
+    settle()
+    done = colleague.get(ref).json()
+    assert done["state"] == "imported", done
+    run = ActionRun.objects.get(pk=done["run"]["id"])
+    assert run.params["header_row"] == pinned["header_row"]
+    assert run.params["locale"] == pinned["locale"]
+    assert run.params["columns"] == [
+        {key: value for key, value in col.items() if key != "index"} for col in pinned["columns"]
+    ]
+    assert values(records(world)["S-1"])["purity"] == 95
+
+    late = owner.post(f"{ref}/mappings", {"name": "Saved after the import"}, headers=seen(original))
+    assert late.status_code == 201, late.content
+    assert late.json()["id"] != mapping_id
+    assert colleague.delete(f"/spreadsheet-mappings/{mapping_id}").status_code == 204
+    history = colleague.get(ref).json()
+    assert history["mapping"] == pinned["template"]
+    assert history["applied_mapping"] == pinned
+
+
+# --- Revisions --------------------------------------------------------------------------------
+
+# A manifest with a sheet about it first: Iki starts on that one, two rows long.
+ABOUT: list[list[Any]] = [
+    ["Expression core: kinase domain constructs"],
+    ["Batch 12, purified November 2026. Concentrations by A280."],
+]
+TITLED: list[list[Any]] = [["Kinase domains, batch 12"], [], *MANIFEST, ["Total", "", "", 3230]]
+
+
+def stored(imported: dict[str, Any]) -> dict[str, Any]:
+    found = SpreadsheetImport.objects.get(pk=imported["id"])
+    return {
+        "revision": found.revision,
+        "sheet": found.sheet,
+        "header_row": found.header_row,
+        "first_row": found.first_row,
+        "last_row": found.last_row,
+        "skip": found.skip,
+        "state": found.state,
+        "round": found.round,
+    }
+
+
+def test_a_change_from_a_revision_it_has_moved_on_from_changes_nothing(world: World) -> None:
+    imported = started(world, xlsx(("About", ABOUT), ("Samples", TITLED)))
+    # Iki's reading is a revision of its own: what it imports to start with.
+    assert imported["revision"] == 2 and imported["sheet"] == "About"
+    url = f"/spreadsheet-imports/{imported['id']}"
+    assert api_as(world).get(url)["ETag"] == '"2"'
+
+    # The sheet is chosen; a header row typed while that was on its way was typed against
+    # the revision before it, and its request arrives after.
+    chose = change(world, imported, {"sheet": "Samples"})
+    assert chose.status_code == 200, chose.content
+    assert chose["ETag"] == '"3"' and chose.json()["revision"] == 3
+    before = stored(imported)
+    late = change(world, imported, {"header_row": 3})
+    body = problem(late, 412, "stale")
+    assert "revision 3" in body["detail"]
+    assert late["ETag"] == '"3"'
+    assert stored(imported) == before
+
+    # A preview, a commit and a saved mapping of a revision it's moved on from are refused
+    # too, and nothing starts.
+    api = api_as(world)
+    problem(api.post(f"{url}/preview", headers=seen(imported)), 412, "stale")
+    problem(api.post(f"{url}/commit", {}, headers=seen(imported)), 412, "stale")
+    problem(api.post(f"{url}/mappings", {"name": "Core"}, headers=seen(imported)), 412, "stale")
+    assert stored(imported) == before
+    assert not SavedMapping.objects.exists()
+
+    # Without the revision it was read at, nothing is changed either.
+    problem(api.patch(url, {"header_row": 3}), 428, "precondition_required")
+    problem(api.post(f"{url}/preview"), 428, "precondition_required")
+    problem(api.post(f"{url}/commit", {}), 428, "precondition_required")
+    problem(api.post(f"{url}/mappings", {"name": "Core"}), 428, "precondition_required")
+    wrong = api.patch(url, {"header_row": 3}, headers={"If-Match": '"3", "2"'})
+    problem(wrong, 412, "precondition_failed")
+    assert stored(imported) == before
+
+    # From what it is now, it's saved.
+    again = change(world, chose.json(), {"header_row": 3})
+    assert again.status_code == 200, again.content
+    assert (again.json()["header_row"], again.json()["first_row"]) == (3, 4)
+    assert stored(imported)["revision"] == 4
+
+
+def test_a_sheet_and_its_header_row_are_checked_together(world: World) -> None:
+    imported = started(world, xlsx(("About", ABOUT), ("Samples", TITLED)))
+    # Row 3 isn't one of About's two rows: nothing is saved, not even the rest.
+    alone = change(world, imported, {"header_row": 3, "skip": [[2, 2]]})
+    errors = problem(alone, 422, "validation_failed")["errors"]
+    assert errors == [
+        {"pointer": "#/header_row", "detail": "must be a row of the sheet, from 1 to 2, or 0."}
+    ]
+    assert stored(imported)["skip"] == [] and stored(imported)["revision"] == 2
+
+    # With the sheet it's on, it's one change, checked against that sheet.
+    both = change(world, imported, {"sheet": "Samples", "header_row": 3})
+    assert both.status_code == 200, both.content
+    body = both.json()
+    assert (body["sheet"], body["header_row"], body["first_row"]) == ("Samples", 3, 4)
+    assert mapped(body)["Purity (%)"] == "purity"
+    assert body["revision"] == 3
+
+    # Back to About with a row of Samples: refused whole, so Samples stays as it was.
+    back = change(world, body, {"sheet": "About", "header_row": 5})
+    assert problem(back, 422, "validation_failed")["errors"][0]["pointer"] == "#/header_row"
+    assert stored(imported)["sheet"] == "Samples" and stored(imported)["header_row"] == 3
+
+
+def test_another_sheet_takes_its_rows_afresh(world: World) -> None:
+    imported = started(world, xlsx(("About", ABOUT), ("Samples", TITLED)))
+    chosen = change(
+        world,
+        imported,
+        {"sheet": "Samples", "header_row": 3, "last_row": 6, "skip": [[5, 5]]},
+    ).json()
+    assert (chosen["first_row"], chosen["last_row"], chosen["skip"]) == (4, 6, [[5, 5]])
+    # Samples' rows mean nothing on About: its own are taken, as Iki first found them.
+    about = change(world, chosen, {"sheet": "About"}).json()
+    assert {k: about[k] for k in ("sheet", "header_row", "first_row", "last_row", "skip")} == {
+        "sheet": "About",
+        "header_row": 1,
+        "first_row": 2,
+        "last_row": None,
+        "skip": [],
+    }
+    # Unless they're given with it.
+    given = change(world, about, {"sheet": "Samples", "header_row": 3, "first_row": 5}).json()
+    assert (given["header_row"], given["first_row"], given["skip"]) == (3, 5, [])
+
+
+def test_a_preview_checks_the_revision_that_was_read(world: World) -> None:
+    proteins(world)
+    imported = started(world, xlsx(("Samples", MANIFEST)))
+    checked = previewed(world, imported)
+    # Checking it doesn't change what it imports: the same revision commits.
+    assert checked["revision"] == imported["revision"]
+    moved = change(world, checked, {"first_row": 3}).json()
+    # What was checked isn't what it imports now: it's checked again before it's imported.
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{checked['id']}/commit", {}, headers=seen(checked)
+    )
+    problem(refused, 412, "stale")
+    done = committed(world, previewed(world, moved))
+    assert done["state"] == "imported", done["run_problems"]
+    assert list(records(world)) == ["ABL1-KD-002", "EGFR-KD-001"]
 
 
 # --- Workbooks Iki won't read ------------------------------------------------------------------
@@ -743,7 +949,10 @@ def test_a_preview_whose_runner_went_away_goes_on(world: World) -> None:
     from iki_server.tasks.models import TaskRecord
 
     imported = started(world, xlsx(("Samples", MANIFEST)))
-    api_as(world).post(f"/spreadsheet-imports/{imported['id']}/preview")
+    asked = api_as(world).post(
+        f"/spreadsheet-imports/{imported['id']}/preview", headers=seen(imported)
+    )
+    assert asked.status_code == 202, asked.content
     # Its task is lost: the runner died with it.
     TaskRecord.objects.filter(task_path__endswith="preview_import").delete()
     SpreadsheetImport.objects.filter(pk=imported["id"]).update(
@@ -752,3 +961,22 @@ def test_a_preview_whose_runner_went_away_goes_on(world: World) -> None:
     assert sheets.recover() == 1
     settle()
     assert SpreadsheetImport.objects.get(pk=imported["id"]).state == "previewed"
+
+
+def test_reserved_vendor_code_is_a_field_problem_before_a_tube_is_imported(world: World) -> None:
+    from test_storage import TUBE
+
+    uploaded = started(world, b"Barcode\nVendor-43\niKi:unassigned\n", TUBE, name="tubes.csv")
+    checked = previewed(world, uploaded)
+    problems = rows(world, checked, "problem")
+    assert len(problems) == 1 and problems[0]["row"] == 3
+    assert any(p["field"] == "barcode" and "IKI:" in p["detail"] for p in problems[0]["problems"])
+    assert checked["preview"]["counts"]["create"] == 1
+    refused = api_as(world).post(
+        f"/spreadsheet-imports/{uploaded['id']}/commit", {}, headers=seen(checked)
+    )
+    assert problem(refused, 422, "validation_failed")["errors"][0]["pointer"] == "#/skip_problems"
+    assert not records(world, TUBE, "barcode")
+    done = committed(world, checked, skip_problems=True, reason="Import the valid supplier row")
+    assert done["state"] == "imported"
+    assert list(records(world, TUBE, "barcode")) == ["Vendor-43"]

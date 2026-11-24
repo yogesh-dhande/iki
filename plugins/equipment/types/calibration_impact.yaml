@@ -1,0 +1,113 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: CalibrationImpact
+label: Calibration impact
+label_plural: Calibration impacts
+schema_version: 1
+hrid: { prefix: EQI }
+description: A result that needs a separate disposition after a failed calibration. The signed original remains part of the evidence.
+fields:
+  key:
+    { type: string, max_length: 64, computed: true, immutable: true, unique: true, indexed: true }
+  instrument: { type: ref, to: iki/example_lims.Instrument, required: true, immutable: true }
+  failure: { type: ref, to: EquipmentService, required: true, immutable: true }
+  failure_revision: { type: int, min: 1, computed: true, immutable: true }
+  use: { type: ref, to: InstrumentUse, required: true, immutable: true }
+  result: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  measurement_at: { type: datetime, required: true, immutable: true, indexed: true }
+  review_flow:
+    type: enum
+    values: [research, regulated_qc]
+    computed: true
+    immutable: true
+  disposition:
+    type: enum
+    values: [unaffected, repeat_required, invalidated]
+    description: The reasoned conclusion for this result revision.
+  reasoning:
+    type: text
+    max_length: 10000
+    description: Evidence, rationale and any downstream action the disposition requires.
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [iki/example_lims.engineer, reviewer, qa]
+        reason: required
+        guards:
+          correctable:
+            check: state.from in ["submitted", "reviewed"]
+            message: Return an impact awaiting review or release for correction.
+      signed_off:
+        label: Signed off
+        set_by: [qa]
+        locks: true
+        signatures:
+          [
+            {
+              meaning: approval,
+              statement: I sign off the impact on this result and the disposition.,
+            },
+          ]
+        guards:
+          assessed:
+            check: >-
+              state.from == "recorded" && record.review_flow == "research" &&
+              record.disposition != null && record.reasoning != null && size(record.reasoning) > 0
+            message: Record a reasoned disposition for the QA signer.
+      submitted:
+        label: Submitted
+        set_by: [iki/example_lims.engineer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: authorship }]
+        guards:
+          assessed:
+            check: >-
+              state.from == "recorded" && record.review_flow == "regulated_qc" &&
+              record.disposition != null && record.reasoning != null && size(record.reasoning) > 0
+            message: Record a reasoned disposition for independent review.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          independent:
+            check: >-
+              state.from == "submitted" && history.review[0].by != actor.person &&
+              last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: A reviewer independent of the creator, submitter and editors must sign.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        signatures: [{ meaning: approval, label: QA disposition }]
+        guards:
+          independent:
+            check: >-
+              state.from == "reviewed" && last.review.reviewed.from == "submitted" &&
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: A QA signer independent of the review and assessment must release the disposition.
+rules:
+  traced_by_action:
+    label: The trace pins its source and review flow
+    check: record.key != null && record.failure_revision != null && record.review_flow != null
+    message: Trace failed calibrations with the action to identify the possible impact.
+  use_matches_failure:
+    label: The result was in the review window
+    check: >-
+      record.failure.outcome == "out_of_tolerance" && record.failure.review in ["signed_off", "released"] &&
+      record.failure.instrument == record.instrument.id && record.use.instrument == record.instrument.id &&
+      record.result.id == record.use.result &&
+      record.measurement_at == record.use.measurement_at &&
+      record.failure.suspect_since <= record.measurement_at
+    message: Only an instrument use in this failed calibration's review window can be assessed.
+    fields: [instrument, failure, use, result, measurement_at]
+display:
+  title: "Calibration impact · {{ measurement_at }}"

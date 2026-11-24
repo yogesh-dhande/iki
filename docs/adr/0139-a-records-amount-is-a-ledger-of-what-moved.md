@@ -42,7 +42,9 @@ optional `aliquots: { type, of }`. Iki keeps the amount in its own table
 (`iki_amount`): one row per record, an exact decimal (40 digits, 12 after
 the point) in the type's unit, with a database check that it's never below
 zero. What a plugin declares is what it is and how it converts. How it moves
-is the same for every plugin, so it's core.
+is the same for every plugin, so it's core. For indivisible stock a type may
+set `whole_units: true`. The ledger checks quantities in its own unit after
+conversion, including each side of a transfer and each aliquot in a split.
 
 **It changes only through operations, each a movement.** Recorded when a
 record is made (`POST /entities` with `amount`), then drawn, transferred,

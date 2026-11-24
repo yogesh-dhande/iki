@@ -1,0 +1,86 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Measurement
+label: Stability measurement
+schema_version: 1
+hrid: { prefix: STM }
+description: One test on a completed stability pull, with the protocol's method, unit and review.
+fields:
+  study: { type: ref, to: Study, required: true, immutable: true, indexed: true }
+  pull: { type: ref, to: Pull, required: true, immutable: true, indexed: true }
+  pull_revision: { type: int, min: 1, computed: true }
+  condition: { type: string, max_length: 24, required: true, immutable: true, indexed: true }
+  condition_label: { type: string, max_length: 100, required: true, immutable: true }
+  month: { type: int, min: 0, max: 120, required: true, immutable: true, indexed: true }
+  pulled_on: { type: date, required: true, immutable: true }
+  test: { type: string, max_length: 100, required: true, immutable: true }
+  method: { type: string, max_length: 200, required: true, immutable: true }
+  unit: { type: string, max_length: 40, required: true, immutable: true }
+  value: { type: float, required: true }
+  report:
+    type: file
+    label: Test report
+    media_types: [application/pdf, text/csv, text/plain]
+    max_size: 50MiB
+  notes: { type: text, max_length: 4000 }
+  review_flow: { type: enum, values: [research, regulated_qc], computed: true }
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+        set_by: [analyst, reviewer, qa]
+        reason: required
+        guards:
+          correction:
+            check: state.from == "submitted" || state.from == "reviewed"
+            message: Only a submission awaiting independent review or QA release can be corrected.
+      signed:
+        label: Signed off
+        set_by: [reviewer]
+        locks: true
+        signatures:
+          [{ meaning: review, statement: I checked the stability measurement and its report. }]
+        guards:
+          research:
+            check: state.from == "recorded" && record.review_flow == "research" && record.pull_revision != null && record.report != null
+            message: Sign the recorded research measurement from a completed pull after attaching its report.
+      submitted:
+        label: Submitted
+        set_by: [analyst]
+        locks: true
+        on_edit: recorded
+        signatures:
+          [{ meaning: authorship, statement: I recorded the stability measurement as observed. }]
+        guards:
+          qc:
+            check: state.from == "recorded" && record.review_flow == "regulated_qc" && record.pull_revision != null && record.report != null
+            message: Submit the recorded QC measurement from a completed pull after attaching its report.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: recorded
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: state.from == "submitted"
+            message: Review the analyst's signed submission.
+          independent:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: Someone independent of the creator, submitter and editors must review.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: QA releases an independently reviewed submission.
+          independent:
+            check: history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
+            message: Release requires a signer independent of the analyst, reviewer and editors.
+display:
+  title: "{{ test }} · Month {{ month }}"

@@ -52,6 +52,7 @@ from django.db.models.functions import Now
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
+from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
     assignments,
@@ -72,13 +73,13 @@ from iki_server.entities.values import (
     Invalid,
     Part,
     Refs,
+    RowProblems,
     Shape,
     history_value,
     problems_of,
     read_value,
     row_columns,
     shape,
-    to_db,
     to_history,
 )
 from iki_server.entities.values import is_list_table as _is_list
@@ -123,6 +124,10 @@ class Stale(Exception):  # noqa: N818 - reads as "the edit was stale"
     def __init__(self, current: int) -> None:
         super().__init__(f"The entity changed since: it's at revision {current} now.")
         self.current = current
+
+
+class ClearReasonRequired(Invalid):
+    """An edit clearing a marked Boolean needs a reason."""
 
 
 @dataclass
@@ -270,7 +275,10 @@ def create(
             raise Invalid({"type": [refused]})
         saved = _create(user, form, project, values, given, reason, by_run, fills)
         if holding and not saved.reused and saved.revision is not None:
-            _hold(saved, holding, user, hold_reason, saved.revision.number)
+            entry_number = (
+                saved.entry_revision.number if saved.registered and saved.entry_revision else None
+            )
+            _hold(saved, holding, user, hold_reason, saved.revision.number, entry_number)
         if given_amount is not None and not saved.reused:
             record = Entity.objects.get(pk=saved.entity.pk)
             amounts.record(user, record, given_amount, reason=reason)
@@ -341,9 +349,12 @@ def _hold(
     user: User,
     reason: str,
     revision: int,
+    entry_revision: int | None,
 ) -> None:
     entity = Entity.objects.select_related("owner_project").get(pk=saved.entity.pk)
-    holds.hold(entity, holding, user=user, reason=reason, revision=revision)
+    holds.hold(
+        entity, holding, user=user, reason=reason, revision=revision, entry_revision=entry_revision
+    )
     saved.held = [b.rule.key for b in holding]
 
 
@@ -669,6 +680,56 @@ def _unique_values() -> Iterator[None]:
         ) from None
 
 
+def _observation_ids(
+    form: Shape,
+    f: Field,
+    rows: Any,  # noqa: ANN401 - stored field value
+    current: Sequence[dict[str, Any]] | None = None,
+) -> Any:  # noqa: ANN401 - stored values
+    """Assign IDs to new Experiment observations and keep the IDs of retained rows."""
+    if (
+        rows is None
+        or f.name != "observations"
+        or form.part_of(f.name).name != "iki/experiments.Experiment"
+        or f.items is None
+        or "observation_id" not in f.items.fields
+    ):
+        return rows
+
+    name = "observation_id"
+    existing = {row[name]: row for row in current or ()}
+    used: set[str] = set()
+    for index, row in enumerate(rows):
+        row_id = row[name]
+        if row_id is None:
+            continue
+        if row_id in used:
+            raise RowProblems({f"{index}/{name}": ["names the same observation twice."]})
+        if current is not None and row_id not in existing:
+            raise RowProblems({f"{index}/{name}": ["isn't a current observation on this record."]})
+        used.add(row_id)
+
+    def content(row: dict[str, Any]) -> tuple[Any, Any]:
+        return row["observed_at"], row["note"]
+
+    # Older clients can keep an unchanged list as it is. For a changed list, incomplete
+    # requests can preserve a unique content match, but cannot identify identical rows.
+    if not used and current is not None and list(map(content, rows)) == list(map(content, current)):
+        return list(current)
+    matches: dict[tuple[Any, Any], list[str]] = defaultdict(list)
+    if not used:
+        for row_id, row in existing.items():
+            matches[content(row)].append(row_id)
+    for index, row in enumerate(rows):
+        if row[name] is not None:
+            continue
+        candidates = matches[content(row)]
+        if len(candidates) > 1:
+            raise RowProblems({f"{index}/{name}": ["is required to identify this duplicate."]})
+        row[name] = candidates.pop() if candidates else str(uuid7())
+    return rows
+
+
 def prepare(
     user: User,
     type_name: str,
@@ -721,7 +782,7 @@ def prepare(
             ]
         else:
             try:
-                given[name] = to_db(f, value, refs)
+                given[name] = _observation_ids(form, f, form.field_value(f, value, refs))
             except ValueError as error:
                 errors.update(problems_of(name, error))
     for name, f in fields.items():
@@ -730,9 +791,16 @@ def prepare(
         if f.type == "state" and not f.removed:
             given[name] = f.initial  # Where new records start (ADR 0125).
         elif name not in values and f.has_default and not f.computed:
-            given[name] = to_db(f, f.default, refs)
+            try:
+                given[name] = form.field_value(f, f.default, refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    if not errors:
+        from iki_server.amounts import stock
+
+        errors = stock.check_item(type_name, project, given)
     if not errors:
         errors = requests.check_result(project, type_name, given)
     if not errors:
@@ -833,6 +901,16 @@ def update(
         fields = form.fields()
         owner = registry.identity_owner(registry.types()[locked.type])
         identifying = set(owner.identity) if owner is not None else set()
+        checked_entry_revision = None
+        if locked.entry_id is not None and any(
+            rule.hold for rule in checking.checks_of(locked.type)
+        ):
+            # A held observation names the entry revision read when the rule was checked.
+            checked_entry_revision = (
+                Entity.objects.select_for_update(no_key=True)
+                .values_list("revision", flat=True)
+                .get(pk=locked.entry_id)
+            )
         instance = _specific(locked)
         rows = Rows.of(instance)
         project = owner_of(locked)
@@ -883,7 +961,7 @@ def update(
             current = rows.value(part, f)
             if name in identifying:
                 try:
-                    converted = to_db(f, value, refs)
+                    converted = form.field_value(f, value, refs)
                 except ValueError as error:
                     errors.update(problems_of(name, error))
                     continue
@@ -903,7 +981,9 @@ def update(
                 # Whoever it names already may stay named, though they couldn't be named
                 # anew (ADR 0122): an edit of something else keeps them.
                 with using.namer.keeping(_named_in(f, current)):
-                    converted = to_db(f, value, using)
+                    converted = _observation_ids(
+                        form, f, form.field_value(f, value, using), current
+                    )
             except ValueError as error:
                 errors.update(problems_of(name, error))
                 continue
@@ -925,6 +1005,10 @@ def update(
             errors = unique.taken(project, form, new, entity=locked.pk)
         if errors:
             raise Invalid(errors)
+        if not reason.strip() and any(
+            fields[name].reason_on_clear and rows.get(name) is True for name in new
+        ):
+            raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -977,12 +1061,13 @@ def update(
                 by_run=by_run,
                 explicit=not by_run,
             )
+        held_entry_revision = entry_revision.number if entry_revision else checked_entry_revision
         if not new:
             saved = Saved(_specific(locked), entry_revision=entry_revision)
             checking.kept(locked, changed, found)
             if holding:
                 # Its registry entry's values held it: by the record as it is.
-                _hold(saved, holding, user, hold_reason, locked.revision)
+                _hold(saved, holding, user, hold_reason, locked.revision, held_entry_revision)
             return saved
         was = {n: rows.get(n) for n in new}
         before = {n: v for n, v in was.items() if names_people(fields[n])}
@@ -1002,7 +1087,7 @@ def update(
         saved = Saved(_specific(locked), revision, entry_revision=entry_revision)
         checking.kept(locked, changed, found)
         if holding:
-            _hold(saved, holding, user, hold_reason, revision.number)
+            _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
         declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
     return saved
 

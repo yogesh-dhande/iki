@@ -1,0 +1,88 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Study
+label: Stability study
+label_plural: Stability studies
+schema_version: 1
+hrid: { prefix: STB }
+description: One revision of a protocol for studying a lot at planned conditions and time points.
+fields:
+  name: { type: string, max_length: 160, required: true, immutable: true }
+  material: { type: ref, to: iki/core.Entity, required: true, immutable: true }
+  lot: { type: ref, to: iki/lots.Lot, required: true, immutable: true, indexed: true }
+  protocol: { type: string, max_length: 200, required: true, immutable: true }
+  protocol_revision: { type: string, max_length: 40, required: true, immutable: true }
+  supersedes:
+    type: ref
+    to: Study
+    immutable: true
+    description: The prior design record, when issuing a new protocol revision.
+  starts_on: { type: date, required: true, immutable: true }
+  owner:
+    { type: person, label: Pull coordinator, role: coordinator, required: true, immutable: true }
+  conditions:
+    type: list
+    required: true
+    immutable: true
+    max_items: 12
+    items:
+      type: row
+      identity: [code]
+      fields:
+        code: { type: string, max_length: 24, required: true }
+        label: { type: string, max_length: 100, required: true }
+        temperature: { type: float, label: Temperature (°C), min: -273.15, required: true }
+        temperature_tolerance: { type: float, label: Temperature tolerance (°C), min: 0 }
+        humidity: { type: float, label: Relative humidity (%), min: 0, max: 100 }
+        humidity_tolerance:
+          { type: float, label: Relative humidity tolerance (% RH), min: 0, max: 100 }
+  time_points:
+    type: list
+    required: true
+    immutable: true
+    max_items: 30
+    items:
+      type: row
+      identity: [month]
+      fields:
+        month: { type: int, label: Month from start, min: 0, max: 120, required: true }
+        days_before: { type: int, label: Days before due date, min: 0, max: 365, required: true }
+        days_after: { type: int, label: Days after due date, min: 0, max: 365, required: true }
+  assignments:
+    type: list
+    required: true
+    immutable: true
+    max_items: 360
+    description: Each condition and month has one assigned storage tube and planned volume.
+    items:
+      type: row
+      identity: [condition, month]
+      fields:
+        condition: { type: string, max_length: 24, required: true }
+        month: { type: int, min: 0, max: 120, required: true }
+        tube: { type: ref, to: iki/example_lims.Tube, required: true }
+        volume_ul:
+          { type: quantity, unit: uL, label: Planned volume (µL), min: 0.000001, required: true }
+  tests:
+    type: list
+    required: true
+    immutable: true
+    max_items: 30
+    items:
+      type: row
+      identity: [test]
+      fields:
+        test: { type: string, label: Test or attribute, max_length: 100, required: true }
+        method: { type: string, label: Method and revision, max_length: 200, required: true }
+        unit: { type: string, label: Reporting unit, max_length: 40, required: true }
+  scheduled:
+    type: bool
+    label: Pulls generated
+    computed: true
+  review_flow:
+    type: enum
+    label: Pinned measurement review
+    values: [research, regulated_qc]
+    computed: true
+display:
+  title: "{{ name }}"

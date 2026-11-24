@@ -1,0 +1,15 @@
+apiVersion: iki/v1
+kind: Component
+name: test_investigation
+label: Investigations
+description: The investigation opened when this result fell outside the specification.
+module: ./components/release-records.js
+element: test-investigations
+entities:
+  type: OOSInvestigation
+  fields: [resolution, findings]
+slots:
+  - slot: entity.tab
+    type: ReleaseTest
+    search:
+      where: { field: test, op: eq, value: "{{ entity }}" }

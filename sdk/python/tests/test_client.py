@@ -352,6 +352,14 @@ def test_draw_records_what_received_the_material_and_the_scanned_source(
     }
 
 
+def test_draw_passes_an_explicitly_entered_iki_id(fake: FakeIki, client: Client) -> None:
+    ref = "TUB-000001"
+    path = f"/api/v1/entities/{ref}/amount/draw"
+    fake.on("POST", path, {})
+    client.entities.draw(ref, (1, "uL"), confirm={"mode": "iki_id", "code": ref})
+    assert fake.body("POST", path)["confirm"] == {"mode": "iki_id", "code": ref}
+
+
 def test_read_the_revision_a_result_release_identifies(fake: FakeIki, client: Client) -> None:
     ref = entity("ANR-000012")["id"]
     release = {"entity": ref, "reviewed_revision": 4, "signed_revision": 5, "released_revision": 6}
@@ -442,15 +450,14 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
 
 def test_many_records_are_reassigned_at_once(fake: FakeIki, client: Client) -> None:
     first, second = entity("SMP-000001"), entity("SMP-000002")
-    fake.on("GET", "/api/v1/entities/SMP-000002", second)
+    second["revision"] = 3
     done = {"changed": [first["id"]], "skipped": [], "group": "g"}
     fake.on("POST", "/api/v1/entities/assign", done)
-    answer = client.entities.assign(
-        [first, "SMP-000002"], "analyst", "ana@example.com", reason="Away"
-    )
+    answer = client.entities.assign([first, second], "analyst", "ana@example.com", reason="Away")
     assert answer == done
     assert fake.body("POST", "/api/v1/entities/assign") == {
         "entities": [first["id"], second["id"]],
+        "expected_revisions": {first["id"]: first["revision"], second["id"]: second["revision"]},
         "field": "analyst",
         "person": "ana@example.com",
         "op": "set",

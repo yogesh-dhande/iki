@@ -19,6 +19,14 @@ plugin commits.
 Every ``iki deploy build`` also bundles each pinned plugin's code for the server
 to give self-hosted workers (ADR 0059): a gzipped tar, the same bytes
 for the same files, with what's needed to build each environment where it lands.
+
+A plugin may carry a compiled WebAssembly module for its actions to call, such as the
+plasmid plugin's molecular module (ADR 0200). No such module is tracked in git: git holds
+the Rust and the module's SHA-256 digest, and a build makes the bytes. So before a module
+goes into a bundle -- and so into a worker archive and the preinstalled worker image --
+its bytes are checked against the digest beside it, and a module that is missing, has no
+digest, or doesn't match is refused. A worker needs no Rust toolchain: it gets the module
+that was checked here.
 """
 
 from __future__ import annotations
@@ -28,8 +36,12 @@ import hashlib
 import io
 import json
 import os
+import platform
+import re
 import shlex
 import shutil
+import subprocess
+import sys
 import tarfile
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -37,7 +49,7 @@ from importlib.resources import files
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from iki_spec import API_VERSION, naming
+from iki_spec import API_VERSION, modules, naming
 from iki_spec.model import Environment, Plugin
 
 __all__ = [
@@ -73,17 +85,74 @@ def _sha256(file: Path) -> str:
     return hashlib.sha256(file.read_bytes()).hexdigest()
 
 
-def prepared_source(name: str, directory: Path, output: Path) -> Path:
-    """Add the installed annotation module to a staged copy of its plugin sources.
+def prepared_source(name: str, directory: Path, output: Path, *, pinned: bool = False) -> Path:
+    """Stage first-party worker resources pinned by the plugin's source tree.
 
-    The source tree pins the generated module by digest. Both worker distributions
-    use the verified bytes from iki-spec, including when the source is a local checkout.
+    The annotation digest applies on every host. The measurement digest comes from
+    the Linux x86-64 release build; other development hosts use the installed module
+    and its notice. Both worker distributions read these resources from iki-spec.
     """
-    if name != "iki/plasmid":
+    if name == "iki/plasmid":
+        return _prepared_annotation(directory, output)
+    if name != "iki/dna":
         return directory
-    relative = Path("data/dna-annotation.wasm")
+    relative = Path("data", "oligo-measurement.wasm")
     generated = directory / relative
     marker = generated.with_suffix(".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Historical Git trees can carry their own module. Only discard an explicitly
+        # ignored build product in a local checkout that no longer requests it.
+        git = shutil.which("git")
+        if pinned or not generated.exists() or git is None:
+            return directory
+        ignored = subprocess.run(  # noqa: S603 - git, with a fixed relative path
+            [git, "-C", str(directory), "check-ignore", "--quiet", "--", str(relative)],
+            capture_output=True,
+            check=False,
+        )
+        if ignored.returncode != 0:
+            return directory
+    notice = generated.with_name("rust-standard-library.html")
+    if any(path.is_symlink() for path in (generated.parent, marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular plugin files.")
+    if any(path.exists() and not path.is_file() for path in (marker, generated, notice)):
+        raise ValueError("The DNA measurement, digest, and notice must be regular files.")
+
+    resources: dict[str, bytes] = {}
+    if marker.is_file():
+        for name in (generated.name, notice.name):
+            installed = files("iki_spec").joinpath(name)
+            if not installed.is_file():
+                raise ValueError(f"iki-spec lacks {name}. Run scripts/build-wasm.sh.")
+            resources[name] = installed.read_bytes()
+            if not resources[name]:
+                raise ValueError(f"iki-spec's {name} is empty. Run scripts/build-wasm.sh.")
+        expected = marker.read_text("ascii").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", expected) is None:
+            raise ValueError("The DNA measurement marker must hold a SHA-256 digest.")
+        module = resources[generated.name]
+        if platform.system() == "Linux" and platform.machine().lower() in {"x86_64", "amd64"}:
+            if hashlib.sha256(module).hexdigest() != expected:
+                raise ValueError("The DNA measurement in iki-spec differs from the pinned digest.")
+        else:
+            sys.stderr.write(
+                f"iki/dna: using the installed measurement on {platform.system()} "
+                f"{platform.machine()}. Its SHA-256 pin is compared on Linux x86-64, "
+                "the release build platform.\n"
+            )
+
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _prepared_annotation(directory: Path, output: Path) -> Path:
+    """Stage annotation resources only when the clone pins the installed module. The digest
+    is verified on every host, including for a local checkout."""
+    relative = Path("data/dna-annotation.wasm")
+    generated = directory / relative
+    marker = generated.with_name(generated.name + ".sha256")
+    if not marker.exists() and not marker.is_symlink():
+        # Older pinned plugin trees used the marker without the module suffix.
+        marker = generated.with_suffix(".sha256")
     if not marker.exists() and not marker.is_symlink():
         return directory
     notice = generated.with_name("rust-standard-library.html")
@@ -104,16 +173,31 @@ def prepared_source(name: str, directory: Path, output: Path) -> Path:
                 f"iki-spec lacks {path.name}. Run scripts/build-dna-annotation-wasm.sh."
             )
         resources[path.name] = installed.read_bytes()
-    digest = hashlib.sha256(resources[generated.name]).hexdigest().encode("ascii")
-    if digest != marker.read_bytes().strip():
-        raise ValueError("The DNA annotation module in iki-spec differs from the pinned digest.")
+    digest = hashlib.sha256(resources[generated.name]).hexdigest()
+    expected = marker.read_bytes().strip()
+    if digest.encode("ascii") != expected:
+        raise ValueError(
+            f"{generated.name} in iki-spec differs from the pinned digest. "
+            f"Expected {expected.decode('ascii', errors='backslashreplace')}, actual {digest}."
+        )
 
+    return _stage_resources(directory, output, relative, resources)
+
+
+def _stage_resources(
+    directory: Path, output: Path, relative: Path, resources: dict[str, bytes]
+) -> Path:
+    """Replace or remove the build product in a private copy for both worker distributions."""
     shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
-    for name, contents in resources.items():
-        target = output / relative.with_name(name)
-        target.unlink(missing_ok=True)
-        target.write_bytes(contents)
-        target.chmod(0o644)
+    target = output / relative
+    if not resources:
+        target.unlink()
+    for name, data in resources.items():
+        asset = target.with_name(name)
+        # A local build product copied into staging may be read-only.
+        asset.unlink(missing_ok=True)
+        asset.write_bytes(data)
+        asset.chmod(0o644)
     return output
 
 
@@ -160,6 +244,83 @@ def environments(plugin: Plugin, directory: Path) -> dict[str, dict[str, Any]]:
     return found
 
 
+#: What a tracked digest for a built module is called: the module's name with this after
+#: it, holding the SHA-256 of the bytes that belong there, as `shasum -a 256` writes it.
+DIGEST_SUFFIX = ".sha256"
+
+
+def _digests_hold_here() -> bool:
+    """Whether a tracked module digest is of the build this machine makes.
+
+    The digests are of the Linux x86-64 build, because that is the platform every worker
+    image and every deployment runs, and because a Rust WebAssembly build is reproducible
+    on one platform but not across them: rustc links its own precompiled wasm32 standard
+    library, and the copy shipped for macOS arm64 is not byte-identical to the one for
+    Linux x86-64 (ADR 0200). So the bytes that can reach a worker are always compared,
+    and a developer building a deployment on another platform, which only a dev cluster
+    ever runs, gets the module they built without a comparison that could only fail.
+    """
+    return platform.system() == "Linux" and platform.machine() in {"x86_64", "amd64"}
+
+
+def _place_modules(directory: Path, files: Sequence[Path]) -> list[Path]:
+    """Puts each compiled module `directory` asks for beside its digest, and checks it.
+
+    A plugin asks for one by tracking ``<module>.sha256``, which a ``git archive`` export
+    carries while the module itself -- untracked, built -- is not there. The bytes come
+    from :mod:`iki_spec.modules`, which iki-spec's wheel carries because its build backend
+    and the server image's wasm stage build them into it. Either way the bytes are checked
+    against the exported digest before they go any further, so a worker gets a module that
+    was built from this commit's Rust and nothing else.
+
+    Returns the modules it placed, to add to the bundle. Raises :class:`ValueError` naming
+    the module where there is none to be had, its digest is empty, or -- on the platform
+    the digests are of, see :func:`_digests_hold_here` -- the bytes don't match. A plugin
+    tracking no digest gets nothing and passes.
+    """
+    placed: list[Path] = []
+    for digest in files:
+        if digest.suffix != DIGEST_SUFFIX:
+            continue
+        module = digest.with_suffix("")
+        # Only this convention's digests, `<module>.wasm.sha256`. The annotation module's,
+        # `dna-annotation.wasm.sha256`, is one too, but :func:`prepared_source` has already
+        # staged and verified that module, so it is found in place here and checked again.
+        # The DNA measurement pins itself as `oligo-measurement.sha256`, which
+        # :func:`prepared_source` handles alone; without this check the name here would
+        # come out as `oligo-measurement`, which nothing builds.
+        if module.suffix != ".wasm":
+            continue
+        relative = module.relative_to(directory).as_posix()
+        want = digest.read_text(encoding="utf-8").split()
+        if not want:
+            raise ValueError(f"{relative}{DIGEST_SUFFIX} is empty; it holds a SHA-256.")
+        if not module.is_file():
+            carried = modules.module(module.name)
+            if carried is None:
+                raise ValueError(
+                    f"{relative} isn't built and this iki-spec hasn't got it. Install an "
+                    "iki-spec built from Iki's repository, where the module is built with "
+                    "it, or build it in this checkout (see scripts/)."
+                )
+            shutil.copyfile(carried, module)
+            module.chmod(0o644)
+            placed.append(module)
+        made = _sha256(module)
+        if not _digests_hold_here():
+            continue
+        if made != want[0]:
+            raise ValueError(
+                f"{relative} isn't the module its digest names: it is {made} and "
+                f"{relative}{DIGEST_SUFFIX} says {want[0]}. Either the module and the "
+                "plugin come from different commits -- use an iki-spec built from the "
+                "commit this plugin is pinned at -- or it was built on another platform: "
+                "the digest is of the Linux x86-64 build, which is what a deployment "
+                "runs, so build the release where it will run."
+            )
+    return placed
+
+
 def _files(directory: Path) -> list[Path]:
     ignored = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
     found: list[Path] = []
@@ -175,10 +336,15 @@ def bundle(directory: Path, output: Path) -> dict[str, Any]:
     """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
     ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
     the computer that unpacks it, so a plugin with one is refused. Times, owners and
-    modes other than executable are left out, so the same files give the same bytes."""
+    modes other than executable are left out, so the same files give the same bytes.
+
+    A module `directory` tracks a digest for is put there and checked first, or the
+    bundle is refused: see :func:`_place_modules`."""
+    files = _files(directory)
+    files = sorted({*files, *_place_modules(directory, files)})
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
-        for file in _files(directory):
+        for file in files:
             relative = file.relative_to(directory).as_posix()
             if file.is_symlink() or not file.is_file():
                 raise ValueError(

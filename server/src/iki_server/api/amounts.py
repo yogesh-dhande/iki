@@ -19,7 +19,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
-from ninja import Field, Query, Router, Schema, Status
+from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.amounts import services
@@ -38,6 +38,7 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
+from iki_server.api.storage import ConfirmationIn
 from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
@@ -116,11 +117,10 @@ class DrawIn(AmountTakeIn):
         description="What it went into, by ID or HRID: a record in a project you edit, such as "
         "an analysis or an experiment, which depends on it from then on (ADR 0180).",
     )
-    confirm: str = Field(
+    confirm: ConfirmationIn = Field(
         "",
-        max_length=200,
-        description="The code scanned from it, for a type that asks for one before a draw: "
-        "its barcode or HRID.",
+        description="For a type that requires a scan: its unique label or printed Iki code, "
+        "a link to the record, or its HRID explicitly entered from the tube.",
     )
 
 
@@ -291,7 +291,9 @@ def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
             purpose=payload.purpose,
             reason=payload.reason,
             used_in=used_in,
-            confirm=payload.confirm,
+            confirm=payload.confirm
+            if isinstance(payload.confirm, str)
+            else storage.Confirmation(payload.confirm.code, payload.confirm.mode),
         )
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
@@ -321,15 +323,33 @@ def transfer(request: HttpRequest, ref: str, payload: TransferIn) -> dict[str, A
 
 
 @router.post("/entities/{ref}/amount/adjust", response=AmountMovedOut, summary="Adjust its amount")
-def adjust(request: HttpRequest, ref: str, payload: AdjustIn) -> dict[str, Any]:
-    """Sets it to what it was found to be, saying why: a recount, a spill, a correction. A
-    record with no amount recorded gets one."""
+def adjust(
+    request: HttpRequest,
+    ref: str,
+    payload: AdjustIn,
+    revision: HeaderEx[str | None, P(alias="If-Balance-Revision")] = None,
+) -> dict[str, Any]:
+    """Records an absolute count, with a reason. Send the observed amount's exact
+    `updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.
+    A missing header answers 428. A changed balance answers 409 and must be recounted."""
     me = caller(request)
     entity = _record(me, ref)
+    if not revision:
+        raise Problem(428, "Send If-Balance-Revision with the balance revision you observed.")
     try:
         movement = services.adjust(
-            me, entity, _given(payload.amount, zero=True), reason=payload.reason
+            me,
+            entity,
+            _given(payload.amount, zero=True),
+            reason=payload.reason,
+            expected_revision=revision,
         )
+    except services.StaleBalanceError:
+        raise Problem(
+            409,
+            "The stock balance changed. Refresh it and recount before submitting.",
+            code="stale_balance",
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _moved(entity, movement)

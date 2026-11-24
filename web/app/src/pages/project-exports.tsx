@@ -8,7 +8,7 @@ import { queryOptions, useQuery, type UseQueryResult } from "@tanstack/react-que
 import { useState, type ReactNode, type SubmitEvent } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
-import { formatSize } from "../entities";
+import { searchEntities, formatSize } from "../entities";
 import { required, useForm } from "../forms";
 import {
   Badge,
@@ -35,10 +35,11 @@ const STATES: Record<Export["state"], string> = {
 function exportsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "bundles"],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/projects/{project_id}/bundles", {
           params: { path: { project_id: projectId } },
+          signal,
         }),
       ).items,
     // Until each is written, look again every few seconds.
@@ -50,10 +51,10 @@ function exportsQuery(projectId: string) {
 function collectionsQuery(projectId: string) {
   return queryOptions({
     queryKey: ["entities", "collections", projectId],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.POST("/api/v1/entities/search", {
-          body: {
+        await searchEntities(
+          {
             project: projectId,
             type: "iki/core.Collection",
             exact_type: true,
@@ -61,7 +62,8 @@ function collectionsQuery(projectId: string) {
             limit: 100,
             sort: { field: "updated_at", descending: true },
           },
-        }),
+          signal,
+        ),
       ).items,
   });
 }

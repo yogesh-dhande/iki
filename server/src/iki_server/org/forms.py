@@ -174,6 +174,23 @@ class AppointRegistrarForm(forms.Form):
     person = PersonField(help_text=lazy(_registrar_help, str)())
 
 
+class LegalHoldReleaseForm(forms.Form):
+    """Why a hold is released: required, as `holds.release` requires it, and kept in the
+    hold and its audit event."""
+
+    reason = forms.CharField(
+        label="Reason for releasing it",
+        max_length=2000,
+        strip=True,
+        widget=forms.Textarea(attrs={"rows": 3, "autofocus": True}),
+        help_text="Why the matter no longer needs it, and who decided. It’s kept in the audit log.",
+        error_messages={
+            "required": "Say why the legal hold is being released.",
+            "max_length": "Keep the release reason to 2,000 characters.",
+        },
+    )
+
+
 class LegalHoldForm(forms.Form):
     project = _ProjectChoice(
         label="Project",

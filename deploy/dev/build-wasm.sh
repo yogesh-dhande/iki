@@ -1,18 +1,28 @@
 #!/usr/bin/env bash
-# Builds the modules in Docker, as the server image does. `iki deploy build`
-# checks rules with iki-wasm (ADR 0127) and stages the worker's annotation module.
+# Builds the WebAssembly modules in Docker, as the server image does, into iki-spec:
+# iki-wasm, which `iki deploy build` checks plugins' rules and guards with (ADR 0127); the
+# two worker modules and the standard library report beside them; and the modules
+# first-party plugins' actions call, which `iki deploy build` puts in their bundles
+# (ADR 0200). The dev cluster's builds run it first, so they need no Rust here.
 #   deploy/dev/build-wasm.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-docker build -f server/Dockerfile --target wasm -t iki-wasm:dev .
+image=$(scripts/build-wasm-image.sh)
 # The server's and the worker's builds may run it at once: each writes its own copy,
 # then moves it into place.
-container="$(docker create iki-wasm:dev)"
-staged="$(mktemp -d spec/src/iki_spec/iki_wasm.XXXXXX)"
-trap 'docker rm "$container" >/dev/null; rm -rf "$staged"' EXIT
-for file in target/wasm32-unknown-unknown/release/iki_wasm.wasm dna-annotation.wasm rust-standard-library.html; do
+container="$(docker create --platform linux/amd64 "$image")"
+tmp="$(mktemp -d spec/src/iki_spec/iki_wasm.XXXXXX)"
+trap 'docker rm "$container" >/dev/null; rm -rf "$tmp"' EXIT
+for file in /src/worker/target/wasm32-unknown-unknown/release/iki_wasm.wasm \
+  /src/worker/oligo-measurement.wasm /src/worker/dna-annotation.wasm \
+  /src/worker/rust-standard-library.html /src/plugins/plasmid/data/plasmid-tools.wasm \
+  /src/plugins/dna/data/oligo-checks.wasm; do
   name="${file##*/}"
-  docker cp "$container:/src/worker/$file" - | tar -xO > "$staged/$name"
-  chmod 644 "$staged/$name"
+  docker cp "$container:$file" - | tar -xO > "$tmp/$name"
+  chmod 644 "$tmp/$name"
 done
-mv "$staged"/* spec/src/iki_spec/
+# Verify the staged canonical bytes before replacing any installed resource.
+scripts/verify-server-wasm.sh --portable-only "$tmp"
+mkdir -p spec/src/iki_spec/modules
+mv "$tmp/plasmid-tools.wasm" "$tmp/oligo-checks.wasm" spec/src/iki_spec/modules/
+mv "$tmp"/* spec/src/iki_spec/

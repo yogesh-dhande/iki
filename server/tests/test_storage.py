@@ -21,7 +21,7 @@ from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, Project, ProjectRole
 from iki_server.storage import labels, services
 from iki_server.storage.grids import NotAPosition, Shape
-from iki_server.storage.models import Event, Place
+from iki_server.storage.models import Event, Place, ReconciliationLine
 
 pytestmark = pytest.mark.django_db
 
@@ -243,6 +243,55 @@ def test_a_bulk_move_is_all_or_none_with_one_reason_and_history(world: World) ->
     assert api.get(f"/entities/{tubes[2]['id']}/location").json()["stored"] is False
 
 
+def test_a_bulk_move_refuses_a_taken_reviewed_position_until_a_new_plan_is_accepted(
+    world: World,
+) -> None:
+    operator = Api(world.browser("editor"))
+    colleague = Api(world.browser("via_team"))
+    source = box(operator, world.project, "Source", 1, 2)
+    destination = box(operator, world.project, "Destination", 1, 3)
+    first, second, other = (tube(operator, world.project, f"PLAN{i}") for i in range(3))
+    moved(operator, (first, source, "A1"), (second, source, "A2"))
+
+    def preview_items() -> list[dict[str, str]]:
+        plan = moved(
+            operator, (first, destination, None), (second, destination, None), preview=True
+        )
+        assert plan["done"] is False
+        return [
+            {
+                "record": item["record"]["id"],
+                "to": item["to"]["id"],
+                "position": item["to"]["position"],
+            }
+            for item in plan["items"]
+        ]
+
+    reviewed = preview_items()
+    assert [item["position"] for item in reviewed] == ["A1", "A2"]
+    moved(colleague, (other, destination, "A2"), reason="Put away another delivery")
+    events, audits = Event.objects.count(), AuditEvent.objects.count()
+    reason = "Consolidate these two tubes"
+    refused = operator.post("/storage/moves", {"items": reviewed, "reason": reason})
+    assert errors(refused) == {"#/items/1": f"{destination['hrid']} has something at A2 already."}
+    assert contents(operator, source) == {"A1": first["hrid"], "A2": second["hrid"]}
+    assert contents(operator, destination) == {"A2": other["hrid"]}
+    assert Event.objects.count() == events and AuditEvent.objects.count() == audits
+
+    fresh = preview_items()
+    assert [item["position"] for item in fresh] == ["A1", "A3"]
+    assert contents(operator, source) == {"A1": first["hrid"], "A2": second["hrid"]}
+    accepted = operator.post("/storage/moves", {"items": fresh, "reason": reason})
+    assert accepted.status_code == 200, accepted.content
+    assert accepted.json()["done"] is True and contents(operator, source) == {}
+    assert contents(operator, destination) == {
+        "A1": first["hrid"],
+        "A2": other["hrid"],
+        "A3": second["hrid"],
+    }
+    assert Event.objects.filter(operation=accepted.json()["operation"], reason=reason).count() == 2
+
+
 def test_a_checked_out_tube_keeps_its_position_until_its_checked_in(world: World) -> None:
     api = Api(world.browser("editor"))
     cryo = box(api, world.project, rows=1, columns=2)
@@ -359,16 +408,25 @@ def sent_with_tubes(lab: Lab, n: int) -> tuple[Any, list[Any]]:
 def receive(lab: Lab, ask: Any, put: dict[str, tuple[Any, str | None]]) -> Any:
     api = lab.api("tech")
     receipt = api.post(f"/entities/{ask['id']}/receipts").json()
+    path = f"/receipts/{receipt['id']}"
     for line in receipt["lines"]:
-        api.post(f"/receipts/{receipt['id']}/scan", {"code": line["code"]})
-    api.patch(f"/receipts/{receipt['id']}", {"handed_over_by": "Courier, waybill 1Z999"})
+        scanned = api.post(f"{path}/scan", {"code": line["code"]})
+        assert scanned.status_code == 200, scanned.content
+        receipt = scanned.json()["receipt"]
+    described = api.patch(
+        path,
+        {"plan_revision": receipt["plan_revision"], "handed_over_by": "Courier, waybill 1Z999"},
+    )
+    assert described.status_code == 200, described.content
+    receipt = described.json()
     by_entity = {x["entity"]: x["id"] for x in receipt["lines"]}
     done = api.post(
-        f"/receipts/{receipt['id']}/complete",
+        f"{path}/complete",
         {
+            "plan_revision": receipt["plan_revision"],
             "put_away": [
                 {"line": by_entity[k], "to": c["id"], "position": p} for k, (c, p) in put.items()
-            ]
+            ],
         },
     )
     assert done.status_code == 200, done.content
@@ -392,28 +450,52 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     path = f"/receipts/{receipt['id']}"
     scanned = tech.post(f"{path}/scan", {"code": "RC000"}).json()
     assert scanned["found"] == "matched"
-    assert tech.post(f"{path}/scan", {"code": "RC000"}).json()["found"] == "again"
+    duplicate = tech.post(f"{path}/scan", {"code": "RC000"}).json()
+    assert duplicate["found"] == "again"
     # A tube nobody expected is an extra line.
     extra = tech.post(f"{path}/scan", {"code": "UNLABELLED-7"}).json()
     assert extra["found"] == "extra"
-    lines = {x["code"]: x["id"] for x in extra["receipt"]["lines"]}
+    receipt = extra["receipt"]
+    lines = {x["code"]: x["id"] for x in receipt["lines"]}
     # Damaged and rejected need a note.
-    assert errors(tech.patch(f"{path}/lines/{lines['RC001']}", {"outcome": "damaged"})) == {
-        "#/note": "is required: say why it's damaged."
-    }
+    unchecked = tech.patch(
+        f"{path}/lines/{lines['RC001']}",
+        {"outcome": "damaged"},
+    )
+    assert errors(unchecked) == {"#/note": "is required: say why it's damaged."}
     for code, outcome, note in (
         ("RC001", "damaged", "Cap cracked; contents intact"),
         ("RC002", "rejected", "Thawed on arrival"),
         ("UNLABELLED-7", "extra", "No label, no paperwork"),
     ):
-        answer = tech.patch(f"{path}/lines/{lines[code]}", {"outcome": outcome, "note": note})
+        line = next(item for item in receipt["lines"] if item["code"] == code)
+        change = {"outcome": outcome, "note": note}
+        if line["outcome"] is not None:
+            change["line_revision"] = line["line_revision"]
+            change["reason"] = "Inspected the unlabelled tube after its barcode was scanned."
+        answer = tech.patch(f"{path}/lines/{lines[code]}", change)
         assert answer.status_code == 200, answer.content
+        checked = answer.json()
+        assert (checked["found"], checked["line"]) == ("recorded", line["id"])
+        receipt = checked["receipt"]
     # Who handed it over is required to complete it.
-    assert "#/handed_over_by" in errors(tech.post(f"{path}/complete", {"missing_rest": True}))
-    tech.patch(path, {"handed_over_by": "Courier, waybill 1Z999", "note": "Dry ice present"})
+    incomplete = tech.post(
+        f"{path}/complete", {"plan_revision": receipt["plan_revision"], "missing_rest": True}
+    )
+    assert "#/handed_over_by" in errors(incomplete)
+    described = tech.patch(
+        path,
+        {
+            "plan_revision": receipt["plan_revision"],
+            "handed_over_by": "Courier, waybill 1Z999",
+            "note": "Dry ice present",
+        },
+    )
+    assert described.status_code == 200, described.content
     done = tech.post(
         f"{path}/complete",
         {
+            "plan_revision": described.json()["plan_revision"],
             "missing_rest": True,
             "put_away": [
                 {"line": lines["RC000"], "to": incoming["id"]},
@@ -457,12 +539,25 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
     )
     assert drawn.status_code == 200, drawn.content
     # A completed receipt is frozen; the next starts from what's still expected.
-    assert tech.patch(f"{path}/lines/{lines['RC000']}", {"outcome": "missing"}).status_code == 422
+    matched = next(line for line in receipt["lines"] if line["code"] == "RC000")
+    frozen = tech.patch(
+        f"{path}/lines/{matched['id']}",
+        {
+            "line_revision": matched["line_revision"],
+            "outcome": "missing",
+            "reason": "Tube missing on review",
+        },
+    )
+    assert "completed" in errors(frozen)["#"]
     again = tech.post(f"/entities/{ask['id']}/receipts").json()
     assert [x["code"] for x in again["lines"]] == ["RC003"]
 
 
 # --- Reconciling --------------------------------------------------------------------------------
+
+
+def reviewed_line(line: dict[str, Any]) -> dict[str, Any]:
+    return {"line_id": line["id"], "line_revision": line["line_revision"]}
 
 
 def test_reconciling_a_box_finds_whats_wrong_and_records_how_its_resolved(world: World) -> None:
@@ -495,17 +590,37 @@ def test_reconciling_a_box_finds_whats_wrong_and_records_how_its_resolved(world:
     assert "#/scans/0/position" in errors(
         api.post(f"{path}/scans", {"scans": [{"position": "C1", "code": "RZ0"}]})
     )
-    lines = {x["code"]: x["id"] for x in found.json()["lines"] if x["code"]}
+    lines = {x["code"]: x for x in found.json()["lines"] if x["code"]}
     # Nothing unresolved is completed.
-    assert errors(api.post(f"{path}/complete", {}))
-    assert "#/note" in errors(api.patch(f"{path}/lines/{lines['RZ1']}", {"resolution": "kept"}))
-    assert "#/resolution" in errors(
-        api.patch(f"{path}/lines/{lines['RZ1']}", {"resolution": "placed"})
+    assert errors(api.post(f"{path}/complete", {"plan_revision": found.json()["plan_revision"]}))
+    assert "#/note" in errors(
+        api.patch(
+            f"{path}/lines/{lines['RZ1']['id']}",
+            {"line_revision": lines["RZ1"]["line_revision"], "resolution": "kept"},
+        )
     )
+    assert "#/resolution" in errors(
+        api.patch(
+            f"{path}/lines/{lines['RZ1']['id']}",
+            {"line_revision": lines["RZ1"]["line_revision"], "resolution": "placed"},
+        )
+    )
+    answer = found
     for code, resolution in (("RZ1", "moved"), ("RZ2", "removed"), ("RZ9", "placed")):
-        answer = api.patch(f"{path}/lines/{lines[code]}", {"resolution": resolution})
+        line = lines[code]
+        answer = api.patch(
+            f"{path}/lines/{line['id']}",
+            {"line_revision": line["line_revision"], "resolution": resolution},
+        )
         assert answer.status_code == 200, answer.content
-    done = api.post(f"{path}/complete", {"missing_rest": True, "note": "Quarterly count"})
+    done = api.post(
+        f"{path}/complete",
+        {
+            "plan_revision": answer.json()["plan_revision"],
+            "missing_rest": True,
+            "note": "Quarterly count",
+        },
+    )
     assert done.status_code == 200, done.content
     assert done.json()["status"] == "completed"
     assert contents(api, cryo) == {"A1": a["hrid"], "B2": b["hrid"], "B3": stray["hrid"]}
@@ -515,20 +630,461 @@ def test_reconciling_a_box_finds_whats_wrong_and_records_how_its_resolved(world:
     assert Event.objects.filter(operation=audit.data["operation"]).count() == 4
 
 
+def test_a_rescan_cannot_apply_a_move_for_a_tube_now_missing(world: World) -> None:
+    api = Api(world.browser("editor"))
+    cryo = box(api, world.project, rows=1, columns=4)
+    missing = tube(api, world.project, "RC-A")
+    companion = tube(api, world.project, "RC-B")
+    moved(api, (missing, cryo, "A2"), (companion, cryo, "A1"))
+    checkout = api.post("/storage/check-out", {"records": [companion["id"]], "reason": "Assay"})
+    assert checkout.status_code == 200, checkout.content
+    started = api.post(f"/storage/containers/{cryo['id']}/reconciliations")
+    assert started.status_code == 201, started.content
+    path = f"/reconciliations/{started.json()['id']}"
+    scanned = api.post(
+        f"{path}/scans",
+        {
+            "scans": [
+                {"position": "A2", "code": None},
+                {"position": "A3", "code": "RC-A"},
+                {"position": "A4", "code": "RC-B"},
+            ]
+        },
+    )
+    assert scanned.status_code == 200, scanned.content
+    lines = {line["code"]: line for line in scanned.json()["lines"] if line["code"]}
+    resolved = scanned
+    for line in lines.values():
+        assert line["finding"] == "wrong_slot"
+        resolved = api.patch(
+            f"{path}/lines/{line['id']}",
+            {"line_revision": line["line_revision"], "resolution": "moved"},
+        )
+        assert resolved.status_code == 200, resolved.content
+
+    prior = next(line for line in resolved.json()["lines"] if line["code"] == "RC-A")
+    rescanned = api.post(
+        f"{path}/scans",
+        {
+            "scans": [{"position": "A3", "code": None}],
+            "reviewed_lines": [reviewed_line(prior)],
+            "reason": "Recount found A3 empty",
+        },
+    )
+    assert rescanned.status_code == 200, rescanned.content
+    before = rescanned.json()
+    stale = next(line for line in before["lines"] if line["code"] == "RC-A")
+    assert stale["finding"] == "missing" and stale["found"] is None
+    places = Place.objects.filter(pk__in=[missing["id"], companion["id"]]).order_by("pk")
+    stored = list(places.values())
+    events, audits = Event.objects.count(), AuditEvent.objects.count()
+    refused = errors(api.post(f"{path}/complete", {"plan_revision": before["plan_revision"]}))
+    detail = refused[f"#/lines/{stale['id']}"]
+    assert missing["hrid"] in detail or stale["code"] in detail
+    assert "missing" in detail.lower() and "moved" in detail.lower()
+    assert stale["resolution_stale"] is True
+    assert (
+        next(line for line in before["lines"] if line["code"] == "RC-B")["resolution_stale"]
+        is False
+    )
+    assert api.get(path).json() == before
+    assert list(places.values()) == stored
+    assert Event.objects.count() == events
+    assert AuditEvent.objects.count() == audits
+
+    corrected = api.patch(
+        f"{path}/lines/{stale['id']}",
+        {
+            "line_revision": stale["line_revision"],
+            "resolution": "removed",
+            "reason": "The tube is missing on recount",
+        },
+    )
+    assert corrected.status_code == 200, corrected.content
+    done = api.post(f"{path}/complete", {"plan_revision": corrected.json()["plan_revision"]})
+    assert done.status_code == 200, done.content
+    assert done.json()["status"] == "completed"
+    assert contents(api, cryo) == {"A4": companion["hrid"]}
+    audit = AuditEvent.objects.get(action="storage.reconciled", target_id=cryo["id"])
+    assert Event.objects.filter(operation=audit.data["operation"]).count() == 2
+
+
+@pytest.mark.parametrize(
+    ("decision", "changed_scan", "finding", "final_position"),
+    [
+        pytest.param(
+            "kept", {"position": "A3", "code": None}, "missing", "A1", id="kept-now-missing"
+        ),
+        pytest.param(
+            "moved", {"position": "A4", "code": "RC-OBS"}, "wrong_slot", "A4", id="new-target"
+        ),
+        pytest.param("moved", None, "wrong_slot", "A3", id="legacy-open-decision"),
+    ],
+)
+def test_reconciliation_decisions_require_the_current_observation(
+    world: World,
+    decision: str,
+    changed_scan: dict[str, str | None] | None,
+    finding: str,
+    final_position: str,
+) -> None:
+    api = Api(world.browser("editor"))
+    cryo = box(api, world.project, rows=1, columns=4)
+    specimen = tube(api, world.project, "RC-OBS")
+    moved(api, (specimen, cryo, "A1"))
+    started = api.post(f"/storage/containers/{cryo['id']}/reconciliations")
+    assert started.status_code == 201, started.content
+    path = f"/reconciliations/{started.json()['id']}"
+    scanned = api.post(
+        f"{path}/scans",
+        {"scans": [{"position": "A1", "code": None}, {"position": "A3", "code": "RC-OBS"}]},
+    )
+    assert scanned.status_code == 200, scanned.content
+    line = next(line for line in scanned.json()["lines"] if line["code"] == "RC-OBS")
+    assert line["finding"] == "wrong_slot"
+    line_path = f"{path}/lines/{line['id']}"
+    saved = api.patch(
+        line_path,
+        {
+            "line_revision": line["line_revision"],
+            "resolution": decision,
+            "note": "Counted at A3.",
+        },
+    )
+    assert saved.status_code == 200, saved.content
+    assert (
+        next(x for x in saved.json()["lines"] if x["id"] == line["id"])["resolution_stale"] is False
+    )
+
+    if changed_scan is None:
+        # Before observations were saved, the open decision has no evidence to bind it to.
+        ReconciliationLine.objects.filter(pk=line["id"]).update(resolved_position=None)
+    else:
+        prior = next(x for x in saved.json()["lines"] if x["id"] == line["id"])
+        rescanned = api.post(
+            f"{path}/scans",
+            {
+                "scans": [changed_scan],
+                "reviewed_lines": [reviewed_line(prior)],
+                "reason": "The second inspection differs from the first",
+            },
+        )
+        assert rescanned.status_code == 200, rescanned.content
+    reviewed = api.get(path).json()
+    latest = next(x for x in reviewed["lines"] if x["id"] == line["id"])
+    assert latest["finding"] == finding
+    assert latest["resolution"] == decision and latest["resolution_stale"] is True
+    assert f"#/lines/{line['id']}" in errors(
+        api.post(f"{path}/complete", {"plan_revision": reviewed["plan_revision"]})
+    )
+    assert contents(api, cryo) == {"A1": specimen["hrid"]}
+
+    corrected = api.patch(
+        line_path,
+        {
+            "line_revision": latest["line_revision"],
+            "resolution": decision,
+            "note": "Reviewed the latest count.",
+            "reason": "Base the decision on the latest inspection",
+        },
+    )
+    assert corrected.status_code == 200, corrected.content
+    current = next(x for x in corrected.json()["lines"] if x["id"] == line["id"])
+    assert current["resolution_stale"] is False and current["note"] == "Reviewed the latest count."
+    done = api.post(f"{path}/complete", {"plan_revision": corrected.json()["plan_revision"]})
+    assert done.status_code == 200, done.content
+    assert contents(api, cryo) == {final_position: specimen["hrid"]}
+    audit = AuditEvent.objects.get(action="storage.reconciled", target_id=cryo["id"])
+    assert Event.objects.filter(operation=audit.data["operation"]).count() == (
+        0 if decision == "kept" else 1
+    )
+
+
+def test_an_unexpected_tube_no_longer_found_needs_its_placement_cleared(world: World) -> None:
+    api = Api(world.browser("editor"))
+    original = box(api, world.project, "Recorded box", rows=1, columns=2)
+    counted = box(api, world.project, "Counted box", rows=1, columns=2)
+    stray = tube(api, world.project, "RC-STRAY")
+    moved(api, (stray, original, "A2"))
+    started = api.post(f"/storage/containers/{counted['id']}/reconciliations")
+    assert started.status_code == 201, started.content
+    path = f"/reconciliations/{started.json()['id']}"
+    scanned = api.post(f"{path}/scans", {"scans": [{"position": "A1", "code": "RC-STRAY"}]})
+    assert scanned.status_code == 200, scanned.content
+    (line,) = scanned.json()["lines"]
+    assert line["finding"] == "unexpected" and line["entity"] == stray["id"]
+    line_path = f"{path}/lines/{line['id']}"
+    saved = api.patch(line_path, {"line_revision": line["line_revision"], "resolution": "placed"})
+    assert saved.status_code == 200, saved.content
+
+    rescanned = api.post(
+        f"{path}/scans",
+        {
+            "scans": [{"position": "A1", "code": None}],
+            "reviewed_lines": [reviewed_line(saved.json()["lines"][0])],
+            "reason": "A second inspection found A1 empty",
+        },
+    )
+    assert rescanned.status_code == 200, rescanned.content
+    before = api.get(path).json()
+    stale = next(item for item in before["lines"] if item["id"] == line["id"])
+    assert stale["ref"]["hrid"] == stray["hrid"] and stale["finding"] == "no_longer_found"
+    assert stale["found"] is None and stale["resolution"] == "placed"
+    assert stale["resolution_stale"] is True
+    events, audits = Event.objects.count(), AuditEvent.objects.count()
+    detail = errors(
+        api.post(
+            f"{path}/complete", {"plan_revision": before["plan_revision"], "missing_rest": True}
+        )
+    )[f"#/lines/{line['id']}"]
+    assert stray["hrid"] in detail or stale["code"] in detail
+    assert "placed" in detail.lower()
+    assert api.get(path).json() == before
+    assert contents(api, original) == {"A2": stray["hrid"]} and contents(api, counted) == {}
+    assert (Event.objects.count(), AuditEvent.objects.count()) == (events, audits)
+
+    cleared = api.patch(
+        line_path,
+        {
+            "line_revision": stale["line_revision"],
+            "resolution": None,
+            "reason": "The proposed placement no longer applies",
+        },
+    )
+    assert cleared.status_code == 200, cleared.content
+    assert all(item["id"] != line["id"] for item in cleared.json()["lines"])
+    assert cleared.json()["plan_revision"] > before["plan_revision"]
+    done = api.post(
+        f"{path}/complete", {"plan_revision": cleared.json()["plan_revision"], "missing_rest": True}
+    )
+    assert done.status_code == 200, done.content
+    assert done.json()["status"] == "completed"
+    assert contents(api, original) == {"A2": stray["hrid"]} and contents(api, counted) == {}
+    assert Event.objects.count() == events
+
+
+def test_an_editor_cannot_resolve_a_replacement_observation_they_never_saw(world: World) -> None:
+    a, b = Api(world.browser("editor")), Api(world.browser("admin"))
+    cryo = box(a, world.project, rows=1, columns=4)
+    specimen = tube(a, world.project, "RC-RESOLVE")
+    moved(a, (specimen, cryo, "A2"))
+    opened = a.post(f"/storage/containers/{cryo['id']}/reconciliations").json()
+    path = f"/reconciliations/{opened['id']}"
+    line = f"{path}/lines/{opened['lines'][0]['id']}"
+    first = a.post(f"{path}/scans", {"scans": [{"position": "A3", "code": "RC-RESOLVE"}]}).json()
+    assert first["lines"][0]["found"] == "A3"
+    choice = {
+        "line_revision": first["lines"][0]["line_revision"],
+        "resolution": "moved",
+        "note": "Reviewed A3",
+    }
+    newer = b.post(
+        f"{path}/scans",
+        {
+            "scans": [{"position": "A4", "code": "RC-RESOLVE"}],
+            "reviewed_lines": [reviewed_line(first["lines"][0])],
+            "reason": "Located the tube in A4 on recount",
+        },
+    ).json()
+    assert newer["lines"][0]["found"] == "A4"
+    refused = a.patch(line, choice)
+    after = ReconciliationLine.objects.get(pk=opened["lines"][0]["id"])
+    assert refused.status_code == 409, (after.resolved_position, after.resolved_by, after.note)
+    assert (after.resolved_position, after.resolved_by_id, after.note) == (None, None, "")
+    assert "review" in refused.json()["detail"].lower()
+    for invalid in ({}, {"line_revision": 0}, {"line_revision": "1"}):
+        assert a.patch(line, {"resolution": "moved", **invalid}).status_code == 422
+    refreshed = a.get(path).json()
+    assert refreshed == newer
+    assert (
+        refreshed["lines"][0]["resolution"] is None and refreshed["lines"][0]["resolved_by"] is None
+    )
+    fresh = a.patch(
+        line,
+        {
+            "line_revision": refreshed["lines"][0]["line_revision"],
+            "resolution": "moved",
+            "note": "Reviewed A4",
+        },
+    )
+    assert fresh.status_code == 200, fresh.content
+    stored = ReconciliationLine.objects.get(pk=opened["lines"][0]["id"])
+    assert (stored.resolved_position, stored.resolved_by_id, stored.note) == (
+        "A4",
+        world.users["editor"].pk,
+        "Reviewed A4",
+    )
+    # B reviews A's move decision and replaces it. A's old Clear must preserve B's choice.
+    a_decision = fresh.json()
+    b_reviewed = b.get(path).json()
+    replacement = b.patch(
+        line,
+        {
+            "line_revision": b_reviewed["lines"][0]["line_revision"],
+            "resolution": "kept",
+            "note": "Verify A4 again",
+            "reason": "Hold the move until A4 is verified",
+        },
+    )
+    assert replacement.status_code == 200, replacement.content
+    stale_clear = a.patch(
+        line,
+        {
+            "line_revision": a_decision["lines"][0]["line_revision"],
+            "resolution": None,
+            "reason": "Withdraw my previous decision",
+        },
+    )
+    assert stale_clear.status_code == 409
+    latest = a.get(path).json()
+    assert latest == replacement.json() and latest["plan_revision"] > a_decision["plan_revision"]
+    saved_choice = latest["lines"][0]
+    assert (
+        saved_choice["resolution"],
+        saved_choice["resolved_by"]["id"],
+        saved_choice["note"],
+    ) == ("kept", str(world.users["admin"].pk), "Verify A4 again")
+    cleared = a.patch(
+        line,
+        {
+            "line_revision": saved_choice["line_revision"],
+            "resolution": None,
+            "reason": "Reopen this decision for inspection",
+        },
+    )
+    assert cleared.status_code == 200 and cleared.json()["plan_revision"] > latest["plan_revision"]
+    stored.refresh_from_db()
+    assert (stored.resolution, stored.resolved_position, stored.resolved_by_id, stored.note) == (
+        None,
+        None,
+        None,
+        "",
+    )
+
+
+def test_completion_requires_the_reconciliation_plan_the_editor_reviewed(world: World) -> None:
+    a, b = Api(world.browser("editor")), Api(world.browser("admin"))
+    cryo = box(a, world.project, rows=1, columns=4)
+    specimen = tube(a, world.project, "RC-REVIEW")
+    moved(a, (specimen, cryo, "A2"))
+    listing = f"/storage/containers/{cryo['id']}/reconciliations"
+    opened = a.post(listing).json()
+    path = f"/reconciliations/{opened['id']}"
+    line = f"{path}/lines/{opened['lines'][0]['id']}"
+    scans = a.post(f"{path}/scans", {"scans": [{"position": "A3", "code": "RC-REVIEW"}]})
+    assert scans.status_code == 200, scans.content
+    first_revision = scans.json()["plan_revision"]
+    assert a.post(f"{path}/scans", {"scans": []}).status_code == 422
+    failed_batch = a.post(f"{path}/scans", {"scans": [{"position": "A1"}, {"position": "B1"}]})
+    assert failed_batch.status_code == 422
+    assert a.get(path).json() == scans.json()
+    rescanned = a.post(
+        f"{path}/scans",
+        {
+            "scans": [{"position": "A3", "code": "RC-REVIEW"}],
+            "reviewed_lines": [reviewed_line(scans.json()["lines"][0])],
+        },
+    )
+    assert rescanned.status_code == 200 and rescanned.json()["plan_revision"] == first_revision + 1
+    assert (
+        a.patch(
+            line,
+            {"line_revision": rescanned.json()["lines"][0]["line_revision"], "resolution": "moved"},
+        ).status_code
+        == 200
+    )
+    seen = a.get(path).json()
+    assert seen["lines"][0]["found"] == "A3" and not seen["lines"][0]["resolution_stale"]
+    approved = {
+        "plan_revision": seen["plan_revision"],
+        "missing_rest": False,
+        "note": "Reviewed A3",
+    }
+
+    # A second editor really saw and approved a positive A4 observation.
+    second = b.post(
+        f"{path}/scans",
+        {
+            "scans": [{"position": "A4", "code": "RC-REVIEW"}],
+            "reviewed_lines": [reviewed_line(seen["lines"][0])],
+            "reason": "The second inspection located the tube in A4",
+        },
+    )
+    assert second.status_code == 200 and second.json()["lines"][0]["resolution_stale"]
+    cleared = b.patch(
+        line,
+        {
+            "line_revision": second.json()["lines"][0]["line_revision"],
+            "resolution": None,
+            "reason": "The original A3 move is obsolete",
+        },
+    )
+    assert cleared.status_code == 200
+    resolved = b.patch(
+        line,
+        {
+            "line_revision": cleared.json()["lines"][0]["line_revision"],
+            "resolution": "moved",
+            "note": "Seen at A4",
+        },
+    )
+    assert resolved.status_code == 200, resolved.content
+    current = resolved.json()
+    assert current["lines"][0]["found"] == "A4" and not current["lines"][0]["resolution_stale"]
+    events, audits = Event.objects.count(), AuditEvent.objects.count()
+
+    refused = a.post(f"{path}/complete", approved)
+    assert refused.status_code == 409, refused.content
+    assert "review" in refused.json()["detail"].lower()
+    for invalid in ({}, {"plan_revision": 0}):
+        assert a.post(f"{path}/complete", invalid).status_code == 422
+    refreshed = a.get(path).json()
+    assert refreshed == current and refreshed["status"] == "open" and refreshed["note"] == ""
+    assert contents(a, cryo) == {"A2": specimen["hrid"]}
+    assert (Event.objects.count(), AuditEvent.objects.count()) == (events, audits)
+
+    assert 0 < opened["plan_revision"] < scans.json()["plan_revision"] < seen["plan_revision"]
+    assert seen["plan_revision"] < second.json()["plan_revision"] < cleared.json()["plan_revision"]
+    assert cleared.json()["plan_revision"] < refreshed["plan_revision"]
+    assert a.get(listing).json()[0]["plan_revision"] == refreshed["plan_revision"]
+    done = a.post(
+        f"{path}/complete", {"plan_revision": refreshed["plan_revision"], "note": "Reviewed A4"}
+    )
+    assert done.status_code == 200, done.content
+    assert done.json()["note"] == "Reviewed A4"
+    assert done.json()["plan_revision"] == refreshed["plan_revision"]
+    assert contents(a, cryo) == {"A4": specimen["hrid"]}
+    audit = AuditEvent.objects.get(action="storage.reconciled", target_id=cryo["id"])
+    assert audit.data["plan_revision"] == refreshed["plan_revision"]
+    event = Event.objects.get(operation=audit.data["operation"])
+    assert (event.from_column, event.to_column) == (2, 4)
+
+
 def test_a_reconciliation_is_refused_if_the_box_changed_since_it_started(world: World) -> None:
     api = Api(world.browser("editor"))
     cryo = box(api, world.project, rows=1, columns=2)
     a, b = tube(api, world.project, "RS0"), tube(api, world.project, "RS1")
     moved(api, (a, cryo, "A1"))
     r = api.post(f"/storage/containers/{cryo['id']}/reconciliations").json()
-    api.post(f"/reconciliations/{r['id']}/scans", {"scans": [{"position": "A1", "code": "RS0"}]})
+    scanned = api.post(
+        f"/reconciliations/{r['id']}/scans", {"scans": [{"position": "A1", "code": "RS0"}]}
+    )
+    assert scanned.status_code == 200
     moved(api, (b, cryo, "A2"))
-    refused = errors(api.post(f"/reconciliations/{r['id']}/complete", {"missing_rest": True}))
+    refused = errors(
+        api.post(
+            f"/reconciliations/{r['id']}/complete",
+            {"plan_revision": scanned.json()["plan_revision"], "missing_rest": True},
+        )
+    )
     assert refused == {
         "#": f"Something moved into or out of {cryo['hrid']} since this started: start again, "
         "so what's recorded is current."
     }
-    cancelled = api.post(f"/reconciliations/{r['id']}/cancel")
+    cancelled = api.post(
+        f"/reconciliations/{r['id']}/cancel",
+        {"plan_revision": scanned.json()["plan_revision"], "reason": "The box changed mid-count"},
+    )
     assert cancelled.json()["status"] == "cancelled"
 
 
@@ -552,7 +1108,8 @@ def test_a_draw_from_a_tube_is_scanned_and_linked_to_its_sample_and_experiment(
         "#/confirm": f"Scan {tb['hrid']} to confirm it's the one you're drawing from."
     }
     assert errors(api.post(draw, {**body, "confirm": "DR-002"})) == {
-        "#/confirm": f"“DR-002” isn't {tb['hrid']}: check you have the right one."
+        "#/confirm": "This scan can’t identify a tube here. "
+        "Use its printed Iki ID or ask an authorized reviewer."
     }
     answer = api.post(draw, {**body, "confirm": "DR-001"})
     assert answer.status_code == 200, answer.content
@@ -614,30 +1171,71 @@ def test_labels_are_zpl_with_the_printers_own_barcodes_and_are_audited(world: Wo
     )
     assert answer.status_code == 200, answer.content
     body = answer.json()
-    assert [(x["hrid"], x["code"]) for x in body["labels"]] == [
-        (t["hrid"], "LB-0042"),
-        (cryo["hrid"], cryo["hrid"]),
-    ]
+    for record, label in zip((t, cryo), body["labels"], strict=True):
+        assert (label["hrid"], label["code"], label["vendor_code"]) == (
+            record["hrid"],
+            "IKI:" + record["id"].replace("-", "").upper(),
+            None,
+        )
+        assert label["code"] in body["zpl"]
     zpl = body["zpl"]
     assert zpl.count("^XA") == 2 and zpl.count("^XZ") == 2
-    # 50.8 x 25.4 mm at 300 dpi; a DataMatrix and a Code 128 of its barcode.
     assert "^PW600" in zpl and "^LL300" in zpl
-    assert "^BXN" in zpl and "^FDLB-0042^FS" in zpl and "^BCN" in zpl
-    # ZPL's own control characters in a name are escaped, not read as commands.
-    assert "Plasmid preps \\5E \\7E" in zpl
+    assert zpl.count("^BXN") == 2 and "^BCN" not in zpl
+    # ZPL's own control characters in a title are escaped, not read as commands.
+    assert r"\5E" in zpl and r"\7E" in zpl
+
+    vendor = api.post(
+        "/storage/labels",
+        {"records": [t["id"]], "size": "standard", "format": "zpl", "include_vendor_code": True},
+    )
+    assert vendor.status_code == 200, vendor.content
+    both = vendor.json()
+    assert both["labels"][0]["vendor_code"] == "LB-0042"
+    assert both["labels"][0]["code"] in both["zpl"]
+    assert "LB-0042" in both["zpl"] and "^BCN" in both["zpl"]
+    prepared = AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"])
+    assert prepared.count() == 2
+    assert prepared.latest("occurred_at").data["vendor_code"] == "LB-0042"
     cryo_label = api.post(
         "/storage/labels",
         {"records": [t["id"]], "size": "cryo", "format": "zpl", "symbology": "qr"},
     ).json()["zpl"]
-    assert "^BQN" in cryo_label and "^BCN" not in cryo_label
-    assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
-    # A preview shows what would print, and records nothing.
-    shown = api.post(
+    assert (
+        "^BQN" in cryo_label
+        and both["labels"][0]["code"] in cryo_label
+        and "^BCN" not in cryo_label
+    )
+    for how in ["print", "zpl"]:
+        for preview in [True, False]:
+            for records, size, message in [
+                ([t["id"]], "cryo", "Code 128"),
+                ([t["id"], cryo["id"]], "standard", "vendor barcode"),
+            ]:
+                refused = api.post(
+                    "/storage/labels",
+                    {
+                        "records": records,
+                        "size": size,
+                        "format": how,
+                        "preview": preview,
+                        "include_vendor_code": True,
+                    },
+                )
+                assert refused.status_code == 422, refused.content
+                assert message in refused.content.decode()
+    previewed = api.post(
         "/storage/labels",
-        {"records": [t["id"]], "size": "cryo", "format": "zpl", "preview": True},
+        {
+            "records": [t["id"]],
+            "size": "box",
+            "format": "print",
+            "preview": True,
+            "include_vendor_code": True,
+        },
     ).json()
-    assert shown["labels"][0]["code"] == "LB-0042" and shown["zpl"] is None
-    assert AuditEvent.objects.filter(action="entity.labelled", target_id=t["id"]).count() == 2
+    assert previewed["labels"][0]["vendor_code"] == "LB-0042" and previewed["zpl"] is None
+    assert prepared.count() == 3
     assert labels.code128_modules("LB-0042") < labels.code128_modules("LB-0042-LONGER-CODE")
     assert errors(
         api.post("/storage/labels", {"records": [t["id"]], "size": "a4", "format": "print"})
@@ -651,6 +1249,5 @@ def test_services_find_by_barcode_hrid_or_link(world: World) -> None:
     user = world.users["editor"]
     for code in ("FN-1", t["hrid"], f"https://iki.example.com/entities/{t['id']}"):
         assert [e.pk for e in services.find(user, code)] == [record.pk], code
-        assert services.confirms(record, code)
     assert services.find(world.users["viewer"], "FN-1") == [record]
     assert not Place.objects.filter(pk=record.pk).exists()

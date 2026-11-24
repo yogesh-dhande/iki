@@ -8,7 +8,9 @@ import type { Schemas } from "@ikisci/sdk";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { queryClient } from "./api";
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
+import { ENTITIES } from "./entities";
 import { leave } from "./pages/entity-signatures";
 import { answer, calls, ME, problem } from "./test-server";
 
@@ -338,7 +340,7 @@ describe("a record's signatures", () => {
     expect(go).not.toHaveAttribute("aria-disabled");
   });
 
-  it("says when the record changed while signing was open", async () => {
+  it("requires a new reason and uses the newly displayed revision after a stale signing", async () => {
     onLot();
     const left = vi.spyOn(leave, "to").mockImplementation(() => undefined);
     answer("GET /api/v1/me/signing", {
@@ -363,6 +365,37 @@ describe("a record's signatures", () => {
       "It changed while this was open",
     );
     expect(left).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("textbox", { name: "Reason" })).toHaveValue("");
+    const route = `/api/v1/entities/${LOT_ID}/signatures`;
+    expect(calls("POST", route).map((call) => call.headers.get("If-Match"))).toEqual(['"2"']);
+
+    // The next read reflects a valid replacement saved by another editor.
+    answer(
+      "GET /api/v1/entities/LOT-000001",
+      lot({ revision: 3, values: { name: "Lot B", status: "in_review" } }),
+    );
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ENTITIES });
+    });
+    expect(await screen.findByText(/You sign revision 3/)).toBeInTheDocument();
+    const refreshed = screen.getByRole("alertdialog");
+    expect(within(refreshed).getByRole("status")).toHaveTextContent("enter your reason again");
+    const reason = within(refreshed).getByRole("textbox", { name: "Reason" });
+    const sign = within(refreshed).getByRole("button", { name: "Sign in again to sign" });
+    expect(reason).toHaveValue("");
+    await user.click(sign);
+    expect(
+      await within(refreshed).findByText("Say why: it’s signed with your signature."),
+    ).toBeInTheDocument();
+    expect(calls("POST", route)).toHaveLength(1);
+    answer(`POST ${route}`, { sign_in_url: `/accounts/signing/${SIGNING_ID}/` });
+    await user.type(reason, "Reviewed the updated lot");
+    await user.click(sign);
+    await waitFor(() => {
+      expect(left).toHaveBeenCalledWith(`/accounts/signing/${SIGNING_ID}/`);
+    });
+    expect(calls("POST", route).at(-1)?.headers.get("If-Match")).toBe('"3"');
+    expect(calls("POST", route).at(-1)?.body).toMatchObject({ reason: "Reviewed the updated lot" });
   });
 
   it("shows what came of signing once back from the identity provider", async () => {
@@ -467,8 +500,10 @@ describe("a record's signatures", () => {
     const dialog = await screen.findByRole("alertdialog", {
       name: "Withdraw your signature on LOT-000001?",
     });
+    const withdraw = within(dialog).getByRole("button", { name: "Withdraw" });
+    expect(withdraw).toHaveAttribute("aria-disabled", "true");
     await user.type(within(dialog).getByRole("textbox", { name: /^Reason/ }), "Wrong lot");
-    await user.click(within(dialog).getByRole("button", { name: "Withdraw" }));
+    await user.click(withdraw);
     expect(await screen.findByText("You withdrew your signature on LOT-000001.")).toBeVisible();
     expect(calls("POST", `/api/v1/signatures/${SIGNATURE_ID}/withdrawal`).at(-1)?.body).toEqual({
       reason: "Wrong lot",

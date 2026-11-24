@@ -1130,10 +1130,11 @@ describe("an entity's page", () => {
     expect(within(values).getByText(/^420 residues\./)).toBeInTheDocument();
   });
 
-  it("keeps each hold a revision opened, and who reviewed it, why and when", async () => {
+  it("shows each revision's own failing observation and the hold review", async () => {
     onStructure();
     const hold = {
       id: "00000000-0000-7000-8000-0000000000h1",
+      occurrence_id: "00000000-0000-7000-8000-000000000101",
       rule: "purity_in_specification",
       label: "Purity in specification",
       message: "Purity must be at least 95%.",
@@ -1143,6 +1144,7 @@ describe("an entity's page", () => {
       reason: "Kept: the measurement is valid.",
       revision: 1,
       last_revision: 2,
+      legacy_gap: false,
       reviewer: null,
       reviewed_at: null,
       review_reason: "",
@@ -1158,9 +1160,10 @@ describe("an entity's page", () => {
           holds: [
             {
               ...hold,
-              id: "00000000-0000-7000-8000-0000000000h2",
+              occurrence_id: "00000000-0000-7000-8000-000000000102",
               revision: 2,
               last_revision: 2,
+              message: "Retest purity is 84%.",
               reason: "Retested.",
             },
           ],
@@ -1181,13 +1184,14 @@ describe("an entity's page", () => {
     );
     await renderApp("/entities/PST-000001/audit/");
     await screen.findByText("Revision 1: Created by Rosalind Franklin");
-    const first = screen.getByRole("list", { name: "Holds revision 1 opened" });
+    const first = screen.getByRole("list", { name: "Holds at revision 1" });
     expect(within(first).getByRole("listitem")).toHaveTextContent(
-      /^Held for review: Purity in specification\. Purity must be at least 95%\. Saved anyway: “Kept: the measurement is valid\.” Revision 2 broke it again\. Reviewed by Grace Hopper .+: “SEC rerun within limits\.”$/,
+      /^Held for review: Purity in specification\. Purity must be at least 95%\. Saved anyway by Rosalind Franklin: “Kept: the measurement is valid\.” Reviewed by Grace Hopper .+: “SEC rerun within limits\.”$/,
     );
-    const second = screen.getByRole("list", { name: "Holds revision 2 opened" });
+    const second = screen.getByRole("list", { name: "Holds at revision 2" });
+    expect(within(second).getByRole("listitem")).toHaveTextContent("Retest purity is 84%.");
     expect(within(second).getByRole("listitem")).toHaveTextContent(/Still held, for review\.$/);
-    expect(screen.queryByRole("list", { name: "Holds revision 3 opened" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Holds at revision 3" })).toBeNull();
   });
 
   it("watches a record, or mutes it", async () => {

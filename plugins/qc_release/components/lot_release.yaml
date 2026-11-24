@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Component
+name: lot_release
+label: QC release
+description: The testing case opened on this lot.
+module: ./components/release-records.js
+element: lot-release
+entities:
+  type: ReleaseCase
+  fields: [testing_on, version, sealed]
+slots:
+  - slot: entity.tab
+    type: iki/lots.Lot
+    search:
+      where: { field: lot, op: eq, value: "{{ entity }}" }
+events: { run: { actions: [open_release] } }

@@ -35,10 +35,11 @@ export const SIGNATURES = [...ENTITIES, "signatures"] as const;
 export function signaturesQuery(ref: string, verify: boolean) {
   return queryOptions({
     queryKey: [...SIGNATURES, ref.toUpperCase(), verify],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
         await iki.GET("/api/v1/entities/{ref}/signatures", {
           params: { path: { ref }, query: { verify } },
+          signal,
         }),
       ),
     // Checking them again keeps showing them meanwhile.
@@ -48,15 +49,18 @@ export function signaturesQuery(ref: string, verify: boolean) {
 
 export const mySigningQuery = queryOptions({
   queryKey: ["me", "signing"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/me/signing")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/me/signing", { signal })),
 });
 
 function signingQuery(id: string) {
   return queryOptions({
     queryKey: ["signings", id],
-    queryFn: async () =>
+    queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/signings/{signing_id}", { params: { path: { signing_id: id } } }),
+        await iki.GET("/api/v1/signings/{signing_id}", {
+          params: { path: { signing_id: id } },
+          signal,
+        }),
       ),
     staleTime: Infinity,
   });
@@ -84,8 +88,19 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
   const signatures = listed.data?.items ?? [];
   const missing = listed.data?.missing ?? [];
   const wanted = entity.can.sign;
-  const [chosen, setChosen] = useState<{ change: SignCan; slot: Slot } | null>(null);
+  const version = `${entity.id}:${String(entity.revision)}:${entity.entry?.id ?? ""}:${String(entity.entry?.revision ?? "")}`;
+  const [chosen, setChosen] = useState<{
+    field: string;
+    to: string;
+    index: number;
+    version: string;
+  } | null>(null);
   const [withdrawing, setWithdrawing] = useState<Signature | null>(null);
+  const chosenChange = chosen
+    ? wanted.find((change) => change.field === chosen.field && change.to === chosen.to)
+    : undefined;
+  const chosenSlot = chosenChange?.signatures.find((slot) => slot.index === chosen?.index);
+  if (chosen && (!chosenChange || !chosenSlot)) setChosen(null);
   if (!signing && !wanted.length && !signatures.length && !missing.length) return null;
   return (
     <section className="card" aria-labelledby={`${id}-title`}>
@@ -98,7 +113,7 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
           key={`${change.field}:${change.to}`}
           change={change}
           onSign={(slot) => {
-            setChosen({ change, slot });
+            setChosen({ field: change.field, to: change.to, index: slot.index, version });
           }}
         />
       ))}
@@ -140,11 +155,13 @@ export function EntitySignatures({ entity, signing }: { entity: Entity; signing?
           </div>
         </>
       ) : null}
-      {chosen ? (
+      {chosen && chosenChange && chosenSlot ? (
         <SignDialog
+          key={version}
           entity={entity}
-          change={chosen.change}
-          slot={chosen.slot}
+          change={chosenChange}
+          slot={chosenSlot}
+          changed={chosen.version !== version}
           onClose={() => {
             setChosen(null);
           }}
@@ -278,11 +295,13 @@ function SignDialog({
   entity,
   change,
   slot,
+  changed,
   onClose,
 }: {
   entity: Entity;
   change: SignCan;
   slot: Slot;
+  changed: boolean;
   onClose: () => void;
 }) {
   // Whether it's their first signature, and so needs their agreement, comes after the
@@ -311,6 +330,7 @@ function SignDialog({
             reason: reason.trim(),
             acknowledge: agreed,
             return_to: here,
+            ...(entity.entry ? { entry_revision: entity.entry.revision } : {}),
           },
         }),
       ),
@@ -321,6 +341,7 @@ function SignDialog({
   const errors = fieldErrors(problem);
   const stale = begin.error instanceof ApiError && begin.error.problem.code === "stale";
   const acknowledging = mine ? !mine.acknowledged : false;
+  const reasonRequired = change.reason === "required" || (changed && change.reason === "optional");
   const reasonError =
     errors["reason"] ??
     (missing === "reason" ? "Say why: it’s signed with your signature." : undefined);
@@ -330,14 +351,14 @@ function SignDialog({
       title={`Sign ${entity.hrid}: ${slot.label}`}
       confirmLabel="Sign in again to sign"
       confirmVariant="primary"
-      confirmDisabled={mine === undefined}
+      confirmDisabled={mine === undefined || stale || !slot.allowed}
       busy={begin.isPending || begin.isSuccess}
       problem={
         stale && problem
           ? {
               ...problem,
               detail:
-                "It changed while this was open, so a signature now wouldn’t be on what you read. The page shows the change: check it, then sign again.",
+                "It changed while this was open. Read the current revision before signing again.",
             }
           : problem && !errors["reason"]
             ? problem
@@ -355,7 +376,7 @@ function SignDialog({
       }
       onCancel={onClose}
       onConfirm={() => {
-        if (change.reason === "required" && !reason.trim()) {
+        if (reasonRequired && !reason.trim()) {
           setMissing("reason");
           return;
         }
@@ -369,16 +390,28 @@ function SignDialog({
           },
           onError: (error) => {
             if (error.problem.code === "stale") {
+              setReason("");
+              setAgreed(false);
+              setMissing("");
               void client.invalidateQueries({ queryKey: ENTITIES });
             }
           },
         });
       }}
     >
+      {changed ? (
+        <p role="status">
+          {reasonRequired
+            ? "The record changed. Review the current revision and enter your reason again."
+            : "The record changed. Review the current revision before signing."}
+        </p>
+      ) : null}
+      {!slot.allowed && slot.why_not ? <p role="alert">{slot.why_not}</p> : null}
       <p>
         You sign revision {entity.revision} of {entity.hrid} as it is now, for setting its{" "}
         {change.field_label.toLowerCase()} to {change.to_label}.
       </p>
+      {entity.entry ? <p>Shared registry facts at revision {entity.entry.revision}.</p> : null}
       <blockquote className="statement">
         <p>
           <strong>{slot.meaning_label}.</strong> {slot.statement}
@@ -393,7 +426,7 @@ function SignDialog({
             setMissing("");
           }}
           maxLength={2000}
-          optional={change.reason === "optional"}
+          optional={!reasonRequired}
           multiline
           error={reasonError}
           help="Why you sign. It’s part of what you sign, and shown with it."
@@ -452,6 +485,7 @@ function WithdrawDialog({
       isOpen
       title={`Withdraw your signature on ${entity.hrid}?`}
       confirmLabel="Withdraw"
+      confirmDisabled={!reason.trim()}
       busy={withdraw.isPending}
       problem={withdraw.error ? problemOf(withdraw.error) : undefined}
       onCancel={onClose}
@@ -473,7 +507,6 @@ function WithdrawDialog({
         value={reason}
         onChange={setReason}
         maxLength={2000}
-        optional
         multiline
         help="Why, for the record."
       />

@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Deferrable, F, Q
 from django.db.models.functions import Now
+from django.db.models.lookups import Exact
 
 from iki_server.core.ids import uuid7
 from iki_server.entities.models import Entity
@@ -203,6 +204,11 @@ class Receipt(models.Model):
     status = models.CharField(
         max_length=16, choices=ReceiptStatus.choices, default=ReceiptStatus.OPEN
     )
+    plan_revision = models.PositiveIntegerField(default=1, db_default=1)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    cancel_reason = models.TextField(blank=True, default="", db_default="")
     handed_over_by = models.CharField(max_length=200, blank=True, default="")
     note = models.TextField(blank=True, default="")
     started_by = models.ForeignKey(
@@ -221,6 +227,9 @@ class Receipt(models.Model):
         db_table = "iki_storage_receipt"
         db_table_comment = "A request's material checked in by its service (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(plan_revision__gt=0), name="iki_storage_receipt_positive_revision"
+            ),
             # One open receipt per request at a time: two receivers would tick one box twice.
             models.UniqueConstraint(
                 fields=["request"],
@@ -243,6 +252,9 @@ class ReceiptLine(models.Model):
     #: What was scanned, or the code it was expected with.
     code = models.CharField(max_length=200, blank=True, default="")
     expected = models.BooleanField()
+    line_revision = models.PositiveIntegerField(default=1, db_default=1)
+    #: Removed extras keep their identity and can be restored on the open receipt.
+    removed = models.BooleanField(default=False, db_default=False)
     outcome = models.CharField(max_length=16, choices=Outcome.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
     checked_by = models.ForeignKey(
@@ -260,6 +272,13 @@ class ReceiptLine(models.Model):
         db_table = "iki_storage_receipt_line"
         db_table_comment = "What a receipt expected or found, and its outcome (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(line_revision__gt=0), name="iki_receipt_line_positive_revision"
+            ),
+            models.CheckConstraint(
+                condition=Q(removed=False) | Q(expected=False),
+                name="iki_receipt_only_extra_removed",
+            ),
             models.UniqueConstraint(
                 fields=["receipt", "entity"], name="iki_storage_receipt_line_once"
             ),
@@ -305,6 +324,7 @@ class Reconciliation(models.Model):
     status = models.CharField(
         max_length=16, choices=ReceiptStatus.choices, default=ReceiptStatus.OPEN
     )
+    plan_revision = models.PositiveIntegerField(default=1, db_default=1)
     note = models.TextField(blank=True, default="")
     started_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
@@ -314,12 +334,20 @@ class Reconciliation(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    cancel_reason = models.CharField(max_length=2000, blank=True, default="", db_default="")
     operation = models.UUIDField(default=uuid7)
 
     class Meta:
         db_table = "iki_storage_reconciliation"
         db_table_comment = "A container's contents scanned against its records (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(plan_revision__gt=0),
+                name="iki_storage_reconciliation_positive_revision",
+            ),
             models.UniqueConstraint(
                 fields=["container"],
                 condition=Q(status="open"),
@@ -353,8 +381,21 @@ class ReconciliationLine(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
     scanned_at = models.DateTimeField(null=True, blank=True)
+    line_revision = models.PositiveIntegerField(default=1, db_default=1)
+    # The exact scan at the found position. Null for a surviving pre-history observation.
+    current_observation = models.ForeignKey(
+        "ObservationEvent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
+    resolved_finding = models.CharField(max_length=32, null=True, blank=True)
+    # A missing decision reviews the event at the expected slot, even when it was empty.
+    reviewed_observation = models.ForeignKey(
+        "ObservationEvent", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
+    )
     resolution = models.CharField(max_length=16, choices=Resolution.choices, null=True, blank=True)
     note = models.TextField(blank=True, default="")
+    # The observed slot the receiver approved, or the expected slot for a missing record.
+    # An older open decision without a recorded position needs review before completion.
+    resolved_position = models.CharField(max_length=16, null=True, blank=True)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
@@ -364,11 +405,119 @@ class ReconciliationLine(models.Model):
         db_table = "iki_storage_reconciliation_line"
         db_table_comment = "A record or code in a reconciliation, and its resolution (ADR 0180)."
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(line_revision__gt=0), name="iki_storage_count_line_positive_revision"
+            ),
             models.UniqueConstraint(
                 fields=["reconciliation", "entity"], name="iki_storage_reconciliation_line_once"
             ),
             models.UniqueConstraint(
                 fields=["reconciliation", "found_row", "found_column"],
                 name="iki_storage_reconciliation_line_found_once",
+            ),
+        ]
+
+
+# --- Observation history for receiving and reconciliation ----------------------------------------
+
+
+class ObservationKind(models.TextChoices):
+    OUTCOME = "outcome", "Receiving outcome"
+    HANDOFF = "handoff", "Receiving handoff"
+    SCAN = "scan", "Scan"
+    RESOLUTION = "resolution", "Reconciliation decision"
+    STATUS = "status", "Status"
+
+
+class ObservationEvent(models.Model):
+    """A person's observation or amendment, kept even if the working line is later removed."""
+
+    APPEND_ONLY = True
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    receipt = models.ForeignKey(
+        Receipt, null=True, on_delete=models.PROTECT, related_name="observations", db_index=False
+    )
+    reconciliation = models.ForeignKey(
+        Reconciliation,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="observations",
+        db_index=False,
+    )
+    #: A physical line's ID survives its deletion; a parent-wide observation has none.
+    line_id = models.UUIDField(null=True)
+    kind = models.CharField(max_length=16, choices=ObservationKind.choices)
+    before = models.JSONField(null=True)
+    after = models.JSONField(null=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(db_default=Now())
+    operation = models.UUIDField(db_index=True)
+    revision = models.PositiveIntegerField()
+    previous = models.ForeignKey("self", null=True, on_delete=models.PROTECT, related_name="+")
+    reason = models.CharField(max_length=2000, blank=True, default="")
+
+    class Meta:
+        db_table = "iki_storage_observation_event"
+        db_table_comment = (
+            "Immutable observations, corrections and removals for receipts and counts."
+        )
+        indexes: ClassVar[list[models.Index]] = [
+            models.Index(
+                fields=["receipt", "id"],
+                condition=Q(receipt__isnull=False),
+                name="iki_obs_receipt_history",
+            ),
+            models.Index(
+                fields=["reconciliation", "id"],
+                condition=Q(reconciliation__isnull=False),
+                name="iki_obs_count_history",
+            ),
+            models.Index(
+                fields=["receipt", "line_id", "kind", "revision", "id"],
+                condition=Q(receipt__isnull=False),
+                name="iki_obs_receipt_line",
+            ),
+            models.Index(
+                fields=["reconciliation", "line_id", "kind", "revision", "id"],
+                condition=Q(reconciliation__isnull=False),
+                name="iki_obs_count_line",
+            ),
+        ]
+        constraints: ClassVar[list[models.BaseConstraint]] = [
+            models.CheckConstraint(
+                condition=Q(receipt__isnull=False, reconciliation__isnull=True)
+                | Q(receipt__isnull=True, reconciliation__isnull=False),
+                name="iki_observation_one_parent",
+            ),
+            models.CheckConstraint(
+                condition=Q(revision__gt=0), name="iki_observation_positive_revision"
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    receipt__isnull=False, kind=ObservationKind.OUTCOME, line_id__isnull=False
+                )
+                | Q(receipt__isnull=False, kind=ObservationKind.HANDOFF, line_id__isnull=True)
+                | Q(
+                    reconciliation__isnull=False,
+                    kind__in=[ObservationKind.SCAN, ObservationKind.RESOLUTION],
+                    line_id__isnull=False,
+                )
+                | Q(kind=ObservationKind.STATUS, line_id__isnull=True),
+                name="iki_observation_scope",
+            ),
+            models.CheckConstraint(
+                condition=Exact(
+                    models.Func("before", function="jsonb_typeof", output_field=models.CharField()),
+                    models.Value("object"),
+                ),
+                name="iki_observation_before_object",
+            ),
+            models.CheckConstraint(
+                condition=Exact(
+                    models.Func("after", function="jsonb_typeof", output_field=models.CharField()),
+                    models.Value("object"),
+                ),
+                name="iki_observation_after_object",
             ),
         ]

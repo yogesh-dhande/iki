@@ -75,7 +75,11 @@ describe("positions", () => {
       found: "A2",
       note: "",
       resolution: null,
+      resolution_stale: false,
       resolved_by: null,
+      line_revision: 1,
+      observation: null,
+      reviewed_observation: null,
     };
     expect(resolutionsFor({ ...line, finding: "wrong_slot" })).toEqual(["moved", "kept"]);
     expect(resolutionsFor({ ...line, finding: "missing" })).toEqual(["removed", "kept"]);
@@ -130,6 +134,18 @@ describe("the box map", () => {
         .getAllByRole("gridcell")
         .filter((c) => c.tabIndex === 0),
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["TUBE-000003", "3"],
+    ["TUBE-000000", "0"],
+    ["TUBE-9007199254740993", "9007199254740993"],
+  ])("shows the unpadded digits of %s on the map", (hrid, digits) => {
+    const ref = { hrid, title: hrid, type: "acme/lims.Tube", archived: false, purged: false };
+    render(<BoxMap label="Box" shape={NINE} contents={[tube(1, 1, { ref })]} />);
+    const cell = screen.getByRole("gridcell", { name: `A1, ${hrid}` });
+    expect(cell).toHaveAttribute("title", `A1, ${hrid}`);
+    expect(within(cell).getByText(digits)).toBeVisible();
   });
 
   it("moves between positions with the arrow keys, Home, End and Page keys, and opens one", async () => {

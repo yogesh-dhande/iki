@@ -1,0 +1,93 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: schedule_a_public_long_term_condition
+description: The general-case long-term storage condition is from ICH Q1A(R2) §2.1.7.1. Dates, tube and window are synthetic scheduling fixtures.
+action: schedule_pulls
+settings: { review_flow: regulated_qc }
+inputs:
+  study:
+    - values:
+        name: Synthetic stability study
+        material: 00000000-0000-7000-8003-000000000011
+        starts_on: "2028-01-31"
+        owner: 00000000-0000-7000-8003-000000000013
+        conditions:
+          - {
+              code: long_term,
+              label: Long term,
+              temperature: 25,
+              temperature_tolerance: 2,
+              humidity: 60,
+              humidity_tolerance: 5,
+            }
+        time_points: [{ month: 1, days_before: 2, days_after: 3 }]
+        assignments:
+          - { condition: long_term, month: 1, volume_ul: 12 }
+        tests: [{ test: Demo peak area, method: Synthetic method v1, unit: AU }]
+      included:
+        lot:
+          - type: iki/lots.GenericLot
+            values: { of: 00000000-0000-7000-8003-000000000011 }
+        assignments.tube:
+          # The harness allocates the study and the included lot the first two IDs.
+          - values: { lot: 00000000-0000-7000-8003-000000000002 }
+expect:
+  output:
+    updates:
+      study:
+        - require_unchanged: true
+          values: { scheduled: true, review_flow: regulated_qc }
+    creates:
+      - type: iki/stability.Pull
+        values:
+          month: 1
+          condition_label: Long term
+          volume_ul: 12
+          study_revision: 1
+          opens_on: "2028-02-27"
+          due_on: "2028-02-29"
+          closes_on: "2028-03-03"
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_test_before_the_sample_is_pulled
+action: record_measurement
+params: { test: Demo peak area, value: 1 }
+inputs:
+  pull: [{ values: { status: scheduled } }]
+expect: { error: Reconcile the draw and close the pull before recording its test. }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_measurement_keeps_the_planned_method_and_review
+description: Synthetic measurement, method and dates for testing capture and review routing.
+action: record_measurement
+params: { test: Demo peak area, value: 1.25 }
+inputs:
+  pull:
+    - values:
+        status: pulled
+        study_revision: 1
+        study: 00000000-0000-7000-8003-000000000015
+        condition: long_term
+        condition_label: Long term
+        month: 1
+        pulled_on: "2028-02-29"
+      included:
+        study:
+          - values:
+              review_flow: regulated_qc
+              scheduled: true
+              tests: [{ test: Demo peak area, method: Synthetic method v1, unit: AU }]
+expect:
+  output:
+    creates:
+      - type: iki/stability.Measurement
+        values:
+          pulled_on: "2028-02-29"
+          month: 1
+          condition: long_term
+          method: Synthetic method v1
+          unit: AU
+          value: 1.25
+          review_flow: regulated_qc

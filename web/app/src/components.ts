@@ -35,7 +35,7 @@ export interface PlaceInfo {
 /** The installed components: they change only when the deployment does. */
 export const componentsQuery = queryOptions({
   queryKey: ["components"],
-  queryFn: async () => unwrap(await iki.GET("/api/v1/components")),
+  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/components", { signal: signal })),
   staleTime: 10 * 60_000,
 });
 

@@ -1,0 +1,25 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/stability
+version: 0.1.0
+title: Stability studies
+description: Design lot stability studies, schedule storage pulls and trend signed measurements.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/lots: { types: { Lot: ">=2" } }
+  iki/example_lims: { types: { Tube: ">=1" } }
+settings:
+  review_flow:
+    type: enum
+    label: Stability measurement review
+    values: [research, regulated_qc]
+    default: research
+    description: Choose one sign-off or signed submission, independent review and QA release before scheduling a study.
+roles:
+  coordinator:
+    { label: Stability coordinator, description: Performs and reconciles the scheduled pulls. }
+  analyst: { label: Stability analyst, description: Records and submits stability measurements. }
+  reviewer: { label: Stability reviewer, description: Signs the review of stability measurements. }
+  qa:
+    { label: Stability QA, description: Releases an independently reviewed stability measurement. }

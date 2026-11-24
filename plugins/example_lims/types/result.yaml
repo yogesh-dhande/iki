@@ -31,7 +31,9 @@ fields:
     type: bool
     label: On hold
     indexed: true
-    description: It mustn't be reported or used, as `hold_reason` says.
+    reason_on_clear: true
+    description: >-
+      It mustn't be reported or used, as `hold_reason` says. Give a reason when clearing the hold.
   hold_reason:
     type: text
     label: Why it's on hold

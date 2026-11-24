@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Sequence input</title>
+    <link rel="stylesheet" href="../../ui/dist/tokens.css" />
+    <link rel="stylesheet" href="../dist/science-inputs.css" />
+    <style>
+      body {
+        margin: 1rem;
+        color: var(--text);
+        background: var(--bg);
+        font-family: var(--font);
+      }
+      output {
+        display: block;
+        margin-block: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Sequence input</h1>
+      <label for="sequence">Synthetic sequence</label>
+      <iki-sequence-input></iki-sequence-input>
+      <output></output>
+    </main>
+    <script type="module">
+      import "../dist/sequence-input.js";
+      const field = document.querySelector("iki-sequence-input");
+      field.data = { label: "Synthetic sequence", inputId: "sequence", value: "ACGT" };
+      field.addEventListener("value-change", ({ detail }) => {
+        document.querySelector("output").textContent = `${detail.length} characters`;
+      });
+    </script>
+  </body>
+</html>
