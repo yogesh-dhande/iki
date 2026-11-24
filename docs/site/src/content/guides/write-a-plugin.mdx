@@ -6,14 +6,14 @@ order: 10
 reference:
   - { label: Plugin manifest, href: /reference/plugin-spec/plugin/ }
   - { label: The plugin spec, href: /reference/plugin-spec/ }
-  - { label: The plugin template, href: "repo:plugin-template/README.md" }
-  - { label: The iki CLI, href: "repo:cli/README.md" }
+  - { label: "Validate and test a plugin in CI on GitHub", href: /guides/test-a-plugin-in-ci/ }
+  - { label: The iki CLI, href: /reference/cli/ }
 ---
 
 A plugin is a git repository, or a directory in one, of YAML manifests: the record types a lab
 keeps, the actions that compute and import them, and where those actions run. Iki builds each
 plugin a deployment installs into its server, with a database table per type. The
-[plugin template](repo:plugin-template/README.md) is a working plugin to copy and make your own.
+plugin template, `plugin-template/` in Iki's repository, is a working plugin to copy and make your own.
 
 ## What a plugin holds
 
@@ -156,7 +156,7 @@ dependency.
 ## The core plugin's types
 
 Every deployment has the core plugin, `iki/core`, released with Iki. Its manifests are in
-[`iki_spec/core`](repo:spec/src/iki_spec/core/plugin.yaml), and other plugins use its types
+`iki_spec/core`, listed under [Plugins](/reference/plugins/core/), and other plugins use its types
 without declaring a dependency:
 
 - `iki/core.Entity`: any entity. A reference `to: iki/core.Entity` takes a record of any type. It's
@@ -216,7 +216,7 @@ for each change:
    something new has a higher `schema_version`.
 5. Commit the manifests, the migration and the tests together, in one pull request.
 
-The template's [CI workflow](repo:plugin-template/.github/workflows/ci.yml) runs the same checks
+The template's [CI workflow](/guides/test-a-plugin-in-ci/) runs the same checks
 on every change, as a deployment's build will. A deployment installs the plugin by pinning its
 commit in its lockfile, and its build compiles every plugin it installs together.
 

@@ -3,6 +3,7 @@ title: Release a lot with a certificate of analysis
 description: Test a lot against its specification, investigate a result out of specification, issue a signed certificate of analysis and release the lot.
 audience: bench
 topic: Lots and preps
+category: collaboration
 order: 30
 facts:
   - { label: Plugins, value: "iki/qc_release, iki/lots", code: true }
@@ -13,8 +14,8 @@ reference:
   - { label: "POST /actions/{name}/runs", href: /reference/api/post-actions-name-runs/ }
   - { label: "POST /entities/{ref}/signatures", href: /reference/api/post-entities-ref-signatures/ }
   - { label: "GET /entities/{ref}/export", href: /reference/api/get-entities-ref-export/ }
-  - { label: iki/qc_release.ReleaseCase, href: "repo:plugins/qc_release/types/release_case.yaml" }
-  - { label: iki/lots.Lot, href: "repo:plugins/lots/types/lot.yaml" }
+  - { label: iki/qc_release.ReleaseCase, href: /reference/plugins/qc-release/#ReleaseCase }
+  - { label: iki/lots.Lot, href: /reference/plugins/lots/#Lot }
 ---
 
 import Step from "../../components/assay/Step.astro";
@@ -22,8 +23,7 @@ import Step from "../../components/assay/Step.astro";
 The example releases a lot of sodium chloride (PubChem CID 5234) against two criteria from the
 USP sodium chloride monograph, official on 1 December 2015: an assay of 99.0–100.5% NaCl on the
 dried basis by potentiometric titration (USP &lt;541&gt;), and loss on drying of at most 0.5% (USP
-&lt;731&gt;). The specification is a teaching excerpt of the monograph
-([the specification](repo:plugins/qc_release/tests/data/sodium-chloride-specification.json)), and
+&lt;731&gt;). The specification is a teaching excerpt of the monograph, and
 the lot, its results and its investigation are synthetic.
 
 The deployment needs the QC release and lots plugins. An admin chooses the **Release testing

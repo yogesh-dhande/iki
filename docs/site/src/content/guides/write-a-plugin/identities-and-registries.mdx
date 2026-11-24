@@ -115,7 +115,7 @@ encoded by its field's type:
 | `file`                   | The SHA-256 of the file's content, in hex |
 | `list`                   | Its items, each encoded, sorted           |
 
-An optional field without a value is `null`. [`iki_spec.identity`](repo:spec/src/iki_spec/identity.py)
+An optional field without a value is `null`. `iki_spec.identity`
 implements it, and another implementation must reproduce it byte for byte.
 
 ## How an identity reads its values
@@ -153,4 +153,4 @@ An entry keeps its values as first registered. A record of it made from values w
 (from another origin, on the other strand, in another order) keeps them as given on its first
 revision, as `submitted`, and the features a sequence viewer shows along that sequence are placed
 along the entry's, each of their parts too, written as INSDC's feature table writes them
-([`iki_spec.features`](repo:spec/src/iki_spec/features.py)).
+(`iki_spec.features`).

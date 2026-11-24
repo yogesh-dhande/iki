@@ -3,6 +3,7 @@ title: Verify a plasmid prep
 description: Check that a plasmid prep holds the plasmid it should, from its long reads, and sign the outcome.
 audience: bench
 topic: Lots and preps
+category: analysis
 order: 20
 facts:
   - { label: Plugins, value: "iki/plasmid_sequencing, iki/sequencing, iki/lots", code: true }
@@ -10,12 +11,12 @@ facts:
   - { label: Review flow, value: Research or Regulated QC }
   - { label: Roles, value: "Verification analyst, verification reviewer, lot QA" }
 concepts:
-  - { label: Whole-plasmid alignments, href: /concepts/whole-plasmid-alignments/ }
+  - { label: "States, locks and signatures", href: /concepts/states-locks-and-signatures/ }
 reference:
   - { label: "POST /actions/{name}/runs", href: /reference/api/post-actions-name-runs/ }
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
-  - { label: iki/lots.PlasmidVerification, href: "repo:plugins/lots/types/plasmid_verification.yaml" }
-  - { label: iki/plasmid_sequencing.WholePlasmidAlignment, href: "repo:plugins/plasmid_sequencing/types/whole_plasmid_alignment.yaml" }
+  - { label: iki/lots.PlasmidVerification, href: /reference/plugins/lots/#PlasmidVerification }
+  - { label: iki/plasmid_sequencing.WholePlasmidAlignment, href: /reference/plugins/plasmid-sequencing/#WholePlasmidAlignment }
 ---
 
 import Differences from "../../components/sequence/Differences.astro";
@@ -23,7 +24,6 @@ import Stats from "../../components/sequence/Stats.astro";
 import Step from "../../components/assay/Step.astro";
 import Viewer from "../../components/Viewer.astro";
 import { puc19 } from "../../lib/examples.ts";
-import { github } from "../../lib/repo.ts";
 
 export const v = puc19.values;
 export const uncalled = puc19.uncalled[0];
@@ -58,7 +58,7 @@ Open the plasmid and run **Verify a plasmid from its long reads**. Choose the **
 the reads are from (**nanopore** or **PacBio HiFi**), and the **Minimum depth** a base needs to be
 called, 10 unless you change it.
 
-The run makes a **Whole-plasmid alignment** (WPA) on one of the lab's workers. If a sequencing
+The run makes a [**Whole-plasmid alignment**](/reference/plugins/plasmid-sequencing/#WholePlasmidAlignment) (WPA) on one of the lab's workers. If a sequencing
 service sent a consensus instead, run **Verify a plasmid from a service's consensus** with its one
 FASTA sequence and name the provider; the rest of this use case is the same.
 
@@ -96,7 +96,7 @@ each difference. Choose a layer to show or hide it, or read the same in its tabl
 
 <figure class="figure viewer-figure">
   <Viewer src="/viewers/whole-plasmid/puc19-srr17915342/" title={`Whole-plasmid map of pUC19 checked against ${puc19.data.accession}`} />
-  <figcaption>The alignment's Map tab. The data: <a href={github(puc19.data.reads)} class="out">the 41 reads</a> and <a href={github(puc19.data.reference)} class="out">L09137.2</a>.</figcaption>
+  <figcaption>The alignment's Map tab. The data: <a href="https://www.ncbi.nlm.nih.gov/sra/SRR17915342" class="out">the 41 reads</a> and <a href="https://www.ncbi.nlm.nih.gov/nuccore/L09137.2" class="out">L09137.2</a>.</figcaption>
 </figure>
 
 </Step>

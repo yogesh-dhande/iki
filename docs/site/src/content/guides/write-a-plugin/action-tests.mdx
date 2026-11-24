@@ -6,7 +6,7 @@ order: 130
 reference:
   - { label: Action test manifest, href: /reference/plugin-spec/action-test/ }
   - { label: Run output, href: /reference/plugin-spec/run-output/ }
-  - { label: Validate and test a plugin in CI, href: "repo:plugin-template/.agents/skills/iki-test-plugin/SKILL.md" }
+  - { label: "Validate and test a plugin in CI on GitHub", href: /guides/test-a-plugin-in-ci/ }
 ---
 
 ## What an action test is
@@ -90,7 +90,7 @@ A file holds as many tests as you like, each its own YAML document after `---`.
   param uses one as `{"$file": "name"}`.
 
 The run input has fixed IDs and a fixed seed, so a deterministic action writes the same every
-time. The fixture's run input builder, [`action_tests.py`](repo:spec/src/iki_spec/action_tests.py),
+time. The fixture's run input builder, `iki_spec.action_tests`,
 shows the IDs it gives, for a test that has to name one.
 
 ## What a test expects

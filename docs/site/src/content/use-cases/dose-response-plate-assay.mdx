@@ -3,6 +3,7 @@ title: Run a dose-response plate assay
 description: Take a requested sample from its receipt to a signed IC50 that the requesting project can see.
 audience: bench
 topic: Assays
+category: analysis
 order: 10
 facts:
   - { label: Plugins, value: "iki/plate_assays, iki/example_lims", code: true }
@@ -11,12 +12,12 @@ facts:
   - { label: Roles, value: "Coordinator, analyst, reviewer, QA" }
 reference:
   - { label: "GET /entities/{ref}/signatures", href: /reference/api/get-entities-ref-signatures/ }
-  - { label: iki starter, href: "repo:cli/README.md#iki-starter" }
-  - { label: iki/plate_assays.AssayPlate, href: "repo:plugins/plate_assays/types/assay_plate.yaml" }
+  - { label: iki starter, href: /reference/cli/#iki-starter }
+  - { label: iki/plate_assays.AssayPlate, href: /reference/plugins/plate-assays/#AssayPlate }
 aside:
   title: The fit, in full
   text: Unweighted four-parameter log-logistic least squares; the interval is a Student t on the log midpoint.
-  href: "repo:plugins/plate_assays/data/curve-example.md"
+  href: /reference/plugins/plate-assays/#fit_curve
 ---
 
 import PlateAssay from "../../components/assay/PlateAssay.astro";
@@ -32,8 +33,7 @@ The dose-response starter sets up this plate: an eight-point, two-fold dilution
 series from 1 to 128 nM in A1–A8, a blank in A9 and an uninhibited reference in A10, read once at
 484 nm on a BMG reader and exported from MARS. Its readings are simulated from a known curve (an
 IC50 of 12 nM), so the fit can be checked against the answer; the export ships with the server as
-[`mars-96-series.csv`](repo:server/src/iki_server/setup/data/mars-96-series.csv), and the plate
-assays plugin describes how it was made ([the example's reader data](repo:plugins/plate_assays/data/reader.md)).
+`mars-96-series.csv`, made by the plate assays plugin's reader example.
 The seeded development deployment's **Research plate assays** and **QC plate assays** projects each
 hold this assay, completed.
 
@@ -44,14 +44,14 @@ project that asks for the assay. Sign in as an admin of the service project with
 the requesting project. If the service already takes requests, its intake settings must allow
 **Analysis request** from this requester; on a new service, the starter configures that intake.
 The deployment needs the `iki/plate_assays` plugin, its dependencies and a worker bound to
-`iki/plate_assays.assay-tools` ([deploy a plugin](repo:deploy/config-template/README.md#how-a-change-reaches-a-deployment)).
+`iki/plate_assays.assay-tools` ([deploy a plugin](/guides/keep-configuration-in-a-repository/#how-a-change-reaches-a-deployment)).
 
 Use the project UUIDs for `ASSAY_PROJECT` and `REQUESTER_PROJECT`. For the role assignments, use
 each person's direct, active membership ID from `GET /api/v1/projects/{project_id}/members`. Give
 the coordinator and analyst at least Editor access; the reviewer and QA signer each need at least
 Viewer access. For Regulated QC, assign different people as analyst, reviewer and QA. The CLI uses
 your SDK sign-in or the `IKI_URL` and `IKI_TOKEN` environment variables
-([signing in](repo:sdk/python/README.md#signing-in)).
+([signing in](/reference/python-sdk/)).
 
 ```bash
 iki starter list --project "$ASSAY_PROJECT"
@@ -100,7 +100,7 @@ A8. A9 is the blank and A10 the reference.
 Choose **Preview reader file**. The synthetic MARS CSV has ten readings on the 484 nm absorbance
 channel. Check the well, sample or control, file row and reading for each, and choose **Commit
 measurements** once all ten match. The plate read that results links to the source file and to
-ten individual well measurements ([the example's reader data](repo:plugins/plate_assays/data/reader.md)).
+ten individual well measurements.
 
 Run **Fit a dose-response curve** with the committed plate read and the sample from the request.
 Choose **IC50** and enter `A4: Simulated dispensing error` as the example exclusion. On the

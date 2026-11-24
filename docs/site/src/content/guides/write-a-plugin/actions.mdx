@@ -291,7 +291,7 @@ The run waits, holding no worker, while Iki polls the job, or the API calls back
 `IKI_API_COA_READER_CALLBACK_URL`, signed as its [`webhook`](/reference/plugin-spec/plugin/#apis.jobs.webhook)
 says. Once the job is done, the command runs again with
 [`resume`](/reference/plugin-spec/run-input/#resume) in its input: the job, its `state` and the
-API's last answer. The repository's [example models plugin](repo:plugins/example_models/plugin.yaml)
+API's last answer. The [example models plugin](/reference/plugins/example-models/)
 is a complete example.
 
 A self-hosted action can't call an outside API (`self-hosted-apis`), and a batchable one can't

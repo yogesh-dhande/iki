@@ -204,7 +204,7 @@ def docs() -> None:
     for path in (
         "index.html",
         "pagefind/pagefind.js",
-        "concepts/whole-plasmid-alignments/index.html",
+        "use-cases/verify-a-plasmid-prep/index.html",
     ):
         populated(site / path, "make docs")
     if 'http-equiv="Content-Security-Policy"' not in (site / "index.html").read_text():
