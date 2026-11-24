@@ -53,6 +53,8 @@ from iki_server.entities import access, registry, states
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.org.services import Refused
+from iki_server.storage import scan_identity
+from iki_server.storage import services as storage
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
 from iki_spec.model import EntityType
@@ -265,7 +267,7 @@ def draw(
     purpose: str = DrawPurpose.ROUTINE,
     reason: str = "",
     used_in: Entity | None = None,
-    confirm: str = "",
+    confirm: str | storage.Confirmation = "",
 ) -> Movement:
     """Takes ``given`` from ``entity``'s amount: used up, in an assay or a reaction.
     ``used_in`` is what it went into (ADR 0180), which depends on it from then on; ``confirm``
@@ -277,7 +279,6 @@ def draw(
     receipt = registry.draws_received(used_in.type) if used_in is not None else None
     with transaction.atomic():
         from iki_server.entities import services
-        from iki_server.storage.services import holds_material
 
         # Take source, destination and followed record locks in one global order. A
         # concurrent edit to the tube's sources is checked again after taking the locks.
@@ -286,7 +287,7 @@ def draw(
         locked = _lock_records(records, related=parents)
         entity = locked[entity.pk]
         if not access.can_edit(user, entity) and not (
-            access.can_read(user, entity) and holds_material(user, entity)
+            access.can_read(user, entity) and storage.holds_material(user, entity)
         ):
             raise PermissionDenied(
                 "Drawing material needs Editor in its owning or storing project."
@@ -297,7 +298,7 @@ def draw(
                 raise PermissionDenied(
                     "Recording material used needs Editor in the receiving project."
                 )
-        _confirmed(entity, confirm)
+        confirmed = _confirmed(user, entity, confirm)
 
         current = services.current_values_of([entity])[entity.pk]
         followed = eligibility.followed(entity, current)
@@ -320,7 +321,7 @@ def draw(
             purpose=purpose,
             used_in=used_in,
             source=source,
-            confirmed=confirm,
+            confirmed=confirmed,
         )
         if receipt and used_in is not None:
             _receive_draw(user, used_in, receipt, movement, entity, source)
@@ -376,21 +377,28 @@ def _receive_draw(
         raise Wrong({"used_in": [str(error)]}) from None
 
 
-def _confirmed(entity: Entity, code: str) -> None:
-    """Refuses a draw its type asks a scan for, without the record's code (ADR 0180)."""
-    from iki_server.storage import services as storage
-
-    found = storage.spec(entity.type)
-    if found is None or "draw" not in found.confirm:
-        return
-    if not code.strip():
+def _confirmed(user: User, entity: Entity, value: str | storage.Confirmation) -> str:
+    """Return the physical proof to record with this debit, while the source is locked."""
+    proof = storage.Confirmation(value) if isinstance(value, str) else value
+    code = proof.code.strip()
+    if not code:
+        found = storage.spec(entity.type)
+        if found is None or "draw" not in found.confirm:
+            if value == "":
+                return ""
+            raise Wrong({"confirm": [str(scan_identity.ScanRefused())]})
         raise Wrong(
             {"confirm": [f"Scan {entity.hrid} to confirm it's the one you're drawing from."]}
         )
-    if not storage.confirms(entity, code):
-        raise Wrong(
-            {"confirm": [f"“{code.strip()}” isn't {entity.hrid}: check you have the right one."]}
-        )
+    if len(proof.code) > 200:
+        raise Wrong({"confirm": ["The confirmation must be at most 200 characters."]})
+    try:
+        scope = storage.ConfirmationScope(user, [entity], [code])
+        if scope.resolve(code, mode=proof.mode).record != entity:
+            raise scan_identity.ScanRefused()
+    except scan_identity.ScanRefused as refusal:
+        raise Wrong({"confirm": [str(refusal)]}) from None
+    return code
 
 
 def transfer(

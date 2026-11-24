@@ -632,6 +632,19 @@ class CancelIn(TypedDict):
     reason: NotRequired[str]
 
 
+class CancelReceiptIn(TypedDict):
+    #: The receipt revision you reviewed.
+    plan_revision: int
+    reason: str
+
+
+class CancelReconciliationIn(TypedDict):
+    #: The revision of the reconciliation plan being reviewed.
+    plan_revision: int
+    #: Why this count is being cancelled.
+    reason: str
+
+
 class CarriedSignatureOut(TypedDict):
     id: str
     #: Who signed, when (UTC), and what it means (21 CFR 11.50); empty if the signature is gone.
@@ -690,7 +703,7 @@ class ChangesParams(TypedDict):
 
 
 class CheckInIn(TypedDict):
-    confirmations: NotRequired[dict[str, str]]
+    confirmations: NotRequired[dict[str, str | IkiIdConfirmationIn]]
     items: list[CheckInItemIn]
     reason: NotRequired[str]
 
@@ -698,8 +711,10 @@ class CheckInIn(TypedDict):
 class CheckInItemIn(TypedDict):
     position: NotRequired[str | None]
     record: str
-    #: Another container to put it in; null: where it was.
+    #: Destination container ID, label or entity link; null: where it was.
     to: NotRequired[str | None]
+    to_choice: NotRequired[str | None]
+    to_mode: NotRequired[ScanMode]
 
 
 class CheckOutIn(TypedDict):
@@ -725,6 +740,13 @@ class CheckedOutOut(TypedDict):
     #: What it's called: its type's display title, or its HRID.
     title: str
     type: str
+
+
+class CheckedReceiptOut(TypedDict):
+    #: Whether this observation changed.
+    found: Literal['recorded', 'again']
+    line: str
+    receipt: ReceiptOut
 
 
 class CheckpointOut(TypedDict):
@@ -772,15 +794,18 @@ class ColumnReadingOut(TypedDict):
 
 
 class CompleteReceiptIn(TypedDict):
-    #: Mark every expected line not yet checked missing.
+    #: Mark every unchecked expected line missing. Defaults to false.
     missing_rest: NotRequired[bool]
+    #: The receipt revision you reviewed.
+    plan_revision: int
     put_away: NotRequired[list[PutAwayIn]]
 
 
 class CompleteReconciliationIn(TypedDict):
-    #: Take each recorded position nobody scanned to be missing, removed.
+    #: Treat unscanned occupants as missing and remove them. Defaults to false.
     missing_rest: NotRequired[bool]
-    note: NotRequired[str]
+    #: Completion note. Defaults to empty.
+    note: NotRequired[str | None]
     #: The revision of the reconciliation plan being reviewed.
     plan_revision: int
 
@@ -971,6 +996,20 @@ class CostTotalOut(TypedDict):
     seconds: float
 
 
+class CountScanEvidenceOut(TypedDict):
+    #: The actual scanned label, null for empty; hidden labels are redacted.
+    code: str | None
+    #: The immutable scan event.
+    id: str
+    #: How the record was identified. A shared label at its expected slot uses position. Null for an unidentified, empty or older scan.
+    identity_basis: IdentityBasis | None
+    #: The physical scan line, usable as a history filter.
+    line_id: str
+    position: str
+    scanned_at: str
+    scanned_by: UserOut
+
+
 class CountsOut(TypedDict):
     #: Every current record you can read. Null as `count`.
     total: int | None
@@ -1122,8 +1161,8 @@ class DraftEntityOut(TypedDict):
 class DrawIn(TypedDict):
     #: How much to draw: in its unit, one that converts to it, or (for a type with a concentration) a mass of a volume or a volume of a mass.
     amount: AmountIn
-    #: The code scanned from it, for a type that asks for one before a draw: its barcode or HRID.
-    confirm: NotRequired[str]
+    #: For a type that requires a scan: its unique label or printed Iki code, a link to the record, or its HRID explicitly entered from the tube.
+    confirm: NotRequired[str | IkiIdConfirmationIn]
     #: Why material is being drawn.
     purpose: NotRequired[DrawPurpose]
     #: What it was used for.
@@ -2150,6 +2189,15 @@ class HoldingRecordOut(TypedDict):
     type: str
 
 
+IdentityBasis = Literal['record_link', 'iki_id', 'position', 'choice', 'label']
+
+
+class IkiIdConfirmationIn(TypedDict):
+    """The operator independently entered the HRID printed on the selected record."""
+    code: str
+    mode: Literal['iki_id']
+
+
 class ImportCounts(TypedDict):
     conflict: int
     entities: int
@@ -2490,16 +2538,18 @@ class LabRolesIn(TypedDict):
 
 
 class LabelOut(TypedDict):
-    #: What its barcodes encode: its barcode, or its HRID.
+    #: Unique Iki record identity encoded in the Data Matrix or QR.
     code: str
     hrid: str
     id: str
     line: str
     title: str
+    #: Additional vendor Code 128 requested for this print, otherwise null.
+    vendor_code: str | None
 
 
 class LabelSizeOut(TypedDict):
-    #: It has room for a Code 128 beside the 2D code.
+    #: This stock supports an additional vendor Code 128 if it fits.
     code128: bool
     height_mm: float
     key: str
@@ -2518,6 +2568,8 @@ class LabelsIn(TypedDict):
     dpi: NotRequired[int]
     #: `print`: for the browser to print; `zpl`: ZPL II for a Zebra printer.
     format: Literal['print', 'zpl']
+    #: Also print the vendor barcode as Code 128 when it fits. Defaults to false.
+    include_vendor_code: NotRequired[bool]
     #: Only to show them: not recorded as prepared, and with no ZPL.
     preview: NotRequired[bool]
     records: list[str]
@@ -2686,8 +2738,10 @@ class MoveItemIn(TypedDict):
     position: NotRequired[str | None]
     #: By ID or HRID.
     record: str
-    #: The container it goes in, by ID or HRID; null: out of storage.
+    #: Destination container ID, label or entity link; null: out of storage.
     to: str | None
+    to_choice: NotRequired[str | None]
+    to_mode: NotRequired[ScanMode]
 
 
 class MovedOut(TypedDict):
@@ -2778,8 +2832,8 @@ class MovementsOut(TypedDict):
 
 
 class MovesIn(TypedDict):
-    #: The code scanned from each record, by its ID or HRID, for a type that asks for one before a move.
-    confirmations: NotRequired[dict[str, str]]
+    #: Proof for each selected record that requires confirmation, keyed by its ID or HRID. Scan a unique label or a record UUID link, or explicitly enter its printed HRID.
+    confirmations: NotRequired[dict[str, str | IkiIdConfirmationIn]]
     items: list[MoveItemIn]
     #: Say what each move would do, changing nothing.
     preview: NotRequired[bool]
@@ -2875,6 +2929,30 @@ class NotificationRecordOut(TypedDict):
     hrid: str
     id: str
     type: str
+
+
+class ObservationEventOut(TypedDict):
+    actor: UserOut
+    after: dict[str, Any] | None
+    before: dict[str, Any] | None
+    created_at: str
+    id: str
+    kind: Literal['outcome', 'handoff', 'scan', 'resolution', 'status']
+    #: The original line, including after its removal.
+    line_id: str | None
+    operation: str
+    #: The prior observation of this kind on this line.
+    previous: str | None
+    reason: str
+    receipt_id: str | None
+    reconciliation_id: str | None
+    revision: int
+
+
+class ObservationEventsOut(TypedDict):
+    items: list[ObservationEventOut]
+    #: Pass as cursor for the next page; null at the end.
+    next_cursor: str | None
 
 
 class OccupantOut(TypedDict):
@@ -3708,8 +3786,10 @@ class PutAwayIn(TypedDict):
     line: str
     #: Null: its next free one.
     position: NotRequired[str | None]
-    #: The container, by ID or HRID.
+    #: The destination container's ID, HRID or label.
     to: str
+    to_choice: NotRequired[str | None]
+    to_mode: NotRequired[ScanMode]
 
 
 class QueryIn(TypedDict):
@@ -3795,14 +3875,23 @@ class ReassignOut(TypedDict):
 class ReceiptIn(TypedDict):
     #: Who handed it over: a courier and waybill, a person.
     handed_over_by: NotRequired[str | None]
-    #: Such as its temperature on arrival.
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
     note: NotRequired[str | None]
+    #: The receipt revision you reviewed.
+    plan_revision: int
+    #: Defaults to empty. Required when correcting existing handoff information.
+    reason: NotRequired[str | None]
 
 
 class ReceiptLineIn(TypedDict):
-    note: NotRequired[str]
-    #: Null clears an expected line's. Damaged, rejected and extra need a note.
+    #: Version of the line being corrected.
+    line_revision: NotRequired[int | None]
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
+    note: NotRequired[str | None]
+    #: Null clears an expected line. First observations can omit line_revision.
     outcome: Literal['matched', 'missing', 'extra', 'damaged', 'rejected'] | None
+    #: Defaults to empty. Required to change an existing outcome or replace a saved note.
+    reason: NotRequired[str | None]
 
 
 class ReceiptLineOut(TypedDict):
@@ -3812,6 +3901,8 @@ class ReceiptLineOut(TypedDict):
     entity: str | None
     expected: bool
     id: str
+    #: The version of this line’s saved observation.
+    line_revision: int
     note: str
     outcome: Literal['matched', 'missing', 'extra', 'damaged', 'rejected'] | None
     #: Where it was put away, once completed.
@@ -3822,6 +3913,8 @@ class ReceiptLineOut(TypedDict):
 class ReceiptOut(TypedDict):
     #: You may change it, while it's open.
     can_receive: bool
+    cancel_reason: str
+    cancelled_by: UserOut | None
     completed_at: str | None
     handed_over_by: str
     id: str
@@ -3829,9 +3922,13 @@ class ReceiptOut(TypedDict):
     note: str
     #: How many lines are each outcome, and `unchecked`.
     outcomes: dict[str, int]
+    #: The receipt revision shown for review.
+    plan_revision: int
     #: The service receiving it.
     project: str
     received_by: UserOut | None
+    #: Removed extras kept for review and restoration.
+    removed_lines: list[ReceiptLineOut]
     request: StepOut
     started_at: str
     started_by: UserOut
@@ -3839,12 +3936,14 @@ class ReceiptOut(TypedDict):
 
 
 class ReceiptScanIn(TypedDict):
+    choice: NotRequired[str | None]
     code: str
+    mode: NotRequired[ScanMode]
 
 
 class ReceiptScanOut(TypedDict):
-    #: `matched`: an expected line ticked; `again`: one already checked; `extra`: a line added for what isn't expected.
-    found: Literal['matched', 'again', 'extra']
+    #: `matched`: an expected line ticked; `again`: one already checked; `extra`: what wasn't expected; `ambiguous_extra`: an extra left unlinked because several readable records share its label; `removed`: an extra that can be restored.
+    found: Literal['matched', 'again', 'extra', 'ambiguous_extra', 'removed']
     line: str
     receipt: ReceiptOut
 
@@ -3868,16 +3967,24 @@ class ReconciliationLineOut(TypedDict):
     #: Where it was scanned.
     found: str | None
     id: str
+    #: The version of this line and its supporting slot evidence.
+    line_revision: int
     note: str
+    #: The scan supporting the finding, including a missing tube's expected slot.
+    observation: CountScanEvidenceOut | None
     ref: RefOut | None
     resolution: Literal['moved', 'removed', 'placed', 'kept'] | None
     #: The open count's saved decision needs review.
     resolution_stale: bool
     resolved_by: UserOut | None
+    #: The exact scan on which the saved decision was based.
+    reviewed_observation: CountScanEvidenceOut | None
 
 
 class ReconciliationOut(TypedDict):
     can_change: bool
+    cancel_reason: str
+    cancelled_by: UserOut | None
     completed_at: str | None
     completed_by: UserOut | None
     container: StepOut
@@ -4121,10 +4228,12 @@ class RerunIn(TypedDict):
 
 
 class ResolveIn(TypedDict):
-    note: NotRequired[str]
-    #: The revision of the reconciliation plan being reviewed.
-    plan_revision: int
-    #: `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note; null clears it.
+    line_revision: int
+    #: Omit to keep the current note. Send null, an empty string, or whitespace to clear it.
+    note: NotRequired[str | None]
+    #: Defaults to empty. Required when changing or clearing a saved decision.
+    reason: NotRequired[str | None]
+    #: `moved` (a record in the wrong position), `removed` (one missing), `placed` (one unexpected), or `kept`, with a note. Null clears the decision and its attached note. The earlier decision and note remain in the history.
     resolution: Literal['moved', 'removed', 'placed', 'kept'] | None
 
 
@@ -4147,6 +4256,17 @@ class ResultTypeOut(TypedDict):
     released_field: str
     #: The states that send it back to the asking project, where it stays.
     released_states: list[str]
+
+
+class ReviewedCountLine(TypedDict):
+    line_id: str
+    line_revision: int
+
+
+class ReviewedExtraIn(TypedDict):
+    #: The reviewed version of the extra line.
+    line_revision: int
+    reason: str
 
 
 class RevisionDetailOut(TypedDict):
@@ -4694,9 +4814,34 @@ class SavedSearchPatch(TypedDict):
     shared: NotRequired[bool | None]
 
 
+class ScanCandidateBoxOut(TypedDict):
+    hrid: str
+    id: str
+    title: str
+
+
+class ScanCandidateOut(TypedDict):
+    box: ScanCandidateBoxOut | None
+    hrid: str
+    id: str
+    owner_project: ScanCandidateProjectOut | None
+    position: str | None
+    title: str
+    type: str
+
+
+class ScanCandidateProjectOut(TypedDict):
+    id: str
+    name: str
+
+
 class ScanIn(TypedDict):
+    #: The readable candidate selected for this scanned label.
+    choice: NotRequired[str | None]
     #: Null: it's empty.
     code: NotRequired[str | None]
+    #: Defaults to label. Use iki_id for a printed Iki ID.
+    mode: NotRequired[ScanMode]
     position: str
 
 
@@ -4720,6 +4865,9 @@ class ScanMatchOut(TypedDict):
     type: str
 
 
+ScanMode = Literal['label', 'iki_id']
+
+
 class ScanOut(TypedDict):
     code: str
     #: Every record the code names that you can read: usually one.
@@ -4731,7 +4879,33 @@ class ScanParams(TypedDict):
     code: str
 
 
+class ScanResolveIn(TypedDict):
+    #: A readable candidate chosen for navigation.
+    choice: NotRequired[str | None]
+    #: The label, printed Iki ID or record link read.
+    code: str
+    #: The container to search for a box scan.
+    container: NotRequired[str | None]
+    mode: NotRequired[ScanMode]
+    #: Only the usable occupant at this position.
+    position: NotRequired[str | None]
+    #: The record whose identity is being confirmed.
+    record: NotRequired[str | None]
+    #: Selected record UUIDs or HRIDs. Omit record to identify a tube across the selection (up to 500). With record, include the target.
+    records: NotRequired[list[str] | None]
+    scope: Literal['box', 'confirmation', 'destination']
+
+
+class ScanResolveOut(TypedDict):
+    candidates: list[ScanCandidateOut]
+    status: Literal['one', 'ambiguous', 'none']
+
+
 class ScansIn(TypedDict):
+    #: Defaults to empty. Required when replacing an earlier observation.
+    reason: NotRequired[str | None]
+    #: Prior observations to recheck or replace, including empty slots.
+    reviewed_lines: NotRequired[list[ReviewedCountLine]]
     #: Each position scanned: one at a time, or a rack scanner's file.
     scans: list[ScanIn]
 
@@ -5486,6 +5660,8 @@ class SpreadsheetImportOut(TypedDict):
     #: How the mapped columns' numbers and dates read, on the sheet's own cells.
     readings: list[ColumnReadingOut]
     requested_by: PersonRef
+    #: One more with each change to what it imports. Send it back as If-Match to change, preview, commit or save its mapping.
+    revision: int
     run: ImportRunRef | None
     #: If its run didn't write it: why, by row and column.
     run_problems: list[SheetProblemOut]
@@ -6567,4 +6743,4 @@ class WorkflowStepRefOut(TypedDict):
     step: str
 
 
-__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'OccupantOut', 'OpenOrder', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'PutAwayIn', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanIn', 'ScanMatchOut', 'ScanOut', 'ScanParams', 'ScansIn', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']
+__all__ = ['AcquiredOut', 'ActionApiOut', 'ActionFilters', 'ActionOut', 'ActionSecretOut', 'AdjustIn', 'AgentOut', 'AgentReportedOut', 'AlignmentViewerOut', 'AliquotsOut', 'AmountIn', 'AmountMovedOut', 'AmountOut', 'ApiActionOut', 'ApiApprovalIn', 'ApiApprovalOut', 'ApiCallOut', 'ApiCredentialOut', 'ApiPriceOut', 'AppCheckIn', 'AppCheckOut', 'AppComponentOut', 'AppDraftIn', 'AppDraftOut', 'AppGuideOut', 'AppliedMappingOut', 'AppliedStarterOut', 'ApplyIn', 'AppPluginComponentOut', 'ApprovalCan', 'ApprovalOut', 'ApprovalRunOut', 'ApproveIn', 'AssignIn', 'AssignOut', 'AttemptImportOut', 'AttemptLogOut', 'AttemptOut', 'AttemptPackOut', 'AttemptSlurmOut', 'AttemptVolumeOut', 'BatchCan', 'BatchFilters', 'BatchOut', 'BatchRefOut', 'BreachOut', 'BudgetIn', 'BudgetOut', 'BudgetPatch', 'BudgetScopeOut', 'BudgetStatusOut', 'BuildsOut', 'BundleOriginOut', 'CancelIn', 'CancelReceiptIn', 'CancelReconciliationIn', 'CarriedSignatureOut', 'CellReadingOut', 'CertificationIn', 'CertificationOut', 'CertificationState', 'ChangedOut', 'ChangeOut', 'ChangesParams', 'CheckedOutOut', 'CheckedReceiptOut', 'CheckInIn', 'CheckInItemIn', 'CheckOutIn', 'CheckpointOut', 'CollectionIn', 'CollectionSearch', 'ColumnReadingOut', 'CompleteReceiptIn', 'CompleteReconciliationIn', 'ComponentEntitiesIn', 'ComponentEntitiesOut', 'ComponentEntityOut', 'ComponentOut', 'ComponentPersonOut', 'Condition', 'ConditionOut', 'ConsentOut', 'ConsentStatementOut', 'ContainerCan', 'ContainerOut', 'ContentUrlOut', 'CostGroupOut', 'CostSummaryOut', 'CostTotalOut', 'CountScanEvidenceOut', 'CountsOut', 'CreatedOut', 'CreatesOut', 'CustodyOut', 'DashboardIn', 'DashboardOut', 'DecisionOut', 'DeclineIn', 'DeclineStepIn', 'DeliveryFilters', 'DeliveryOut', 'DeliverySummary', 'DifferenceOut', 'DraftEntityOut', 'DrawIn', 'DrawPurpose', 'EffectCountsOut', 'EffectFilters', 'EffectOut', 'EgressOut', 'EnableIn', 'EndOut', 'EntitiesOut', 'EntityAppOut', 'EntityCan', 'EntityFilters', 'EntityIn', 'EntityOut', 'EntityPatch', 'EntityProjectOut', 'EntityTypeOut', 'EntryCan', 'EntryOut', 'EntryPatch', 'EntryRecordIn', 'EntryRecordOut', 'EntryRefOut', 'EntrySupersededOut', 'EnvironmentVolumesOut', 'ErrorOut', 'EstimateOut', 'EventOut', 'EventsOut', 'EventTypeOut', 'ExportCounts', 'ExportIn', 'ExportOut', 'ExportParams', 'FacetParams', 'FieldOut', 'FieldTargetOut', 'FileCountOut', 'FileDetailOut', 'FileExportOut', 'FileFilters', 'FileFormatOut', 'FileOriginOut', 'FileOut', 'FilePageOut', 'FileRef', 'FileRowOut', 'FiredEntityOut', 'FiredRunOut', 'FiringErrorOut', 'FiringOut', 'FlowFieldOut', 'FlowTransitionOut', 'FormatOut', 'FreezeIn', 'GivenOut', 'GivenSignatureOut', 'GraphEdgeOut', 'GraphEntityOut', 'GraphNodeOut', 'GraphOut', 'GraphParams', 'GraphRunOut', 'GuardOut', 'HandOverIn', 'HeldOut', 'HelmGroupMemberOut', 'HelmGroupOut', 'HelmIn', 'HelmLengthOut', 'HelmMonomerOut', 'HelmOut', 'HelmPolymerOut', 'HelmReadingOut', 'HoldingRecordOut', 'HoldOccurrenceOut', 'HoldOut', 'HoldReviewIn', 'HoldRuleOut', 'IdentityBasis', 'IkiIdConfirmationIn', 'ImportCounts', 'ImportedApprovalOut', 'ImportedInclusionOut', 'ImportedInputOut', 'ImportEntityOut', 'ImportEntityParams', 'ImportFiles', 'ImportIn', 'ImportMemberParams', 'ImportOut', 'ImportOutside', 'ImportPersonOut', 'ImportPlan', 'ImportRunRef', 'ImportSource', 'ImportStartedOut', 'ImportType', 'InboxFilters', 'InputOut', 'IntakeIn', 'IntakeOut', 'InventoryOut', 'JobState', 'KindOut', 'LabelOut', 'LabelsIn', 'LabelSizeOut', 'LabelSizesOut', 'LabelsOut', 'LabRoleGrantOut', 'LabRoleOut', 'LabRolesIn', 'LabRoleUseOut', 'LastDelivery', 'LocationOut', 'LocationsOut', 'LogParams', 'LookupParams', 'MachinesOut', 'MadeOut', 'MakingOut', 'MakingSourceOut', 'MarkAllIn', 'MarkAllOut', 'MeCan', 'MeDelegationOut', 'MeOut', 'MessageOut', 'MetricOut', 'MovedOut', 'MoveIn', 'MoveItemIn', 'MovementOut', 'MovementsOut', 'MovesIn', 'MovesOut', 'MySigningOut', 'NameableFilters', 'NameableOut', 'NamedOut', 'NotificationActor', 'NotificationAgent', 'NotificationOut', 'NotificationProject', 'NotificationRecordOut', 'ObservationEventOut', 'ObservationEventsOut', 'OccupantOut', 'OpenOrder', 'OrgParams', 'OrgRolesIn', 'OrgRolesOut', 'OriginFileOut', 'OriginOut', 'OutputErrorOut', 'OutsideApiOut', 'OutsideRef', 'OverlapOut', 'OverviewOut', 'PageApiCallOut', 'PageBatchOut', 'PageDeliverySummary', 'PageEffectOut', 'PageEntityOut', 'PageExportOut', 'PageFiringOut', 'PageHoldingRecordOut', 'PageImportEntityOut', 'PageImportOut', 'PageImportPersonOut', 'PageInventoryOut', 'PageNotificationOut', 'PageOpenOrder', 'PagePreviewRowOut', 'PageProjectMemberOut', 'PageProjectOut', 'PageRegistrationOut', 'PageRegistryEntryOut', 'PageRegistryOut', 'PageRevisionOut', 'PageRunOut', 'PageServiceAccountOut', 'PageSetupBuildOut', 'PageSlurmAccountOut', 'PageSpreadsheetImportOut', 'PageStockLot', 'PageStockSummary', 'PageTeamMemberOut', 'PageTeamOut', 'PageTeamRef', 'PageUploadOut', 'PageUserOut', 'PageUsingRunOut', 'PageWebhookOut', 'PageWorkerOut', 'PageWorkerRegistrationOut', 'PageWorkflowRunOut', 'PageWorkItemOut', 'PageParams', 'ParamOut', 'ParkOut', 'PartOut', 'PartsIn', 'PeriodParams', 'PersonOut', 'PersonRef', 'PlaceOut', 'PlaceSearchIn', 'PlannedOut', 'PluginCandidateIn', 'PluginFindingOut', 'PluginPreflightOut', 'PluginTypePreflightOut', 'PolicyIn', 'PolicyOut', 'PreviewRowOut', 'PreviewRowParams', 'ProjectCan', 'ProjectChangeOut', 'ProjectChoiceIn', 'ProjectChoiceOut', 'ProjectCostSummaryOut', 'ProjectFilters', 'ProjectIn', 'ProjectMemberOut', 'ProjectOut', 'ProjectParams', 'ProjectPatch', 'ProjectRef', 'ProjectRoleOut', 'ProjectScopeOut', 'ProjectTriggerCan', 'ProjectTriggerOut', 'PutAwayIn', 'QueryIn', 'QueueOut', 'QuotaIn', 'QuotaOut', 'QuotaPatch', 'QuotaScopeOut', 'ReadIn', 'ReassignOut', 'ReceiptIn', 'ReceiptLineIn', 'ReceiptLineOut', 'ReceiptOut', 'ReceiptScanIn', 'ReceiptScanOut', 'ReceiptsOut', 'ReconciliationLineOut', 'ReconciliationOut', 'RefineIn', 'RefOut', 'RegistrarOut', 'RegistrationIn', 'RegistrationOut', 'RegistryCan', 'RegistryEntryFilters', 'RegistryEntryOut', 'RegistryFilters', 'RegistryIn', 'RegistryOut', 'RegistryPatch', 'RegistryRef', 'RelatedOut', 'ReproduceIn', 'ReproductionOut', 'RequestOut', 'RequestSidesOut', 'RequestTypeOut', 'RequestTypeRef', 'RerunIn', 'ResolveIn', 'ResultReleaseOut', 'ResultTypeOut', 'ReviewedCountLine', 'ReviewedExtraIn', 'RevisionDetailOut', 'RevisionOut', 'RevisionStateOut', 'RevokeIn', 'RoleIn', 'RowOut', 'RowRoleOut', 'RuleOut', 'RunApiOut', 'RunApprovalOut', 'RunArtifactOut', 'RunAttemptOut', 'RunBatchIn', 'RunBatchOut', 'RunCan', 'RunCostOut', 'RunFileOut', 'RunFilters', 'RunImportedOut', 'RunIn', 'RunInclusionOut', 'RunInputOut', 'RunningOut', 'RunOut', 'RunRef', 'RunRefOut', 'RunStatus', 'SampleOut', 'SavedMappingIn', 'SavedMappingMatch', 'SavedMappingOut', 'SavedSearchCan', 'SavedSearchFilters', 'SavedSearchIn', 'SavedSearchOut', 'SavedSearchPatch', 'ScanCandidateBoxOut', 'ScanCandidateOut', 'ScanCandidateProjectOut', 'ScanIn', 'ScanMatchOut', 'ScanMode', 'ScanOut', 'ScanParams', 'ScanResolveIn', 'ScanResolveOut', 'ScansIn', 'ScopeOut', 'ScopeSearch', 'SearchCsvParams', 'SearchEverythingOut', 'SearchEverythingParams', 'SearchGroupOut', 'SearchIn', 'SearchResultOut', 'SecretOut', 'SequenceViewerOut', 'ServiceAccountIn', 'ServiceAccountOut', 'ServiceAccountPatch', 'ServiceOut', 'ServicesFilters', 'SettingsIn', 'SettingsOut', 'SetupBuildOut', 'SetupEgressOut', 'SetupErrorOut', 'SetupFilters', 'SetupIn', 'SetupLogOut', 'SetupOut', 'SetupVolumeOut', 'ShapeOut', 'SheetColumnIn', 'SheetColumnOut', 'SheetLocaleIn', 'SheetLocaleOut', 'SheetOut', 'SheetProblemOut', 'SignatureAuthenticationOut', 'SignatureCan', 'SignatureCheckOut', 'SignatureListParams', 'SignatureOut', 'SignaturesOut', 'SignatureVerificationOut', 'SignCan', 'SignedChangeOut', 'SignedReportExportOut', 'SigningIn', 'SigningKeyOut', 'SigningKeysOut', 'SigningOut', 'SkippedOut', 'SlotOut', 'SlotSearchOut', 'SlurmAccountIn', 'SlurmAccountOut', 'SlurmClusterOut', 'SlurmTemplateOut', 'SlurmUsageOut', 'SoftwareOut', 'SortIn', 'SpanOut', 'SplitIn', 'SpreadsheetCommitIn', 'SpreadsheetImportChange', 'SpreadsheetImportIn', 'SpreadsheetImportOut', 'SpreadsheetPreviewOut', 'StartedOut', 'StarterFlowOut', 'StarterOut', 'StarterRoleOut', 'StarterSetupIn', 'StarterSetupOut', 'StateCan', 'StateIn', 'StateOut', 'StepBatchOut', 'StepCan', 'StepErrorOut', 'StepOut', 'StepRunOut', 'StockFilters', 'StockLot', 'StockSummary', 'StructureViewerOut', 'SubmitIn', 'SummaryOut', 'SupersededOut', 'SupersedeIn', 'TakeIn', 'TeamFilters', 'TeamIn', 'TeamMemberOut', 'TeamOut', 'TeamPatch', 'TeamRef', 'TrackOut', 'TrailFilter', 'TransferIn', 'TriggerFiredOut', 'TriggerOut', 'TriggerRefOut', 'TypeAmountOut', 'TypeCountOut', 'TypeFlowOut', 'TypeGridOut', 'TypeNotificationOut', 'TypeStorageOut', 'UnitOption', 'UpdatesOut', 'UploadIn', 'UploadOut', 'UsedByCountOut', 'UserFilters', 'UserOut', 'UserPatch', 'UsingRunOut', 'VersionOut', 'VolumeOut', 'WalkFileOut', 'WalkItemOut', 'WalkOut', 'WalkPageParams', 'WalkParams', 'WalkStepOut', 'WantedSignatureOut', 'WatchIn', 'WatchOut', 'WebhookCreated', 'WebhookIn', 'WebhookOut', 'WebhookPatch', 'WithdrawalIn', 'WorkbookRef', 'WorkerFilters', 'WorkerOut', 'WorkerPatch', 'WorkerRegistrationCreatedOut', 'WorkerRegistrationIn', 'WorkerRegistrationOut', 'WorkersOut', 'WorkFilters', 'WorkflowErrorOut', 'WorkflowInputOut', 'WorkflowOut', 'WorkflowRunCan', 'WorkflowRunFilters', 'WorkflowRunIn', 'WorkflowRunOut', 'WorkflowRunRef', 'WorkflowRunStepOut', 'WorkflowStepOut', 'WorkflowStepRefOut', 'WorkItemOut']

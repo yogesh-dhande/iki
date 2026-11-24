@@ -726,6 +726,11 @@ def storage_moves(w: World) -> tuple[Any, ...]:
     return "/storage/moves", {"items": items, "reason": "Put away"}
 
 
+def storage_scan_preview(w: World) -> tuple[Any, ...]:
+    container = _box(w)
+    return "/storage/scan/resolve", {"scope": "box", "container": str(container.pk), "code": "T-1"}
+
+
 def storage_check_out(w: World) -> tuple[Any, ...]:
     tube = _tube(w, into=_box(w))
     return "/storage/check-out", {"records": [str(tube.pk)], "reason": "Thawing"}
@@ -805,6 +810,12 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         found, started = _received(w)
         line = started.lines.get()
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
+        if body is not None and "reason" in body and "/lines/" in path:
+            return path, {**body, "line_revision": line.line_revision}
+        if body is not None and (
+            suffix == "/receipts/{receipt}" or suffix.endswith(("/complete", "/cancel"))
+        ):
+            return path, {**body, "plan_revision": started.plan_revision}
         return path, body
 
     return build
@@ -820,9 +831,11 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         line = started.lines.get(entity=tube)
         payload = (
             {**body, "plan_revision": started.plan_revision}
-            if suffix.endswith(("/complete", "/lines/{line}"))
+            if suffix.endswith(("/complete", "/cancel"))
             else body
         )
+        if suffix.endswith("/lines/{line}"):
+            payload = {**body, "line_revision": line.line_revision}
         return suffix.format(reconciliation=started.pk, line=line.pk), payload
 
     return build
@@ -910,11 +923,11 @@ def workbook_import(w: World) -> tuple[str, Any]:
     }
 
 
-def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
+def spreadsheet_import(suffix: str = "", body: Any = None, *, if_match: bool = False) -> Build:
     """The editor's import of a manifest, its columns mapped: only they see it until it's
-    committed."""
+    committed. A change to it says the revision it was read at."""
 
-    def build(w: World) -> tuple[str, Any]:
+    def build(w: World) -> tuple[Any, ...]:
         from iki_server.spreadsheets.models import SpreadsheetImport
 
         made = SpreadsheetImport.objects.create(
@@ -937,7 +950,8 @@ def spreadsheet_import(suffix: str = "", body: Any = None) -> Build:
             sheet="manifest",
             columns=[{"index": 0, "field": "label"}],
         )
-        return f"/spreadsheet-imports/{made.pk}{suffix}", body
+        headers = {"If-Match": f'"{made.revision}"'} if if_match else None
+        return f"/spreadsheet-imports/{made.pk}{suffix}", body, headers
 
     return build
 
@@ -1314,6 +1328,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         readers(422, **dict.fromkeys(ENTITY_EDITORS, 200)),
     ),
     ("GET", "/storage/scan", fixed("/storage/scan?code=T-1"), row(200)),
+    ("POST", "/storage/scan/resolve", storage_scan_preview, readers(200)),
     ("GET", "/storage/checked-out", fixed("/storage/checked-out"), row(200)),
     ("GET", "/storage/labels", fixed("/storage/labels"), row(200)),
     ("POST", "/storage/labels", storage_labels, readers(200)),
@@ -1322,6 +1337,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(200)),
     ("POST", "/entities/{ref}/receipts", receipt("/entities/{request}/receipts"), readers(403)),
     ("GET", "/receipts/{receipt_id}", receipt("/receipts/{receipt}"), readers(200)),
+    (
+        "GET",
+        "/receipts/{receipt_id}/history",
+        receipt("/receipts/{receipt}/history"),
+        readers(200),
+    ),
     (
         "PATCH",
         "/receipts/{receipt_id}",
@@ -1343,7 +1364,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "DELETE",
         "/receipts/{receipt_id}/lines/{line_id}",
-        receipt("/receipts/{receipt}/lines/{line}"),
+        receipt("/receipts/{receipt}/lines/{line}", {"reason": "Duplicate observation"}),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/lines/{line_id}/restore",
+        receipt("/receipts/{receipt}/lines/{line}/restore", {"reason": "Confirmed extra"}),
         readers(403),
     ),
     (
@@ -1352,7 +1379,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
     ),
-    ("POST", "/receipts/{receipt_id}/cancel", receipt("/receipts/{receipt}/cancel"), readers(403)),
+    (
+        "POST",
+        "/receipts/{receipt_id}/cancel",
+        receipt("/receipts/{receipt}/cancel", {"reason": "Wrong shipment"}),
+        readers(403),
+    ),
     # A container's reconciliations: read by its readers, made by its project's Editors.
     (
         "GET",
@@ -1370,6 +1402,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "GET",
         "/reconciliations/{reconciliation_id}",
         reconciliation("/reconciliations/{reconciliation}"),
+        readers(200),
+    ),
+    (
+        "GET",
+        "/reconciliations/{reconciliation_id}/history",
+        reconciliation("/reconciliations/{reconciliation}/history"),
         readers(200),
     ),
     (
@@ -1395,7 +1433,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/reconciliations/{reconciliation_id}/cancel",
-        reconciliation("/reconciliations/{reconciliation}/cancel"),
+        reconciliation("/reconciliations/{reconciliation}/cancel", {"reason": "Wrong box"}),
         editors(200),
     ),
     # People in records (ADR 0122). Taking open work needs its lab role too: nobody has it.
@@ -2026,14 +2064,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "PATCH",
         "/spreadsheet-imports/{import_id}",
-        spreadsheet_import(body={"header_row": 1}),
+        spreadsheet_import(body={"header_row": 1}, if_match=True),
         row(404, editor=200),
     ),
     ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/preview",
-        spreadsheet_import("/preview"),
+        spreadsheet_import("/preview", if_match=True),
         row(404, editor=202),
     ),
     (
@@ -2045,13 +2083,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/spreadsheet-imports/{import_id}/commit",
-        spreadsheet_import("/commit", {}),
+        spreadsheet_import("/commit", {}, if_match=True),
         row(404, editor=409),
     ),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/mappings",
-        spreadsheet_import("/mappings", {"name": "Plate reader"}),
+        spreadsheet_import("/mappings", {"name": "Plate reader"}, if_match=True),
         row(404, editor=201),
     ),
     (

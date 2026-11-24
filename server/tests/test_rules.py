@@ -538,7 +538,7 @@ def test_legacy_hold_backfill_preserves_known_evidence_and_marks_the_gap(world: 
     entry_edit = change(world, registered["id"], {"ec_number": "1.1.1.1"}, "admin")
     assert entry_edit.status_code == 200, entry_edit.content
     assert entry_edit.json()["revision"] == record.revision
-    migration = import_module("iki_server.entities.migrations.0022_ruleholdoccurrence")
+    migration = import_module("iki_server.entities.migrations.0023_ruleholdoccurrence")
     with connection.cursor() as cursor:
         cursor.execute(migration.BACKFILL)
 

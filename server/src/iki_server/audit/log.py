@@ -158,6 +158,7 @@ ACTIONS: dict[str, str] = {
     "storage.moved": "Put a record away, moved it, took it out of storage, or checked it out or in",
     "entity.labelled": "Prepared a record's label for printing",
     "request.receipt_completed": "Received a request's material against what it expected",
+    "storage.observation_recorded": "Recorded a receiving or reconciliation observation",
     "storage.reconciled": "Reconciled a container's contents with what's recorded in it",
     "signature.requested": "Started signing a record, and was sent to sign in again",
     "signature.signed": "Signed a record electronically",

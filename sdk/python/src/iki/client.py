@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         EntryOut,
         FileOut,
         GraphOut,
+        IkiIdConfirmationIn,
         IntakeOut,
         MeOut,
         MovementOut,
@@ -695,7 +696,7 @@ class Entities(_Part):
         *,
         purpose: DrawPurpose = "routine",
         used_in: str | None = None,
-        confirm: str = "",
+        confirm: str | IkiIdConfirmationIn = "",
         reason: str = "",
     ) -> AmountMovedOut:
         """Draws material for routine use, or for testing with ``purpose="qa_sampling"``.
@@ -703,7 +704,8 @@ class Entities(_Part):
         Give the amount in its own unit or one that converts to it. A recorded
         concentration also permits a mass to be drawn by volume or vice versa.
         ``used_in`` identifies the receiving experiment or analysis by ID or HRID.
-        Supply the barcode or HRID in ``confirm`` when the source type requires a scan."""
+        Supply the scanned label in ``confirm``. To enter the HRID printed on the tube
+        independently, pass ``{"mode": "iki_id", "code": "TUB-000001"}``."""
         body: dict[str, Any] = {"amount": _quantity(amount), "purpose": purpose, "reason": reason}
         if used_in is not None:
             body["used_in"] = used_in
@@ -1645,6 +1647,10 @@ class Spreadsheets(_Part):
     ``import_sheet`` does it all at once. Or step by step: ``start``, ``change`` (the
     sheet, its rows, how its columns map, how its numbers and dates are written),
     ``preview``, ``rows``, then ``commit``.
+
+    Each step after ``start`` is made from the import as you read it: give the import each
+    step returned, or its ``revision``. If it changed since (in another session, say),
+    the step raises ``iki.Conflict`` and changes nothing: ``get`` it, then choose again.
     """
 
     def import_sheet(
@@ -1722,24 +1728,43 @@ class Spreadsheets(_Part):
             self._client.request("GET", _path("/spreadsheet-imports/{i}", i=_id(imported))),
         )
 
-    def change(self, imported: str | Mapping[str, Any], **choices: Any) -> SpreadsheetImportOut:  # noqa: ANN401
+    def change(
+        self,
+        imported: str | Mapping[str, Any],
+        *,
+        revision: int | None = None,
+        **choices: Any,  # noqa: ANN401
+    ) -> SpreadsheetImportOut:
         """Chooses what it imports: ``sheet``, ``header_row``, ``first_row``,
         ``last_row``, ``skip`` (ranges of rows), ``columns`` (each ``{"index", "field"}``
-        and how its cells read), ``locale`` or a saved ``mapping``."""
+        and how its cells read), ``locale`` or a saved ``mapping``, all checked together:
+        a ``sheet`` with a ``header_row`` on it is one change. Another sheet takes its rows
+        afresh, but for those given with it. ``revision`` is the one you read: the
+        import's own, if you give it whole."""
         return cast(
             "SpreadsheetImportOut",
             self._client.request(
-                "PATCH", _path("/spreadsheet-imports/{i}", i=_id(imported)), json=choices
+                "PATCH",
+                _path("/spreadsheet-imports/{i}", i=_id(imported)),
+                json=choices,
+                headers=_if_match(imported, revision),
             ),
         )
 
     def preview(
-        self, imported: str | Mapping[str, Any], *, timeout: float | None = None
+        self,
+        imported: str | Mapping[str, Any],
+        *,
+        revision: int | None = None,
+        timeout: float | None = None,
     ) -> SpreadsheetImportOut:
         """Checks every row as importing would write it, and returns it once it's checked:
-        its ``preview`` counts what importing does; ``rows`` lists what each row would."""
+        its ``preview`` counts what importing does; ``rows`` lists what each row would.
+        What's checked is what it imports at ``revision``, as for :meth:`change`."""
         made = self._client.request(
-            "POST", _path("/spreadsheet-imports/{i}/preview", i=_id(imported))
+            "POST",
+            _path("/spreadsheet-imports/{i}/preview", i=_id(imported)),
+            headers=_if_match(imported, revision),
         )
         return self._until(made, lambda i: i["state"] != "previewing", timeout)
 
@@ -1760,18 +1785,20 @@ class Spreadsheets(_Part):
         self,
         imported: str | Mapping[str, Any],
         *,
+        revision: int | None = None,
         skip_problems: bool = False,
         reason: str = "",
         wait: bool = True,
         timeout: float | None = None,
     ) -> SpreadsheetImportOut:
-        """Imports what the preview checked, as one run, and (with ``wait``) returns it
-        once its run has ended. A run that didn't write it raises ``iki.ImportFailed``,
-        with why at each row and column."""
+        """Imports what the preview of ``revision`` checked (as for :meth:`change`), as one
+        run, and (with ``wait``) returns it once its run has ended. A run that didn't write
+        it raises ``iki.ImportFailed``, with why at each row and column."""
         made = self._client.request(
             "POST",
             _path("/spreadsheet-imports/{i}/commit", i=_id(imported)),
             json={"skip_problems": skip_problems, "reason": reason},
+            headers=_if_match(imported, revision),
         )
         if not wait:
             return cast("SpreadsheetImportOut", made)
@@ -1802,14 +1829,18 @@ class Spreadsheets(_Part):
             ),
         )
 
-    def save_mapping(self, imported: str | Mapping[str, Any], name: str) -> SavedMappingOut:
-        """Keeps its mapping in its project, by its headers, for the next sheet like it."""
+    def save_mapping(
+        self, imported: str | Mapping[str, Any], name: str, *, revision: int | None = None
+    ) -> SavedMappingOut:
+        """Keeps its mapping at ``revision`` (as for :meth:`change`) in its project, by its
+        headers, for the next sheet like it."""
         return cast(
             "SavedMappingOut",
             self._client.request(
                 "POST",
                 _path("/spreadsheet-imports/{i}/mappings", i=_id(imported)),
                 json={"name": name},
+                headers=_if_match(imported, revision),
             ),
         )
 
@@ -1836,6 +1867,17 @@ class Spreadsheets(_Part):
 
 def _id(imported: str | Mapping[str, Any]) -> str:
     return str(imported["id"]) if isinstance(imported, Mapping) else imported
+
+
+def _if_match(imported: str | Mapping[str, Any], revision: int | None) -> dict[str, str]:
+    """If-Match for a step of an import: the revision given, or the import's as it was read."""
+    if revision is None and isinstance(imported, Mapping):
+        revision = int(imported["revision"])
+    if revision is None:
+        raise IkiError(
+            "Give the import as you read it, or its revision: a step is made from what you saw."
+        )
+    return {"If-Match": f'"{revision}"'}
 
 
 def _download(

@@ -12,11 +12,13 @@ import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { ENTITIES, personName, type Entity, type EntityType, type FieldDef } from "../entities";
 import { RecordPicker } from "../entity-inputs";
 import type { Picked } from "../entity-values";
+import { IKI_ID_REFUSED, ikiId, SCAN_REFUSED, type ScanMode } from "../storage";
 import {
   Button,
   ConfirmDialog,
   Loading,
   ProblemAlert,
+  RadioField,
   SelectField,
   TextField,
   Time,
@@ -199,6 +201,8 @@ function AmountDialog({
   const [reason, setReason] = useState("");
   const [usedIn, setUsedIn] = useState<Picked | null>(null);
   const [scanned, setScanned] = useState("");
+  // A label several tubes share can't confirm which is in hand: its printed Iki ID can.
+  const [proofBy, setProofBy] = useState<ScanMode>("label");
   const purposes = DRAW_PURPOSES.filter((p) => entity.can.draw_purposes?.includes(p.value));
   const [purpose, setPurpose] = useState<Schemas["DrawPurpose"]>(purposes[0]?.value ?? "routine");
   const purposeAllowed = purposes.some((p) => p.value === purpose);
@@ -226,7 +230,7 @@ function AmountDialog({
                 purpose,
                 reason: reason.trim(),
                 used_in: usedIn?.id ?? null,
-                confirm: scanned.trim(),
+                confirm: proofBy === "iki_id" ? ikiId(scanned) : scanned.trim(),
               },
             }),
           ),
@@ -272,6 +276,10 @@ function AmountDialog({
   const problem = move.error ? problemOf(move.error) : undefined;
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
+  // A typed Iki ID the server can't use: none matched, or one the person can't read did.
+  // Said in words that cover both, so neither is told apart.
+  const confirmError =
+    proofBy === "iki_id" && errors["confirm"] === SCAN_REFUSED ? IKI_ID_REFUSED : errors["confirm"];
   const shownProblem =
     problem &&
     !amountError &&
@@ -370,17 +378,40 @@ function AmountDialog({
         />
       ) : null}
       {doing === "draw" && confirmDraw ? (
-        <TextField
-          label="Scan its label"
-          value={scanned}
-          onChange={(v) => {
-            setScanned(v);
-            if (move.isError) move.reset();
-          }}
-          maxLength={200}
-          error={errors["confirm"]}
-          help={`Scan ${entity.hrid}’s own label, to confirm it’s the one in your hand.`}
-        />
+        <>
+          <RadioField
+            label="Confirm it’s the one in your hand"
+            value={proofBy}
+            onChange={(v) => {
+              setProofBy(v);
+              setScanned("");
+              if (move.isError) move.reset();
+            }}
+            options={[
+              { value: "label", label: "Scan its label" },
+              {
+                value: "iki_id",
+                label: "Type its printed Iki ID",
+                description: "For a label it shares with other tubes, such as a vendor barcode.",
+              },
+            ]}
+          />
+          <TextField
+            label={proofBy === "iki_id" ? "Iki ID" : "Scan its label"}
+            value={scanned}
+            onChange={(v) => {
+              setScanned(v);
+              if (move.isError) move.reset();
+            }}
+            maxLength={200}
+            error={confirmError}
+            help={
+              proofBy === "iki_id"
+                ? `The Iki ID printed on its label, such as ${entity.hrid}. Only Iki IDs are matched, not vendor barcodes.`
+                : `Scan ${entity.hrid}’s own label, to confirm it’s the one in your hand.`
+            }
+          />
+        </>
       ) : null}
       {doing === "transfer" ? (
         <TextField
