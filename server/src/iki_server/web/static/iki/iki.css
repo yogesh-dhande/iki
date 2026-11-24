@@ -3378,6 +3378,10 @@ input[type="file"]::file-selector-button {
   background: var(--surface);
 }
 
+.image-example-note {
+  margin: 0.5rem 0 0;
+}
+
 /* --- Runs ------------------------------------------------------------------ */
 
 .badge-good {

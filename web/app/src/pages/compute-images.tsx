@@ -9,6 +9,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 
 import { meQuery, problemOf } from "../api";
 import {
+  compatibleRange,
   exampleBinding,
   imageBindingsQuery,
   shortImage,
@@ -134,6 +135,10 @@ function Unbound({ environment }: { environment: EnvironmentImage }) {
       >
         <code>{example}</code>
       </pre>
+      <p className="muted image-example-note">
+        A range such as <code>&quot;{compatibleRange(environment.installed_version)}&quot;</code>{" "}
+        reuses the image across releases, once the lab has qualified it for them.
+      </p>
     </div>
   );
 }

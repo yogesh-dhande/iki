@@ -41,17 +41,30 @@ export function shortImage(image: string): string {
   return digest.length > 12 ? `${image.slice(0, at)}@sha256:${digest.slice(0, 12)}…` : image;
 }
 
-/** A release range an example binding can start from: the installed release up to the next
- * major one, or the next minor one before 1.0, as compatible releases usually go. */
-export function exampleRange(version: string): string {
-  const match = /^(\d+)\.(\d+)(?:\.(\d+))?/.exec(version);
-  if (!match) return `==${version}`;
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const release = `${String(major)}.${String(minor)}.${match[3] ?? "0"}`;
+/** A plugin version's release numbers, as compute.yaml's comparisons read them: `0.4`
+ * is 0.4.0, and so is `0.4.0-rc.1`. None if it doesn't start with any. */
+function release(version: string): [number, number, number] | null {
+  const match = /^\s*(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(version);
+  if (!match) return null;
+  return [Number(match[1]), Number(match[2] ?? 0), Number(match[3] ?? 0)];
+}
+
+/** The example binding's range: the installed release alone. In a validated lab a plugin
+ * upgrade is a change, and the image is qualified again against the new release. */
+export function exactVersion(version: string): string {
+  const numbers = release(version);
+  return `==${numbers ? numbers.join(".") : version}`;
+}
+
+/** A range that keeps the image across releases, for a lab that has qualified it so: the
+ * installed minor release's patches before 1.0, and the rest of its major release after. */
+export function compatibleRange(version: string): string {
+  const numbers = release(version);
+  if (!numbers) return exactVersion(version);
+  const [major, minor] = numbers;
   return major === 0
-    ? `>=${release},<0.${String(minor + 1)}`
-    : `>=${release},<${String(major + 1)}`;
+    ? `>=0.${String(minor)},<0.${String(minor + 1)}`
+    : `>=${String(major)}.${String(minor)},<${String(major + 1)}`;
 }
 
 /** The binding a Compute admin would add to compute.yaml for `environment`. */
@@ -60,7 +73,7 @@ export function exampleBinding(environment: EnvironmentImage): string {
     "apiVersion: iki/v1",
     "kind: EnvironmentImageBinding",
     `environment: ${environment.environment}`,
-    `plugin_version: "${exampleRange(environment.installed_version)}"`,
+    `plugin_version: "${exactVersion(environment.installed_version)}"`,
     "image: <registry>/<repository>@sha256:<digest>",
     "pull_secret: <secret name>  # Optional: Kubernetes templates only",
   ].join("\n");

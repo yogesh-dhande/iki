@@ -138,7 +138,8 @@ def test_a_compute_admin_reads_each_environments_image_and_the_unused_pins(
     assert "until a Compute admin adds an EnvironmentImageBinding" in unbound.inner_text()
     example = unbound.get_by_role("region", name="Example binding for Alphafold gpu")
     assert f"environment: {UNBOUND}\n" in example.inner_text()
-    assert 'plugin_version: ">=0.4.0,<0.5"' in example.inner_text()
+    assert 'plugin_version: "==0.4.0"' in example.inner_text()
+    assert unbound.get_by_text('A range such as ">=0.4,<0.5" reuses the image').is_visible()
 
     unused = page.get_by_role("region", name="Unused bindings")
     (row,) = unused.get_by_role("listitem").all()

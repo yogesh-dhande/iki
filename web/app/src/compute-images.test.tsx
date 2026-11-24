@@ -8,7 +8,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { exampleRange, shortImage } from "./compute";
+import { compatibleRange, exactVersion, shortImage } from "./compute";
 import { renderApp } from "./entity-fixtures";
 import { answer, calls, ME, problem, signedIn } from "./test-server";
 
@@ -76,11 +76,16 @@ describe("how images read", () => {
     );
   });
 
-  it("suggests releases up to the next major one, or the next minor one before 1.0", () => {
-    expect(exampleRange("1.4.2")).toBe(">=1.4.2,<2");
-    expect(exampleRange("0.3.1")).toBe(">=0.3.1,<0.4");
-    expect(exampleRange("2.0")).toBe(">=2.0.0,<3");
-    expect(exampleRange("2.1.0rc1")).toBe(">=2.1.0,<3");
+  it("pins the installed release in the example, as compute.yaml's comparisons read it", () => {
+    expect(exactVersion("1.4.2")).toBe("==1.4.2");
+    expect(exactVersion("2.0")).toBe("==2.0.0");
+    expect(exactVersion("0.4.0-rc.1")).toBe("==0.4.0");
+  });
+
+  it("offers a range across a qualified minor or major release", () => {
+    expect(compatibleRange("0.3.1")).toBe(">=0.3,<0.4");
+    expect(compatibleRange("1.4.2")).toBe(">=1.4,<2");
+    expect(compatibleRange("2.1.0rc1")).toBe(">=2.1,<3");
   });
 });
 
@@ -143,7 +148,7 @@ describe("Compute → Images", () => {
       "apiVersion: iki/v1",
       "kind: EnvironmentImageBinding",
       "environment: acme/single_cell.cellranger",
-      'plugin_version: ">=0.3.1,<0.4"',
+      'plugin_version: "==0.3.1"',
       "image: <registry>/<repository>@sha256:<digest>",
       "pull_secret: <secret name>  # Optional: Kubernetes templates only",
     ].join("\n");
@@ -154,6 +159,10 @@ describe("Compute → Images", () => {
       unbound.getByRole("button", { name: "Copy the example binding for Cell Ranger" }),
     );
     expect(await navigator.clipboard.readText()).toBe(example);
+    expect(unbound.getByText(/reuses the image across releases/)).toHaveTextContent(
+      'A range such as ">=0.3,<0.4" reuses the image across releases, once the lab has ' +
+        "qualified it for them.",
+    );
   });
 
   it("lists bindings no installed version uses, each saying why", async () => {
