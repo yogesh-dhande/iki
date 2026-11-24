@@ -513,7 +513,12 @@ function intentText(r: Reconciliation, how: How): string | null {
 function ReconcileView({ r }: { r: Reconciliation }) {
   const client = useQueryClient();
   const { say } = useMessages();
-  const [reviewedRevision, setReviewedRevision] = useState(r.plan_revision);
+  // The count as the person reviewed it: the Complete section shows its planned destinations
+  // and approves its revision, so what's approved is what was shown. A newer count, read in
+  // the background or after a refusal, replaces it only when the person reviews that one.
+  const [reviewed, setReviewed] = useState(r);
+  // What the Complete section shows: the count as it's read now while it's the plan reviewed.
+  const approving = r.plan_revision === reviewed.plan_revision ? r : reviewed;
   const shape = r.shape;
   const order = useMemo(() => {
     const all: { row: number; column: number; label: string }[] = [];
@@ -528,12 +533,13 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const [heard, setHeard] = useState("");
   const [note, setNote] = useState("");
   const unchecked = r.lines.filter((line) => line.finding === "unchecked");
-  const uncheckedKey = unchecked
+  const reviewedUnchecked = approving.lines.filter((line) => line.finding === "unchecked");
+  const uncheckedKey = reviewedUnchecked
     .map((line) => line.id)
     .sort()
     .join(",");
   const [acknowledgedMissing, setAcknowledgedMissing] = useState<string | null>(null);
-  const missingRest = unchecked.length > 0 && acknowledgedMissing === uncheckedKey;
+  const missingRest = reviewedUnchecked.length > 0 && acknowledgedMissing === uncheckedKey;
   const [asking, setAsking] = useState<Asking | null>(null);
   const [unidentified, setUnidentified] = useState<Unidentified | null>(null);
   const [lineStale, setLineStale] = useState<{ line: string; changes: ObservationEvent[] } | null>(
@@ -548,10 +554,10 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const update = (next: Reconciliation) => {
     const latest = client.getQueryData<Reconciliation>(queryKey);
     if (latest && latest.plan_revision > next.plan_revision) return;
-    if (next.plan_revision !== reviewedRevision) {
+    if (next.plan_revision !== reviewed.plan_revision) {
       setNote("");
       setAcknowledgedMissing(null);
-      setReviewedRevision(next.plan_revision);
+      setReviewed(next);
     }
     void client.cancelQueries({ queryKey, exact: true });
     client.setQueryData(queryKey, next);
@@ -604,12 +610,22 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   // Another person's change, read in the background or met on completing: the approval is
   // for the plan as it was reviewed, so it's reviewed again. Scans and decisions carry
   // their own lines' versions, and go on.
-  const mustReview = r.plan_revision > reviewedRevision || problem?.status === 409;
+  const newer = r.plan_revision > reviewed.plan_revision;
+  const mustReview = newer || problem?.status === 409;
   const locked = saving;
   const reviewChanges = useQuery({
-    queryKey: [...historyKey("reconciliations", r.id), "since", reviewedRevision, r.plan_revision],
-    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewedRevision, signal),
+    queryKey: [
+      ...historyKey("reconciliations", r.id),
+      "since",
+      reviewed.plan_revision,
+      r.plan_revision,
+    ],
+    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewed.plan_revision, signal),
     enabled: mustReview,
+    // What changed since the review stays shown while a newer count's changes are read, so
+    // the note doesn't go and come back, moving the button under it.
+    placeholderData: (previous, query) =>
+      query?.queryKey.at(-2) === reviewed.plan_revision ? previous : undefined,
   });
   async function saveChange(
     send: () => Promise<Reconciliation>,
@@ -903,11 +919,17 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const findings = findingsAt(r);
   const contents = contentsOf(r);
   const toResolve = r.lines.filter((line) => line.resolution_stale || needsResolving(line));
-  const destinations = toResolve.filter(
+  const reviewedToResolve = approving.lines.filter(
+    (line) => line.resolution_stale || needsResolving(line),
+  );
+  const destinations = reviewedToResolve.filter(
     (line) => confirmed(line) && (line.resolution === "moved" || line.resolution === "placed"),
   );
   const ready =
-    !locked && !mustReview && (unchecked.length === 0 || missingRest) && toResolve.every(confirmed);
+    !locked &&
+    !mustReview &&
+    (reviewedUnchecked.length === 0 || missingRest) &&
+    reviewedToResolve.every(confirmed);
   const counts = (["matched", "wrong_slot", "missing", "unexpected", "unchecked"] as const).map(
     (k) => ({ k, n: r.lines.filter((l) => l.finding === k).length }),
   );
@@ -1117,12 +1139,15 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               )}
               <p>Review the latest count and its planned destinations before completing it.</p>
               <Button
-                disabled={reviewChanges.isPending}
+                // A refusal can come before the latest count does: that's reviewed once it's
+                // shown, with what changed since the count reviewed before.
+                disabled={!newer || reviewChanges.isPending || reviewChanges.isPlaceholderData}
                 onClick={() => {
+                  if (!newer) return;
                   complete.reset();
                   setNote("");
                   setAcknowledgedMissing(null);
-                  setReviewedRevision(r.plan_revision);
+                  setReviewed(r);
                 }}
               >
                 Review latest count
@@ -1155,9 +1180,9 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   </ul>
                 </>
               ) : null}
-              {unchecked.length ? (
+              {reviewedUnchecked.length ? (
                 <CheckboxField
-                  label={`Count the ${String(unchecked.length)} not scanned as missing, and take them out of storage`}
+                  label={`Count the ${String(reviewedUnchecked.length)} not scanned as missing, and take them out of storage`}
                   checked={missingRest}
                   onChange={(checked) => {
                     setAcknowledgedMissing(checked ? uncheckedKey : null);
@@ -1182,7 +1207,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   onClick={() => {
                     if (!ready) return;
                     const approval = {
-                      plan_revision: reviewedRevision,
+                      plan_revision: reviewed.plan_revision,
                       missing_rest: missingRest,
                       note: note.trim(),
                     };
@@ -1192,7 +1217,11 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                         say(`Reconciled ${r.container.hrid}.`);
                       },
                       (error) => {
-                        if (isStale(error)) void refetch(reviewedRevision);
+                        // Refused: the count is read again, for the person to review.
+                        if (!isStale(error)) return;
+                        refetch(reviewed.plan_revision).catch(() => {
+                          // The page says why it couldn't be read.
+                        });
                       },
                     );
                   }}
