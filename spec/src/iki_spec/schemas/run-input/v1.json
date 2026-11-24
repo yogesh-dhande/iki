@@ -352,6 +352,10 @@
       "properties": {
         "id": { "type": "string", "format": "uuid" },
         "hrid": { "type": "string" },
+        "material_field": {
+          "type": "string",
+          "description": "The field in values that names the material, when the type or an ancestor declares amount.material."
+        },
         "entry_id": {
           "type": "string",
           "format": "uuid",

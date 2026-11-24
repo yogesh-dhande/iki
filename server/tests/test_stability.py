@@ -2,6 +2,7 @@
 
 import datetime as dt
 import importlib
+import runpy
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+import yaml
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.utils import timezone
@@ -38,6 +40,64 @@ __all__ = ["database"]
 
 PLUGIN = PLUGINS / "stability"
 PREFIX = "iki/stability."
+
+
+@pytest.fixture
+def schedule_input() -> dict[str, Any]:
+    fixture = next(yaml.safe_load_all((PLUGIN / "tests" / "stability.yaml").read_text()))
+    study = fixture["inputs"]["study"][0]
+    study.update(id="study", revision=1)
+    study["values"]["lot"] = "lot"
+    study["values"]["assignments"][0]["tube"] = "tube"
+    study["included"]["lot"][0].update(id="lot", material_field="of")
+    study["included"]["assignments.tube"] = [{"id": "tube", "values": {"lot": "lot"}}]
+    return {"inputs": {"study": [study]}}
+
+
+@pytest.mark.parametrize(
+    ("type_name", "material_field"),
+    [
+        ("iki/lots.GenericLot", "of"),
+        ("iki/reagents.VolumeStockLot", "item"),
+        ("acme/lab.MyProteinLot", "protein"),
+    ],
+)
+def test_schedule_checks_the_material_declared_by_the_lot(
+    schedule_input: dict[str, Any], type_name: str, material_field: str
+) -> None:
+    schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
+    study = schedule_input["inputs"]["study"][0]
+    lot = study["included"]["lot"][0]
+    lot.update(type=type_name, material_field=material_field, values={material_field: "other"})
+    with pytest.raises(ValueError, match="material"):
+        schedule(schedule_input)
+    lot["values"][material_field] = study["values"]["material"]
+    assert len(schedule(schedule_input)["creates"]) == 1
+    del lot["material_field"]
+    with pytest.raises(ValueError, match="material"):
+        schedule(schedule_input)
+
+
+def test_a_tube_can_supply_repeated_pulls_only_under_one_storage_condition(
+    schedule_input: dict[str, Any],
+) -> None:
+    schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
+    study = schedule_input["inputs"]["study"][0]
+    values = study["values"]
+    values["time_points"].append({**values["time_points"][0], "month": 2})
+    values["assignments"].append({**values["assignments"][0], "month": 2})
+    assert len(schedule(schedule_input)["creates"]) == 2
+    values["conditions"].append(
+        {**values["conditions"][0], "code": "accelerated", "temperature": 40}
+    )
+    values["assignments"].extend([{**a, "condition": "accelerated"} for a in values["assignments"]])
+    with pytest.raises(ValueError, match="condition"):
+        schedule(schedule_input)
+    for row in values["assignments"]:
+        if row["condition"] == "accelerated":
+            row["tube"] = "second"
+    study["included"]["assignments.tube"].append({"id": "second", "values": {"lot": "lot"}})
+    assert len(schedule(schedule_input)["creates"]) == 4
 
 
 def test_study_draw_and_both_review_paths(tmp_path: Path, database: str) -> None:

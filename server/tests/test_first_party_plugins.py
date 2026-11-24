@@ -6,6 +6,7 @@ and migrating a database forwards and back.
 """
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
 from iki_spec import rules
 from iki_spec.identity import Kind, identity_hash
+from iki_spec.model import amount_of
 from iki_spec.naming import app_label
 from iki_spec.validate import load_plugin
 
@@ -43,6 +45,19 @@ def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
         "plugin", "makemigrations", plugin, *withs(dependencies), "--check", "--no-input", cwd=ROOT
     )
     assert current.returncode == 0, current.stdout + current.stderr
+
+
+def test_lab_stock_lot_inherits_its_material_declaration() -> None:
+    reagents = PLUGINS / "reagents"
+    loaded = load_plugin(reagents, dependencies=FIRST_PARTY[reagents])
+    assert loaded.plugin is not None, loaded.problems
+    stock = loaded.plugin.types["iki/reagents.VolumeStockLot"]
+    subtype = replace(
+        stock, plugin="acme/lab", name="LabStock", extends=stock.qualified_name, amount=None
+    )
+    types = {**loaded.plugin.types, subtype.qualified_name: subtype}
+    amount = amount_of(subtype.qualified_name, types)
+    assert amount is not None and amount.material == "item"
 
 
 def test_the_reviewer_is_independent_of_post_build_edits() -> None:

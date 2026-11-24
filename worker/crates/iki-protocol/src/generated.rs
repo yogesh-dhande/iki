@@ -20,6 +20,9 @@ pub struct RunInputFile {
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
+    /// The field in values that names the material, when the type or an ancestor declares amount.material.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_field: Option<String>,
     /// For a registered record, the registry entry it held at the pinned record revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_id: Option<String>,
