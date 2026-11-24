@@ -4,10 +4,11 @@ kind: EntityType
 name: ResearchCoreDeliverable
 label: Research core deliverable
 extends: CoreDeliverable
-schema_version: 1
+schema_version: 2
 hrid: { prefix: RCD }
 result:
   of: request
+  material: tube
   released: { field: review, states: [signed_off] }
 fields:
   request:

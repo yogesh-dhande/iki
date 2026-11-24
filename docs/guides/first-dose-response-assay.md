@@ -51,8 +51,9 @@ under their original flow. A fit still running when the flow changes may need to
 ## Receive the tubes and read the plate
 
 1. **Coordinator** — In the assay project's **Requests → Sent to us**, open **Tox21 firefly luciferase inhibition** and select **Receive what it sent**. Enter who handed over the shipment,
-   choose **Start receiving**, and scan the three labelled tubes for luciferase, apigenin and daidzein.
-   Check that all three lines are matched. Under **Put away**, set each tube to **Keep in my
+   choose **Start receiving**, and scan the two compound tubes, apigenin and daidzein.
+   Check that both lines are matched. The plate links to the assay project's own luciferase reagent tube.
+   Under **Put away**, set each compound tube to **Keep in my
    custody**, then select **Complete receiving**. The completed receipt records that the tubes were
    received without a storage position, and **Storage** lists them under **Received, not yet put
    away** until someone puts them away.
@@ -85,3 +86,6 @@ read and review that result.
 In the requesting project, open **Requests → We sent** and select the same request. After the
 final signature, the **Results** section shows the released revision. Open the result and choose
 **Check signatures** to verify who signed each revision.
+
+Once both signed fits have been returned, a request reviewer or QA in the assay project can set
+the request to **Delivered**. If a compound still needs a result, the request names it.

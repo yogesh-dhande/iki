@@ -3944,10 +3944,12 @@ def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> N
     for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
         core = core_project(alice, asking, name)
         example = apply_plate_starter(alice, core, asking, flow, people)
-        receive_starter_tubes(
-            alice, example["request"], [example[k] for k in ("tube", *public_plate.SERIES)]
-        )
+        receive_starter_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
         plate = record(alice, example["plate"])
+        if plate["values"]["reagent_tube"] != example["tube"]:
+            fail("the example plate lost its luciferase reagent tube")
+        if bearer_call(requester, "GET", f"/entities/{example['tube']}").status_code != 404:
+            fail("the requesting project could open the assay group's reagent tube")
         fits = fit_assay_plate(alice, core, plate, {k: example[k] for k in public_plate.SERIES})
         for result in fits.values():
             if (

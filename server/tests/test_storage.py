@@ -535,17 +535,20 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
         },
     )
     assert described.status_code == 200, described.content
-    done = tech.post(
-        f"{path}/complete",
-        {
-            "plan_revision": described.json()["plan_revision"],
-            "missing_rest": True,
-            "put_away": [
-                {"line": lines["RC000"], "to": incoming["id"]},
-                {"line": lines["RC001"], "to": incoming["id"]},
-            ],
-        },
+    approval = {
+        "plan_revision": described.json()["plan_revision"],
+        "missing_rest": True,
+        "put_away": [
+            {"line": lines["RC000"], "to": incoming["id"]},
+            {"line": lines["RC001"], "to": incoming["id"]},
+        ],
+    }
+    proposal = tech.post(
+        f"{path}/put-away/preview",
+        {"plan_revision": approval["plan_revision"], "put_away": approval["put_away"]},
     )
+    assert proposal.status_code == 200, proposal.content
+    done = tech.post(f"{path}/complete", {**approval, "plan": proposal.json()["plan"]})
     assert done.status_code == 200, done.content
     receipt = done.json()
     assert receipt["status"] == "completed"

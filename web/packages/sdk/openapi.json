@@ -3318,6 +3318,19 @@
             "title": "Missing Rest",
             "type": "boolean"
           },
+          "plan": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The put-away preview hash. Required when choosing the next free position.",
+            "title": "Plan"
+          },
           "plan_revision": {
             "description": "The receipt revision you reviewed.",
             "minimum": 1,
@@ -18214,6 +18227,30 @@
         "title": "ReceiptOut",
         "type": "object"
       },
+      "ReceiptPlacementIn": {
+        "additionalProperties": false,
+        "properties": {
+          "plan_revision": {
+            "description": "The receipt revision you reviewed.",
+            "minimum": 1,
+            "title": "Plan Revision",
+            "type": "integer"
+          },
+          "put_away": {
+            "items": {
+              "$ref": "#/components/schemas/PutAwayIn"
+            },
+            "maxItems": 1536,
+            "title": "Put Away",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plan_revision"
+        ],
+        "title": "ReceiptPlacementIn",
+        "type": "object"
+      },
       "ReceiptScanIn": {
         "properties": {
           "choice": {
@@ -22890,7 +22927,7 @@
             "title": "Collection"
           },
           "columns": {
-            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`.",
             "items": {
               "type": "string"
             },
@@ -34558,12 +34595,12 @@
             }
           },
           {
-            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+            "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`.",
             "in": "query",
             "name": "columns",
             "required": false,
             "schema": {
-              "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.",
+              "description": "The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`.",
               "items": {
                 "type": "string"
               },
@@ -43096,6 +43133,57 @@
           }
         ],
         "summary": "Restore a removed extra on an open receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/put-away/preview": {
+      "post": {
+        "operationId": "iki_server_api_storage_preview_receipt_placement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReceiptPlacementIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MovesOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Review a receipt's put-away positions",
         "tags": [
           "storage"
         ]

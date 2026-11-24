@@ -4,10 +4,13 @@ kind: EntityType
 name: Deliverable
 label: Deliverable
 extends: CoreDeliverable
-schema_version: 1
+schema_version: 2
 hrid: { prefix: DLV }
 description: A result the service project can return to the team that asked without a signature.
-result: { of: request, released: { field: status, states: [delivered] } }
+result:
+  of: request
+  material: tube
+  released: { field: status, states: [delivered] }
 fields:
   request:
     type: ref

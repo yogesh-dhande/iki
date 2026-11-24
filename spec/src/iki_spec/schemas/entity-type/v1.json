@@ -211,6 +211,16 @@
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
           }
         },
+        "completed": {
+          "description": "The service state that completes delivery. Each commissioned material needs a signed, returned result, and every recorded result must be signed and returned.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field", "state"],
+          "properties": {
+            "field": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+            "state": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          }
+        },
         "materials": {
           "description": "Fields in sends that identify individual physical records. A result may cover those records and their recorded aliquots. A registry entry shared by several records cannot identify the tested material.",
           "type": "array",
@@ -265,7 +275,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "material": {
-          "description": "A required, immutable reference to the tested material covered by the request.",
+          "description": "An immutable reference to material covered by the request. It may be empty only when the request specifies no physical material.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "released": {
@@ -745,7 +755,7 @@
               "const": true
             },
             "material": {
-              "description": "A required, immutable reference to the tested material covered by the request.",
+              "description": "An immutable reference to material covered by the request. It may be empty only when the request specifies no physical material.",
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
             },
             "released": {

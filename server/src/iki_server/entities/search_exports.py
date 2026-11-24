@@ -85,6 +85,8 @@ def columns(
         wanted = _grid(entity_type, request, projects=projects)
     out: list[Column] = []
     for index, key in enumerate(wanted):
+        if key in _LAST:
+            continue
         if key in fields:
             f = fields[key]
             out.append(Column(key, _heading(f), _field_cell(f)))
@@ -94,6 +96,7 @@ def columns(
         else:
             where = entity_type["name"] if entity_type else "every entity"
             raise NoColumn(index, f"{where} has no column `{key}`.")
+    out.extend(Column(key, *_OWN[key]) for key in _LAST)
     # Two fields with the same label (an extension's beside the type's) say which is which.
     seen = [c.heading for c in out]
     return [
@@ -107,7 +110,7 @@ def _grid(entity_type: Mapping[str, Any] | None, request: bool, *, projects: boo
     states, then its other fields; or without a type, each one's type and title."""
     where = ["project"] if projects else []
     if entity_type is None:
-        return ["hrid", "type", "title", *where, *_LAST]
+        return ["hrid", "type", "title", *where]
     fields = entity_type["fields"]
     states = [f["name"] for f in fields if f["type"] == "state"]
     rest = [f["name"] for f in fields if f["type"] != "state"]
@@ -118,7 +121,6 @@ def _grid(entity_type: Mapping[str, Any] | None, request: bool, *, projects: boo
         *states,
         *rest,
         *where,
-        *_LAST,
     ]
 
 

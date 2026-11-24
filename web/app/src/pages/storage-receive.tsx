@@ -11,7 +11,7 @@
  * handover, cancelling) asks why, names the version seen, and keeps both in the history.
  */
 
-import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
+import { ApiError, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { buttonState } from "@ikisci/ui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -34,6 +34,7 @@ import {
   cancelReceipt,
   checkReceiptLine,
   completeReceipt,
+  previewReceiptPlacement,
   containerQuery,
   describeReceipt,
   freeSlots,
@@ -419,6 +420,7 @@ function dispositions(
 
 /** What Complete sends: the revision reviewed, and one decision for each received tube. */
 interface CompletePlan {
+  automatic: Set<string>;
   plan_revision: number;
   missing_rest: boolean;
   put_away: { line: string; to: string; position: string }[];
@@ -546,7 +548,10 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [handoffStale, setHandoffStale] = useState<StaleItem[] | null>(null);
   // Said beside the handover's Save, not above the page: nothing below it moves.
   const [handoffSaid, setHandoffSaid] = useState("");
-  const [completeStale, setCompleteStale] = useState<StaleItem[] | null>(null);
+  const [completeStale, setCompleteStale] = useState<{
+    what: string;
+    changes: StaleItem[];
+  } | null>(null);
   const [lineStale, setLineStale] = useState<{ line: string; changes: StaleItem[] } | null>(null);
   const { say } = useMessages();
   const id = receipt.id;
@@ -819,15 +824,38 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     : [];
   const keeping = putting.filter((l) => decided.get(l.id)?.kind === "custody");
   const complete = useApiMutation(
-    async (plan: CompletePlan): Promise<{ done: Receipt } | { changed: Receipt }> => {
+    async (
+      plan: CompletePlan,
+    ): Promise<{ done: Receipt } | { changed: Receipt } | { placement: Schemas["MovesOut"] }> => {
       // The receipt as it is now: what's approved is what was reviewed, every write included.
       const now = await readReceipt(id);
       if (now.plan_revision !== plan.plan_revision) return { changed: now };
+      const put_away = plan.put_away.map((p) =>
+        plan.automatic.has(p.line) ? { ...p, position: null } : p,
+      );
+      let approved: string | undefined;
+      if (plan.automatic.size) {
+        const preview = await previewReceiptPlacement(id, {
+          plan_revision: plan.plan_revision,
+          put_away,
+        });
+        if (
+          !preview.plan ||
+          preview.items.length !== plan.put_away.length ||
+          preview.items.some(
+            (item, i) => item.problems.length || item.to?.position !== plan.put_away[i]?.position,
+          )
+        ) {
+          return { placement: preview };
+        }
+        approved = preview.plan;
+      }
       return {
         done: await completeReceipt(id, {
           plan_revision: plan.plan_revision,
           missing_rest: plan.missing_rest,
-          put_away: plan.put_away,
+          put_away,
+          ...(approved ? { plan: approved } : {}),
           keep_in_custody: plan.keep_in_custody,
         }),
       };
@@ -905,6 +933,9 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     if (!ready || complete.isPending) return;
     // What's shown is what's sent: this receipt's revision, and each tube's decision.
     const plan: CompletePlan = {
+      automatic: new Set(
+        planned.filter(({ line }) => where[line.id] === undefined).map(({ line }) => line.id),
+      ),
       plan_revision: receipt.plan_revision,
       missing_rest: missingRest,
       put_away: shownBox
@@ -919,15 +950,38 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     };
     const into = shownBox?.hrid;
     const shown = receipt;
+    const showPlacement = (moves: Schemas["MovesOut"]) => {
+      const changes: StaleItem[] = moves.items.flatMap((item, i) => {
+        const before = plan.put_away[i];
+        if (!before || (!item.problems.length && before.position === item.to?.position)) return [];
+        return [
+          {
+            key: before.line,
+            about: names.get(before.line) ?? item.record.hrid,
+            body: item.problems.length
+              ? item.problems.join(" ")
+              : `Previously ${before.position}, now ${item.to?.position ?? "unavailable"}`,
+          },
+        ];
+      });
+      setCompleteStale({ what: "The put-away plan", changes });
+      if (boxShown) reread.mutate(boxShown);
+      setRefusedAt((n) => n + 1);
+    };
     complete.mutate(plan, {
       onSuccess: (result) => {
+        if ("placement" in result) {
+          showPlacement(result.placement);
+          return;
+        }
         if ("changed" in result) {
           // Newer than what was reviewed: nothing is sent; the person reviews it, then completes.
           setMissingRest(false);
           update(result.changed);
-          setCompleteStale(
-            changedSince(shown, result.changed, revisedLines(shown, result.changed)),
-          );
+          setCompleteStale({
+            what: "The checklist",
+            changes: changedSince(shown, result.changed, revisedLines(shown, result.changed)),
+          });
           setRefusedAt((n) => n + 1);
           return;
         }
@@ -938,6 +992,14 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         void client.invalidateQueries({ queryKey: STORAGE });
       },
       onError: (error) => {
+        if (
+          error instanceof ApiError &&
+          error.problem.code === "moves_plan_changed" &&
+          error.problem.moves
+        ) {
+          showPlacement(error.problem.moves);
+          return;
+        }
         const refusal = scanRefusal(problemOf(error));
         if (refusal) {
           // The box the resolver can't settle: chosen again, then reviewed again.
@@ -975,7 +1037,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         if (boxShown)
           void client.invalidateQueries({ queryKey: containerQuery(boxShown).queryKey });
         void refetch(error).then(({ changes }) => {
-          setCompleteStale(changes);
+          setCompleteStale({ what: "The checklist", changes });
           setRefusedAt((n) => n + 1);
         });
       },
@@ -1319,7 +1381,12 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           Complete
         </h2>
         <div className="complete-feedback" ref={feedback} tabIndex={-1}>
-          {completeStale ? <StaleNote changes={completeStale} what="The checklist" /> : null}
+          {completeStale ? (
+            <StaleNote
+              {...completeStale}
+              again="Review the changes, then choose Complete receiving."
+            />
+          ) : null}
           {problem ? (
             <div className="alert alert-error" role="alert">
               {refusals.length ? (

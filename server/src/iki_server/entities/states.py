@@ -274,11 +274,16 @@ def _conditions(
     """Why the record can't be set to each of ``candidates`` now, as the record is, by
     state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
     the guard's name."""
-    from iki_server.entities import checking, guards, holds
+    from iki_server.entities import checking, guards, holds, requests
 
     if not candidates:
         return {}
     out: dict[str, tuple[str, str | None]] = {}
+    completion = requests.spec_of(entity.type)
+    if completion and completion.completed_field == field:
+        for st in candidates:
+            if st.name == completion.completed_state and (why := requests.delivery_refusal(entity)):
+                out[st.name] = (why, None)
     if any(st.locks for st in candidates):
         held = holds.blocks_locking(entity)
         if held:

@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AssayPlate
 label: Assay plate
-schema_version: 2
+schema_version: 3
 hrid: { prefix: APL }
 description: The reader export and the samples, dilution series and controls assigned to its wells.
 fields:
@@ -19,6 +19,11 @@ fields:
     type: ref
     to: iki/example_lims.AnalysisRequest
     description: The analytical request these measurements will answer, when the plate is run for a requester.
+  reagent_tube:
+    type: ref
+    to: iki/example_lims.Tube
+    immutable: true
+    description: The tube of reagent used for this plate.
   assignments:
     type: list
     label: Well assignments

@@ -604,9 +604,7 @@ def _stage_rows(
                 refs,
                 by_run=True,
                 check_rules=False,
-                defer_result_check=bool(
-                    (spec := requests.result_spec(create.type)) and spec.material
-                ),
+                defer_result_check=requests.result_spec(create.type) is not None,
             )
         except Invalid as error:
             check.errors = []
@@ -1153,11 +1151,11 @@ def _first_line(error: Exception) -> str:
     return f"The database refused it: {str(error).splitlines()[0][:500]}"
 
 
-def _check_request_materials(imported: RunImport, project: Project, types: Sequence[str]) -> None:
+def _check_request_results(imported: RunImport, project: Project, types: Sequence[str]) -> None:
     """Check actual IDs after keyed creates resolve, holding requests until the import commits."""
     for type_name in types:
         spec = requests.result_spec(type_name)
-        if not spec or not spec.material:
+        if not spec:
             continue
         form = shape(type_name)
         with connection.cursor() as cursor:
@@ -1165,13 +1163,15 @@ def _check_request_materials(imported: RunImport, project: Project, types: Seque
                 f"SELECT parts #>> %s AS request, parts #>> %s AS material, min(line) "  # noqa: S608 - _lines is our table
                 f"FROM {_lines(imported)} s WHERE type = %s GROUP BY 1, 2 ORDER BY 1, 2",
                 [
-                    [form.part_of(name).model._meta.db_table, name]
+                    [form.part_of(name).model._meta.db_table, name] if name else None
                     for name in (spec.of, spec.material)
                 ]
                 + [type_name],
             )
             for request, material, line in cursor:
-                given = {spec.of: uuid.UUID(request), spec.material: uuid.UUID(material)}
+                given: dict[str, Any] = {spec.of: uuid.UUID(request)}
+                if spec.material:
+                    given[spec.material] = uuid.UUID(material) if material else None
                 for name, errors in requests.check_result(
                     project, type_name, given, lock=True
                 ).items():
@@ -1210,7 +1210,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             raise results.InvalidOutput(
                 [{"pointer": results.pointer("creates_file"), "detail": refused}]
             )
-        _check_request_materials(imported, project, types)
+        _check_request_results(imported, project, types)
         identified = [t for t in types if shape(t).has_entries]
         owners = sorted(
             {

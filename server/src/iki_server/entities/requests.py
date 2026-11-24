@@ -39,7 +39,7 @@ from typing import Any
 
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 from django.db.models.functions import Now
 from psycopg import sql
 
@@ -593,6 +593,11 @@ def materials_of(request: Entity, revision: int | None = None) -> set[uuid.UUID]
 
 
 def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
+    """Whether a result covers at least one of the commissioned materials."""
+    return next(_covered_subjects(materials, material), None) is not None
+
+
+def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> Iterator[uuid.UUID]:
     """A requested record or its physical derivative through an immutable aliquot chain."""
     from iki_server.amounts.models import Movement, MovementKind
 
@@ -600,11 +605,11 @@ def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
     pending = [material] if materials and material is not None else []
     while pending:
         child = pending.pop()
-        if child in materials:
-            return True
         if child in seen:
             continue
         seen.add(child)
+        if child in materials:
+            yield child
         parent = (
             Movement.objects.filter(entity_id=child, kind=MovementKind.ALIQUOT)
             .values_list("counterpart_id", flat=True)
@@ -614,7 +619,6 @@ def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
             pending.append(parent)
         else:
             pending.extend(_declared_parents(child))
-    return False
 
 
 def _declared_parents(child_id: uuid.UUID) -> list[uuid.UUID]:
@@ -667,6 +671,89 @@ def check_work_item(
     return {spec.of: [f"isn't a request sent to {project.name}: work items are the service's."]}
 
 
+def _material_matches(request: Entity, material: uuid.UUID | None) -> bool:
+    subjects = materials_of(request)
+    return covers(subjects, material) if material is not None else not subjects
+
+
+def result_rows(request: Entity) -> Iterator[tuple[str, ResultSpec, QuerySet[Any]]]:
+    """Each concrete type of result that can answer this request and all its recorded results."""
+    from iki_server.entities.values import subtypes
+
+    for name in result_types():
+        spec = result_spec(name)
+        if spec is None or registry.types()[name].abstract:
+            continue
+        form = shape(name)
+        if any(request.type in subtypes(t) for t in form.fields()[spec.of].to):
+            yield (
+                name,
+                spec,
+                form.model._default_manager.filter(type=name, **{f"{spec.of}_id": request.pk}),
+            )
+
+
+def delivery_refusal(request: Entity) -> str | None:
+    """Every result has been returned as its type requires, covering each expected subject."""
+    from iki_server.entities import services
+    from iki_server.entities.values import to_json
+    from iki_spec import titles
+
+    owner = request.owner_project_id
+    if owner is None:
+        return "Only a project request can be delivered."
+    missing = materials_of(request)
+    any_result = False
+    pending = False
+    for name, spec, rows in result_rows(request):
+        release = shape(name).fields()[spec.released_field]
+        signed_states = {
+            state for state in spec.released_states if release.states[state].signatures
+        }
+        links = ProjectLink.objects.filter(
+            entity_id=OuterRef("pk"), project_id=owner, via_request=request
+        )
+        # A plain release needs its recorded transition. A signed release also needs the
+        # signatures on that transition, even when a previous revision was signed.
+        last_transition = Revision.objects.filter(
+            entity_id=OuterRef("pk"), state_field=spec.released_field
+        ).order_by("-number")
+        signatures = Subquery(last_transition.values("signatures")[:1])
+        material_field = [spec.material] if spec.material else []
+        for state, returned, evidence, *material in rows.values_list(
+            spec.released_field, Exists(links), signatures, *material_field
+        ).iterator():
+            any_result = True
+            if (
+                state not in spec.released_states
+                or not returned
+                or evidence is None
+                or (state in signed_states and not evidence)
+            ):
+                pending = True
+            elif missing and material:
+                missing.difference_update(_covered_subjects(missing, material[0]))
+    if missing:
+        records = list(Entity.objects.filter(pk__in=missing).order_by("hrid", "pk"))
+        values = services.current_values_of(records)
+        labels = []
+        for record in records:
+            fields_of_type = shape(record.type).fields()
+            shown = {
+                k: to_json(fields_of_type[k], v)
+                for k, v in values[record.pk].items()
+                if k in fields_of_type
+            }
+            template = registry.display_title(registry.types()[record.type])
+            labels.append(titles.render(template, shown, record.hrid, fields_of_type))
+        return " ".join(f"{label} has no returned result yet." for label in labels)
+    if pending:
+        return "Every recorded deliverable must be returned before completing this request."
+    if not any_result:
+        return "At least one deliverable must be returned before completing this request."
+    return None
+
+
 def check_result(
     project: Project, type_name: str, given: Mapping[str, Any], *, lock: bool = False
 ) -> dict[str, list[str]]:
@@ -675,11 +762,21 @@ def check_result(
     if spec is None or given.get(spec.of) is None:
         return {}
     sent = Request.objects.filter(entity_id=given[spec.of]).select_related("entity")
-    if spec.material and lock:
+    if lock:
         sent = sent.select_for_update(of=("entity",))
     found = sent.first()
     if found is not None and found.service_id == project.pk:
-        if spec.material and not covers(materials_of(found.entity), given.get(spec.material)):
+        from iki_server.entities import states
+
+        request = spec_of(found.entity.type)
+        if (
+            request
+            and request.completed_field
+            and states.values_of(found.entity).get(request.completed_field)
+            == request.completed_state
+        ):
+            return {spec.of: ["This request has already been delivered."]}
+        if spec.material and not _material_matches(found.entity, given.get(spec.material)):
             return {spec.material: [MATERIAL_REFUSAL]}
         return {}
     return {
@@ -717,7 +814,7 @@ def released(user: User | None, locked: Entity, field: str, state: str, revision
         return
     asking = request.entity.owner_project
     assert asking is not None  # noqa: S101 - a request is a record
-    if spec.material and not covers(materials_of(request.entity), values.get(spec.material)):
+    if spec.material and not _material_matches(request.entity, values.get(spec.material)):
         raise Refused(MATERIAL_REFUSAL)
     there = ProjectLink.objects.select_for_update().filter(entity=locked, project=asking).first()
     if there is not None and there.via_request_id == request.entity_id:

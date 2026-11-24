@@ -135,7 +135,16 @@ def test_it_has_the_columns_asked_for_in_their_order(world: World, lab: dict[str
         columns=["uniprot_ids", "hrid", "molecular_weight"],
         sort="name",
     )
-    assert rows == [
+    assert rows[0][-3:] == ["Last changed", "Revision", "UUID"]
+    for row, entity in zip(rows[1:], (lab["abl1"], lab["insulin"]), strict=True):
+        assert row[-3:] == [
+            entity.updated_at.isoformat().replace("+00:00", "Z"),
+            "1",
+            str(entity.pk),
+        ]
+    _, reordered = download(api_as(world, "viewer"), type=PROTEIN, columns=["id", "hrid", "id"])
+    assert reordered[0] == ["ID", "Last changed", "Revision", "UUID"]
+    assert [r[:-3] for r in rows] == [
         ["Uniprot ids", "ID", "Molecular weight (kDa)"],
         ["P00519", lab["abl1"].hrid, "122.873"],
         ["P01308", lab["insulin"].hrid, "11.981"],
@@ -187,7 +196,7 @@ def test_a_page_that_takes_too_long_ends_the_file_saying_so(
 
     monkeypatch.setattr(search, "page", slow)
     _, rows = download(api_as(world, "viewer"), type=PROTEIN, columns=["name"], sort="name")
-    assert rows == [
+    assert [row[:1] for row in rows] == [
         ["Name"],
         ["ABL1"],
         ["The download stopped here: a page of it took too long to read."],
@@ -270,9 +279,9 @@ def test_no_cell_is_a_formula_a_spreadsheet_would_run(world: World, name: str, c
     protein(world.users["editor"], world.project, name, "MKV")
     response = api_as(world, "viewer").get("/entities/search.csv", type=PROTEIN, columns=["name"])
     text = response.getvalue().decode()
-    assert text.startswith('"Name"\r\n')
+    assert text.startswith('"Name","Last changed","Revision","UUID"\r\n')
     (row,) = list(csv.reader(io.StringIO(text)))[1:]
-    assert row == [cell]
+    assert row[0] == cell
 
 
 def test_a_bad_where_points_at_the_mistake(world: World) -> None:
@@ -346,7 +355,7 @@ def test_each_row_is_one_revision_of_its_record(
     assert {Entity.objects.get(pk=r["UUID"]).revision for r in got} == {2}
     # The next download has the edits, with their revision.
     _, again = download(api_as(world, "viewer"), type=PROTEIN, columns=["name", "revision"])
-    assert again[1:] == [["Renamed", "2"], ["Renamed", "2"]]
+    assert [(r["Name"], r["Revision"]) for r in by_header(again)] == [("Renamed", "2")] * 2
 
 
 @pytest.mark.parametrize(

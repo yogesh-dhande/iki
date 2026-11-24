@@ -4,6 +4,8 @@ Tox21 measured these flavonoids against purified _Photinus pyralis_ luciferase. 
 
 ## The example plate
 
+The requesting project sends tubes of apigenin and daidzein. The assay project supplies the luciferase reagent tube recorded on the plate. The request can be marked Delivered once the assay group returns a signed fit for each compound.
+
 This 96-well teaching layout rearranges measurements from the source screen. Rows A–C hold apigenin and D–F hold daidzein. Each row is one deposited replicate. Columns 1–11 use the eleven highest concentrations shared by these series. In µM they are 0.017, 0.038, 0.085, 0.191, 0.435, 1.330, 4.074, 10.46, 23.64, 52.95 and 115.2. Column 12 alternates three measured replicates of the active comparator ataluren (SID 170466862 in A, C and E) and the inactive comparator caffeine (SID 144208883 in B, D and F), both at 0.435 µM. These control wells come from compound titrations in the deposit. [Example CSV](../tests/data/aid-1224835-activity.csv).
 
 | Compound | PubChem CID | Tested SID | Deposited IC50s, replicates 1–3 (µM) | Iki pooled IC50 (95% interval, µM) |

@@ -24,11 +24,11 @@ from test_signatures import ready, signed
 from iki_server.accounts.models import User
 from iki_server.amounts import services as amounts
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, requests, services
+from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity
 from iki_server.files import storage
 from iki_server.files.models import File
-from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
@@ -109,6 +109,10 @@ def exercise() -> None:
 def _run_example(world: World, flow: str, bucket: Path) -> None:
     project = world.project
     admin = world.users["admin"]
+    # A request reviewer in the service project closes the request once both fits are returned.
+    LabRoleGrant.objects.create(
+        membership=project.memberships.get(user=admin), role="iki/example_lims.reviewer"
+    )
     asker = Project.objects.create(team=world.team, name="Requesting group")
     # The admin sets up the example. A separate member of the requester can read only
     # what the signed release returns across the project boundary.
@@ -174,8 +178,12 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         dose_response.check_example(project, other, by=admin)
     assert not requests.accepts(project, other, request.type)
     receipt = receipts.start(admin, request)
-    tube = Entity.objects.get(pk=ids["tube"])
-    tube_ids = [ids[key] for key in ("tube", "apigenin", "daidzein")]
+    tube_ids = [ids[key] for key in public_plate.SERIES]
+    assert requests.materials_of(request) == {UUID(tube_id) for tube_id in tube_ids}
+    reagent_ids = [ids[key] for key in ("protein", "sample", "tube")]
+    assert Entity.objects.filter(pk__in=reagent_ids, owner_project=project).count() == 3
+    assert not access.visible(requester).filter(pk__in=reagent_ids).exists()
+    assert {str(line.entity_id) for line in receipt.lines.all()} == set(tube_ids)
     lines = []
     for shipped in Entity.objects.filter(pk__in=tube_ids):
         scanned = receipts.scan(admin, receipt, shipped.hrid)
@@ -206,10 +214,15 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
 
     waiting = api.get("/storage/awaiting-put-away")
     assert waiting.status_code == 200, waiting.content
-    [held] = [item for item in waiting.json() if item["id"] == str(tube.pk)]
-    assert held["custodian"]["id"] == str(admin.pk) and held["custody_since"]
+    held = {item["id"]: item for item in waiting.json()}
+    assert all(
+        held[t]["custodian"]["id"] == str(admin.pk) and held[t]["custody_since"] for t in tube_ids
+    )
+    assert ids["tube"] not in held
 
     plate = UUID(ids["plate"])
+    plate_values = services.current_values_of([Entity.objects.get(pk=plate)])[plate]
+    assert str(plate_values["reagent_tube"]) == ids["tube"]
     _worker(world, "preview_reader", {"plate": [plate]}, {}, csv)
     _worker(world, "commit_reader", {"plate": [plate]}, {}, csv)
     read = Entity.objects.get(owner_project=project, type=PREFIX + "PlateRead")
@@ -248,9 +261,16 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         assert values["endpoint_value"] == pytest.approx(reference, rel=0.05)
         assert values["ci_low"] <= reference <= values["ci_high"]
         _check_release(world, flow, requester, result, values, ids, asker)
-    _check_derivative_results(
-        world, flow, asker, other, request, requester, ids, tube, tube_ids, csv
-    )
+        request.refresh_from_db()
+        if key == "apigenin":
+            with pytest.raises(Refused, match="Daidzein has no returned result yet"):
+                states.set_state(
+                    admin, request, "status", "delivered", expected_revision=request.revision
+                )
+    states.set_state(admin, request, "status", "delivered", expected_revision=request.revision)
+    assert states.values_of(request)["status"] == "delivered"
+    assert not access.visible(requester).filter(pk__in=reagent_ids).exists()
+    _check_derivative_results(world, flow, asker, other, requester, ids, csv)
 
 
 def _check_derivative_results(
@@ -258,11 +278,8 @@ def _check_derivative_results(
     flow: str,
     asker: Project,
     other: Project,
-    request: Entity,
     requester: User,
     ids: dict[str, str],
-    tube: Entity,
-    tube_ids: list[str],
     csv: Path,
 ) -> None:
     admin, project = world.users["admin"], world.project
@@ -273,21 +290,28 @@ def _check_derivative_results(
         return amounts.Given.of({"value": value, "unit": "uL"})
 
     split_source = services.create(
-        admin, tube.type, asker, {"name": "Tube for aliquoting"}, amount={"value": 10, "unit": "uL"}
+        admin,
+        "iki/example_lims.Tube",
+        asker,
+        {"name": "Tube for aliquoting"},
+        amount={"value": 10, "unit": "uL"},
     )
     source_tube = Entity.objects.get(pk=split_source.entity.pk)
-    request.refresh_from_db()
-    services.update(
+    created = services.create(
         admin,
-        request,
-        {"tubes": [*tube_ids, str(source_tube.pk)]},
-        expected_revision=request.revision,
+        dose_response.REQUEST_TYPE,
+        asker,
+        {"title": "Assay the tube derivative", "tubes": [str(source_tube.pk)]},
     )
+    request = Entity.objects.get(pk=created.entity.pk)
+    requests.submit(admin, request, project, expected_revision=request.revision)
+    request.refresh_from_db()
     (first,) = amounts.split(admin, source_tube, 1, portion(5)).aliquots
     (nested,) = amounts.split(admin, first, 1, portion(2)).aliquots
     services.link(admin, nested, project)
-    protein = Entity.objects.get(pk=ids["protein"])
-    services.link(admin, protein, other)
+    protein = services.create(
+        admin, "iki/protein.Protein", other, {"name": "Separate sample protein", "sequence": "MKVL"}
+    ).entity
     separate = services.create(
         admin, "iki/example_lims.Sample", other, {"protein": str(protein.pk)}
     )
@@ -356,9 +380,17 @@ def _check_derivative_results(
         assert recorded["sample"] == material.pk
         assert (recorded["procedure"], recorded["procedure_revision"]) == ("SOP-PLATE", "2")
         assert recorded.get("request") == (request.pk if material == nested else None)
+        if material == nested:
+            assert (
+                requests.delivery_refusal(request)
+                == "Tube for aliquoting has no returned result yet."
+            )
         for signer, to in steps:
             assert signed(world, signer, str(made.pk), to, field="review").signature_id
         assert access.visible(requester).filter(pk=made.pk).exists() == (material == nested)
+    # The signed fit on the twice-split aliquot now covers its commissioned source tube.
+    states.set_state(admin, request, "status", "delivered", expected_revision=request.revision)
+    assert states.values_of(request)["status"] == "delivered"
 
 
 def _check_release(

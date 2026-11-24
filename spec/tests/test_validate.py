@@ -2455,13 +2455,22 @@ def test_on_edit_cannot_change_or_release_a_result(tmp_path: Path) -> None:
 
 
 def test_a_request_type_names_its_services_fields_and_what_it_sends(tmp_path: Path) -> None:
-    result = make(tmp_path, requests(), ROLES)
+    result = make(
+        tmp_path,
+        requests(
+            REQUEST.replace(
+                "  sends:", "  completed: { field: status, state: delivered }\n  sends:"
+            )
+        ),
+        ROLES,
+    )
     assert result.problems == []
     assert result.plugin is not None
     request = result.plugin.types["acme/lab.AssayRequest"].request
     assert request is not None
     assert request.service_fields == ("status", "priority", "scheduled_on", "technician")
     assert request.sends == ("samples",)
+    assert (request.completed_field, request.completed_state) == ("status", "delivered")
     found = result.plugin.types["acme/lab.AssayResult"].result
     assert found is not None
     assert (found.of, found.released_field, found.released_states) == (
@@ -2730,6 +2739,20 @@ notifications:
             RESULT.replace(REQUEST_REF, "to: Sample, required: true, immutable: true"),
             "result-of-not-a-request",
             "must refer to a request type",
+        ),
+        (
+            REQUEST.replace(
+                "  sends:", "  completed: { field: status, state: submitted }\n  sends:"
+            ),
+            RESULT,
+            "request-completion-state",
+            "non-initial state",
+        ),
+        (
+            REQUEST.replace("  sends:", "  completed: { field: title, state: absent }\n  sends:"),
+            RESULT,
+            "request-completion-state",
+            "service writes",
         ),
         (
             REQUEST,

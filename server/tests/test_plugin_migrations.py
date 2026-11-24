@@ -223,11 +223,11 @@ def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -
                 "request": str(request.pk), "sample": str(imports.stand_in(staged, "portion"))}})
         with transaction.atomic():
             imports._replace_stand_ins(staged, {"portion": children[0].pk})
-            imports._check_request_materials(staged, facility, [kind])
+            imports._check_request_results(staged, facility, [kind])
         request.refresh_from_db()
         services.update(admin, request, {"specimens": []}, expected_revision=request.revision)
         with transaction.atomic(), pytest.raises(results.InvalidOutput):
-            imports._check_request_materials(staged, facility, [kind])
+            imports._check_request_results(staged, facility, [kind])
         result = {}
     """,
     )

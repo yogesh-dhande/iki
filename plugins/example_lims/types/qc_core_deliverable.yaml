@@ -4,10 +4,11 @@ kind: EntityType
 name: QCCoreDeliverable
 label: Regulated QC core deliverable
 extends: CoreDeliverable
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QCD }
 result:
   of: request
+  material: tube
   released: { field: review, states: [released] }
 fields:
   request:

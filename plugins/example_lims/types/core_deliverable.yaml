@@ -4,7 +4,7 @@ kind: EntityType
 name: CoreDeliverable
 label: Core deliverable
 abstract: true
-schema_version: 1
+schema_version: 2
 description: The core's record of one production lot or sequencing tube, with a report and its evidence.
 fields:
   outcome:
@@ -34,6 +34,7 @@ fields:
     min: 0
   tube:
     type: ref
+    immutable: true
     to: Tube
     description: The tube from the request this sequencing result belongs to.
   data_files:

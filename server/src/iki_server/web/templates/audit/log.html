@@ -9,6 +9,8 @@
   <form method="get" class="filter-form">
     {% include "web/_field.html" with field=form.action %}
     {% include "web/_field.html" with field=form.person %}
+    {% include "web/_field.html" with field=form.actor %}
+    {% include "web/_field.html" with field=form.record_type %}
     {% include "web/_field.html" with field=form.project %}
     {% include "web/_field.html" with field=form.via %}
     {% include "web/_field.html" with field=form.agent %}
@@ -22,6 +24,7 @@
     </div>
   </form>
 </details>
+<p><a class="button" href="{% url 'audit:export' %}{% if export_query %}?{{ export_query }}{% endif %}">Download CSV</a></p>
 <ol class="rows audit-events" aria-label="Events">
   {% for event, label, agent, details in events %}
   <li class="row">

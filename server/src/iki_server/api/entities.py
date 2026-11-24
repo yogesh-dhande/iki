@@ -2476,7 +2476,8 @@ class SearchCsvParams(Schema):
         max_length=200,
         description="The columns, in order, by name: the type's fields, and `hrid`, `type`, "
         "`title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` "
-        "and `sent_to`). The grid's, without them.",
+        "and `sent_to`). Defaults to the grid columns. Every row ends with "
+        "`updated_at`, `revision` and `id`.",
     )
 
 

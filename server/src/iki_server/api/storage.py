@@ -1308,10 +1308,18 @@ class PutAwayIn(Schema):
     position: str | None = Field(None, max_length=8, description="Null: its next free one.")
 
 
-class CompleteReceiptIn(ReviewedReceiptIn):
+class ReceiptPlacementIn(ReviewedReceiptIn):
     model_config = ConfigDict(extra="forbid")
 
     put_away: list[PutAwayIn] = Field(default_factory=list, max_length=storage.MAX_MOVES)
+
+
+class CompleteReceiptIn(ReceiptPlacementIn):
+    plan: str | None = Field(
+        None,
+        pattern="^[0-9a-f]{64}$",
+        description="The put-away preview hash. Required when choosing the next free position.",
+    )
     keep_in_custody: list[UUID] = Field(
         default_factory=list,
         description="IDs of received lines the receiver will hold without a storage location.",
@@ -1320,6 +1328,34 @@ class CompleteReceiptIn(ReviewedReceiptIn):
         default_factory=bool,
         description="Mark every unchecked expected line missing. Defaults to false.",
     )
+
+
+def _put_away(me: User, payload: ReceiptPlacementIn) -> list[receipts.PutAway]:
+    boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
+    return [
+        receipts.PutAway(
+            p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+        )
+        for p in payload.put_away
+    ]
+
+
+@router.post(
+    "/receipts/{receipt_id}/put-away/preview",
+    response=MovesOut,
+    summary="Review a receipt's put-away positions",
+)
+def preview_receipt_placement(
+    request: HttpRequest, receipt_id: UUID, payload: ReceiptPlacementIn
+) -> dict[str, Any]:
+    me = caller(request)
+    receipt = _receipt(me, receipt_id)
+    planned = _receiving(
+        lambda: receipts.preview_put_away(
+            me, receipt, _put_away(me, payload), plan_revision=payload.plan_revision
+        )
+    )
+    return _previewed(me, planned)
 
 
 @router.post("/receipts/{receipt_id}/complete", response=ReceiptOut, summary="Complete a receipt")
@@ -1331,23 +1367,26 @@ def complete_receipt(
     me = caller(request)
     receipt = _receipt(me, receipt_id)
     with transaction.atomic():
-        boxes = scan_identity.ScanIndex(me, (p.to for p in payload.put_away))
-        put = [
-            receipts.PutAway(
-                p.line, _destination(boxes, p.to, mode=p.to_mode, choice=p.to_choice), p.position
+        put = _put_away(me, payload)
+        try:
+            changed = _receiving(
+                lambda: receipts.complete(
+                    me,
+                    receipt,
+                    put,
+                    plan_revision=payload.plan_revision,
+                    keep_in_custody=payload.keep_in_custody,
+                    missing_rest=payload.missing_rest,
+                    plan=payload.plan,
+                )
             )
-            for p in payload.put_away
-        ]
-        changed = _receiving(
-            lambda: receipts.complete(
-                me,
-                receipt,
-                put,
-                plan_revision=payload.plan_revision,
-                keep_in_custody=payload.keep_in_custody,
-                missing_rest=payload.missing_rest,
-            )
-        )
+        except storage.PlanChanged as changed_plan:
+            raise Problem(
+                409,
+                "Review the current put-away positions before completing this receipt.",
+                code="moves_plan_changed",
+                extensions={"moves": _previewed(me, changed_plan.planned)},
+            ) from None
         return _receipt_out(me, changed, locked=True)
 
 

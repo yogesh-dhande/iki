@@ -105,6 +105,21 @@ async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
   });
   // Read again just before it's completed: unchanged unless a test says otherwise.
   answer(`GET ${api}`, open);
+  answer(`POST ${api}/put-away/preview`, ({ body }: { body: Schemas["ReceiptPlacementIn"] }) => {
+    const places = body.put_away ?? [];
+    const fixed = new Set(places.map((p) => p.position));
+    const free = ["A2", "A3", "A4"].filter((p) => !fixed.has(p));
+    return {
+      done: false,
+      operation: null,
+      plan: "a".repeat(64),
+      items: places.map((p) => ({
+        record: { hrid: p.line, id: open.lines.find((l) => l.id === p.line)?.entity },
+        to: { id: BOX_ID, position: p.position ?? free.shift() },
+        problems: [],
+      })),
+    };
+  });
   const rendered = await renderApp(`/storage/receive/${ask}/`);
   await screen.findByRole("list", { name: "Checklist" });
   return rendered;
@@ -949,6 +964,46 @@ it("shows each of the server’s refusals on its line, and keeps the plan editab
     put_away: [{ line: "line-000001", to: BOX_CODE, position: "A3" }],
     keep_in_custody: ["line-000002"],
   });
+});
+
+it("shows changed put-away positions and waits for another review before completing", async () => {
+  const { user } = await openReceipt(received());
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  const box = incoming();
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, box);
+  await showBox(user);
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 3 free" });
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  const [occupied] = box.contents;
+  if (!occupied) throw new Error("Expected an occupied well.");
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, {
+    ...box,
+    contents: [...box.contents, { ...occupied, id: "new", column: 2, position: "A2" }],
+  });
+  const current = {
+    plan: "b".repeat(64),
+    items: [{ record: { hrid: "TUB-000001" }, to: { position: "A3" }, problems: [] }],
+  };
+  answer(
+    `POST ${api}/complete`,
+    problem(409, "moves_plan_changed", "Review the positions.", undefined, { moves: current }),
+  );
+  await user.click(completeButton());
+  await screen.findByText(/^The put-away plan changed/);
+  expect(screen.getByText("Previously A2, now A3", { exact: false })).toBeVisible();
+  expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    plan: "a".repeat(64),
+    put_away: [{ position: null }],
+  });
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 2 free" });
+  answer(`POST ${api}/put-away/preview`, current);
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(2);
+  });
+  expect(calls("POST", `${api}/complete`)[1]?.body).toMatchObject({ plan: current.plan });
 });
 
 it("reloads a receipt that changed since it was reviewed, and waits to be completed again", async () => {

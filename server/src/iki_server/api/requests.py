@@ -35,7 +35,7 @@ from iki_server.api.schemas import ProjectRef, UserOut
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, registry, requests, services
 from iki_server.entities.models import Entity, ProjectLink, Request
-from iki_server.entities.values import Invalid, shape
+from iki_server.entities.values import Invalid
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
@@ -362,25 +362,10 @@ def _results(me: User, entity: Entity) -> list[Entity]:
     """The results of the request ``me`` can read, oldest first."""
     found: list[Entity] = []
     readable = access.visible(me)
-    for name in sorted(registry.types()):
-        spec = requests.result_spec(name)
-        entity_type = registry.types()[name]
-        if spec is None or entity_type.abstract:
-            continue
-        form = shape(name)
-        f = form.fields().get(spec.of)
-        if f is None or not any(entity.type in _subtypes_of(t) for t in f.to):
-            continue
-        rows = form.model._default_manager.filter(type=name, **{f"{spec.of}_id": entity.pk})
+    for _, _, rows in requests.result_rows(entity):
         found.extend(
             readable.filter(pk__in=rows.values("pk"), archived_at__isnull=True).select_related(
                 "created_by"
             )
         )
     return sorted(found, key=lambda e: (e.created_at, e.pk))[:200]
-
-
-def _subtypes_of(name: str) -> set[str]:
-    from iki_server.entities.values import subtypes
-
-    return subtypes(name)

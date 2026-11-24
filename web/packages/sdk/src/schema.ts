@@ -3439,6 +3439,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/put-away/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review a receipt's put-away positions */
+        post: operations["iki_server_api_storage_preview_receipt_placement"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/scan": {
         parameters: {
             query?: never;
@@ -7120,6 +7137,11 @@ export interface components {
              * @description Mark every unchecked expected line missing. Defaults to false.
              */
             missing_rest?: boolean;
+            /**
+             * Plan
+             * @description The put-away preview hash. Required when choosing the next free position.
+             */
+            plan?: string | null;
             /**
              * Plan Revision
              * @description The receipt revision you reviewed.
@@ -13790,6 +13812,16 @@ export interface components {
              */
             status: "open" | "completed" | "cancelled";
         };
+        /** ReceiptPlacementIn */
+        ReceiptPlacementIn: {
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
+            /** Put Away */
+            put_away?: components["schemas"]["PutAwayIn"][];
+        };
         /** ReceiptScanIn */
         ReceiptScanIn: {
             /** Choice */
@@ -15893,7 +15925,7 @@ export interface components {
             collection?: string | null;
             /**
              * Columns
-             * @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them.
+             * @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`.
              */
             columns?: string[];
             /**
@@ -21235,7 +21267,7 @@ export interface operations {
                 /** @description A field to sort by. */
                 sort?: string | null;
                 descending?: boolean;
-                /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). The grid's, without them. */
+                /** @description The columns, in order, by name: the type's fields, and `hrid`, `type`, `title`, `project`, `updated_at`, `revision` and `id` (and a request's `asked_by` and `sent_to`). Defaults to the grid columns. Every row ends with `updated_at`, `revision` and `id`. */
                 columns?: string[];
             };
             header?: never;
@@ -24602,6 +24634,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_storage_preview_receipt_placement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptPlacementIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovesOut"];
                 };
             };
         };

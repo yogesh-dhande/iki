@@ -729,6 +729,9 @@ class RequestSpec:
     receives_by: tuple[str, ...] = ()
     #: Sent fields that identify the physical material commissioned for testing.
     materials: tuple[str, ...] = ()
+    #: The service transition that certifies delivery of the request.
+    completed_field: str | None = None
+    completed_state: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1730,7 +1733,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and not value.reason_on_clear
             )
             and not (
-                isinstance(value, RequestSpec) and f.name == "materials" and not value.materials
+                isinstance(value, RequestSpec)
+                and f.name in {"materials", "completed_field", "completed_state"}
+                and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, ResultSpec) and f.name == "material" and value.material is None
@@ -1881,6 +1886,8 @@ def _request(data: dict[str, Any] | None) -> RequestSpec | None:
         service_fields=tuple(data["service_fields"]),
         sends=tuple(data["sends"]),
         materials=tuple(data.get("materials") or ()),
+        completed_field=data.get("completed_field"),
+        completed_state=data.get("completed_state"),
         receives=data.get("receives"),
         receives_by=tuple(data.get("receives_by") or ()),
     )

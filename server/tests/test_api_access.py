@@ -826,7 +826,8 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         if body is not None and "reason" in body and "/lines/" in path:
             return path, {**body, "line_revision": line.line_revision}
         if body is not None and (
-            suffix == "/receipts/{receipt}" or suffix.endswith(("/complete", "/cancel"))
+            suffix == "/receipts/{receipt}"
+            or suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
         ):
             return path, {**body, "plan_revision": started.plan_revision}
         return path, body
@@ -844,7 +845,7 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         line = started.lines.get(entity=tube)
         payload = (
             {**body, "plan_revision": started.plan_revision}
-            if suffix.endswith(("/complete", "/cancel"))
+            if suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
             else body
         )
         if suffix.endswith("/lines/{line}"):
@@ -1385,6 +1386,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "POST",
         "/receipts/{receipt_id}/lines/{line_id}/restore",
         receipt("/receipts/{receipt}/lines/{line}/restore", {"reason": "Confirmed extra"}),
+        readers(403),
+    ),
+    (
+        "POST",
+        "/receipts/{receipt_id}/put-away/preview",
+        receipt("/receipts/{receipt}/put-away/preview", {}),
         readers(403),
     ),
     (

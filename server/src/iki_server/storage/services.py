@@ -438,13 +438,17 @@ def plan(
     *,
     confirmations: Mapping[Any, str | Confirmation] | None = None,
     receiving: bool = False,
+    taken_into_custody: frozenset[UUID] = frozenset(),
 ) -> list[Planned]:
     """What each move would do, and each problem with it, changing nothing. ``receiving``
-    takes custody from wherever a record was recorded, as a receipt does."""
+    takes custody from wherever a record was recorded. A receipt preview supplies the
+    records it will have taken out of their prior locations before putting any away."""
     if len(wanted) > MAX_MOVES:
         raise Wrong({"items": [f"has more than {MAX_MOVES} moves."]})
     records = [w.record.pk for w in wanted]
-    places = {p.pk: p for p in Place.objects.filter(pk__in=records)}
+    places = {
+        p.pk: p for p in Place.objects.filter(pk__in=records) if p.pk not in taken_into_custody
+    }
     targets = {w.to.pk: w.to for w in wanted if w.to is not None}
     sources = {p.container_id for p in places.values() if p.container_id is not None}
     kept = shapes([*targets, *sources])
@@ -457,7 +461,7 @@ def plan(
     # Who's in each target now, and stays: they aren't moving in this plan.
     staying: dict[Any, set[tuple[int, int]]] = {pk: set() for pk in targets}
     for p in Place.objects.filter(container__in=list(targets), row__isnull=False):
-        if p.pk not in moving:
+        if p.pk not in moving and p.pk not in taken_into_custody:
             staying[p.container_id].add((p.row, p.column))  # type: ignore[arg-type]
     claimed: dict[Any, set[tuple[int, int]]] = {pk: set() for pk in targets}
     out: list[Planned] = []
@@ -658,6 +662,7 @@ def move(
     operation: Any = None,  # noqa: ANN401 - a UUID
     handed_over_by: str = "",
     reviewed: str | None = None,
+    require_position_review: bool = False,
 ) -> list[Event]:
     """Puts each record where it's wanted, all of them or none, as one operation.
     ``reviewed`` names the plan a preview showed (:func:`identify`): if the moves would
@@ -673,7 +678,11 @@ def move(
             if is_container(to.type):
                 ensure_container(to)
         planned = plan(user, wanted, confirmations=confirmations, receiving=receiving)
-        if reviewed is not None and identify(planned) != reviewed:
+        needs_review = require_position_review and any(
+            item.position is None and step.position is not None
+            for item, step in zip(wanted, planned, strict=True)
+        )
+        if (reviewed is not None or needs_review) and identify(planned) != reviewed:
             raise PlanChanged(planned)
         wrong = problems_of(planned)
         if wrong:

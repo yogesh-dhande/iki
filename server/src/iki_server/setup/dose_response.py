@@ -44,10 +44,10 @@ def check_example(project: Project, requester_project: Project, *, by: User) -> 
 
 @transaction.atomic
 def seed_example(project: Project, requester_project: Project, *, by: User) -> dict[str, str]:
-    """Prepare the request, its expected tube and the mapped plate once on first apply.
+    """Prepare the compound shipment, the service’s reagent and its mapped plate on first apply.
 
     The starter application holds the assay project lock and retains these IDs. The coordinator
-    receives the tube and the assigned staff run and sign the fit using their own accounts.
+    receives the compound tubes. The assigned staff run and sign the fits using their own accounts.
     """
     check_example(project, requester_project, by=by)
     if not requests.accepts(project, requester_project, REQUEST_TYPE):
@@ -57,23 +57,23 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
     protein = services.create(
         by,
         "iki/protein.Protein",
-        requester_project,
+        project,
         {"name": "Firefly luciferase (Photinus pyralis)", "sequence": public_plate.LUCIFERASE},
     ).entity
     sample = services.create(
         by,
         "iki/example_lims.Sample",
-        requester_project,
+        project,
         {
             "protein": str(protein.pk),
             "lot": "Firefly luciferase assay target",
             "notes": "Target enzyme for the Tox21 flavonoid dilution series (PubChem AID 1224835).",
         },
     ).entity
-    tube = services.create(
+    reagent_tube = services.create(
         by,
         "iki/example_lims.Tube",
-        requester_project,
+        project,
         {"name": "Firefly luciferase assay target", "sample": str(sample.pk)},
     ).entity
     compound_tubes = {}
@@ -100,10 +100,9 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         requester_project,
         {
             "title": public_plate.PLATE_NAME,
-            "tubes": [str(tube.pk), *compound_tubes.values()],
-            "samples": [str(sample.pk)],
+            "tubes": list(compound_tubes.values()),
             "instructions": (
-                "Fit the IC50 of apigenin and daidzein against the supplied luciferase. "
+                "Fit the IC50 of apigenin and daidzein against the assay group's luciferase. "
                 "Use all three replicate series from PubChem AID 1224835."
             ),
         },
@@ -133,6 +132,7 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
             "size": "plate_96",
             "reader_file": str(reader.pk),
             "request": str(request.pk),
+            "reagent_tube": str(reagent_tube.pk),
             "assignments": public_plate.assignments(compound_tubes),
         },
     ).entity
@@ -142,7 +142,7 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         "request": str(request.pk),
         "protein": str(protein.pk),
         "sample": str(sample.pk),
-        "tube": str(tube.pk),
+        "tube": str(reagent_tube.pk),
         "plate": str(plate.pk),
         "reader_file": str(reader.pk),
     }

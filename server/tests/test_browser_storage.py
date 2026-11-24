@@ -1784,24 +1784,24 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
         },
     )
     assert status == 200, body
-    with page.expect_response(f"**{path}/complete") as answered:
+    sent_completions = completions(page, path)
+    with page.expect_response(f"**{path}/put-away/preview") as preview:
         complete.click()
-    assert answered.value.status == 422
+    assert preview.value.status == 200
 
-    # Refused on that tube, which is open again; A1 is read again as taken.
+    # The newly available well is shown before anything is sent for completion.
     refusal = page.get_by_role("region", name="Complete", exact=True).get_by_role("alert")
-    expect(refusal).to_contain_text(f"{tubes[1]['hrid']}: {incoming['hrid']} has something at A1")
+    expect(refusal).to_contain_text(f"{tubes[1]['hrid']}: Previously A1, now A2")
     expect(plan).to_have_accessible_name(f"{incoming['hrid']} Incoming · 3 free")
-    expect(choices[1]).to_have_value("")
-    expect(choices[1]).to_have_attribute("aria-invalid", "true")
-    expect(choices[1]).to_have_accessible_description(re.compile("has something at A1"))
+    expect(choices[1]).to_have_value("A2")
+    assert sent_completions == []
     for choice in choices:
         expect(choice.get_by_role("option", name=re.compile(r", A1$"))).to_have_count(0)
     taken = page.get_by_role("grid").get_by_role("gridcell", name=re.compile(r"^A1, "))
     expect(taken).to_have_accessible_name(re.compile(f"^A1, {theirs['hrid']}"))
     expect(choices[0]).to_have_value("B2")
     expect(choices[2]).to_have_value("keep")
-    expect(complete).to_be_disabled()
+    expect(complete).to_be_enabled()
     # Nothing was completed, placed or taken into custody.
     now = held_by(page, path)
     assert now["receipt"]["status"] == "open"
@@ -1811,16 +1811,20 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
     assert {o["position"]: o["ref"]["hrid"] for o in box.json()["contents"] if o["ref"]} == {
         "A1": theirs["hrid"]
     }
-    # Chromium and WebKit log the refusal as a failed load: that, and nothing else.
-    expected_refusals(page, "422")
     checked(page)
 
-    # Another well for it, and it completes as shown.
-    choices[1].select_option("B1")
-    expect(complete).to_be_enabled()
-    with page.expect_response(f"**{path}/complete") as answered:
+    # A second press accepts the new position along with the original manual decisions.
+    with (
+        page.expect_response(f"**{path}/put-away/preview") as reviewed,
+        page.expect_response(f"**{path}/complete") as answered,
+    ):
         complete.click()
     assert answered.value.status == 200
+    assert len(sent_completions) == 1
+    approved = reviewed.value.json()["plan"]
+    submission = sent_completions[0].post_data_json
+    assert isinstance(submission, dict)
+    assert approved and submission["plan"] == approved
     page.get_by_role("heading", level=2, name="Received").wait_for()
     done = held_by(page, path)
     lines = {line["code"]: line for line in done["receipt"]["lines"]}
@@ -1830,7 +1834,7 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
     )
     assert (lines["RC001"]["put_away"]["hrid"], lines["RC001"]["put_away"]["position"]) == (
         incoming["hrid"],
-        "B1",
+        "A2",
     )
     assert (lines["RC002"]["put_away"], lines["RC002"]["received_unplaced"]) == (None, True)
     assert [x["id"] for x in done["waiting"]] == [str(tubes[2]["id"])]

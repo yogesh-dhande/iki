@@ -16,6 +16,7 @@ from test_api_entities import api_as, create, other
 from test_runs import launch, protein, world
 
 from iki_server.api import graph as graph_api
+from iki_server.audit.models import AuditEvent
 from iki_server.entities import search
 from iki_server.entities.models import Entity
 from iki_server.files import services as files
@@ -393,6 +394,14 @@ def test_the_impact_list_downloads_as_csv(world: World) -> None:
     only = editor.get(f"/entities/{a['hrid']}/downstream.csv", type=SAMPLE)
     text = only.getvalue().decode()
     assert [r["hrid"] for r in csv.DictReader(io.StringIO(text))] == [s1["hrid"]]
+    event = AuditEvent.objects.filter(action="lineage.exported").latest("occurred_at")
+    assert event.actor == world.users["editor"] and event.target_id == a["id"]
+    assert event.data["direction"] == "downstream" and event.data["rows"] == 1
+    assert event.data["type"] == [SAMPLE]
+    assert editor.get(f"/entities/{b['hrid']}/upstream.csv", depth=1).status_code == 200
+    event = AuditEvent.objects.filter(action="lineage.exported").latest("occurred_at")
+    assert event.target_id == b["id"] and event.data["direction"] == "upstream"
+    assert event.data["depth"] == 1 and event.data["file"] == f"{b['hrid']}-upstream.csv"
 
 
 def test_the_api_shows_only_what_you_can_read(world: World, other: Project) -> None:

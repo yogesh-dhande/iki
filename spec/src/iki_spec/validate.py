@@ -843,6 +843,8 @@ def _request(data: Any, plugin: str) -> RequestSpec | None:  # noqa: ANN401 - YA
         service_fields=tuple(data.get("service_fields") or ()),
         sends=tuple(data.get("sends") or ()),
         materials=tuple(data.get("materials") or ()),
+        completed_field=(data.get("completed") or {}).get("field"),
+        completed_state=(data.get("completed") or {}).get("state"),
         receives=receives.get("field"),
         receives_by=tuple(lab_role_name(role, plugin) for role in receives.get("by") or ()),
     )
@@ -1794,6 +1796,24 @@ class _Semantics:
                 )
                 continue
             self.service_field(found[0], source, at)
+        if spec.completed_field is not None:
+            found = every.get(spec.completed_field)
+            state = found[0].states.get(spec.completed_state or "") if found else None
+            if (
+                spec.completed_field not in spec.service_fields
+                or not found
+                or found[0].removed
+                or found[0].type != "state"
+                or state is None
+                or state.removed
+                or found[0].initial == spec.completed_state
+            ):
+                self.add(
+                    "request-completion-state",
+                    "Completion must name a non-initial state of a state field the service writes.",
+                    source,
+                    ("request", "completed"),
+                )
         for index, name in enumerate(spec.materials):
             if name not in spec.sends:
                 self.add(
@@ -2027,14 +2047,13 @@ class _Semantics:
             material = every.get(spec.material)
             if material is None or not (
                 material[0].type == "ref"
-                and material[0].required
                 and material[0].immutable
                 and not self._refers_to_identity(material[0])
                 and not material[0].removed
             ):
                 self.add(
                     "result-material",
-                    "Material must be a required, immutable reference to a physical record.",
+                    "Material must be an immutable reference to a physical record.",
                     source,
                     ("result", "material"),
                 )

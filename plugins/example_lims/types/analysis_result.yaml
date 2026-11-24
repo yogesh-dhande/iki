@@ -3,7 +3,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AnalysisResult
 label: Analysis result
-schema_version: 3
+schema_version: 4
 description: >-
   What an analytical core measured for an analysis request (ADR 0132). The
   core owns it: its analyst records it, a reviewer checks it, and its QA
@@ -12,6 +12,7 @@ description: >-
 hrid: { prefix: ANR }
 result:
   of: request
+  material: sample
   released: { field: review, states: [released] }
 fields:
   request:
@@ -22,6 +23,7 @@ fields:
     description: The request it answers.
   sample:
     type: ref
+    immutable: true
     to: Sample
     description: The sample it's of.
   analysis:
