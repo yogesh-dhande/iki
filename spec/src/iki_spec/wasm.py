@@ -41,11 +41,6 @@ EXPORTS = (
     "iki_state_origins",
     "iki_helm",
     "iki_annotate_dna_sequence",
-    "iki_place_primers",
-    "iki_pcr_products",
-    "iki_duplex_temperature",
-    "iki_digest",
-    "iki_check_oligos",
     "iki_melting_temperature",
 )
 

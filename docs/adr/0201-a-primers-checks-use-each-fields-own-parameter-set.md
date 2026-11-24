@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-23
 - Amended: 2026-11-23 — the buffer temperature is its own field (see
-  [Two temperatures, each named](#two-temperatures-each-named))
+  [Two temperatures, each named](#two-temperatures-each-named)), and the checks
+  reach the browser as their own entry, not as exports of the shared module
 
 ## Context
 
@@ -173,9 +174,12 @@ the byte. That is a measurement of these two modules, not an inference from
 ADR 0200's: it says the build is reproducible within Linux x86-64, and says
 nothing about any other host, where it is not expected to be.
 
-The same function is exported from the server's own `iki-wasm` as
-`iki_check_oligos`, so a primer view in the browser and a run on a worker quote
-the same free energy.
+The checks are not exported from the server's own `iki-wasm`, for the reason
+[ADR 0200](0200-one-implementation-places-primers-and-cuts-dna.md)
+gives: every page loads that module, and code no page calls would only weigh it
+down. When a primer view in the browser needs them, they ship as an
+`@ikisci/science` entry of their own, compiled from the same source, so it and a
+run on a worker quote the same free energy.
 
 ## Consequences
 

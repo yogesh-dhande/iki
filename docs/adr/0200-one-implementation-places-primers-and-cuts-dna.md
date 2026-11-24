@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-11-22
+- Amended: 2026-11-23 — the browser's copy is a separate entry, when a page needs
+  it, not exports of the shared module
 
 ## Context
 
@@ -61,9 +63,17 @@ for the first time, and REBASE's own terms do not clearly permit that:
   and bases, and the fragments and gel bands that follow.
 
 A standalone crate compiles them for `wasm32-unknown-unknown` with no host
-imports. The same functions are exported from the server's own `iki-wasm`, so
-the server and the worker answer identically, and the `@ikisci/science` export
-follows when the web-package stack lands.
+imports, from the same source files `iki-wasm` holds, so every runtime that
+calls them answers identically.
+
+As first accepted, this decision also exported them from the server's own
+`iki-wasm`, for the browser. That module is the one every page loads for its
+file readers, and `@ikisci/science` holds its gzip size to a budget; with the
+primer, digest and oligo-check exports it went from 594 kB to 650 kB, over that
+budget, for code no page calls yet. So they are not exported there. When a page
+needs them, the browser gets them as an `@ikisci/science` entry of its own,
+compiled from the same source, loaded only by the pages that use it, and with a
+size budget of its own.
 
 **No `.wasm` is tracked in git.** What git holds is the Rust and the module's
 SHA-256 digest, `plugins/plasmid/data/plasmid-tools.wasm.sha256` — at this

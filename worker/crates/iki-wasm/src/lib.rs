@@ -9,15 +9,11 @@
 use serde::{Deserialize, Serialize};
 
 pub mod annotation;
-pub mod digest;
 pub mod expressions;
 pub mod helm;
 pub mod oligo;
-pub mod priming;
 pub mod rules;
-pub mod structures;
 pub mod templates;
-pub mod thermodynamics;
 
 /// The most a file may be: the web app refuses larger ones before sending them.
 pub const MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -594,51 +590,6 @@ pub mod exports {
         OUTPUT.with_borrow_mut(|output| *output = json);
     }
 
-    /// Places the primers in the input buffer on their template (see
-    /// [`super::priming::place_json`]), and frees it.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn iki_place_primers() {
-        let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::priming::place_json(&bytes);
-        OUTPUT.with_borrow_mut(|output| *output = json);
-    }
-
-    /// Works out what the sites in the input buffer amplify (see
-    /// [`super::priming::products_json`]), and frees it.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn iki_pcr_products() {
-        let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::priming::products_json(&bytes);
-        OUTPUT.with_borrow_mut(|output| *output = json);
-    }
-
-    /// Measures the duplex in the input buffer (see
-    /// [`super::priming::temperature_json`]), and frees it.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn iki_duplex_temperature() {
-        let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::priming::temperature_json(&bytes);
-        OUTPUT.with_borrow_mut(|output| *output = json);
-    }
-
-    /// Cuts the molecule in the input buffer with its enzymes (see
-    /// [`super::digest::cut_json`]), and frees it.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn iki_digest() {
-        let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::digest::cut_json(&bytes);
-        OUTPUT.with_borrow_mut(|output| *output = json);
-    }
-
-    /// Checks the oligos in the input buffer for hairpins, dimers and their melting
-    /// temperature (see [`super::structures::check_json`]), and frees it.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn iki_check_oligos() {
-        let bytes = INPUT.with_borrow_mut(std::mem::take);
-        let json = super::structures::check_json(&bytes);
-        OUTPUT.with_borrow_mut(|output| *output = json);
-    }
-
     /// Estimate the supplied unmodified DNA strand's melting temperature at the fixed
     /// record conditions. Accepts `{"bases":"..."}` and returns `{"celsius":number|null}`.
     #[unsafe(no_mangle)]
@@ -1017,3 +968,15 @@ mod tests {
         assert!(answer["error"].is_string());
     }
 }
+
+// The primer, digest and oligo-check science (ADR 0200, 0201) is compiled into the
+// plugins' own modules (`standalone/plasmid-tools`, `standalone/oligo-checks`), not into
+// this one, which every page loads; its tests run here, the crate it lives in.
+#[cfg(test)]
+pub mod digest;
+#[cfg(test)]
+pub mod priming;
+#[cfg(test)]
+pub mod structures;
+#[cfg(test)]
+pub mod thermodynamics;
