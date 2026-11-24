@@ -2,11 +2,11 @@
   "3.12": {
     "plain": {
       "cli/tests/test_config_template.py": {
-        "seconds": 0.8,
+        "seconds": 0.4,
         "tests": 10
       },
       "cli/tests/test_deploy_build.py": {
-        "seconds": 78.0,
+        "seconds": 69.1,
         "tests": 27
       },
       "cli/tests/test_main.py": {
@@ -14,39 +14,39 @@
         "tests": 3
       },
       "cli/tests/test_mirrors.py": {
-        "seconds": 9.0,
+        "seconds": 6.6,
         "tests": 12
       },
       "cli/tests/test_plugin_build.py": {
-        "seconds": 2.7,
+        "seconds": 5.0,
         "tests": 3
       },
       "cli/tests/test_plugin_preflight.py": {
-        "seconds": 0.8,
+        "seconds": 0.9,
         "tests": 6
       },
       "cli/tests/test_plugin_skills.py": {
-        "seconds": 10.9,
+        "seconds": 9.5,
         "tests": 7
       },
       "cli/tests/test_plugin_test.py": {
-        "seconds": 10.3,
+        "seconds": 13.4,
         "tests": 13
       },
       "cli/tests/test_plugin_validate.py": {
-        "seconds": 154.1,
+        "seconds": 203.6,
         "tests": 12
       },
       "cli/tests/test_starter_cli.py": {
-        "seconds": 0.7,
-        "tests": 7
+        "seconds": 0.6,
+        "tests": 9
       },
       "cli/tests/test_workers_bundle.py": {
-        "seconds": 15.1,
+        "seconds": 13.8,
         "tests": 24
       },
       "codegen/tests/test_codegen.py": {
-        "seconds": 3.2,
+        "seconds": 8.4,
         "tests": 15
       },
       "deploy/aws/tests/test_aws_cost.py": {
@@ -54,7 +54,7 @@
         "tests": 6
       },
       "deploy/aws/tests/test_aws_inventory.py": {
-        "seconds": 0.1,
+        "seconds": 0.0,
         "tests": 7
       },
       "deploy/aws/tests/test_aws_live.py": {
@@ -62,7 +62,7 @@
         "tests": 9
       },
       "deploy/aws/tests/test_aws_live_helpers.py": {
-        "seconds": 0.1,
+        "seconds": 0.0,
         "tests": 5
       },
       "deploy/dev/tests/test_run_pod.py": {
@@ -70,7 +70,7 @@
         "tests": 2
       },
       "deploy/gcp/tests/test_gcp_cost.py": {
-        "seconds": 0.5,
+        "seconds": 0.3,
         "tests": 3
       },
       "deploy/gcp/tests/test_gcp_live.py": {
@@ -78,28 +78,32 @@
         "tests": 12
       },
       "deploy/gcp/tests/test_gcp_live_helpers.py": {
-        "seconds": 3.5,
+        "seconds": 3.7,
         "tests": 77
       },
       "deploy/helm/iki/tests/test_chart.py": {
-        "seconds": 49.3,
+        "seconds": 47.7,
         "tests": 140
       },
       "deploy/live/test_iki_live.py": {
-        "seconds": 2.6,
+        "seconds": 2.8,
         "tests": 24
       },
       "deploy/live/test_live_runs.py": {
-        "seconds": 1.3,
+        "seconds": 1.0,
         "tests": 19
       },
       "docs/tests/test_links.py": {
-        "seconds": 0.2,
+        "seconds": 0.3,
         "tests": 4
       },
       "docs/tests/test_release_owner.py": {
-        "seconds": 1.1,
+        "seconds": 1.2,
         "tests": 1
+      },
+      "docs/tests/test_tm_citations.py": {
+        "seconds": 0.0,
+        "tests": 5
       },
       "plugins/biologics_ms/tests/test_characterize.py": {
         "seconds": 0.0,
@@ -110,19 +114,19 @@
         "tests": 5
       },
       "plugins/plasmid_sequencing/tests/test_whole_plasmid.py": {
-        "seconds": 7.4,
-        "tests": 35
+        "seconds": 63.5,
+        "tests": 49
       },
       "plugins/plate_assays/tests/test_assay_workflow.py": {
         "seconds": 0.1,
         "tests": 3
       },
       "plugins/plate_assays/tests/test_four_pl.py": {
-        "seconds": 0.3,
+        "seconds": 0.2,
         "tests": 15
       },
       "plugins/plate_assays/tests/test_reader.py": {
-        "seconds": 0.1,
+        "seconds": 0.2,
         "tests": 23
       },
       "plugins/proteomics/tests/test_search_reports.py": {
@@ -138,7 +142,7 @@
         "tests": 9
       },
       "plugins/sequencing/tests/test_fastq.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 9
       },
       "plugins/sequencing_analysis/tests/test_report_selection.py": {
@@ -146,15 +150,15 @@
         "tests": 8
       },
       "scripts/ci/tests/test_browser_coverage.py": {
-        "seconds": 16.0,
+        "seconds": 21.0,
         "tests": 13
       },
       "scripts/ci/tests/test_browser_trace_vm.py": {
-        "seconds": 2.4,
+        "seconds": 1.8,
         "tests": 2
       },
       "scripts/ci/tests/test_check_imports.py": {
-        "seconds": 0.3,
+        "seconds": 0.2,
         "tests": 2
       },
       "scripts/ci/tests/test_docker_apt_retries.py": {
@@ -162,27 +166,27 @@
         "tests": 22
       },
       "scripts/ci/tests/test_gate_artifacts.py": {
-        "seconds": 2.9,
+        "seconds": 3.4,
         "tests": 26
       },
       "scripts/ci/tests/test_gate_skips.py": {
-        "seconds": 24.4,
+        "seconds": 19.5,
         "tests": 9
       },
       "scripts/ci/tests/test_git_hooks.py": {
-        "seconds": 0.2,
+        "seconds": 0.1,
         "tests": 3
       },
       "scripts/ci/tests/test_server_image.py": {
-        "seconds": 1.5,
+        "seconds": 2.3,
         "tests": 29
       },
       "scripts/ci/tests/test_server_wasm_verification.py": {
-        "seconds": 1.2,
+        "seconds": 1.3,
         "tests": 36
       },
       "scripts/ci/tests/test_shards.py": {
-        "seconds": 7.0,
+        "seconds": 7.5,
         "tests": 16
       },
       "scripts/ci/tests/test_standalone_wasm_build.py": {
@@ -190,11 +194,11 @@
         "tests": 4
       },
       "sdk/python/tests/test_auth.py": {
-        "seconds": 0.1,
+        "seconds": 0.2,
         "tests": 28
       },
       "sdk/python/tests/test_client.py": {
-        "seconds": 0.6,
+        "seconds": 0.8,
         "tests": 74
       },
       "sdk/python/tests/test_spreadsheets.py": {
@@ -202,31 +206,31 @@
         "tests": 8
       },
       "server/tests/test_accounts.py": {
-        "seconds": 162.5,
+        "seconds": 168.9,
         "tests": 15
       },
       "server/tests/test_admin_area.py": {
-        "seconds": 142.9,
+        "seconds": 192.5,
         "tests": 39
       },
       "server/tests/test_agents.py": {
-        "seconds": 14.4,
+        "seconds": 129.2,
         "tests": 12
       },
       "server/tests/test_amounts.py": {
-        "seconds": 183.3,
+        "seconds": 64.7,
         "tests": 19
       },
       "server/tests/test_antibody_isotype.py": {
-        "seconds": 13.9,
+        "seconds": 14.1,
         "tests": 59
       },
       "server/tests/test_antibody_liabilities.py": {
-        "seconds": 4.1,
+        "seconds": 3.1,
         "tests": 22
       },
       "server/tests/test_antibody_numbering.py": {
-        "seconds": 5.3,
+        "seconds": 5.4,
         "tests": 52
       },
       "server/tests/test_antibody_structure.py": {
@@ -234,83 +238,83 @@
         "tests": 6
       },
       "server/tests/test_api.py": {
-        "seconds": 238.5,
+        "seconds": 69.8,
         "tests": 34
       },
       "server/tests/test_api_access.py": {
-        "seconds": 2048.2,
+        "seconds": 1906.4,
         "tests": 4021
       },
       "server/tests/test_api_entities.py": {
-        "seconds": 40.7,
+        "seconds": 33.5,
         "tests": 27
       },
       "server/tests/test_api_idor.py": {
-        "seconds": 444.1,
+        "seconds": 637.9,
         "tests": 204
       },
       "server/tests/test_api_preflight.py": {
-        "seconds": 3.0,
+        "seconds": 3.3,
         "tests": 9
       },
       "server/tests/test_apps.py": {
-        "seconds": 24.0,
+        "seconds": 20.8,
         "tests": 21
       },
       "server/tests/test_assignments.py": {
-        "seconds": 70.6,
+        "seconds": 59.5,
         "tests": 19
       },
       "server/tests/test_audit.py": {
-        "seconds": 9.3,
+        "seconds": 9.7,
         "tests": 39
       },
       "server/tests/test_audit_trail.py": {
-        "seconds": 10.3,
-        "tests": 7
+        "seconds": 12.8,
+        "tests": 8
       },
       "server/tests/test_bulk_imports.py": {
-        "seconds": 54.5,
+        "seconds": 176.8,
         "tests": 28
       },
       "server/tests/test_bundle_exports.py": {
-        "seconds": 8.8,
+        "seconds": 7.8,
         "tests": 7
       },
       "server/tests/test_bundle_hrid_reservations.py": {
-        "seconds": 3.0,
+        "seconds": 3.9,
         "tests": 3
       },
       "server/tests/test_bundle_imports.py": {
-        "seconds": 49.5,
+        "seconds": 58.0,
         "tests": 34
       },
       "server/tests/test_bundle_plan_files.py": {
-        "seconds": 2.3,
+        "seconds": 2.8,
         "tests": 3
       },
       "server/tests/test_bundle_plan_members.py": {
-        "seconds": 3.6,
+        "seconds": 2.9,
         "tests": 2
       },
       "server/tests/test_bundle_vendor_codes.py": {
-        "seconds": 2.3,
+        "seconds": 3.6,
         "tests": 3
       },
       "server/tests/test_bundles.py": {
-        "seconds": 11.3,
+        "seconds": 10.5,
         "tests": 8
       },
       "server/tests/test_cell_check_review.py": {
-        "seconds": 8.7,
+        "seconds": 5.9,
         "tests": 21
       },
       "server/tests/test_cell_line_banking.py": {
-        "seconds": 201.6,
+        "seconds": 248.8,
         "tests": 1
       },
       "server/tests/test_check_restore.py": {
-        "seconds": 12.2,
+        "seconds": 9.9,
         "tests": 11
       },
       "server/tests/test_click_stability.py": {
@@ -318,35 +322,35 @@
         "tests": 3
       },
       "server/tests/test_collections.py": {
-        "seconds": 34.3,
+        "seconds": 25.8,
         "tests": 12
       },
       "server/tests/test_complex_composition.py": {
-        "seconds": 0.3,
+        "seconds": 0.4,
         "tests": 21
       },
       "server/tests/test_component_places.py": {
-        "seconds": 288.0,
+        "seconds": 118.3,
         "tests": 19
       },
       "server/tests/test_components.py": {
-        "seconds": 0.4,
+        "seconds": 0.5,
         "tests": 7
       },
       "server/tests/test_compute_overview.py": {
-        "seconds": 6.4,
+        "seconds": 6.0,
         "tests": 6
       },
       "server/tests/test_conjugate_composition.py": {
-        "seconds": 0.3,
+        "seconds": 0.4,
         "tests": 17
       },
       "server/tests/test_consensus.py": {
-        "seconds": 4.3,
+        "seconds": 4.4,
         "tests": 23
       },
       "server/tests/test_container_tier.py": {
-        "seconds": 22.0,
+        "seconds": 24.2,
         "tests": 22
       },
       "server/tests/test_core.py": {
@@ -354,15 +358,15 @@
         "tests": 12
       },
       "server/tests/test_core_facility.py": {
-        "seconds": 250.3,
+        "seconds": 231.9,
         "tests": 1
       },
       "server/tests/test_core_plugin.py": {
-        "seconds": 1.4,
+        "seconds": 1.3,
         "tests": 2
       },
       "server/tests/test_count_observation_history.py": {
-        "seconds": 33.0,
+        "seconds": 34.1,
         "tests": 17
       },
       "server/tests/test_count_resolution_notes.py": {
@@ -370,11 +374,11 @@
         "tests": 7
       },
       "server/tests/test_count_scan_identity.py": {
-        "seconds": 19.1,
+        "seconds": 19.0,
         "tests": 6
       },
       "server/tests/test_count_unregistered_slots.py": {
-        "seconds": 14.0,
+        "seconds": 15.4,
         "tests": 8
       },
       "server/tests/test_csp_report.py": {
@@ -382,1457 +386,51 @@
         "tests": 5
       },
       "server/tests/test_db_pool.py": {
-        "seconds": 8.4,
+        "seconds": 8.7,
         "tests": 2
       },
       "server/tests/test_declared_notifications.py": {
-        "seconds": 36.9,
+        "seconds": 38.6,
         "tests": 21
       },
       "server/tests/test_delegated_lab_roles.py": {
-        "seconds": 4.1,
-        "tests": 2
-      },
-      "server/tests/test_delegation.py": {
-        "seconds": 20.8,
-        "tests": 18
-      },
-      "server/tests/test_detached_plugins.py": {
-        "seconds": 6.3,
-        "tests": 12
-      },
-      "server/tests/test_dna_actions.py": {
-        "seconds": 10.2,
-        "tests": 73
-      },
-      "server/tests/test_dna_alignment.py": {
-        "seconds": 4.7,
-        "tests": 24
-      },
-      "server/tests/test_dna_codon_optimization.py": {
-        "seconds": 39.8,
-        "tests": 52
-      },
-      "server/tests/test_dna_guides.py": {
-        "seconds": 0.8,
-        "tests": 28
-      },
-      "server/tests/test_dna_mutations.py": {
-        "seconds": 0.1,
-        "tests": 14
-      },
-      "server/tests/test_dna_primers.py": {
-        "seconds": 1.0,
-        "tests": 38
-      },
-      "server/tests/test_dna_reads.py": {
-        "seconds": 6.6,
-        "tests": 33
-      },
-      "server/tests/test_dna_snapgene.py": {
-        "seconds": 2.6,
-        "tests": 27
-      },
-      "server/tests/test_dose_response_starter.py": {
-        "seconds": 276.2,
-        "tests": 1
-      },
-      "server/tests/test_draw_scan_identity.py": {
-        "seconds": 3.8,
-        "tests": 3
-      },
-      "server/tests/test_ec2.py": {
-        "seconds": 3.0,
-        "tests": 11
-      },
-      "server/tests/test_edit_returns.py": {
-        "seconds": 9.9,
-        "tests": 4
-      },
-      "server/tests/test_egress.py": {
-        "seconds": 5.9,
-        "tests": 14
-      },
-      "server/tests/test_entities.py": {
-        "seconds": 0.3,
-        "tests": 10
-      },
-      "server/tests/test_entity_core.py": {
-        "seconds": 4.0,
-        "tests": 15
-      },
-      "server/tests/test_entity_counts.py": {
-        "seconds": 8.5,
-        "tests": 9
-      },
-      "server/tests/test_entity_exports.py": {
-        "seconds": 8.3,
-        "tests": 10
-      },
-      "server/tests/test_equipment.py": {
-        "seconds": 150.4,
-        "tests": 7
-      },
-      "server/tests/test_example_lims.py": {
-        "seconds": 25.3,
-        "tests": 26
-      },
-      "server/tests/test_example_models.py": {
-        "seconds": 6.0,
-        "tests": 10
-      },
-      "server/tests/test_experiment_records.py": {
-        "seconds": 170.0,
-        "tests": 1
-      },
-      "server/tests/test_expressions.py": {
-        "seconds": 0.1,
-        "tests": 6
-      },
-      "server/tests/test_file_acquired.py": {
-        "seconds": 4.5,
-        "tests": 143
-      },
-      "server/tests/test_file_fields.py": {
-        "seconds": 1.8,
-        "tests": 8
-      },
-      "server/tests/test_files.py": {
-        "seconds": 12.1,
-        "tests": 17
-      },
-      "server/tests/test_files_gcs.py": {
-        "seconds": 17.0,
-        "tests": 6
-      },
-      "server/tests/test_first_party_plugins.py": {
-        "seconds": 913.8,
-        "tests": 35
-      },
-      "server/tests/test_first_party_uninstall.py": {
-        "seconds": 876.6,
-        "tests": 1
-      },
-      "server/tests/test_flow_fixtures.py": {
-        "seconds": 23.5,
-        "tests": 1
-      },
-      "server/tests/test_gce.py": {
-        "seconds": 0.8,
-        "tests": 31
-      },
-      "server/tests/test_graph.py": {
-        "seconds": 41.3,
-        "tests": 24
-      },
-      "server/tests/test_graph_plans.py": {
-        "seconds": 24.4,
-        "tests": 2
-      },
-      "server/tests/test_guards.py": {
-        "seconds": 49.8,
-        "tests": 14
-      },
-      "server/tests/test_health.py": {
-        "seconds": 1.5,
-        "tests": 9
-      },
-      "server/tests/test_helm.py": {
-        "seconds": 0.4,
-        "tests": 3
-      },
-      "server/tests/test_lab_roles.py": {
-        "seconds": 12.5,
-        "tests": 13
-      },
-      "server/tests/test_legal_holds.py": {
-        "seconds": 1.3,
-        "tests": 6
-      },
-      "server/tests/test_lims_hold_reasons.py": {
-        "seconds": 176.2,
-        "tests": 1
-      },
-      "server/tests/test_lock_scope.py": {
-        "seconds": 3.6,
-        "tests": 2
-      },
-      "server/tests/test_logging.py": {
-        "seconds": 0.4,
-        "tests": 9
-      },
-      "server/tests/test_lots.py": {
-        "seconds": 293.6,
-        "tests": 20
-      },
-      "server/tests/test_makings.py": {
-        "seconds": 23.1,
-        "tests": 18
-      },
-      "server/tests/test_mcp.py": {
-        "seconds": 71.9,
-        "tests": 24
-      },
-      "server/tests/test_melting_temperatures.py": {
-        "seconds": 155.3,
-        "tests": 8
-      },
-      "server/tests/test_mouse_strains.py": {
-        "seconds": 142.1,
-        "tests": 1
-      },
-      "server/tests/test_notifications.py": {
-        "seconds": 9.5,
-        "tests": 31
-      },
-      "server/tests/test_oauth.py": {
-        "seconds": 25.1,
-        "tests": 50
-      },
-      "server/tests/test_oidc_discovery.py": {
-        "seconds": 7.3,
-        "tests": 18
-      },
-      "server/tests/test_oligo_chemistry.py": {
-        "seconds": 0.8,
-        "tests": 30
-      },
-      "server/tests/test_org.py": {
-        "seconds": 359.6,
-        "tests": 32
-      },
-      "server/tests/test_org_access.py": {
-        "seconds": 307.6,
-        "tests": 886
-      },
-      "server/tests/test_outside_apis.py": {
-        "seconds": 33.5,
-        "tests": 16
-      },
-      "server/tests/test_package.py": {
-        "seconds": 0.0,
-        "tests": 1
-      },
-      "server/tests/test_page_header.py": {
-        "seconds": 1.9,
-        "tests": 11
-      },
-      "server/tests/test_permissions.py": {
-        "seconds": 37.8,
-        "tests": 557
-      },
-      "server/tests/test_plasmid_annotation.py": {
-        "seconds": 7.7,
-        "tests": 53
-      },
-      "server/tests/test_plasmid_cloning.py": {
-        "seconds": 27.2,
-        "tests": 51
-      },
-      "server/tests/test_plasmid_orfs.py": {
-        "seconds": 1.5,
-        "tests": 11
-      },
-      "server/tests/test_plasmid_parity.py": {
-        "seconds": 8.1,
-        "tests": 426
-      },
-      "server/tests/test_plasmid_pcr.py": {
-        "seconds": 8.7,
-        "tests": 16
-      },
-      "server/tests/test_plasmid_verification.py": {
-        "seconds": 165.4,
-        "tests": 1
-      },
-      "server/tests/test_plasmid_verification_action.py": {
-        "seconds": 0.1,
-        "tests": 15
-      },
-      "server/tests/test_plate_import.py": {
-        "seconds": 274.4,
-        "tests": 1
-      },
-      "server/tests/test_plate_review.py": {
-        "seconds": 185.6,
-        "tests": 1
-      },
-      "server/tests/test_plugin_migrations.py": {
-        "seconds": 2708.8,
-        "tests": 42
-      },
-      "server/tests/test_plugin_migrations_deploy.py": {
-        "seconds": 1421.7,
-        "tests": 19
-      },
-      "server/tests/test_plugin_purge.py": {
-        "seconds": 153.6,
-        "tests": 8
-      },
-      "server/tests/test_polymer_notation.py": {
-        "seconds": 0.3,
-        "tests": 22
-      },
-      "server/tests/test_preflight.py": {
-        "seconds": 3.5,
-        "tests": 4
-      },
-      "server/tests/test_preflight_arrays.py": {
-        "seconds": 0.2,
-        "tests": 2
-      },
-      "server/tests/test_preflight_candidate.py": {
-        "seconds": 2.1,
-        "tests": 20
-      },
-      "server/tests/test_preflight_projection.py": {
-        "seconds": 0.1,
-        "tests": 9
-      },
-      "server/tests/test_preflight_records.py": {
-        "seconds": 4.1,
-        "tests": 2
-      },
-      "server/tests/test_preflight_relations.py": {
-        "seconds": 5.7,
-        "tests": 8
-      },
-      "server/tests/test_preflight_rules.py": {
-        "seconds": 0.9,
-        "tests": 4
-      },
-      "server/tests/test_preflight_scale.py": {
-        "seconds": 14.3,
-        "tests": 1
-      },
-      "server/tests/test_preflight_sql.py": {
-        "seconds": 2.0,
-        "tests": 3
-      },
-      "server/tests/test_preflight_sql_fields.py": {
-        "seconds": 5.6,
-        "tests": 5
-      },
-      "server/tests/test_preflight_values.py": {
-        "seconds": 1.5,
-        "tests": 9
-      },
-      "server/tests/test_project_files.py": {
-        "seconds": 52.9,
-        "tests": 30
-      },
-      "server/tests/test_project_sharing.py": {
-        "seconds": 4.5,
-        "tests": 7
-      },
-      "server/tests/test_protein_actions.py": {
-        "seconds": 9.2,
-        "tests": 60
-      },
-      "server/tests/test_protein_multiple_alignment.py": {
-        "seconds": 0.9,
-        "tests": 13
-      },
-      "server/tests/test_protein_reads.py": {
-        "seconds": 7.4,
-        "tests": 40
-      },
-      "server/tests/test_protein_secondary_structure.py": {
-        "seconds": 1.0,
-        "tests": 9
-      },
-      "server/tests/test_protein_structures.py": {
-        "seconds": 6.8,
-        "tests": 50
-      },
-      "server/tests/test_provisioning.py": {
-        "seconds": 58.4,
-        "tests": 41
-      },
-      "server/tests/test_qc_release_workflow.py": {
-        "seconds": 234.6,
-        "tests": 1
-      },
-      "server/tests/test_quotas.py": {
-        "seconds": 5.5,
-        "tests": 5
-      },
-      "server/tests/test_ratelimit.py": {
-        "seconds": 0.1,
-        "tests": 6
-      },
-      "server/tests/test_reagent_stock.py": {
-        "seconds": 163.8,
-        "tests": 1
-      },
-      "server/tests/test_realtime.py": {
-        "seconds": 39.0,
-        "tests": 27
-      },
-      "server/tests/test_receipt_conflicts.py": {
-        "seconds": 9.8,
-        "tests": 3
-      },
-      "server/tests/test_receipt_observation_history.py": {
-        "seconds": 79.4,
-        "tests": 31
-      },
-      "server/tests/test_receipt_reviewed_placement.py": {
-        "seconds": 18.5,
-        "tests": 4
-      },
-      "server/tests/test_receipt_scan_identity.py": {
-        "seconds": 23.6,
-        "tests": 8
-      },
-      "server/tests/test_reconciliation_audit.py": {
-        "seconds": 5.8,
-        "tests": 1
-      },
-      "server/tests/test_reference_types.py": {
-        "seconds": 4.4,
-        "tests": 6
-      },
-      "server/tests/test_registrations.py": {
-        "seconds": 3.8,
-        "tests": 7
-      },
-      "server/tests/test_registries.py": {
-        "seconds": 13.1,
-        "tests": 13
-      },
-      "server/tests/test_requests.py": {
-        "seconds": 140.1,
-        "tests": 36
-      },
-      "server/tests/test_reserved_vendor_codes.py": {
-        "seconds": 137.2,
-        "tests": 1
-      },
-      "server/tests/test_rows.py": {
-        "seconds": 51.5,
-        "tests": 15
-      },
-      "server/tests/test_rules.py": {
-        "seconds": 59.3,
-        "tests": 32
-      },
-      "server/tests/test_run_approvals.py": {
-        "seconds": 7.8,
-        "tests": 8
-      },
-      "server/tests/test_run_artifacts.py": {
-        "seconds": 15.9,
-        "tests": 11
-      },
-      "server/tests/test_run_batches.py": {
-        "seconds": 34.0,
-        "tests": 20
-      },
-      "server/tests/test_run_budgets.py": {
-        "seconds": 170.1,
-        "tests": 11
-      },
-      "server/tests/test_run_checkpoints.py": {
-        "seconds": 18.1,
-        "tests": 14
-      },
-      "server/tests/test_run_costs.py": {
-        "seconds": 15.0,
-        "tests": 14
-      },
-      "server/tests/test_run_imports.py": {
-        "seconds": 33.9,
-        "tests": 22
-      },
-      "server/tests/test_run_inclusions.py": {
-        "seconds": 22.6,
-        "tests": 11
-      },
-      "server/tests/test_run_live.py": {
-        "seconds": 5.6,
-        "tests": 5
-      },
-      "server/tests/test_run_projects.py": {
-        "seconds": 6.6,
-        "tests": 6
-      },
-      "server/tests/test_run_results.py": {
-        "seconds": 69.5,
-        "tests": 28
-      },
-      "server/tests/test_run_reuse.py": {
-        "seconds": 35.3,
-        "tests": 22
-      },
-      "server/tests/test_run_secrets.py": {
-        "seconds": 1.9,
-        "tests": 5
-      },
-      "server/tests/test_run_settings.py": {
-        "seconds": 0.6,
-        "tests": 2
-      },
-      "server/tests/test_runs.py": {
-        "seconds": 13.9,
-        "tests": 24
-      },
-      "server/tests/test_saml.py": {
-        "seconds": 26.9,
-        "tests": 30
-      },
-      "server/tests/test_sample_retesting.py": {
-        "seconds": 176.7,
-        "tests": 1
-      },
-      "server/tests/test_saved_searches.py": {
-        "seconds": 143.2,
-        "tests": 9
-      },
-      "server/tests/test_scale_files.py": {
-        "seconds": 30.3,
-        "tests": 2
-      },
-      "server/tests/test_scale_grid.py": {
-        "seconds": 50.3,
-        "tests": 2
-      },
-      "server/tests/test_scale_import.py": {
-        "seconds": 0.0,
-        "tests": 1
-      },
-      "server/tests/test_scale_queue.py": {
-        "seconds": 0.0,
-        "tests": 1
-      },
-      "server/tests/test_scim.py": {
-        "seconds": 10.3,
-        "tests": 41
-      },
-      "server/tests/test_sdk.py": {
-        "seconds": 89.8,
-        "tests": 10
-      },
-      "server/tests/test_search.py": {
-        "seconds": 39.6,
-        "tests": 33
-      },
-      "server/tests/test_search_everything.py": {
-        "seconds": 28.6,
-        "tests": 18
-      },
-      "server/tests/test_search_exports.py": {
-        "seconds": 16.2,
-        "tests": 31
-      },
-      "server/tests/test_search_motifs.py": {
-        "seconds": 11.5,
-        "tests": 15
-      },
-      "server/tests/test_self_hosted.py": {
-        "seconds": 26.7,
-        "tests": 18
-      },
-      "server/tests/test_sequence_files.py": {
-        "seconds": 1.5,
-        "tests": 27
-      },
-      "server/tests/test_server_e2e.py": {
-        "seconds": 5.7,
-        "tests": 1
-      },
-      "server/tests/test_service_accounts.py": {
-        "seconds": 2.0,
-        "tests": 13
-      },
-      "server/tests/test_settings.py": {
-        "seconds": 41.7,
-        "tests": 42
-      },
-      "server/tests/test_setup_builds.py": {
-        "seconds": 31.8,
-        "tests": 27
-      },
-      "server/tests/test_setup_storage.py": {
-        "seconds": 2.1,
-        "tests": 5
-      },
-      "server/tests/test_setup_wizard.py": {
-        "seconds": 14.4,
-        "tests": 20
-      },
-      "server/tests/test_signature_bundles.py": {
-        "seconds": 16.2,
-        "tests": 12
-      },
-      "server/tests/test_signature_migrations.py": {
-        "seconds": 311.2,
-        "tests": 4
-      },
-      "server/tests/test_signatures.py": {
-        "seconds": 38.1,
-        "tests": 33
-      },
-      "server/tests/test_signed_report_exports.py": {
-        "seconds": 80.2,
-        "tests": 1
-      },
-      "server/tests/test_slurm.py": {
-        "seconds": 16.4,
-        "tests": 16
-      },
-      "server/tests/test_slurm_e2e.py": {
-        "seconds": 0.0,
-        "tests": 8
-      },
-      "server/tests/test_small_molecule_actions.py": {
-        "seconds": 22.1,
-        "tests": 75
-      },
-      "server/tests/test_spreadsheet_imports.py": {
-        "seconds": 82.4,
-        "tests": 31
-      },
-      "server/tests/test_spreadsheet_reading.py": {
-        "seconds": 2.1,
-        "tests": 34
-      },
-      "server/tests/test_spreadsheet_revisions.py": {
-        "seconds": 19.5,
-        "tests": 10
-      },
-      "server/tests/test_stability.py": {
-        "seconds": 155.3,
-        "tests": 5
-      },
-      "server/tests/test_starter_api.py": {
-        "seconds": 3.2,
-        "tests": 7
-      },
-      "server/tests/test_starter_applications.py": {
-        "seconds": 1.7,
-        "tests": 5
-      },
-      "server/tests/test_states.py": {
-        "seconds": 41.9,
-        "tests": 19
-      },
-      "server/tests/test_stock_alerts.py": {
-        "seconds": 3.0,
-        "tests": 2
-      },
-      "server/tests/test_storage.py": {
-        "seconds": 55.7,
-        "tests": 21
-      },
-      "server/tests/test_storage_confirmation_identity.py": {
-        "seconds": 38.0,
-        "tests": 11
-      },
-      "server/tests/test_storage_contract.py": {
-        "seconds": 4.0,
-        "tests": 15
-      },
-      "server/tests/test_storage_label_geometry.py": {
-        "seconds": 158.8,
-        "tests": 19
-      },
-      "server/tests/test_storage_observation_api.py": {
         "seconds": 3.9,
         "tests": 2
       },
-      "server/tests/test_storage_observations.py": {
-        "seconds": 7.3,
-        "tests": 5
-      },
-      "server/tests/test_storage_scan_identity.py": {
-        "seconds": 7.1,
-        "tests": 7
-      },
-      "server/tests/test_storage_scan_preview.py": {
-        "seconds": 41.7,
-        "tests": 9
-      },
-      "server/tests/test_strains.py": {
-        "seconds": 170.0,
-        "tests": 1
-      },
-      "server/tests/test_tasks.py": {
-        "seconds": 8.9,
-        "tests": 22
-      },
-      "server/tests/test_telemetry.py": {
-        "seconds": 0.7,
-        "tests": 7
-      },
-      "server/tests/test_test_services.py": {
-        "seconds": 0.1,
-        "tests": 2
-      },
-      "server/tests/test_token_reach.py": {
-        "seconds": 136.3,
-        "tests": 340
-      },
-      "server/tests/test_triggers.py": {
-        "seconds": 24.8,
-        "tests": 27
-      },
-      "server/tests/test_unique_fields.py": {
-        "seconds": 7.4,
-        "tests": 15
-      },
-      "server/tests/test_vendor_barcode_database.py": {
-        "seconds": 3.3,
-        "tests": 3
-      },
-      "server/tests/test_viewers.py": {
-        "seconds": 0.3,
-        "tests": 8
-      },
-      "server/tests/test_views.py": {
-        "seconds": 13.9,
-        "tests": 9
-      },
-      "server/tests/test_vm_tier.py": {
-        "seconds": 12.2,
-        "tests": 15
-      },
-      "server/tests/test_vm_tier_gce.py": {
-        "seconds": 13.2,
-        "tests": 17
-      },
-      "server/tests/test_vm_volumes.py": {
-        "seconds": 14.0,
-        "tests": 18
-      },
-      "server/tests/test_vm_volumes_gce.py": {
-        "seconds": 7.1,
-        "tests": 11
-      },
-      "server/tests/test_wait_for_database.py": {
-        "seconds": 2.1,
-        "tests": 3
-      },
-      "server/tests/test_web_app.py": {
-        "seconds": 12.1,
-        "tests": 64
-      },
-      "server/tests/test_web_security.py": {
-        "seconds": 12.2,
-        "tests": 32
-      },
-      "server/tests/test_web_stylesheets.py": {
-        "seconds": 0.1,
-        "tests": 2
-      },
-      "server/tests/test_webhooks.py": {
-        "seconds": 156.7,
-        "tests": 78
-      },
-      "server/tests/test_worker_bundles.py": {
-        "seconds": 11.4,
-        "tests": 10
-      },
-      "server/tests/test_worker_idor.py": {
-        "seconds": 29.4,
-        "tests": 16
-      },
-      "server/tests/test_worker_updates.py": {
-        "seconds": 2.7,
-        "tests": 10
-      },
-      "server/tests/test_workers.py": {
-        "seconds": 54.2,
-        "tests": 35
-      },
-      "server/tests/test_workflows.py": {
-        "seconds": 51.9,
-        "tests": 34
-      },
-      "spec/tests/test_action_tests.py": {
-        "seconds": 10.3,
-        "tests": 11
-      },
-      "spec/tests/test_actions.py": {
-        "seconds": 27.7,
-        "tests": 114
-      },
-      "spec/tests/test_build_backend.py": {
-        "seconds": 0.1,
-        "tests": 5
-      },
-      "spec/tests/test_build_dna_annotation_artifact.py": {
-        "seconds": 0.1,
-        "tests": 5
-      },
-      "spec/tests/test_builtin.py": {
-        "seconds": 1.0,
-        "tests": 5
-      },
-      "spec/tests/test_components.py": {
-        "seconds": 2.5,
-        "tests": 25
-      },
-      "spec/tests/test_compute.py": {
-        "seconds": 4.6,
-        "tests": 65
-      },
-      "spec/tests/test_cron.py": {
-        "seconds": 0.2,
-        "tests": 21
-      },
-      "spec/tests/test_dna_annotation.py": {
-        "seconds": 0.0,
-        "tests": 1
-      },
-      "spec/tests/test_exports.py": {
-        "seconds": 1.2,
-        "tests": 7
-      },
-      "spec/tests/test_features.py": {
-        "seconds": 1.4,
-        "tests": 25
-      },
-      "spec/tests/test_first_party.py": {
-        "seconds": 0.5,
-        "tests": 2
-      },
-      "spec/tests/test_globs.py": {
-        "seconds": 0.1,
-        "tests": 28
-      },
-      "spec/tests/test_identity.py": {
-        "seconds": 0.1,
-        "tests": 23
-      },
-      "spec/tests/test_lockfile.py": {
-        "seconds": 0.4,
-        "tests": 41
-      },
-      "spec/tests/test_motifs.py": {
-        "seconds": 0.1,
-        "tests": 23
-      },
-      "spec/tests/test_oligo_measurement.py": {
-        "seconds": 0.2,
-        "tests": 20
-      },
-      "spec/tests/test_package.py": {
-        "seconds": 0.0,
-        "tests": 1
-      },
-      "spec/tests/test_releases.py": {
-        "seconds": 0.1,
-        "tests": 13
-      },
-      "spec/tests/test_rules.py": {
-        "seconds": 1.1,
-        "tests": 19
-      },
-      "spec/tests/test_titles.py": {
-        "seconds": 2.3,
-        "tests": 15
-      },
-      "spec/tests/test_triggers.py": {
-        "seconds": 4.7,
-        "tests": 52
-      },
-      "spec/tests/test_units.py": {
-        "seconds": 1.1,
-        "tests": 164
-      },
-      "spec/tests/test_validate.py": {
-        "seconds": 24.6,
-        "tests": 320
-      },
-      "spec/tests/test_viewers.py": {
-        "seconds": 3.3,
-        "tests": 12
-      },
-      "spec/tests/test_wasm_image.py": {
-        "seconds": 3.3,
-        "tests": 12
-      },
-      "spec/tests/test_workflows.py": {
-        "seconds": 7.4,
-        "tests": 56
-      },
-      "spec/tests/test_yamlsource.py": {
-        "seconds": 0.1,
-        "tests": 17
-      }
-    }
-  },
-  "3.14": {
-    "browser": {
-      "server/tests/test_biologics_ms_component.py": {
-        "seconds": 13.4,
-        "tests": 9
-      },
-      "server/tests/test_booking_calendar.py": {
-        "seconds": 8.3,
-        "tests": 3
-      },
-      "server/tests/test_browser.py": {
-        "seconds": 3614.1,
-        "tests": 360
-      },
-      "server/tests/test_browser_artifacts.py": {
-        "seconds": 24.1,
-        "tests": 4
-      },
-      "server/tests/test_browser_exfiltration.py": {
-        "seconds": 147.7,
-        "tests": 9
-      },
-      "server/tests/test_browser_files.py": {
-        "seconds": 462.7,
-        "tests": 27
-      },
-      "server/tests/test_browser_overview.py": {
-        "seconds": 257.4,
-        "tests": 24
-      },
-      "server/tests/test_browser_reagent_stock.py": {
-        "seconds": 70.5,
-        "tests": 12
-      },
-      "server/tests/test_browser_search.py": {
-        "seconds": 175.1,
-        "tests": 30
-      },
-      "server/tests/test_browser_spreadsheets.py": {
-        "seconds": 813.0,
-        "tests": 27
-      },
-      "server/tests/test_browser_storage.py": {
-        "seconds": 1255.4,
-        "tests": 129
-      },
-      "server/tests/test_click_stability.py": {
-        "seconds": 24.4,
-        "tests": 33
-      },
-      "server/tests/test_complex_components.py": {
-        "seconds": 36.0,
-        "tests": 33
-      },
-      "server/tests/test_conjugate_components.py": {
-        "seconds": 10.2,
-        "tests": 9
-      },
-      "server/tests/test_digest_gel.py": {
-        "seconds": 89.2,
-        "tests": 6
-      },
-      "server/tests/test_dna_components.py": {
-        "seconds": 35.3,
-        "tests": 40
-      },
-      "server/tests/test_dna_guide_components.py": {
-        "seconds": 49.2,
-        "tests": 49
-      },
-      "server/tests/test_dna_mutagenesis_components.py": {
-        "seconds": 39.1,
-        "tests": 43
-      },
-      "server/tests/test_dose_response_component.py": {
-        "seconds": 18.1,
-        "tests": 12
-      },
-      "server/tests/test_equipment_components.py": {
-        "seconds": 26.5,
-        "tests": 18
-      },
-      "server/tests/test_experiment_evidence_component.py": {
-        "seconds": 17.9,
-        "tests": 12
-      },
-      "server/tests/test_oligo_components.py": {
-        "seconds": 17.2,
-        "tests": 21
-      },
-      "server/tests/test_plasmid_components.py": {
-        "seconds": 55.4,
-        "tests": 76
-      },
-      "server/tests/test_plate_map_component.py": {
-        "seconds": 27.1,
-        "tests": 15
-      },
-      "server/tests/test_polymer_components.py": {
-        "seconds": 10.1,
-        "tests": 12
-      },
-      "server/tests/test_prep_verification_components.py": {
-        "seconds": 13.3,
-        "tests": 9
-      },
-      "server/tests/test_proteomics_component.py": {
-        "seconds": 9.9,
-        "tests": 9
-      },
-      "server/tests/test_qc_release_component.py": {
-        "seconds": 43.6,
-        "tests": 33
-      },
-      "server/tests/test_science_rendering_engines.py": {
-        "seconds": 39.7,
-        "tests": 12
-      },
-      "server/tests/test_sequencing_analysis_component.py": {
-        "seconds": 8.5,
-        "tests": 6
-      },
-      "server/tests/test_sequencing_component.py": {
-        "seconds": 11.1,
-        "tests": 6
-      },
-      "server/tests/test_small_molecule_depiction.py": {
-        "seconds": 9.5,
-        "tests": 6
-      },
-      "server/tests/test_stability_component.py": {
-        "seconds": 16.3,
-        "tests": 12
-      },
-      "server/tests/test_web_package_stories.py": {
-        "seconds": 128.8,
-        "tests": 96
-      },
-      "server/tests/test_whole_plasmid_component.py": {
-        "seconds": 29.7,
-        "tests": 15
-      }
-    },
-    "plain": {
-      "cli/tests/test_config_template.py": {
-        "seconds": 0.2,
-        "tests": 10
-      },
-      "cli/tests/test_deploy_build.py": {
-        "seconds": 38.8,
-        "tests": 27
-      },
-      "cli/tests/test_main.py": {
-        "seconds": 0.0,
-        "tests": 3
-      },
-      "cli/tests/test_mirrors.py": {
-        "seconds": 6.2,
-        "tests": 12
-      },
-      "cli/tests/test_plugin_build.py": {
-        "seconds": 1.0,
-        "tests": 3
-      },
-      "cli/tests/test_plugin_preflight.py": {
-        "seconds": 0.3,
-        "tests": 6
-      },
-      "cli/tests/test_plugin_skills.py": {
-        "seconds": 10.1,
-        "tests": 7
-      },
-      "cli/tests/test_plugin_test.py": {
-        "seconds": 7.4,
-        "tests": 13
-      },
-      "cli/tests/test_plugin_validate.py": {
-        "seconds": 113.6,
-        "tests": 12
-      },
-      "cli/tests/test_starter_cli.py": {
-        "seconds": 0.1,
-        "tests": 7
-      },
-      "cli/tests/test_workers_bundle.py": {
-        "seconds": 8.9,
-        "tests": 24
-      },
-      "codegen/tests/test_codegen.py": {
-        "seconds": 0.7,
-        "tests": 15
-      },
-      "deploy/aws/tests/test_aws_cost.py": {
-        "seconds": 0.0,
-        "tests": 6
-      },
-      "deploy/aws/tests/test_aws_inventory.py": {
-        "seconds": 0.0,
-        "tests": 7
-      },
-      "deploy/aws/tests/test_aws_live.py": {
-        "seconds": 0.0,
-        "tests": 9
-      },
-      "deploy/aws/tests/test_aws_live_helpers.py": {
-        "seconds": 0.0,
-        "tests": 5
-      },
-      "deploy/dev/tests/test_run_pod.py": {
-        "seconds": 0.0,
-        "tests": 2
-      },
-      "deploy/gcp/tests/test_gcp_cost.py": {
-        "seconds": 0.1,
-        "tests": 3
-      },
-      "deploy/gcp/tests/test_gcp_live.py": {
-        "seconds": 0.0,
-        "tests": 12
-      },
-      "deploy/gcp/tests/test_gcp_live_helpers.py": {
-        "seconds": 2.9,
-        "tests": 77
-      },
-      "deploy/helm/iki/tests/test_chart.py": {
-        "seconds": 39.9,
-        "tests": 140
-      },
-      "deploy/live/test_iki_live.py": {
-        "seconds": 2.5,
-        "tests": 24
-      },
-      "deploy/live/test_live_runs.py": {
-        "seconds": 1.2,
-        "tests": 19
-      },
-      "docs/tests/test_links.py": {
-        "seconds": 0.1,
-        "tests": 4
-      },
-      "docs/tests/test_release_owner.py": {
-        "seconds": 1.1,
-        "tests": 1
-      },
-      "plugins/biologics_ms/tests/test_characterize.py": {
-        "seconds": 0.0,
-        "tests": 8
-      },
-      "plugins/experiments/tests/test_capture.py": {
-        "seconds": 0.0,
-        "tests": 5
-      },
-      "plugins/plasmid_sequencing/tests/test_whole_plasmid.py": {
-        "seconds": 1.8,
-        "tests": 35
-      },
-      "plugins/plate_assays/tests/test_assay_workflow.py": {
-        "seconds": 0.0,
-        "tests": 3
-      },
-      "plugins/plate_assays/tests/test_four_pl.py": {
-        "seconds": 0.1,
-        "tests": 15
-      },
-      "plugins/plate_assays/tests/test_reader.py": {
-        "seconds": 0.0,
-        "tests": 23
-      },
-      "plugins/proteomics/tests/test_search_reports.py": {
-        "seconds": 0.0,
-        "tests": 13
-      },
-      "plugins/qc_release/tests/test_release_actions.py": {
-        "seconds": 0.0,
-        "tests": 5
-      },
-      "plugins/reagents/tests/test_replenishment.py": {
-        "seconds": 0.0,
-        "tests": 9
-      },
-      "plugins/sequencing/tests/test_fastq.py": {
-        "seconds": 0.0,
-        "tests": 9
-      },
-      "plugins/sequencing_analysis/tests/test_report_selection.py": {
-        "seconds": 0.0,
-        "tests": 8
-      },
-      "scripts/ci/tests/test_browser_coverage.py": {
-        "seconds": 17.3,
-        "tests": 13
-      },
-      "scripts/ci/tests/test_browser_trace_vm.py": {
-        "seconds": 1.4,
-        "tests": 2
-      },
-      "scripts/ci/tests/test_check_imports.py": {
-        "seconds": 0.0,
-        "tests": 2
-      },
-      "scripts/ci/tests/test_docker_apt_retries.py": {
-        "seconds": 0.1,
-        "tests": 22
-      },
-      "scripts/ci/tests/test_gate_artifacts.py": {
-        "seconds": 3.7,
-        "tests": 26
-      },
-      "scripts/ci/tests/test_gate_skips.py": {
-        "seconds": 27.8,
-        "tests": 9
-      },
-      "scripts/ci/tests/test_git_hooks.py": {
-        "seconds": 0.1,
-        "tests": 3
-      },
-      "scripts/ci/tests/test_server_image.py": {
-        "seconds": 1.1,
-        "tests": 29
-      },
-      "scripts/ci/tests/test_server_wasm_verification.py": {
-        "seconds": 1.5,
-        "tests": 36
-      },
-      "scripts/ci/tests/test_shards.py": {
-        "seconds": 14.6,
-        "tests": 16
-      },
-      "scripts/ci/tests/test_standalone_wasm_build.py": {
-        "seconds": 0.2,
-        "tests": 4
-      },
-      "sdk/python/tests/test_auth.py": {
-        "seconds": 0.1,
-        "tests": 28
-      },
-      "sdk/python/tests/test_client.py": {
-        "seconds": 0.3,
-        "tests": 74
-      },
-      "sdk/python/tests/test_spreadsheets.py": {
-        "seconds": 0.1,
-        "tests": 8
-      },
-      "server/tests/test_accounts.py": {
-        "seconds": 104.6,
-        "tests": 15
-      },
-      "server/tests/test_admin_area.py": {
-        "seconds": 142.1,
-        "tests": 39
-      },
-      "server/tests/test_agents.py": {
-        "seconds": 14.8,
-        "tests": 12
-      },
-      "server/tests/test_amounts.py": {
-        "seconds": 13.7,
-        "tests": 19
-      },
-      "server/tests/test_antibody_isotype.py": {
-        "seconds": 13.7,
-        "tests": 59
-      },
-      "server/tests/test_antibody_liabilities.py": {
-        "seconds": 3.7,
-        "tests": 22
-      },
-      "server/tests/test_antibody_numbering.py": {
-        "seconds": 4.5,
-        "tests": 52
-      },
-      "server/tests/test_antibody_structure.py": {
-        "seconds": 0.4,
-        "tests": 6
-      },
-      "server/tests/test_api.py": {
-        "seconds": 9.4,
-        "tests": 34
-      },
-      "server/tests/test_api_access.py": {
-        "seconds": 900.1,
-        "tests": 4021
-      },
-      "server/tests/test_api_entities.py": {
-        "seconds": 15.5,
-        "tests": 27
-      },
-      "server/tests/test_api_idor.py": {
-        "seconds": 379.3,
-        "tests": 204
-      },
-      "server/tests/test_api_preflight.py": {
-        "seconds": 5.0,
-        "tests": 9
-      },
-      "server/tests/test_apps.py": {
-        "seconds": 11.9,
-        "tests": 21
-      },
-      "server/tests/test_assignments.py": {
-        "seconds": 32.9,
-        "tests": 19
-      },
-      "server/tests/test_audit.py": {
-        "seconds": 5.5,
-        "tests": 39
-      },
-      "server/tests/test_audit_trail.py": {
-        "seconds": 3.4,
-        "tests": 7
-      },
-      "server/tests/test_bulk_imports.py": {
-        "seconds": 36.9,
-        "tests": 28
-      },
-      "server/tests/test_bundle_exports.py": {
-        "seconds": 4.3,
-        "tests": 7
-      },
-      "server/tests/test_bundle_hrid_reservations.py": {
-        "seconds": 3.0,
-        "tests": 3
-      },
-      "server/tests/test_bundle_imports.py": {
-        "seconds": 41.0,
-        "tests": 34
-      },
-      "server/tests/test_bundle_plan_files.py": {
-        "seconds": 1.5,
-        "tests": 3
-      },
-      "server/tests/test_bundle_plan_members.py": {
-        "seconds": 2.2,
-        "tests": 2
-      },
-      "server/tests/test_bundle_vendor_codes.py": {
-        "seconds": 1.7,
-        "tests": 3
-      },
-      "server/tests/test_bundles.py": {
-        "seconds": 6.5,
-        "tests": 8
-      },
-      "server/tests/test_cell_check_review.py": {
-        "seconds": 1.5,
-        "tests": 21
-      },
-      "server/tests/test_cell_line_banking.py": {
-        "seconds": 185.0,
-        "tests": 1
-      },
-      "server/tests/test_check_restore.py": {
-        "seconds": 5.1,
-        "tests": 11
-      },
-      "server/tests/test_click_stability.py": {
-        "seconds": 0.0,
-        "tests": 3
-      },
-      "server/tests/test_collections.py": {
-        "seconds": 17.8,
-        "tests": 12
-      },
-      "server/tests/test_complex_composition.py": {
-        "seconds": 0.2,
-        "tests": 21
-      },
-      "server/tests/test_component_places.py": {
-        "seconds": 25.1,
-        "tests": 19
-      },
-      "server/tests/test_components.py": {
-        "seconds": 0.2,
-        "tests": 7
-      },
-      "server/tests/test_compute_overview.py": {
-        "seconds": 2.6,
-        "tests": 6
-      },
-      "server/tests/test_conjugate_composition.py": {
-        "seconds": 0.2,
-        "tests": 17
-      },
-      "server/tests/test_consensus.py": {
-        "seconds": 2.9,
-        "tests": 23
-      },
-      "server/tests/test_container_tier.py": {
-        "seconds": 13.8,
-        "tests": 22
-      },
-      "server/tests/test_core.py": {
-        "seconds": 0.4,
-        "tests": 12
-      },
-      "server/tests/test_core_facility.py": {
-        "seconds": 194.5,
-        "tests": 1
-      },
-      "server/tests/test_core_plugin.py": {
-        "seconds": 1.2,
-        "tests": 2
-      },
-      "server/tests/test_count_observation_history.py": {
-        "seconds": 18.3,
-        "tests": 17
-      },
-      "server/tests/test_count_resolution_notes.py": {
-        "seconds": 9.2,
-        "tests": 7
-      },
-      "server/tests/test_count_scan_identity.py": {
-        "seconds": 15.0,
-        "tests": 6
-      },
-      "server/tests/test_count_unregistered_slots.py": {
-        "seconds": 8.4,
-        "tests": 8
-      },
-      "server/tests/test_csp_report.py": {
-        "seconds": 0.5,
-        "tests": 5
-      },
-      "server/tests/test_db_pool.py": {
-        "seconds": 9.8,
-        "tests": 2
-      },
-      "server/tests/test_declared_notifications.py": {
-        "seconds": 21.3,
-        "tests": 21
-      },
-      "server/tests/test_delegated_lab_roles.py": {
-        "seconds": 3.7,
-        "tests": 2
-      },
       "server/tests/test_delegation.py": {
-        "seconds": 15.9,
+        "seconds": 18.7,
         "tests": 18
       },
       "server/tests/test_detached_plugins.py": {
-        "seconds": 3.0,
+        "seconds": 5.6,
         "tests": 12
       },
       "server/tests/test_dna_actions.py": {
-        "seconds": 8.2,
+        "seconds": 12.7,
         "tests": 73
       },
       "server/tests/test_dna_alignment.py": {
-        "seconds": 4.8,
+        "seconds": 4.9,
         "tests": 24
       },
       "server/tests/test_dna_codon_optimization.py": {
-        "seconds": 17.1,
+        "seconds": 54.4,
         "tests": 52
       },
       "server/tests/test_dna_guides.py": {
-        "seconds": 0.3,
+        "seconds": 0.7,
         "tests": 28
       },
       "server/tests/test_dna_mutations.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 14
       },
       "server/tests/test_dna_primers.py": {
-        "seconds": 0.4,
+        "seconds": 1.1,
         "tests": 38
       },
       "server/tests/test_dna_reads.py": {
-        "seconds": 5.6,
+        "seconds": 6.0,
         "tests": 33
       },
       "server/tests/test_dna_snapgene.py": {
@@ -1840,71 +438,71 @@
         "tests": 27
       },
       "server/tests/test_dose_response_starter.py": {
-        "seconds": 295.2,
+        "seconds": 238.2,
         "tests": 1
       },
       "server/tests/test_draw_scan_identity.py": {
-        "seconds": 3.3,
+        "seconds": 4.3,
         "tests": 3
       },
       "server/tests/test_ec2.py": {
-        "seconds": 1.6,
+        "seconds": 2.1,
         "tests": 11
       },
       "server/tests/test_edit_returns.py": {
-        "seconds": 4.5,
+        "seconds": 9.6,
         "tests": 4
       },
       "server/tests/test_egress.py": {
-        "seconds": 8.0,
+        "seconds": 6.5,
         "tests": 14
       },
       "server/tests/test_entities.py": {
-        "seconds": 0.1,
+        "seconds": 0.3,
         "tests": 10
       },
       "server/tests/test_entity_core.py": {
-        "seconds": 5.3,
+        "seconds": 6.7,
         "tests": 15
       },
       "server/tests/test_entity_counts.py": {
-        "seconds": 8.4,
+        "seconds": 8.5,
         "tests": 9
       },
       "server/tests/test_entity_exports.py": {
-        "seconds": 4.2,
+        "seconds": 9.7,
         "tests": 10
       },
       "server/tests/test_equipment.py": {
-        "seconds": 268.1,
+        "seconds": 169.7,
         "tests": 7
       },
       "server/tests/test_example_lims.py": {
-        "seconds": 4.4,
+        "seconds": 19.3,
         "tests": 26
       },
       "server/tests/test_example_models.py": {
-        "seconds": 5.4,
+        "seconds": 7.0,
         "tests": 10
       },
       "server/tests/test_experiment_records.py": {
-        "seconds": 223.7,
+        "seconds": 164.4,
         "tests": 1
       },
       "server/tests/test_expressions.py": {
-        "seconds": 0.0,
+        "seconds": 3.4,
         "tests": 6
       },
       "server/tests/test_file_acquired.py": {
-        "seconds": 2.0,
+        "seconds": 2.9,
         "tests": 143
       },
       "server/tests/test_file_fields.py": {
-        "seconds": 1.2,
+        "seconds": 3.5,
         "tests": 8
       },
       "server/tests/test_files.py": {
-        "seconds": 9.9,
+        "seconds": 11.1,
         "tests": 17
       },
       "server/tests/test_files_gcs.py": {
@@ -1912,55 +510,55 @@
         "tests": 6
       },
       "server/tests/test_first_party_plugins.py": {
-        "seconds": 997.2,
+        "seconds": 1250.7,
         "tests": 35
       },
       "server/tests/test_first_party_uninstall.py": {
-        "seconds": 878.4,
+        "seconds": 841.1,
         "tests": 1
       },
       "server/tests/test_flow_fixtures.py": {
-        "seconds": 4.1,
+        "seconds": 23.9,
         "tests": 1
       },
       "server/tests/test_gce.py": {
-        "seconds": 0.5,
+        "seconds": 0.9,
         "tests": 31
       },
       "server/tests/test_graph.py": {
-        "seconds": 35.3,
+        "seconds": 42.3,
         "tests": 24
       },
       "server/tests/test_graph_plans.py": {
-        "seconds": 19.4,
+        "seconds": 32.1,
         "tests": 2
       },
       "server/tests/test_guards.py": {
-        "seconds": 29.1,
+        "seconds": 50.0,
         "tests": 14
       },
       "server/tests/test_health.py": {
-        "seconds": 0.4,
+        "seconds": 112.4,
         "tests": 9
       },
       "server/tests/test_helm.py": {
-        "seconds": 0.3,
+        "seconds": 0.5,
         "tests": 3
       },
       "server/tests/test_lab_roles.py": {
-        "seconds": 6.5,
+        "seconds": 9.2,
         "tests": 13
       },
       "server/tests/test_legal_holds.py": {
-        "seconds": 1.1,
+        "seconds": 2.1,
         "tests": 6
       },
       "server/tests/test_lims_hold_reasons.py": {
-        "seconds": 184.1,
+        "seconds": 133.0,
         "tests": 1
       },
       "server/tests/test_lock_scope.py": {
-        "seconds": 0.7,
+        "seconds": 2.2,
         "tests": 2
       },
       "server/tests/test_logging.py": {
@@ -1968,51 +566,51 @@
         "tests": 9
       },
       "server/tests/test_lots.py": {
-        "seconds": 416.5,
+        "seconds": 342.7,
         "tests": 20
       },
       "server/tests/test_makings.py": {
-        "seconds": 12.2,
+        "seconds": 22.5,
         "tests": 18
       },
       "server/tests/test_mcp.py": {
-        "seconds": 49.6,
+        "seconds": 71.4,
         "tests": 24
       },
       "server/tests/test_melting_temperatures.py": {
-        "seconds": 142.8,
+        "seconds": 236.4,
         "tests": 8
       },
       "server/tests/test_mouse_strains.py": {
-        "seconds": 264.9,
+        "seconds": 186.0,
         "tests": 1
       },
       "server/tests/test_notifications.py": {
-        "seconds": 6.8,
+        "seconds": 8.2,
         "tests": 31
       },
       "server/tests/test_oauth.py": {
-        "seconds": 16.6,
+        "seconds": 37.6,
         "tests": 50
       },
       "server/tests/test_oidc_discovery.py": {
-        "seconds": 6.6,
+        "seconds": 7.4,
         "tests": 18
       },
       "server/tests/test_oligo_chemistry.py": {
-        "seconds": 0.3,
+        "seconds": 4.2,
         "tests": 30
       },
       "server/tests/test_org.py": {
-        "seconds": 271.6,
+        "seconds": 518.3,
         "tests": 32
       },
       "server/tests/test_org_access.py": {
-        "seconds": 266.3,
+        "seconds": 510.5,
         "tests": 886
       },
       "server/tests/test_outside_apis.py": {
-        "seconds": 22.7,
+        "seconds": 30.3,
         "tests": 16
       },
       "server/tests/test_package.py": {
@@ -2020,35 +618,35 @@
         "tests": 1
       },
       "server/tests/test_page_header.py": {
-        "seconds": 1.2,
+        "seconds": 2.9,
         "tests": 11
       },
       "server/tests/test_permissions.py": {
-        "seconds": 31.4,
+        "seconds": 346.8,
         "tests": 557
       },
       "server/tests/test_plasmid_annotation.py": {
-        "seconds": 11.1,
+        "seconds": 12.7,
         "tests": 53
       },
       "server/tests/test_plasmid_cloning.py": {
-        "seconds": 20.5,
+        "seconds": 21.8,
         "tests": 51
       },
       "server/tests/test_plasmid_orfs.py": {
-        "seconds": 0.8,
+        "seconds": 1.4,
         "tests": 11
       },
       "server/tests/test_plasmid_parity.py": {
-        "seconds": 3.7,
+        "seconds": 10.1,
         "tests": 426
       },
       "server/tests/test_plasmid_pcr.py": {
-        "seconds": 8.4,
+        "seconds": 11.9,
         "tests": 16
       },
       "server/tests/test_plasmid_verification.py": {
-        "seconds": 161.3,
+        "seconds": 162.8,
         "tests": 1
       },
       "server/tests/test_plasmid_verification_action.py": {
@@ -2056,251 +654,251 @@
         "tests": 15
       },
       "server/tests/test_plate_import.py": {
-        "seconds": 211.9,
+        "seconds": 276.7,
         "tests": 1
       },
       "server/tests/test_plate_review.py": {
-        "seconds": 203.2,
+        "seconds": 232.6,
         "tests": 1
       },
       "server/tests/test_plugin_migrations.py": {
-        "seconds": 2739.3,
+        "seconds": 2639.6,
         "tests": 42
       },
       "server/tests/test_plugin_migrations_deploy.py": {
-        "seconds": 1418.8,
+        "seconds": 1350.3,
         "tests": 19
       },
       "server/tests/test_plugin_purge.py": {
-        "seconds": 101.3,
+        "seconds": 51.3,
         "tests": 8
       },
       "server/tests/test_polymer_notation.py": {
-        "seconds": 0.2,
+        "seconds": 0.3,
         "tests": 22
       },
       "server/tests/test_preflight.py": {
-        "seconds": 1.2,
+        "seconds": 1.9,
         "tests": 4
       },
       "server/tests/test_preflight_arrays.py": {
-        "seconds": 0.2,
+        "seconds": 0.3,
         "tests": 2
       },
       "server/tests/test_preflight_candidate.py": {
-        "seconds": 0.5,
+        "seconds": 1.4,
         "tests": 20
       },
       "server/tests/test_preflight_projection.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 9
       },
       "server/tests/test_preflight_records.py": {
-        "seconds": 2.7,
+        "seconds": 3.4,
         "tests": 2
       },
       "server/tests/test_preflight_relations.py": {
-        "seconds": 7.8,
+        "seconds": 6.2,
         "tests": 8
       },
       "server/tests/test_preflight_rules.py": {
-        "seconds": 3.7,
+        "seconds": 3.4,
         "tests": 4
       },
       "server/tests/test_preflight_scale.py": {
-        "seconds": 13.8,
+        "seconds": 185.8,
         "tests": 1
       },
       "server/tests/test_preflight_sql.py": {
-        "seconds": 0.8,
+        "seconds": 1.2,
         "tests": 3
       },
       "server/tests/test_preflight_sql_fields.py": {
-        "seconds": 1.4,
+        "seconds": 2.8,
         "tests": 5
       },
       "server/tests/test_preflight_values.py": {
-        "seconds": 1.1,
+        "seconds": 2.2,
         "tests": 9
       },
       "server/tests/test_project_files.py": {
-        "seconds": 20.9,
+        "seconds": 41.9,
         "tests": 30
       },
       "server/tests/test_project_sharing.py": {
-        "seconds": 2.9,
+        "seconds": 9.6,
         "tests": 7
       },
       "server/tests/test_protein_actions.py": {
-        "seconds": 9.1,
+        "seconds": 7.0,
         "tests": 60
       },
       "server/tests/test_protein_multiple_alignment.py": {
-        "seconds": 1.2,
+        "seconds": 1.3,
         "tests": 13
       },
       "server/tests/test_protein_reads.py": {
-        "seconds": 6.9,
+        "seconds": 7.6,
         "tests": 40
       },
       "server/tests/test_protein_secondary_structure.py": {
-        "seconds": 1.1,
+        "seconds": 1.5,
         "tests": 9
       },
       "server/tests/test_protein_structures.py": {
-        "seconds": 4.4,
+        "seconds": 5.7,
         "tests": 50
       },
       "server/tests/test_provisioning.py": {
-        "seconds": 32.2,
+        "seconds": 57.0,
         "tests": 41
       },
       "server/tests/test_qc_release_workflow.py": {
-        "seconds": 222.9,
+        "seconds": 233.7,
         "tests": 1
       },
       "server/tests/test_quotas.py": {
-        "seconds": 4.8,
+        "seconds": 8.6,
         "tests": 5
       },
       "server/tests/test_ratelimit.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 6
       },
       "server/tests/test_reagent_stock.py": {
-        "seconds": 149.9,
+        "seconds": 185.6,
         "tests": 1
       },
       "server/tests/test_realtime.py": {
-        "seconds": 32.3,
+        "seconds": 42.0,
         "tests": 27
       },
       "server/tests/test_receipt_conflicts.py": {
-        "seconds": 5.5,
+        "seconds": 12.3,
         "tests": 3
       },
       "server/tests/test_receipt_observation_history.py": {
-        "seconds": 47.7,
+        "seconds": 119.1,
         "tests": 31
       },
       "server/tests/test_receipt_reviewed_placement.py": {
-        "seconds": 10.6,
+        "seconds": 25.9,
         "tests": 4
       },
       "server/tests/test_receipt_scan_identity.py": {
-        "seconds": 15.6,
+        "seconds": 28.7,
         "tests": 8
       },
       "server/tests/test_reconciliation_audit.py": {
-        "seconds": 137.5,
+        "seconds": 6.0,
         "tests": 1
       },
       "server/tests/test_reference_types.py": {
-        "seconds": 4.4,
+        "seconds": 5.2,
         "tests": 6
       },
       "server/tests/test_registrations.py": {
-        "seconds": 3.1,
+        "seconds": 5.1,
         "tests": 7
       },
       "server/tests/test_registries.py": {
-        "seconds": 12.0,
+        "seconds": 18.6,
         "tests": 13
       },
       "server/tests/test_requests.py": {
-        "seconds": 64.0,
+        "seconds": 133.8,
         "tests": 36
       },
       "server/tests/test_reserved_vendor_codes.py": {
-        "seconds": 95.8,
+        "seconds": 35.6,
         "tests": 1
       },
       "server/tests/test_rows.py": {
-        "seconds": 27.6,
+        "seconds": 39.0,
         "tests": 15
       },
       "server/tests/test_rules.py": {
-        "seconds": 64.8,
+        "seconds": 101.7,
         "tests": 32
       },
       "server/tests/test_run_approvals.py": {
-        "seconds": 7.0,
+        "seconds": 8.8,
         "tests": 8
       },
       "server/tests/test_run_artifacts.py": {
-        "seconds": 11.1,
+        "seconds": 17.0,
         "tests": 11
       },
       "server/tests/test_run_batches.py": {
-        "seconds": 27.2,
+        "seconds": 45.8,
         "tests": 20
       },
       "server/tests/test_run_budgets.py": {
-        "seconds": 5.9,
+        "seconds": 53.9,
         "tests": 11
       },
       "server/tests/test_run_checkpoints.py": {
-        "seconds": 11.0,
+        "seconds": 22.4,
         "tests": 14
       },
       "server/tests/test_run_costs.py": {
-        "seconds": 13.5,
+        "seconds": 17.2,
         "tests": 14
       },
       "server/tests/test_run_imports.py": {
-        "seconds": 29.6,
+        "seconds": 36.4,
         "tests": 22
       },
       "server/tests/test_run_inclusions.py": {
-        "seconds": 13.6,
+        "seconds": 24.2,
         "tests": 11
       },
       "server/tests/test_run_live.py": {
-        "seconds": 6.0,
+        "seconds": 6.2,
         "tests": 5
       },
       "server/tests/test_run_projects.py": {
-        "seconds": 3.1,
+        "seconds": 9.0,
         "tests": 6
       },
       "server/tests/test_run_results.py": {
-        "seconds": 28.0,
+        "seconds": 54.8,
         "tests": 28
       },
       "server/tests/test_run_reuse.py": {
-        "seconds": 23.5,
+        "seconds": 35.5,
         "tests": 22
       },
       "server/tests/test_run_secrets.py": {
-        "seconds": 1.2,
+        "seconds": 2.0,
         "tests": 5
       },
       "server/tests/test_run_settings.py": {
-        "seconds": 0.5,
+        "seconds": 0.6,
         "tests": 2
       },
       "server/tests/test_runs.py": {
-        "seconds": 14.0,
+        "seconds": 128.1,
         "tests": 24
       },
       "server/tests/test_saml.py": {
-        "seconds": 18.7,
+        "seconds": 28.8,
         "tests": 30
       },
       "server/tests/test_sample_retesting.py": {
-        "seconds": 254.9,
+        "seconds": 229.2,
         "tests": 1
       },
       "server/tests/test_saved_searches.py": {
-        "seconds": 2.7,
+        "seconds": 39.2,
         "tests": 9
       },
       "server/tests/test_scale_files.py": {
-        "seconds": 9.0,
+        "seconds": 30.1,
         "tests": 2
       },
       "server/tests/test_scale_grid.py": {
-        "seconds": 28.9,
+        "seconds": 74.8,
         "tests": 2
       },
       "server/tests/test_scale_import.py": {
@@ -2312,79 +910,79 @@
         "tests": 1
       },
       "server/tests/test_scim.py": {
-        "seconds": 4.1,
+        "seconds": 9.2,
         "tests": 41
       },
       "server/tests/test_sdk.py": {
-        "seconds": 109.3,
+        "seconds": 135.7,
         "tests": 10
       },
       "server/tests/test_search.py": {
-        "seconds": 27.1,
+        "seconds": 39.0,
         "tests": 33
       },
       "server/tests/test_search_everything.py": {
-        "seconds": 15.1,
+        "seconds": 37.2,
         "tests": 18
       },
       "server/tests/test_search_exports.py": {
-        "seconds": 8.7,
-        "tests": 31
+        "seconds": 13.5,
+        "tests": 32
       },
       "server/tests/test_search_motifs.py": {
-        "seconds": 8.0,
+        "seconds": 9.2,
         "tests": 15
       },
       "server/tests/test_self_hosted.py": {
-        "seconds": 11.7,
+        "seconds": 26.0,
         "tests": 18
       },
       "server/tests/test_sequence_files.py": {
-        "seconds": 1.5,
+        "seconds": 2.0,
         "tests": 27
       },
       "server/tests/test_server_e2e.py": {
-        "seconds": 7.5,
+        "seconds": 6.1,
         "tests": 1
       },
       "server/tests/test_service_accounts.py": {
-        "seconds": 1.5,
+        "seconds": 119.5,
         "tests": 13
       },
       "server/tests/test_settings.py": {
-        "seconds": 51.4,
+        "seconds": 49.9,
         "tests": 42
       },
       "server/tests/test_setup_builds.py": {
-        "seconds": 24.6,
+        "seconds": 39.1,
         "tests": 27
       },
       "server/tests/test_setup_storage.py": {
-        "seconds": 0.3,
+        "seconds": 1.0,
         "tests": 5
       },
       "server/tests/test_setup_wizard.py": {
-        "seconds": 12.1,
+        "seconds": 16.9,
         "tests": 20
       },
       "server/tests/test_signature_bundles.py": {
-        "seconds": 15.8,
+        "seconds": 18.4,
         "tests": 12
       },
       "server/tests/test_signature_migrations.py": {
-        "seconds": 441.7,
+        "seconds": 393.7,
         "tests": 4
       },
       "server/tests/test_signatures.py": {
-        "seconds": 36.4,
+        "seconds": 219.1,
         "tests": 33
       },
       "server/tests/test_signed_report_exports.py": {
-        "seconds": 80.6,
+        "seconds": 79.9,
         "tests": 1
       },
       "server/tests/test_slurm.py": {
-        "seconds": 8.3,
+        "seconds": 15.3,
         "tests": 16
       },
       "server/tests/test_slurm_e2e.py": {
@@ -2396,99 +994,1513 @@
         "tests": 75
       },
       "server/tests/test_spreadsheet_imports.py": {
-        "seconds": 48.4,
+        "seconds": 66.3,
         "tests": 31
       },
       "server/tests/test_spreadsheet_reading.py": {
-        "seconds": 0.4,
+        "seconds": 1.0,
         "tests": 34
       },
       "server/tests/test_spreadsheet_revisions.py": {
-        "seconds": 11.6,
+        "seconds": 24.6,
         "tests": 10
       },
       "server/tests/test_stability.py": {
-        "seconds": 272.5,
+        "seconds": 159.9,
         "tests": 5
       },
       "server/tests/test_starter_api.py": {
-        "seconds": 2.1,
+        "seconds": 3.0,
         "tests": 7
       },
       "server/tests/test_starter_applications.py": {
-        "seconds": 1.2,
-        "tests": 5
+        "seconds": 3.0,
+        "tests": 7
       },
       "server/tests/test_states.py": {
-        "seconds": 26.9,
+        "seconds": 43.8,
         "tests": 19
       },
       "server/tests/test_stock_alerts.py": {
-        "seconds": 2.0,
+        "seconds": 2.2,
         "tests": 2
       },
       "server/tests/test_storage.py": {
-        "seconds": 31.4,
-        "tests": 21
+        "seconds": 301.6,
+        "tests": 22
       },
       "server/tests/test_storage_confirmation_identity.py": {
-        "seconds": 23.5,
+        "seconds": 41.8,
         "tests": 11
       },
       "server/tests/test_storage_contract.py": {
-        "seconds": 2.3,
+        "seconds": 3.2,
         "tests": 15
       },
       "server/tests/test_storage_label_geometry.py": {
-        "seconds": 2.0,
+        "seconds": 42.1,
         "tests": 19
       },
       "server/tests/test_storage_observation_api.py": {
-        "seconds": 2.3,
+        "seconds": 4.0,
         "tests": 2
       },
       "server/tests/test_storage_observations.py": {
-        "seconds": 2.3,
+        "seconds": 5.7,
         "tests": 5
       },
       "server/tests/test_storage_scan_identity.py": {
-        "seconds": 3.9,
+        "seconds": 7.9,
         "tests": 7
       },
       "server/tests/test_storage_scan_preview.py": {
-        "seconds": 118.5,
+        "seconds": 60.0,
         "tests": 9
       },
       "server/tests/test_strains.py": {
-        "seconds": 198.1,
+        "seconds": 229.6,
         "tests": 1
       },
       "server/tests/test_tasks.py": {
-        "seconds": 11.2,
+        "seconds": 12.3,
         "tests": 22
       },
       "server/tests/test_telemetry.py": {
-        "seconds": 0.4,
+        "seconds": 0.6,
         "tests": 7
       },
       "server/tests/test_test_services.py": {
-        "seconds": 2.9,
+        "seconds": 0.2,
         "tests": 2
       },
       "server/tests/test_token_reach.py": {
-        "seconds": 108.6,
+        "seconds": 144.3,
         "tests": 340
       },
       "server/tests/test_triggers.py": {
-        "seconds": 12.6,
+        "seconds": 23.4,
         "tests": 27
       },
       "server/tests/test_unique_fields.py": {
-        "seconds": 5.2,
+        "seconds": 7.1,
         "tests": 15
       },
       "server/tests/test_vendor_barcode_database.py": {
+        "seconds": 2.7,
+        "tests": 3
+      },
+      "server/tests/test_viewers.py": {
+        "seconds": 0.3,
+        "tests": 8
+      },
+      "server/tests/test_views.py": {
+        "seconds": 13.7,
+        "tests": 9
+      },
+      "server/tests/test_vm_tier.py": {
+        "seconds": 12.5,
+        "tests": 15
+      },
+      "server/tests/test_vm_tier_gce.py": {
+        "seconds": 22.0,
+        "tests": 17
+      },
+      "server/tests/test_vm_volumes.py": {
+        "seconds": 14.1,
+        "tests": 18
+      },
+      "server/tests/test_vm_volumes_gce.py": {
+        "seconds": 7.4,
+        "tests": 11
+      },
+      "server/tests/test_wait_for_database.py": {
+        "seconds": 2.9,
+        "tests": 3
+      },
+      "server/tests/test_web_app.py": {
+        "seconds": 16.4,
+        "tests": 64
+      },
+      "server/tests/test_web_security.py": {
+        "seconds": 11.4,
+        "tests": 32
+      },
+      "server/tests/test_web_stylesheets.py": {
+        "seconds": 0.0,
+        "tests": 2
+      },
+      "server/tests/test_webhooks.py": {
+        "seconds": 54.5,
+        "tests": 78
+      },
+      "server/tests/test_worker_bundles.py": {
+        "seconds": 12.0,
+        "tests": 10
+      },
+      "server/tests/test_worker_idor.py": {
+        "seconds": 26.9,
+        "tests": 16
+      },
+      "server/tests/test_worker_updates.py": {
+        "seconds": 2.4,
+        "tests": 10
+      },
+      "server/tests/test_workers.py": {
+        "seconds": 40.5,
+        "tests": 35
+      },
+      "server/tests/test_workflows.py": {
+        "seconds": 66.2,
+        "tests": 34
+      },
+      "spec/tests/test_action_tests.py": {
+        "seconds": 14.8,
+        "tests": 11
+      },
+      "spec/tests/test_actions.py": {
+        "seconds": 17.6,
+        "tests": 114
+      },
+      "spec/tests/test_build_backend.py": {
+        "seconds": 0.1,
+        "tests": 5
+      },
+      "spec/tests/test_build_dna_annotation_artifact.py": {
+        "seconds": 0.0,
+        "tests": 5
+      },
+      "spec/tests/test_builtin.py": {
+        "seconds": 0.6,
+        "tests": 5
+      },
+      "spec/tests/test_components.py": {
+        "seconds": 2.7,
+        "tests": 25
+      },
+      "spec/tests/test_compute.py": {
+        "seconds": 4.0,
+        "tests": 65
+      },
+      "spec/tests/test_cron.py": {
+        "seconds": 0.2,
+        "tests": 21
+      },
+      "spec/tests/test_dna_annotation.py": {
+        "seconds": 0.0,
+        "tests": 1
+      },
+      "spec/tests/test_exports.py": {
+        "seconds": 0.8,
+        "tests": 7
+      },
+      "spec/tests/test_features.py": {
+        "seconds": 1.8,
+        "tests": 25
+      },
+      "spec/tests/test_first_party.py": {
+        "seconds": 0.4,
+        "tests": 2
+      },
+      "spec/tests/test_globs.py": {
+        "seconds": 0.1,
+        "tests": 28
+      },
+      "spec/tests/test_identity.py": {
+        "seconds": 0.1,
+        "tests": 23
+      },
+      "spec/tests/test_lockfile.py": {
+        "seconds": 0.3,
+        "tests": 41
+      },
+      "spec/tests/test_motifs.py": {
+        "seconds": 0.2,
+        "tests": 23
+      },
+      "spec/tests/test_oligo_measurement.py": {
+        "seconds": 0.2,
+        "tests": 20
+      },
+      "spec/tests/test_package.py": {
+        "seconds": 0.0,
+        "tests": 1
+      },
+      "spec/tests/test_releases.py": {
+        "seconds": 0.1,
+        "tests": 13
+      },
+      "spec/tests/test_rules.py": {
+        "seconds": 1.1,
+        "tests": 19
+      },
+      "spec/tests/test_titles.py": {
+        "seconds": 2.3,
+        "tests": 15
+      },
+      "spec/tests/test_triggers.py": {
+        "seconds": 6.4,
+        "tests": 52
+      },
+      "spec/tests/test_units.py": {
         "seconds": 1.5,
+        "tests": 164
+      },
+      "spec/tests/test_validate.py": {
+        "seconds": 26.2,
+        "tests": 320
+      },
+      "spec/tests/test_viewers.py": {
+        "seconds": 2.2,
+        "tests": 12
+      },
+      "spec/tests/test_wasm_image.py": {
+        "seconds": 3.4,
+        "tests": 12
+      },
+      "spec/tests/test_workflows.py": {
+        "seconds": 7.1,
+        "tests": 56
+      },
+      "spec/tests/test_yamlsource.py": {
+        "seconds": 0.2,
+        "tests": 17
+      }
+    }
+  },
+  "3.14": {
+    "browser": {
+      "server/tests/test_biologics_ms_component.py": {
+        "seconds": 14.7,
+        "tests": 9
+      },
+      "server/tests/test_booking_calendar.py": {
+        "seconds": 8.8,
+        "tests": 3
+      },
+      "server/tests/test_browser.py": {
+        "seconds": 4048.0,
+        "tests": 366
+      },
+      "server/tests/test_browser_artifacts.py": {
+        "seconds": 29.0,
+        "tests": 4
+      },
+      "server/tests/test_browser_compute_images.py": {
+        "seconds": 275.8,
+        "tests": 12
+      },
+      "server/tests/test_browser_exfiltration.py": {
+        "seconds": 154.4,
+        "tests": 9
+      },
+      "server/tests/test_browser_files.py": {
+        "seconds": 374.5,
+        "tests": 27
+      },
+      "server/tests/test_browser_overview.py": {
+        "seconds": 297.7,
+        "tests": 24
+      },
+      "server/tests/test_browser_reagent_stock.py": {
+        "seconds": 104.3,
+        "tests": 12
+      },
+      "server/tests/test_browser_search.py": {
+        "seconds": 429.1,
+        "tests": 30
+      },
+      "server/tests/test_browser_spreadsheets.py": {
+        "seconds": 778.1,
+        "tests": 27
+      },
+      "server/tests/test_browser_storage.py": {
+        "seconds": 2109.5,
+        "tests": 135
+      },
+      "server/tests/test_click_stability.py": {
+        "seconds": 34.9,
+        "tests": 33
+      },
+      "server/tests/test_complex_components.py": {
+        "seconds": 36.3,
+        "tests": 33
+      },
+      "server/tests/test_conjugate_components.py": {
+        "seconds": 11.2,
+        "tests": 9
+      },
+      "server/tests/test_digest_gel.py": {
+        "seconds": 114.5,
+        "tests": 6
+      },
+      "server/tests/test_dna_components.py": {
+        "seconds": 36.0,
+        "tests": 40
+      },
+      "server/tests/test_dna_guide_components.py": {
+        "seconds": 72.4,
+        "tests": 49
+      },
+      "server/tests/test_dna_mutagenesis_components.py": {
+        "seconds": 44.4,
+        "tests": 43
+      },
+      "server/tests/test_dose_response_component.py": {
+        "seconds": 17.5,
+        "tests": 12
+      },
+      "server/tests/test_equipment_components.py": {
+        "seconds": 25.7,
+        "tests": 18
+      },
+      "server/tests/test_experiment_evidence_component.py": {
+        "seconds": 18.7,
+        "tests": 12
+      },
+      "server/tests/test_oligo_components.py": {
+        "seconds": 16.6,
+        "tests": 21
+      },
+      "server/tests/test_plasmid_components.py": {
+        "seconds": 81.4,
+        "tests": 76
+      },
+      "server/tests/test_plate_map_component.py": {
+        "seconds": 33.6,
+        "tests": 15
+      },
+      "server/tests/test_polymer_components.py": {
+        "seconds": 18.2,
+        "tests": 12
+      },
+      "server/tests/test_prep_verification_components.py": {
+        "seconds": 16.7,
+        "tests": 9
+      },
+      "server/tests/test_proteomics_component.py": {
+        "seconds": 11.4,
+        "tests": 9
+      },
+      "server/tests/test_qc_release_component.py": {
+        "seconds": 49.7,
+        "tests": 33
+      },
+      "server/tests/test_science_rendering_engines.py": {
+        "seconds": 45.4,
+        "tests": 12
+      },
+      "server/tests/test_sequencing_analysis_component.py": {
+        "seconds": 12.2,
+        "tests": 6
+      },
+      "server/tests/test_sequencing_component.py": {
+        "seconds": 12.5,
+        "tests": 6
+      },
+      "server/tests/test_small_molecule_depiction.py": {
+        "seconds": 12.6,
+        "tests": 6
+      },
+      "server/tests/test_stability_component.py": {
+        "seconds": 22.9,
+        "tests": 12
+      },
+      "server/tests/test_web_package_stories.py": {
+        "seconds": 159.4,
+        "tests": 96
+      },
+      "server/tests/test_whole_plasmid_component.py": {
+        "seconds": 90.0,
+        "tests": 18
+      }
+    },
+    "plain": {
+      "cli/tests/test_config_template.py": {
+        "seconds": 0.1,
+        "tests": 10
+      },
+      "cli/tests/test_deploy_build.py": {
+        "seconds": 55.0,
+        "tests": 27
+      },
+      "cli/tests/test_main.py": {
+        "seconds": 0.0,
+        "tests": 3
+      },
+      "cli/tests/test_mirrors.py": {
+        "seconds": 5.6,
+        "tests": 12
+      },
+      "cli/tests/test_plugin_build.py": {
+        "seconds": 0.8,
+        "tests": 3
+      },
+      "cli/tests/test_plugin_preflight.py": {
+        "seconds": 0.7,
+        "tests": 6
+      },
+      "cli/tests/test_plugin_skills.py": {
+        "seconds": 7.6,
+        "tests": 7
+      },
+      "cli/tests/test_plugin_test.py": {
+        "seconds": 5.2,
+        "tests": 13
+      },
+      "cli/tests/test_plugin_validate.py": {
+        "seconds": 72.7,
+        "tests": 12
+      },
+      "cli/tests/test_starter_cli.py": {
+        "seconds": 0.1,
+        "tests": 9
+      },
+      "cli/tests/test_workers_bundle.py": {
+        "seconds": 6.7,
+        "tests": 24
+      },
+      "codegen/tests/test_codegen.py": {
+        "seconds": 3.2,
+        "tests": 15
+      },
+      "deploy/aws/tests/test_aws_cost.py": {
+        "seconds": 0.0,
+        "tests": 6
+      },
+      "deploy/aws/tests/test_aws_inventory.py": {
+        "seconds": 0.0,
+        "tests": 7
+      },
+      "deploy/aws/tests/test_aws_live.py": {
+        "seconds": 0.0,
+        "tests": 9
+      },
+      "deploy/aws/tests/test_aws_live_helpers.py": {
+        "seconds": 0.0,
+        "tests": 5
+      },
+      "deploy/dev/tests/test_run_pod.py": {
+        "seconds": 0.0,
+        "tests": 2
+      },
+      "deploy/gcp/tests/test_gcp_cost.py": {
+        "seconds": 0.1,
+        "tests": 3
+      },
+      "deploy/gcp/tests/test_gcp_live.py": {
+        "seconds": 0.0,
+        "tests": 12
+      },
+      "deploy/gcp/tests/test_gcp_live_helpers.py": {
+        "seconds": 4.1,
+        "tests": 77
+      },
+      "deploy/helm/iki/tests/test_chart.py": {
+        "seconds": 28.9,
+        "tests": 140
+      },
+      "deploy/live/test_iki_live.py": {
+        "seconds": 2.5,
+        "tests": 24
+      },
+      "deploy/live/test_live_runs.py": {
+        "seconds": 1.1,
+        "tests": 19
+      },
+      "docs/tests/test_links.py": {
+        "seconds": 0.1,
+        "tests": 4
+      },
+      "docs/tests/test_release_owner.py": {
+        "seconds": 1.0,
+        "tests": 1
+      },
+      "docs/tests/test_tm_citations.py": {
+        "seconds": 0.0,
+        "tests": 5
+      },
+      "plugins/biologics_ms/tests/test_characterize.py": {
+        "seconds": 0.0,
+        "tests": 8
+      },
+      "plugins/experiments/tests/test_capture.py": {
+        "seconds": 0.0,
+        "tests": 5
+      },
+      "plugins/plasmid_sequencing/tests/test_whole_plasmid.py": {
+        "seconds": 16.5,
+        "tests": 49
+      },
+      "plugins/plate_assays/tests/test_assay_workflow.py": {
+        "seconds": 0.0,
+        "tests": 3
+      },
+      "plugins/plate_assays/tests/test_four_pl.py": {
+        "seconds": 0.1,
+        "tests": 15
+      },
+      "plugins/plate_assays/tests/test_reader.py": {
+        "seconds": 0.0,
+        "tests": 23
+      },
+      "plugins/proteomics/tests/test_search_reports.py": {
+        "seconds": 0.0,
+        "tests": 13
+      },
+      "plugins/qc_release/tests/test_release_actions.py": {
+        "seconds": 0.0,
+        "tests": 5
+      },
+      "plugins/reagents/tests/test_replenishment.py": {
+        "seconds": 0.0,
+        "tests": 9
+      },
+      "plugins/sequencing/tests/test_fastq.py": {
+        "seconds": 0.0,
+        "tests": 9
+      },
+      "plugins/sequencing_analysis/tests/test_report_selection.py": {
+        "seconds": 0.0,
+        "tests": 8
+      },
+      "scripts/ci/tests/test_browser_coverage.py": {
+        "seconds": 20.9,
+        "tests": 13
+      },
+      "scripts/ci/tests/test_browser_trace_vm.py": {
+        "seconds": 2.1,
+        "tests": 2
+      },
+      "scripts/ci/tests/test_check_imports.py": {
+        "seconds": 0.0,
+        "tests": 2
+      },
+      "scripts/ci/tests/test_docker_apt_retries.py": {
+        "seconds": 0.1,
+        "tests": 22
+      },
+      "scripts/ci/tests/test_gate_artifacts.py": {
+        "seconds": 4.8,
+        "tests": 26
+      },
+      "scripts/ci/tests/test_gate_skips.py": {
+        "seconds": 19.0,
+        "tests": 9
+      },
+      "scripts/ci/tests/test_git_hooks.py": {
+        "seconds": 0.1,
+        "tests": 3
+      },
+      "scripts/ci/tests/test_server_image.py": {
+        "seconds": 1.7,
+        "tests": 29
+      },
+      "scripts/ci/tests/test_server_wasm_verification.py": {
+        "seconds": 1.1,
+        "tests": 36
+      },
+      "scripts/ci/tests/test_shards.py": {
+        "seconds": 13.3,
+        "tests": 16
+      },
+      "scripts/ci/tests/test_standalone_wasm_build.py": {
+        "seconds": 0.1,
+        "tests": 4
+      },
+      "sdk/python/tests/test_auth.py": {
+        "seconds": 0.1,
+        "tests": 28
+      },
+      "sdk/python/tests/test_client.py": {
+        "seconds": 0.3,
+        "tests": 74
+      },
+      "sdk/python/tests/test_spreadsheets.py": {
+        "seconds": 0.1,
+        "tests": 8
+      },
+      "server/tests/test_accounts.py": {
+        "seconds": 129.6,
+        "tests": 15
+      },
+      "server/tests/test_admin_area.py": {
+        "seconds": 41.0,
+        "tests": 39
+      },
+      "server/tests/test_agents.py": {
+        "seconds": 15.4,
+        "tests": 12
+      },
+      "server/tests/test_amounts.py": {
+        "seconds": 83.5,
+        "tests": 19
+      },
+      "server/tests/test_antibody_isotype.py": {
+        "seconds": 17.8,
+        "tests": 59
+      },
+      "server/tests/test_antibody_liabilities.py": {
+        "seconds": 3.0,
+        "tests": 22
+      },
+      "server/tests/test_antibody_numbering.py": {
+        "seconds": 5.8,
+        "tests": 52
+      },
+      "server/tests/test_antibody_structure.py": {
+        "seconds": 0.3,
+        "tests": 6
+      },
+      "server/tests/test_api.py": {
+        "seconds": 9.2,
+        "tests": 34
+      },
+      "server/tests/test_api_access.py": {
+        "seconds": 994.0,
+        "tests": 4021
+      },
+      "server/tests/test_api_entities.py": {
+        "seconds": 20.0,
+        "tests": 27
+      },
+      "server/tests/test_api_idor.py": {
+        "seconds": 431.9,
+        "tests": 204
+      },
+      "server/tests/test_api_preflight.py": {
+        "seconds": 2.8,
+        "tests": 9
+      },
+      "server/tests/test_apps.py": {
+        "seconds": 13.1,
+        "tests": 21
+      },
+      "server/tests/test_assignments.py": {
+        "seconds": 26.3,
+        "tests": 19
+      },
+      "server/tests/test_audit.py": {
+        "seconds": 5.9,
+        "tests": 39
+      },
+      "server/tests/test_audit_trail.py": {
+        "seconds": 6.4,
+        "tests": 8
+      },
+      "server/tests/test_bulk_imports.py": {
+        "seconds": 46.9,
+        "tests": 28
+      },
+      "server/tests/test_bundle_exports.py": {
+        "seconds": 80.4,
+        "tests": 7
+      },
+      "server/tests/test_bundle_hrid_reservations.py": {
+        "seconds": 2.9,
+        "tests": 3
+      },
+      "server/tests/test_bundle_imports.py": {
+        "seconds": 33.4,
+        "tests": 34
+      },
+      "server/tests/test_bundle_plan_files.py": {
+        "seconds": 4.1,
+        "tests": 3
+      },
+      "server/tests/test_bundle_plan_members.py": {
+        "seconds": 2.3,
+        "tests": 2
+      },
+      "server/tests/test_bundle_vendor_codes.py": {
+        "seconds": 2.3,
+        "tests": 3
+      },
+      "server/tests/test_bundles.py": {
+        "seconds": 8.2,
+        "tests": 8
+      },
+      "server/tests/test_cell_check_review.py": {
+        "seconds": 2.3,
+        "tests": 21
+      },
+      "server/tests/test_cell_line_banking.py": {
+        "seconds": 241.0,
+        "tests": 1
+      },
+      "server/tests/test_check_restore.py": {
+        "seconds": 5.3,
+        "tests": 11
+      },
+      "server/tests/test_click_stability.py": {
+        "seconds": 0.0,
+        "tests": 3
+      },
+      "server/tests/test_collections.py": {
+        "seconds": 13.1,
+        "tests": 12
+      },
+      "server/tests/test_complex_composition.py": {
+        "seconds": 0.2,
+        "tests": 21
+      },
+      "server/tests/test_component_places.py": {
+        "seconds": 27.5,
+        "tests": 19
+      },
+      "server/tests/test_components.py": {
+        "seconds": 0.3,
+        "tests": 7
+      },
+      "server/tests/test_compute_overview.py": {
+        "seconds": 2.4,
+        "tests": 6
+      },
+      "server/tests/test_conjugate_composition.py": {
+        "seconds": 0.2,
+        "tests": 17
+      },
+      "server/tests/test_consensus.py": {
+        "seconds": 2.8,
+        "tests": 23
+      },
+      "server/tests/test_container_tier.py": {
+        "seconds": 13.9,
+        "tests": 22
+      },
+      "server/tests/test_core.py": {
+        "seconds": 0.5,
+        "tests": 12
+      },
+      "server/tests/test_core_facility.py": {
+        "seconds": 185.1,
+        "tests": 1
+      },
+      "server/tests/test_core_plugin.py": {
+        "seconds": 1.4,
+        "tests": 2
+      },
+      "server/tests/test_count_observation_history.py": {
+        "seconds": 25.7,
+        "tests": 17
+      },
+      "server/tests/test_count_resolution_notes.py": {
+        "seconds": 10.2,
+        "tests": 7
+      },
+      "server/tests/test_count_scan_identity.py": {
+        "seconds": 12.1,
+        "tests": 6
+      },
+      "server/tests/test_count_unregistered_slots.py": {
+        "seconds": 8.3,
+        "tests": 8
+      },
+      "server/tests/test_csp_report.py": {
+        "seconds": 0.3,
+        "tests": 5
+      },
+      "server/tests/test_db_pool.py": {
+        "seconds": 8.5,
+        "tests": 2
+      },
+      "server/tests/test_declared_notifications.py": {
+        "seconds": 26.8,
+        "tests": 21
+      },
+      "server/tests/test_delegated_lab_roles.py": {
+        "seconds": 3.0,
+        "tests": 2
+      },
+      "server/tests/test_delegation.py": {
+        "seconds": 12.2,
+        "tests": 18
+      },
+      "server/tests/test_detached_plugins.py": {
+        "seconds": 3.3,
+        "tests": 12
+      },
+      "server/tests/test_dna_actions.py": {
+        "seconds": 11.5,
+        "tests": 73
+      },
+      "server/tests/test_dna_alignment.py": {
+        "seconds": 4.6,
+        "tests": 24
+      },
+      "server/tests/test_dna_codon_optimization.py": {
+        "seconds": 16.9,
+        "tests": 52
+      },
+      "server/tests/test_dna_guides.py": {
+        "seconds": 0.3,
+        "tests": 28
+      },
+      "server/tests/test_dna_mutations.py": {
+        "seconds": 0.3,
+        "tests": 14
+      },
+      "server/tests/test_dna_primers.py": {
+        "seconds": 0.7,
+        "tests": 38
+      },
+      "server/tests/test_dna_reads.py": {
+        "seconds": 5.9,
+        "tests": 33
+      },
+      "server/tests/test_dna_snapgene.py": {
+        "seconds": 2.6,
+        "tests": 27
+      },
+      "server/tests/test_dose_response_starter.py": {
+        "seconds": 235.3,
+        "tests": 1
+      },
+      "server/tests/test_draw_scan_identity.py": {
+        "seconds": 3.0,
+        "tests": 3
+      },
+      "server/tests/test_ec2.py": {
+        "seconds": 2.9,
+        "tests": 11
+      },
+      "server/tests/test_edit_returns.py": {
+        "seconds": 4.9,
+        "tests": 4
+      },
+      "server/tests/test_egress.py": {
+        "seconds": 5.1,
+        "tests": 14
+      },
+      "server/tests/test_entities.py": {
+        "seconds": 0.2,
+        "tests": 10
+      },
+      "server/tests/test_entity_core.py": {
+        "seconds": 3.0,
+        "tests": 15
+      },
+      "server/tests/test_entity_counts.py": {
+        "seconds": 6.4,
+        "tests": 9
+      },
+      "server/tests/test_entity_exports.py": {
+        "seconds": 5.3,
+        "tests": 10
+      },
+      "server/tests/test_equipment.py": {
+        "seconds": 263.2,
+        "tests": 7
+      },
+      "server/tests/test_example_lims.py": {
+        "seconds": 4.3,
+        "tests": 26
+      },
+      "server/tests/test_example_models.py": {
+        "seconds": 5.6,
+        "tests": 10
+      },
+      "server/tests/test_experiment_records.py": {
+        "seconds": 170.2,
+        "tests": 1
+      },
+      "server/tests/test_expressions.py": {
+        "seconds": 0.0,
+        "tests": 6
+      },
+      "server/tests/test_file_acquired.py": {
+        "seconds": 1.2,
+        "tests": 143
+      },
+      "server/tests/test_file_fields.py": {
+        "seconds": 1.8,
+        "tests": 8
+      },
+      "server/tests/test_files.py": {
+        "seconds": 9.2,
+        "tests": 17
+      },
+      "server/tests/test_files_gcs.py": {
+        "seconds": 16.8,
+        "tests": 6
+      },
+      "server/tests/test_first_party_plugins.py": {
+        "seconds": 1310.2,
+        "tests": 35
+      },
+      "server/tests/test_first_party_uninstall.py": {
+        "seconds": 770.8,
+        "tests": 1
+      },
+      "server/tests/test_flow_fixtures.py": {
+        "seconds": 4.0,
+        "tests": 1
+      },
+      "server/tests/test_gce.py": {
+        "seconds": 0.7,
+        "tests": 31
+      },
+      "server/tests/test_graph.py": {
+        "seconds": 29.2,
+        "tests": 24
+      },
+      "server/tests/test_graph_plans.py": {
+        "seconds": 19.6,
+        "tests": 2
+      },
+      "server/tests/test_guards.py": {
+        "seconds": 33.2,
+        "tests": 14
+      },
+      "server/tests/test_health.py": {
+        "seconds": 0.3,
+        "tests": 9
+      },
+      "server/tests/test_helm.py": {
+        "seconds": 0.4,
+        "tests": 3
+      },
+      "server/tests/test_lab_roles.py": {
+        "seconds": 5.2,
+        "tests": 13
+      },
+      "server/tests/test_legal_holds.py": {
+        "seconds": 1.0,
+        "tests": 6
+      },
+      "server/tests/test_lims_hold_reasons.py": {
+        "seconds": 228.1,
+        "tests": 1
+      },
+      "server/tests/test_lock_scope.py": {
+        "seconds": 2.2,
+        "tests": 2
+      },
+      "server/tests/test_logging.py": {
+        "seconds": 0.2,
+        "tests": 9
+      },
+      "server/tests/test_lots.py": {
+        "seconds": 314.7,
+        "tests": 20
+      },
+      "server/tests/test_makings.py": {
+        "seconds": 15.5,
+        "tests": 18
+      },
+      "server/tests/test_mcp.py": {
+        "seconds": 69.4,
+        "tests": 24
+      },
+      "server/tests/test_melting_temperatures.py": {
+        "seconds": 259.4,
+        "tests": 8
+      },
+      "server/tests/test_mouse_strains.py": {
+        "seconds": 153.8,
+        "tests": 1
+      },
+      "server/tests/test_notifications.py": {
+        "seconds": 4.6,
+        "tests": 31
+      },
+      "server/tests/test_oauth.py": {
+        "seconds": 16.6,
+        "tests": 50
+      },
+      "server/tests/test_oidc_discovery.py": {
+        "seconds": 6.7,
+        "tests": 18
+      },
+      "server/tests/test_oligo_chemistry.py": {
+        "seconds": 2.7,
+        "tests": 30
+      },
+      "server/tests/test_org.py": {
+        "seconds": 332.8,
+        "tests": 32
+      },
+      "server/tests/test_org_access.py": {
+        "seconds": 219.6,
+        "tests": 886
+      },
+      "server/tests/test_outside_apis.py": {
+        "seconds": 21.0,
+        "tests": 16
+      },
+      "server/tests/test_package.py": {
+        "seconds": 0.0,
+        "tests": 1
+      },
+      "server/tests/test_page_header.py": {
+        "seconds": 1.2,
+        "tests": 11
+      },
+      "server/tests/test_permissions.py": {
+        "seconds": 103.5,
+        "tests": 557
+      },
+      "server/tests/test_plasmid_annotation.py": {
+        "seconds": 11.5,
+        "tests": 53
+      },
+      "server/tests/test_plasmid_cloning.py": {
+        "seconds": 20.0,
+        "tests": 51
+      },
+      "server/tests/test_plasmid_orfs.py": {
+        "seconds": 0.6,
+        "tests": 11
+      },
+      "server/tests/test_plasmid_parity.py": {
+        "seconds": 6.4,
+        "tests": 426
+      },
+      "server/tests/test_plasmid_pcr.py": {
+        "seconds": 11.4,
+        "tests": 16
+      },
+      "server/tests/test_plasmid_verification.py": {
+        "seconds": 155.1,
+        "tests": 1
+      },
+      "server/tests/test_plasmid_verification_action.py": {
+        "seconds": 0.0,
+        "tests": 15
+      },
+      "server/tests/test_plate_import.py": {
+        "seconds": 259.0,
+        "tests": 1
+      },
+      "server/tests/test_plate_review.py": {
+        "seconds": 256.5,
+        "tests": 1
+      },
+      "server/tests/test_plugin_migrations.py": {
+        "seconds": 2723.6,
+        "tests": 42
+      },
+      "server/tests/test_plugin_migrations_deploy.py": {
+        "seconds": 1709.0,
+        "tests": 19
+      },
+      "server/tests/test_plugin_purge.py": {
+        "seconds": 29.8,
+        "tests": 8
+      },
+      "server/tests/test_polymer_notation.py": {
+        "seconds": 0.6,
+        "tests": 22
+      },
+      "server/tests/test_preflight.py": {
+        "seconds": 1.4,
+        "tests": 4
+      },
+      "server/tests/test_preflight_arrays.py": {
+        "seconds": 0.2,
+        "tests": 2
+      },
+      "server/tests/test_preflight_candidate.py": {
+        "seconds": 0.5,
+        "tests": 20
+      },
+      "server/tests/test_preflight_projection.py": {
+        "seconds": 0.0,
+        "tests": 9
+      },
+      "server/tests/test_preflight_records.py": {
+        "seconds": 4.5,
+        "tests": 2
+      },
+      "server/tests/test_preflight_relations.py": {
+        "seconds": 5.3,
+        "tests": 8
+      },
+      "server/tests/test_preflight_rules.py": {
+        "seconds": 1.2,
+        "tests": 4
+      },
+      "server/tests/test_preflight_scale.py": {
+        "seconds": 91.2,
+        "tests": 1
+      },
+      "server/tests/test_preflight_sql.py": {
+        "seconds": 0.9,
+        "tests": 3
+      },
+      "server/tests/test_preflight_sql_fields.py": {
+        "seconds": 1.3,
+        "tests": 5
+      },
+      "server/tests/test_preflight_values.py": {
+        "seconds": 1.2,
+        "tests": 9
+      },
+      "server/tests/test_project_files.py": {
+        "seconds": 92.3,
+        "tests": 30
+      },
+      "server/tests/test_project_sharing.py": {
+        "seconds": 5.4,
+        "tests": 7
+      },
+      "server/tests/test_protein_actions.py": {
+        "seconds": 8.5,
+        "tests": 60
+      },
+      "server/tests/test_protein_multiple_alignment.py": {
+        "seconds": 1.1,
+        "tests": 13
+      },
+      "server/tests/test_protein_reads.py": {
+        "seconds": 6.7,
+        "tests": 40
+      },
+      "server/tests/test_protein_secondary_structure.py": {
+        "seconds": 1.1,
+        "tests": 9
+      },
+      "server/tests/test_protein_structures.py": {
+        "seconds": 5.8,
+        "tests": 50
+      },
+      "server/tests/test_provisioning.py": {
+        "seconds": 32.2,
+        "tests": 41
+      },
+      "server/tests/test_qc_release_workflow.py": {
+        "seconds": 224.0,
+        "tests": 1
+      },
+      "server/tests/test_quotas.py": {
+        "seconds": 4.4,
+        "tests": 5
+      },
+      "server/tests/test_ratelimit.py": {
+        "seconds": 0.0,
+        "tests": 6
+      },
+      "server/tests/test_reagent_stock.py": {
+        "seconds": 199.9,
+        "tests": 1
+      },
+      "server/tests/test_realtime.py": {
+        "seconds": 43.0,
+        "tests": 27
+      },
+      "server/tests/test_receipt_conflicts.py": {
+        "seconds": 5.3,
+        "tests": 3
+      },
+      "server/tests/test_receipt_observation_history.py": {
+        "seconds": 47.1,
+        "tests": 31
+      },
+      "server/tests/test_receipt_reviewed_placement.py": {
+        "seconds": 10.8,
+        "tests": 4
+      },
+      "server/tests/test_receipt_scan_identity.py": {
+        "seconds": 19.1,
+        "tests": 8
+      },
+      "server/tests/test_reconciliation_audit.py": {
+        "seconds": 126.5,
+        "tests": 1
+      },
+      "server/tests/test_reference_types.py": {
+        "seconds": 3.5,
+        "tests": 6
+      },
+      "server/tests/test_registrations.py": {
+        "seconds": 2.9,
+        "tests": 7
+      },
+      "server/tests/test_registries.py": {
+        "seconds": 9.1,
+        "tests": 13
+      },
+      "server/tests/test_requests.py": {
+        "seconds": 161.2,
+        "tests": 36
+      },
+      "server/tests/test_reserved_vendor_codes.py": {
+        "seconds": 24.6,
+        "tests": 1
+      },
+      "server/tests/test_rows.py": {
+        "seconds": 97.3,
+        "tests": 15
+      },
+      "server/tests/test_rules.py": {
+        "seconds": 116.8,
+        "tests": 32
+      },
+      "server/tests/test_run_approvals.py": {
+        "seconds": 6.9,
+        "tests": 8
+      },
+      "server/tests/test_run_artifacts.py": {
+        "seconds": 10.0,
+        "tests": 11
+      },
+      "server/tests/test_run_batches.py": {
+        "seconds": 115.5,
+        "tests": 20
+      },
+      "server/tests/test_run_budgets.py": {
+        "seconds": 7.5,
+        "tests": 11
+      },
+      "server/tests/test_run_checkpoints.py": {
+        "seconds": 14.7,
+        "tests": 14
+      },
+      "server/tests/test_run_costs.py": {
+        "seconds": 12.0,
+        "tests": 14
+      },
+      "server/tests/test_run_imports.py": {
+        "seconds": 23.8,
+        "tests": 22
+      },
+      "server/tests/test_run_inclusions.py": {
+        "seconds": 21.0,
+        "tests": 11
+      },
+      "server/tests/test_run_live.py": {
+        "seconds": 4.3,
+        "tests": 5
+      },
+      "server/tests/test_run_projects.py": {
+        "seconds": 4.0,
+        "tests": 6
+      },
+      "server/tests/test_run_results.py": {
+        "seconds": 26.7,
+        "tests": 28
+      },
+      "server/tests/test_run_reuse.py": {
+        "seconds": 27.5,
+        "tests": 22
+      },
+      "server/tests/test_run_secrets.py": {
+        "seconds": 1.1,
+        "tests": 5
+      },
+      "server/tests/test_run_settings.py": {
+        "seconds": 0.4,
+        "tests": 2
+      },
+      "server/tests/test_runs.py": {
+        "seconds": 10.4,
+        "tests": 24
+      },
+      "server/tests/test_saml.py": {
+        "seconds": 115.5,
+        "tests": 30
+      },
+      "server/tests/test_sample_retesting.py": {
+        "seconds": 246.2,
+        "tests": 1
+      },
+      "server/tests/test_saved_searches.py": {
+        "seconds": 2.7,
+        "tests": 9
+      },
+      "server/tests/test_scale_files.py": {
+        "seconds": 9.6,
+        "tests": 2
+      },
+      "server/tests/test_scale_grid.py": {
+        "seconds": 37.3,
+        "tests": 2
+      },
+      "server/tests/test_scale_import.py": {
+        "seconds": 0.0,
+        "tests": 1
+      },
+      "server/tests/test_scale_queue.py": {
+        "seconds": 0.0,
+        "tests": 1
+      },
+      "server/tests/test_scim.py": {
+        "seconds": 5.5,
+        "tests": 41
+      },
+      "server/tests/test_sdk.py": {
+        "seconds": 93.5,
+        "tests": 10
+      },
+      "server/tests/test_search.py": {
+        "seconds": 29.5,
+        "tests": 33
+      },
+      "server/tests/test_search_everything.py": {
+        "seconds": 16.6,
+        "tests": 18
+      },
+      "server/tests/test_search_exports.py": {
+        "seconds": 7.6,
+        "tests": 32
+      },
+      "server/tests/test_search_motifs.py": {
+        "seconds": 6.3,
+        "tests": 15
+      },
+      "server/tests/test_self_hosted.py": {
+        "seconds": 10.8,
+        "tests": 18
+      },
+      "server/tests/test_sequence_files.py": {
+        "seconds": 1.4,
+        "tests": 27
+      },
+      "server/tests/test_server_e2e.py": {
+        "seconds": 7.3,
+        "tests": 1
+      },
+      "server/tests/test_service_accounts.py": {
+        "seconds": 1.5,
+        "tests": 13
+      },
+      "server/tests/test_settings.py": {
+        "seconds": 52.4,
+        "tests": 42
+      },
+      "server/tests/test_setup_builds.py": {
+        "seconds": 24.2,
+        "tests": 27
+      },
+      "server/tests/test_setup_storage.py": {
+        "seconds": 0.5,
+        "tests": 5
+      },
+      "server/tests/test_setup_wizard.py": {
+        "seconds": 13.3,
+        "tests": 20
+      },
+      "server/tests/test_signature_bundles.py": {
+        "seconds": 12.7,
+        "tests": 12
+      },
+      "server/tests/test_signature_migrations.py": {
+        "seconds": 349.8,
+        "tests": 4
+      },
+      "server/tests/test_signatures.py": {
+        "seconds": 27.6,
+        "tests": 33
+      },
+      "server/tests/test_signed_report_exports.py": {
+        "seconds": 74.1,
+        "tests": 1
+      },
+      "server/tests/test_slurm.py": {
+        "seconds": 9.2,
+        "tests": 16
+      },
+      "server/tests/test_slurm_e2e.py": {
+        "seconds": 0.0,
+        "tests": 8
+      },
+      "server/tests/test_small_molecule_actions.py": {
+        "seconds": 22.0,
+        "tests": 75
+      },
+      "server/tests/test_spreadsheet_imports.py": {
+        "seconds": 49.2,
+        "tests": 31
+      },
+      "server/tests/test_spreadsheet_reading.py": {
+        "seconds": 0.5,
+        "tests": 34
+      },
+      "server/tests/test_spreadsheet_revisions.py": {
+        "seconds": 110.8,
+        "tests": 10
+      },
+      "server/tests/test_stability.py": {
+        "seconds": 205.5,
+        "tests": 5
+      },
+      "server/tests/test_starter_api.py": {
+        "seconds": 1.6,
+        "tests": 7
+      },
+      "server/tests/test_starter_applications.py": {
+        "seconds": 2.1,
+        "tests": 7
+      },
+      "server/tests/test_states.py": {
+        "seconds": 24.2,
+        "tests": 19
+      },
+      "server/tests/test_stock_alerts.py": {
+        "seconds": 1.9,
+        "tests": 2
+      },
+      "server/tests/test_storage.py": {
+        "seconds": 47.9,
+        "tests": 22
+      },
+      "server/tests/test_storage_confirmation_identity.py": {
+        "seconds": 30.2,
+        "tests": 11
+      },
+      "server/tests/test_storage_contract.py": {
+        "seconds": 2.2,
+        "tests": 15
+      },
+      "server/tests/test_storage_label_geometry.py": {
+        "seconds": 1.4,
+        "tests": 19
+      },
+      "server/tests/test_storage_observation_api.py": {
+        "seconds": 2.8,
+        "tests": 2
+      },
+      "server/tests/test_storage_observations.py": {
+        "seconds": 3.4,
+        "tests": 5
+      },
+      "server/tests/test_storage_scan_identity.py": {
+        "seconds": 3.8,
+        "tests": 7
+      },
+      "server/tests/test_storage_scan_preview.py": {
+        "seconds": 45.1,
+        "tests": 9
+      },
+      "server/tests/test_strains.py": {
+        "seconds": 160.2,
+        "tests": 1
+      },
+      "server/tests/test_tasks.py": {
+        "seconds": 11.1,
+        "tests": 22
+      },
+      "server/tests/test_telemetry.py": {
+        "seconds": 0.3,
+        "tests": 7
+      },
+      "server/tests/test_test_services.py": {
+        "seconds": 0.8,
+        "tests": 2
+      },
+      "server/tests/test_token_reach.py": {
+        "seconds": 149.2,
+        "tests": 340
+      },
+      "server/tests/test_triggers.py": {
+        "seconds": 12.9,
+        "tests": 27
+      },
+      "server/tests/test_unique_fields.py": {
+        "seconds": 5.0,
+        "tests": 15
+      },
+      "server/tests/test_vendor_barcode_database.py": {
+        "seconds": 1.4,
         "tests": 3
       },
       "server/tests/test_viewers.py": {
@@ -2496,71 +2508,71 @@
         "tests": 8
       },
       "server/tests/test_views.py": {
-        "seconds": 8.2,
+        "seconds": 7.5,
         "tests": 9
       },
       "server/tests/test_vm_tier.py": {
-        "seconds": 6.8,
+        "seconds": 7.4,
         "tests": 15
       },
       "server/tests/test_vm_tier_gce.py": {
-        "seconds": 12.5,
+        "seconds": 8.5,
         "tests": 17
       },
       "server/tests/test_vm_volumes.py": {
-        "seconds": 9.2,
+        "seconds": 15.4,
         "tests": 18
       },
       "server/tests/test_vm_volumes_gce.py": {
-        "seconds": 4.5,
+        "seconds": 5.6,
         "tests": 11
       },
       "server/tests/test_wait_for_database.py": {
-        "seconds": 3.1,
+        "seconds": 2.0,
         "tests": 3
       },
       "server/tests/test_web_app.py": {
-        "seconds": 7.0,
+        "seconds": 9.9,
         "tests": 64
       },
       "server/tests/test_web_security.py": {
-        "seconds": 6.7,
+        "seconds": 7.5,
         "tests": 32
       },
       "server/tests/test_web_stylesheets.py": {
-        "seconds": 0.1,
+        "seconds": 0.0,
         "tests": 2
       },
       "server/tests/test_webhooks.py": {
-        "seconds": 17.6,
+        "seconds": 17.2,
         "tests": 78
       },
       "server/tests/test_worker_bundles.py": {
-        "seconds": 6.4,
+        "seconds": 5.4,
         "tests": 10
       },
       "server/tests/test_worker_idor.py": {
-        "seconds": 21.0,
+        "seconds": 20.0,
         "tests": 16
       },
       "server/tests/test_worker_updates.py": {
-        "seconds": 2.2,
+        "seconds": 1.8,
         "tests": 10
       },
       "server/tests/test_workers.py": {
-        "seconds": 225.8,
+        "seconds": 178.1,
         "tests": 35
       },
       "server/tests/test_workflows.py": {
-        "seconds": 171.3,
+        "seconds": 65.3,
         "tests": 34
       },
       "spec/tests/test_action_tests.py": {
-        "seconds": 3.2,
+        "seconds": 3.3,
         "tests": 11
       },
       "spec/tests/test_actions.py": {
-        "seconds": 8.9,
+        "seconds": 11.8,
         "tests": 114
       },
       "spec/tests/test_build_backend.py": {
@@ -2576,15 +2588,15 @@
         "tests": 5
       },
       "spec/tests/test_components.py": {
-        "seconds": 1.7,
+        "seconds": 1.6,
         "tests": 25
       },
       "spec/tests/test_compute.py": {
-        "seconds": 1.1,
+        "seconds": 1.9,
         "tests": 65
       },
       "spec/tests/test_cron.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 21
       },
       "spec/tests/test_dna_annotation.py": {
@@ -2592,11 +2604,11 @@
         "tests": 1
       },
       "spec/tests/test_exports.py": {
-        "seconds": 0.2,
+        "seconds": 0.5,
         "tests": 7
       },
       "spec/tests/test_features.py": {
-        "seconds": 0.9,
+        "seconds": 0.8,
         "tests": 25
       },
       "spec/tests/test_first_party.py": {
@@ -2604,7 +2616,7 @@
         "tests": 2
       },
       "spec/tests/test_globs.py": {
-        "seconds": 0.0,
+        "seconds": 0.1,
         "tests": 28
       },
       "spec/tests/test_identity.py": {
@@ -2612,7 +2624,7 @@
         "tests": 23
       },
       "spec/tests/test_lockfile.py": {
-        "seconds": 0.2,
+        "seconds": 0.1,
         "tests": 41
       },
       "spec/tests/test_motifs.py": {
@@ -2632,27 +2644,27 @@
         "tests": 13
       },
       "spec/tests/test_rules.py": {
-        "seconds": 0.3,
+        "seconds": 0.4,
         "tests": 19
       },
       "spec/tests/test_titles.py": {
-        "seconds": 1.0,
+        "seconds": 0.7,
         "tests": 15
       },
       "spec/tests/test_triggers.py": {
-        "seconds": 1.6,
+        "seconds": 2.0,
         "tests": 52
       },
       "spec/tests/test_units.py": {
-        "seconds": 0.5,
+        "seconds": 0.3,
         "tests": 164
       },
       "spec/tests/test_validate.py": {
-        "seconds": 17.5,
+        "seconds": 12.2,
         "tests": 320
       },
       "spec/tests/test_viewers.py": {
-        "seconds": 0.7,
+        "seconds": 0.9,
         "tests": 12
       },
       "spec/tests/test_wasm_image.py": {
@@ -2660,7 +2672,7 @@
         "tests": 12
       },
       "spec/tests/test_workflows.py": {
-        "seconds": 3.5,
+        "seconds": 2.5,
         "tests": 56
       },
       "spec/tests/test_yamlsource.py": {
@@ -2670,11 +2682,11 @@
     },
     "worker": {
       "server/tests/test_worker_e2e.py": {
-        "seconds": 457.0,
+        "seconds": 440.5,
         "tests": 19
       },
       "server/tests/test_worker_local.py": {
-        "seconds": 311.3,
+        "seconds": 306.1,
         "tests": 29
       }
     }
