@@ -392,8 +392,9 @@ export function ProjectOverview() {
 }
 
 /** How long the Overview waits for its cards' reads before it's drawn without the late
- * ones, which hold their slots: most loads have them all by then (see the PR's timings). */
-export const OVERVIEW_BUDGET_MS = 300;
+ * ones, which hold their slots. Measured over 20 loads a browser (#225): at 300 ms, half
+ * the loads drew a card in its slot; at 400, one or two in twenty did. */
+export const OVERVIEW_BUDGET_MS = 400;
 
 /** What the project's page opens with, and whether it's all in. */
 function useDashboard(project: Project) {

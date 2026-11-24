@@ -264,13 +264,13 @@ function useProjectRequests(project: Project) {
 /** On the project's page, for a project that takes requests, was sent some, or sent its own:
  * what it takes, its queue, and its latest requests with their status. */
 export function ProjectRequests({ project }: { project: Project }) {
-  const { sides, types, any, latest, known, listed } = useProjectRequests(project);
+  const { sides, types, any, latest, known } = useProjectRequests(project);
   // What decides whether it's there, what it takes in its types' words, and its shortcuts.
   // It's the summary's last card: drawn late, it comes below all the rest.
   useSettled(known);
-  // Its latest requests come after its shortcuts, at its foot: if they're late, they grow
-  // the page below everything that can be pressed (the foot of the page waits for them).
-  useSettled(listed);
+  // Its latest requests, the slowest read (a search after those), aren't waited for: they
+  // come after its shortcuts, at its foot, growing the page below everything that can be
+  // pressed (the foot of the page waits for them).
   if (!sides.ready || !any) return null;
   return (
     <Box
