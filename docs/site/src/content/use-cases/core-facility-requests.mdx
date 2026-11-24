@@ -1,6 +1,6 @@
 ---
 title: A core facility that takes requests from other teams
-description: One lab's setup, in which a sequencing core takes requests from three research projects, does the work and returns a result for each tube.
+description: An example setup in which a sequencing core takes requests from three research projects and returns a result for each tube.
 audience: bench
 topic: Requests
 category: collaboration
@@ -27,14 +27,21 @@ import RequestFlow from "../../components/usecase/RequestFlow.astro";
 
 ## In short
 
-A sequencing core serves three research projects. Each project writes a request in its own
-project, names the tubes it's sending and the sequencing it wants, and sends it to the core. The
-core accepts or declines it, receives the tubes, sequences them, and returns a result for each
-tube with its report and files. The project that asked sees each result as it comes back.
+A sequencing core serves three research projects. With this setup:
+
+- Requests arrive at the core in one queue, each with the tubes and the sequencing its project
+  asked for, and the core's coordinators hear of each one as it arrives.
+- The core sees exactly what was sent with a request, and nothing else of the project's.
+- Each project sees only its own requests.
+- Results come back attached to the request, one for each tube, and every change to either is
+  kept in its history.
 
 <RequestFlow />
 
-<ExampleUses prerequisites={frontmatter.prerequisites}>
+<ExampleUses
+  prerequisites={frontmatter.prerequisites}
+  intro="A lab installs one plugin and gives people roles in the core's project. Nothing in this flow runs code, so it needs no compute."
+>
 
 The request is the requesting project's record, sent to the core. The fields the core sets are
 its own: the project that asked can read them but not change them.
@@ -93,22 +100,21 @@ the requesting project as a result of the request.
 
 ## What Iki records along the way
 
-Every change to a request or a result is kept as a revision, with who made it, through what and
-when, and each record's audit trail can be exported as CSV. The core sees a request and the samples
-and tubes sent with it, and nothing else of the requesting project's, and each project sees only
-its own requests.
+- Every change to a request or a result is a revision: who made it, through what, when, and which
+  values changed. Earlier values stay in the record's history.
+- A declined or withdrawn request keeps the reason it was given.
+- Each record's audit trail can be exported as CSV.
 
 ## Variations of the workflow
 
-- To require a signed review before a result goes back, give the deliverable's returned state a
-  signature, as the example plugin's
-  [ResearchCoreDeliverable](/reference/plugins/example-lims/#ResearchCoreDeliverable) does. For
-  signatures in turn by the analyst, a reviewer and QA, follow its
+- Require a signed review before a result goes back: add a signature to the deliverable's Returned
+  state, as the example plugin's
+  [ResearchCoreDeliverable](/reference/plugins/example-lims/#ResearchCoreDeliverable) does.
+- Require signatures by the analyst, a reviewer and QA in turn: follow the plugin's
   [QCCoreDeliverable](/reference/plugins/example-lims/#QCCoreDeliverable).
-- To skip acceptance, leave Accepted out of the request's status states and out of the analyst's
-  [assignment](/reference/plugin-spec/field/#assignment), so an analyst picks up a submitted
-  request and sets In progress.
-- To take requests from a LIMS the lab already has, add an action that reads them through the
-  LIMS's API and a trigger that runs it on a schedule, as the example plugin's
+- Let analysts start work without acceptance: drop Accepted from the request's states and from the
+  analyst's [assignment](/reference/plugin-spec/field/#assignment).
+- Take requests from a LIMS the lab already has: add an action that reads them through its API and
+  a trigger that runs it on a schedule, as the plugin's
   [import_from_lims](/reference/plugins/example-lims/#import_from_lims) does for proteins.
-- To charge each request to a cost centre, add a required field for it to the request type.
+- Charge each request to a cost centre: add a required cost centre field to the request type.

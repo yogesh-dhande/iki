@@ -9,6 +9,8 @@ import { COMPUTE, prerequisites as schema } from "../lib/prerequisites.ts";
 interface Props {
   /** The page's `frontmatter.prerequisites`, if it has one. */
   prerequisites?: unknown;
+  /** A sentence before them, such as what a lab installs and sets up. */
+  intro?: string;
 }
 const given =
   Astro.props.prerequisites === undefined ? undefined : schema.parse(Astro.props.prerequisites);
@@ -23,6 +25,7 @@ const href = (name: string) => {
 {(given || inside) && (
   <section class="uses" aria-labelledby="this-example-uses">
     <h2 id="this-example-uses">This example uses</h2>
+    {Astro.props.intro && <p>{Astro.props.intro}</p>}
     {given && (
       <dl>
         {given.plugins && given.plugins.length > 0 && (

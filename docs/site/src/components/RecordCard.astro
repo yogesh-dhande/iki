@@ -30,7 +30,7 @@ const { label, name, href, fields, rules = [] } = Astro.props;
 <section class="record-card" aria-label={label}>
   <p class="type">
     <a href={href}>{label}</a>
-    <code>{name}</code>
+    <span class="name">{name}</span>
   </p>
   <dl>
     {fields.map((field) => (
@@ -60,22 +60,20 @@ const { label, name, href, fields, rules = [] } = Astro.props;
     min-width: 0;
   }
   .type {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 4px 12px;
     margin: 0;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
   }
   .type a {
+    display: block;
+    font-size: 15px;
     font-weight: 600;
   }
-  .type code {
-    font-size: 12.5px;
+  .name {
+    display: block;
+    font-family: var(--mono);
+    font-size: 12px;
     color: var(--muted);
-    background: none;
-    padding: 0;
     overflow-wrap: anywhere;
   }
   dl {
