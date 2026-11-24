@@ -356,11 +356,17 @@ def _signatures(revisions: Iterable[Revision]) -> dict[Any, list[str]]:
 
 
 def _hold_text(hold: Mapping[str, Any]) -> str:
-    """A hold a revision opened (ADR 0127), and how it was reviewed, in a sentence."""
-    how = "Saved anyway" if hold["held_by"] is not None else "Held by Iki’s check of its rules"
+    """What a revision added to a hold (ADR 0127) and how the hold was reviewed."""
+    if hold["legacy_gap"]:
+        how = "Earlier hold evidence is incomplete"
+    else:
+        how = "Saved anyway" if hold["held_by"] is not None else "Held by Iki’s check of its rules"
     through = f", through {hold['agent']}" if hold["agent"] else ""
-    said = f"Held for review: {hold['label']}. {hold['message']} {how}{through}: "
-    said += f"“{hold['reason']}”."
+    message = f" {hold['message']}" if hold["message"] is not None else ""
+    said = f"Held for review: {hold['label']}.{message} {how}{through}"
+    said += f": “{hold['reason']}”." if hold["reason"] is not None else ". Reason unavailable."
+    if hold["entry_revision"] is not None:
+        said += f" Registry entry revision {hold['entry_revision']}."
     if hold["reviewer"] is not None and hold["reviewed_at"] is not None:
         who = hold["reviewer"].name or hold["reviewer"].email
         when = _utc(hold["reviewed_at"])

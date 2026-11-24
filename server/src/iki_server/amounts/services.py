@@ -59,7 +59,7 @@ from iki_server.storage import scan_identity
 from iki_server.storage import services as storage
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
-from iki_spec.model import EntityType
+from iki_spec.model import DrawTarget, EntityType
 
 
 class Wrong(Invalid):
@@ -285,13 +285,15 @@ def draw(
     if used_in is not None and used_in.pk == entity.pk:
         raise Wrong({"used_in": [f"is {entity.hrid}, what it's drawn from."]})
     receipt = registry.draws_received(used_in.type) if used_in is not None else None
+    policy = _draw_target_of(used_in)
+    pin_source = receipt is not None or policy is not None
     with transaction.atomic():
         from iki_server.entities import services
 
         # Take source, destination and followed record locks in one global order. A
         # concurrent edit to the tube's sources is checked again after taking the locks.
-        parents = [p for _, p in eligibility.followed(entity)] if receipt else []
-        records = [entity, used_in] if used_in is not None and receipt else [entity]
+        parents = [p for _, p in eligibility.followed(entity)] if pin_source else []
+        records = [entity, used_in] if used_in is not None and pin_source else [entity]
         locked = _lock_records(records, related=parents)
         entity = locked[entity.pk]
         if not access.can_edit(user, entity) and not (
@@ -310,14 +312,24 @@ def draw(
 
         current = services.current_values_of([entity])[entity.pk]
         followed = eligibility.followed(entity, current)
-        if receipt and any(parent.pk not in locked for _, parent in followed):
+        if pin_source and any(parent.pk not in locked for _, parent in followed):
             raise Wrong({"used_in": ["The material's source changed during the draw. Retry it."]})
         source = followed[0][1] if followed else None
+        if source is not None:
+            source = locked.get(source.pk, source)
+        expected = None
+        if policy is not None and used_in is not None:
+            target = services.current_values_of([used_in])[used_in.pk]
+            expected = _check_draw_target(user, used_in, policy, target, entity, source)
         refused = eligibility.purpose_refusals(user, entity, DrawPurpose(purpose), current)
         if refused is not None:
             raise PermissionDenied(refused)
         (amount,) = _locked([entity])
         change = _taking(entity, amount, given, operation="draw", purpose=purpose, values=current)
+        if expected is not None and change != in_unit(entity, expected, current):
+            raise Wrong(
+                {"amount": [f"Draw the planned amount of {expected.value} {expected.unit}."]}
+            )
         movement = _change(
             user,
             entity,
@@ -383,6 +395,55 @@ def _receive_draw(
         )
     except Refused as error:
         raise Wrong({"used_in": [str(error)]}) from None
+
+
+def _draw_target_of(entity: Entity | None) -> DrawTarget | None:
+    if entity is None:
+        return None
+    entity_type = registry.types().get(entity.type)
+    if entity_type is None:
+        return None
+    return next(
+        (t.draw_target for t in [entity_type, *registry.ancestors(entity_type)] if t.draw_target),
+        None,
+    )
+
+
+def _check_draw_target(
+    user: User,
+    target: Entity,
+    policy: DrawTarget,
+    values: Mapping[str, Any],
+    container: Entity,
+    source: Entity | None,
+) -> Given:
+    """Match a draw against the prepared target with both records locked."""
+    from iki_server.storage.models import Place
+
+    refusal = states.refusal(user, target, policy.by, "awaiting material", field=policy.state_field)
+    if refusal is not None:
+        why, forbidden = refusal
+        if forbidden:
+            raise PermissionDenied(why)
+        raise Wrong({"used_in": [why]})
+    if not values.get(policy.ready) or values[policy.state_field] != policy.state:
+        raise Wrong({"used_in": [f"{target.hrid} is not awaiting a draw."]})
+    if Movement.objects.filter(used_in_id=target.pk, kind=MovementKind.DRAWN).exists():
+        raise Wrong({"used_in": [f"A draw is already recorded for {target.hrid}."]})
+    if (
+        values[policy.from_field] != container.pk
+        or source is None
+        or values[policy.source] != source.pk
+    ):
+        raise Wrong({"used_in": [f"Draw from the container and source assigned to {target.hrid}."]})
+    _usable(source)
+    if (
+        policy.stored
+        and not Place.objects.filter(entity_id=container.pk, container_id__isnull=False).exists()
+    ):
+        raise Wrong({"used_in": [f"Put {container.hrid} in its storage position before drawing."]})
+    unit = _fields(registry.types()[target.type])[policy.amount].unit
+    return Given.of({"value": values[policy.amount], "unit": unit})
 
 
 def _confirmed(user: User, entity: Entity, value: str | storage.Confirmation) -> str:

@@ -40,8 +40,8 @@ Neither is "download this sequence as GenBank".
 ## Decision
 
 **A type says which files its records export by naming its fields**, as it
-names those Iki's viewers show (ADR 0085). Iki writes the file; a plugin
-writes no code for it. One export kind exists, `sequence`:
+names those Iki's viewers show (ADR 0085). Iki writes the file. A
+`sequence` export names these fields:
 
 ```yaml
 exports:
@@ -129,6 +129,37 @@ as NCBI's source modifier**, so the file reads back as the same molecule:
 
 The DNA plugin's import reads `[topology=…]` back. FASTA holds no features,
 and the page says so when a record has some.
+
+**A signed report exports with the signatures that issued it.** The type
+names the JSON report field, the state field governing issuance, and the
+signed states that issue it. Each issued state locks the record and has no
+correction destination.
+
+```yaml
+exports:
+  - export: signed_report
+    report: report
+    review: review
+    issued: [released]
+```
+
+`signed-report-html` writes a printable report with the signature
+manifestations. `signed-report-json` writes the same report and its
+electronic signature proofs for verification. The HTML copy also includes
+the proof in its verification data. Each proof carries the canonical signed
+document, the signature, the public key, the exact content the document
+binds, and the revision at which Iki applied that signature to the state
+change. A recipient verifies the document with the deployment's trusted
+public key and compares the signed content hash and report field.
+[Electronic signatures](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)
+
+Before writing a file, Iki checks the issuance and each carried signature
+in its review cycle. It compares the report at the requested revision to
+the content that was signed and refuses the export if the evidence differs.
+An unsigned return for correction starts a new cycle. The export and its
+digest go in the same audit log used for sequence exports. The report is
+written without a generation timestamp, so a copy of the issued revision
+can be reproduced later.
 
 **Iki reads SnapGene's `.dna` files, but doesn't write them.** The DNA
 plugin's import reads:

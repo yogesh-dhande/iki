@@ -1369,11 +1369,11 @@ export interface paths {
         put?: never;
         /**
          * Review a hold
-         * @description Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is
-         *     cleared, and the audit log keeps who reviewed it, when and why. It takes a person, not
-         *     an app or agent's token, with one of the rule's lab roles in the record's project, and
-         *     not whoever saved what held it: `holds[].can_review` says whether you may. Editing the
-         *     record back within the rule doesn't clear a hold; only a review does.
+         * @description Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
+         *     record's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the
+         *     record, hold or deployed rule changed, it answers 412 and you need to read it again.
+         *     It takes a person with one of the rule's lab roles in the record's project, other than
+         *     whoever saved what held it: `holds[].can_review` says whether you may.
          */
         post: operations["iki_server_api_entities_review_hold"];
         delete?: never;
@@ -1693,9 +1693,11 @@ export interface paths {
          * @description Starts giving one of the signatures setting the record's state needs (ADR 0126),
          *     as the person in
          *     the web app's browser session: send the browser to `sign_in_url`, where the identity
-         *     provider signs them in again, however recently they did (ADR 0124). Its answer signs
-         *     the revision you read (send its ETag as If-Match), and comes back to `return_to`. No
-         *     token, app or AI agent can sign: they're refused with 403.
+         *     provider signs them in again, however recently they did (ADR 0124). Send the ETag of
+         *     the record you reviewed as If-Match and, if it has a registry entry, send its
+         *     `entry.revision` as `entry_revision`. Both revisions are checked when signing starts
+         *     and finishes. The identity provider's answer comes back to `return_to`. Tokens,
+         *     apps and AI agents are refused with 403.
          */
         post: operations["iki_server_api_signatures_start_signing"];
         delete?: never;
@@ -4214,8 +4216,8 @@ export interface paths {
         put?: never;
         /**
          * Withdraw your signature
-         * @description Takes back your signature while setting the state waits for others. Once the
-         *     state is set with it, it stays.
+         * @description Takes back your signature, with a reason, while setting the state waits for others.
+         *     Once the state is set with it, it stays.
          */
         post: operations["iki_server_api_signatures_withdraw_signature"];
         delete?: never;
@@ -8184,7 +8186,7 @@ export interface components {
             hold_reason?: string | null;
             /**
              * Reason
-             * @description Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.
+             * @description Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination or clears a true Boolean with `reason_on_clear`.
              * @default
              */
             reason: string;
@@ -8233,7 +8235,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: components["schemas"]["FileExportOut"][];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["SignedReportExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -8674,10 +8676,10 @@ export interface components {
         ExportParams: {
             /**
              * Format
-             * @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.
+             * @description Which file, as its type's `exports` list them.
              * @enum {string}
              */
-            format: "genbank" | "fasta";
+            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -8792,6 +8794,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Reason On Clear
+             * @description True when clearing this Boolean requires a reason.
+             */
+            reason_on_clear?: boolean | null;
             /**
              * Registry
              * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
@@ -8945,9 +8952,8 @@ export interface components {
         /** FileExportOut */
         FileExportOut: {
             /**
-             * Export
-             * @description What it writes. `sequence`: a DNA or RNA sequence, with its features.
-             * @constant
+             * @description What it writes. `sequence`: a DNA or RNA sequence, with its features. (enum property replaced by openapi-typescript)
+             * @enum {string}
              */
             export: "sequence";
             /**
@@ -9050,7 +9056,7 @@ export interface components {
              * @description What `/entities/{ref}/export` takes.
              * @enum {string}
              */
-            format: "genbank" | "fasta";
+            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
             /**
              * Label
              * @description Its name, such as GenBank.
@@ -9573,8 +9579,7 @@ export interface components {
         };
         /**
          * HeldOut
-         * @description A hold a revision opened (ADR 0127), as the record's history keeps it: why the save
-         *     was kept, and its review, once someone has reviewed it.
+         * @description Evidence of a rule that a revision broke (ADR 0127), with the hold's review.
          */
         HeldOut: {
             /**
@@ -9583,11 +9588,18 @@ export interface components {
              */
             agent?: string | null;
             /**
-             * Held At
-             * Format: date-time
+             * Entry Id
+             * @description The registry entry read with the record.
              */
-            held_at: string;
-            /** @description Who saved it; null for a deploy's check. */
+            entry_id?: string | null;
+            /**
+             * Entry Revision
+             * @description The registry entry revision, if known.
+             */
+            entry_revision?: number | null;
+            /** Held At */
+            held_at: string | null;
+            /** @description Who saved it, when known. */
             held_by: components["schemas"]["UserOut"] | null;
             /**
              * Id
@@ -9602,15 +9614,26 @@ export interface components {
              */
             last_revision: number;
             /**
-             * Message
-             * @description What the save that held it was told.
+             * Legacy Gap
+             * @description Earlier repeated failures have incomplete evidence.
+             * @default false
              */
-            message: string;
+            legacy_gap: boolean;
+            /**
+             * Message
+             * @description What the save was told, when kept in the evidence.
+             */
+            message: string | null;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
             /**
              * Reason
-             * @description Why it was saved anyway.
+             * @description Why it was saved anyway, when recorded.
              */
-            reason: string;
+            reason: string | null;
             /**
              * Review Reason
              * @description Why the reviewer let it stand.
@@ -9622,7 +9645,7 @@ export interface components {
             reviewer: components["schemas"]["UserOut"] | null;
             /**
              * Revision
-             * @description The revision that held it.
+             * @description The record revision this evidence is about.
              */
             revision: number;
             /** Rule */
@@ -9785,6 +9808,62 @@ export interface components {
             version1: boolean;
         };
         /**
+         * HoldOccurrenceOut
+         * @description Evidence of one save that broke the rule and was kept under a hold (ADR 0127).
+         */
+        HoldOccurrenceOut: {
+            /**
+             * Agent
+             * @description The app or agent that saved it for them.
+             */
+            agent?: string | null;
+            /**
+             * Entry Id
+             * @description The registry entry read with the record.
+             */
+            entry_id?: string | null;
+            /**
+             * Entry Revision
+             * @description The registry entry revision, if known.
+             */
+            entry_revision?: number | null;
+            /**
+             * Held At
+             * @description When the save was held, when known.
+             */
+            held_at: string | null;
+            /** @description Who saved it, when known. */
+            held_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Legacy Gap
+             * @description Earlier repeated failures have incomplete evidence.
+             * @default false
+             */
+            legacy_gap: boolean;
+            /**
+             * Message
+             * @description What the save was told, when kept in the evidence.
+             */
+            message: string | null;
+            /**
+             * Reason
+             * @description Why it was saved anyway, when recorded.
+             */
+            reason: string | null;
+            /**
+             * Revision
+             * @description The record revision this evidence is about.
+             */
+            revision: number;
+        };
+        /**
          * HoldOut
          * @description A rule holding the record for review (ADR 0127): a save broke it, and was kept
          *     with a reason.
@@ -9821,14 +9900,24 @@ export interface components {
             last_revision: number;
             /**
              * Message
-             * @description What the save that held it was told.
+             * @description What the opening save was told, when known.
              */
-            message: string;
+            message: string | null;
+            /**
+             * Occurrences
+             * @description The observations that broke the rule, in the order they were saved.
+             */
+            occurrences: components["schemas"]["HoldOccurrenceOut"][];
             /**
              * Reason
              * @description Why it was saved anyway.
              */
             reason: string;
+            /**
+             * Review Version
+             * @description The version of the hold and record you reviewed.
+             */
+            review_version: string;
             /**
              * Reviewed By
              * @description The lab roles whose holders may review it.
@@ -9854,6 +9943,11 @@ export interface components {
              * @description Why the record may stand as it is.
              */
             reason: string;
+            /**
+             * Review Version
+             * @description The `review_version` from the hold you read.
+             */
+            review_version: string;
         };
         /** HoldRuleOut */
         HoldRuleOut: {
@@ -12279,6 +12373,11 @@ export interface components {
              * @description The plugin that defines the field.
              */
             plugin: string;
+            /**
+             * Reason On Clear
+             * @description True when clearing this Boolean requires a reason.
+             */
+            reason_on_clear?: boolean | null;
             /**
              * Registry
              * @description Its registry entry's (ADR 0115), every holding project's: part of its identity, derived from it, or a fact its registrars curate. A fact is set while it's empty; after that only a registrar changes it. Null: each project's own.
@@ -16635,6 +16734,34 @@ export interface components {
             /** To Label */
             to_label: string;
         };
+        /** SignedReportExportOut */
+        SignedReportExportOut: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            export: "signed_report";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Issued
+             * @description States in which a signed report has been issued.
+             */
+            issued: string[];
+            /**
+             * Report
+             * @description The JSON field holding the report.
+             */
+            report: string;
+            /**
+             * Review
+             * @description The state field whose signed transitions issue the report.
+             */
+            review: string;
+        };
         /** SigningIn */
         SigningIn: {
             /**
@@ -16643,6 +16770,11 @@ export interface components {
              * @default false
              */
             acknowledge: boolean;
+            /**
+             * Entry Revision
+             * @description Required for a record of a registry entry. Send `entry.revision` from the record you reviewed.
+             */
+            entry_revision?: number | null;
             /**
              * Field
              * @description The state field (ADR 0125), such as status: a key of `can.states`.
@@ -18763,7 +18895,7 @@ export interface components {
         WithdrawalIn: {
             /**
              * Reason
-             * @default
+             * @description Why you withdraw the pending signature.
              */
             reason: string;
         };
@@ -21163,8 +21295,8 @@ export interface operations {
     iki_server_api_entities_export_entity: {
         parameters: {
             query: {
-                /** @description Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them. */
-                format: "genbank" | "fasta";
+                /** @description Which file, as its type's `exports` list them. */
+                format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
                 /** @description Which revision, as it was then. Its latest if left out. */
                 revision?: number | null;
                 /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
@@ -21184,8 +21316,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
+                    "text/html": unknown;
                 };
             };
         };
@@ -21226,7 +21360,9 @@ export interface operations {
             query?: {
                 project?: string | null;
             };
-            header?: never;
+            header?: {
+                "If-Match"?: string | null;
+            };
             path: {
                 ref: string;
                 hold_id: string;

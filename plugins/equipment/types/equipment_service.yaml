@@ -1,0 +1,192 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: EquipmentService
+label: Equipment service
+label_plural: Equipment service records
+schema_version: 1
+hrid: { prefix: EQS }
+description: A planned calibration or maintenance appointment and the signed evidence of what happened.
+due: due_on
+fields:
+  instrument: { type: ref, to: iki/example_lims.Instrument, required: true, immutable: true }
+  kind:
+    {
+      type: enum,
+      values: [calibration, maintenance],
+      required: true,
+      immutable: true,
+      indexed: true,
+    }
+  due_on:
+    type: date
+    label: Scheduled for
+    required: true
+    indexed: true
+  procedure:
+    type: string
+    max_length: 240
+    required: true
+    description: The local written procedure and revision that define the work and its acceptance criteria.
+  review_flow:
+    type: enum
+    values: [research, regulated_qc]
+    computed: true
+    immutable: true
+  performed_by:
+    type: person
+    role: iki/example_lims.engineer
+    assignment: { field: review, states: [scheduled] }
+    description: The project's engineer who performed and signs the work.
+  performed_at: { type: datetime, label: Performed at, indexed: true }
+  outcome:
+    type: enum
+    values: [in_tolerance, out_of_tolerance, completed, requires_repair]
+    indexed: true
+    description: As-found calibration outcome or the result of maintenance.
+  valid_until:
+    type: datetime
+    label: Next service due at
+    description: The exclusive end of a passing calibration's validity or next due time for completed maintenance.
+  suspect_since:
+    type: datetime
+    label: Review measurements from
+    description: Earliest possible start of the error for an out-of-tolerance check, including the last demonstrated good check when uncertain.
+  report:
+    type: file
+    media_types: [application/pdf, text/plain, text/csv]
+    max_size: 50MiB
+    description: The original calibration report or service evidence, including as-found measurements and limits.
+  notes:
+    type: text
+    max_length: 10000
+    description: For an out-of-tolerance check, explain the suspected interval and the action taken at discovery.
+  review:
+    type: state
+    initial: scheduled
+    states:
+      scheduled:
+        label: Scheduled
+        set_by: [iki/example_lims.engineer, reviewer, qa]
+        reason: required
+        guards:
+          correctable:
+            check: state.from in ["submitted", "reviewed"]
+            message: Return an appointment awaiting review or release for correction.
+      cancelled:
+        label: Cancelled
+        set_by: [iki/example_lims.engineer]
+        locks: true
+        reason: required
+        guards:
+          unperformed:
+            check: >-
+              state.from == "scheduled" && record.performed_at == null &&
+              record.outcome == null && record.report == null
+            message: Cancel a scheduled appointment before recording its findings.
+      signed_off:
+        label: Signed off
+        set_by: [iki/example_lims.engineer]
+        locks: true
+        signatures:
+          [
+            {
+              meaning: verification,
+              statement: I performed the recorded work and attest to the reported outcome.,
+            },
+          ]
+        guards:
+          signed_work:
+            check: >-
+              state.from == "scheduled" && record.review_flow == "research" &&
+              record.performed_by == actor.person && record.performed_at != null &&
+              record.report != null && record.outcome != null
+            message: The performing engineer signs the recorded Research service with its time, report and outcome.
+      submitted:
+        label: Submitted
+        set_by: [iki/example_lims.engineer]
+        locks: true
+        on_edit: scheduled
+        signatures:
+          [
+            {
+              meaning: authorship,
+              statement: I performed the recorded work and submit the outcome for independent review.,
+            },
+          ]
+        guards:
+          submitted_work:
+            check: >-
+              state.from == "scheduled" && record.review_flow == "regulated_qc" &&
+              record.performed_by == actor.person && record.performed_at != null &&
+              record.report != null && record.outcome != null
+            message: The performing engineer submits the Regulated QC service with its time, report and outcome.
+      reviewed:
+        label: Independently reviewed
+        set_by: [reviewer]
+        locks: true
+        on_edit: scheduled
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: state.from == "submitted"
+            message: Review the signed engineer submission.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              edits.review.scheduled.all(e, e.by != actor.person)
+            message: The creator, performer and editors need an independent reviewer.
+      released:
+        label: QA released
+        set_by: [qa]
+        locks: true
+        signatures: [{ meaning: approval, label: QA release }]
+        guards:
+          reviewed:
+            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
+            message: Release an independently reviewed service record.
+          independent:
+            check: >-
+              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
+              last.review.reviewed.by != actor.person && edits.review.scheduled.all(e, e.by != actor.person)
+            message: The creator, performer, editors and reviewer need an independent QA signer.
+rules:
+  planned_with_flow:
+    label: Review flow recorded at scheduling
+    check: record.review_flow != null
+    message: Schedule this work with the Schedule service action.
+  outcome_for_kind:
+    label: Outcome matches the service
+    when: record.outcome != null
+    check: >-
+      (record.kind == "calibration" && record.outcome in ["in_tolerance", "out_of_tolerance"]) ||
+      (record.kind == "maintenance" && record.outcome in ["completed", "requires_repair"])
+    message: Record the outcome for the scheduled kind of work.
+    fields: [outcome]
+  performed_in_past:
+    label: Service occurred
+    when: record.performed_at != null
+    check: record.performed_at <= now
+    message: Enter when the work was performed.
+    fields: [performed_at]
+  validity_period:
+    label: Passing service has a next due time
+    when: record.outcome != null
+    check: >-
+      record.outcome in ["in_tolerance", "completed"]
+        ? record.performed_at != null && record.valid_until != null && record.valid_until > record.performed_at
+        : record.valid_until == null
+    message: For successful service, enter a next due time after performance. A failed check confers no validity.
+    fields: [outcome, performed_at, valid_until]
+  failure_window:
+    label: A failed calibration defines the impact window
+    when: record.outcome != null
+    check: >-
+      record.outcome == "out_of_tolerance"
+        ? record.performed_at != null && record.suspect_since != null &&
+          record.suspect_since <= record.performed_at && record.notes != null && size(record.notes) > 0
+        : record.suspect_since == null
+    message: For a failed calibration, record the possible start of the error and explain the chosen window.
+    fields: [outcome, performed_at, suspect_since, notes]
+display:
+  title: "{{ kind }} · {{ due_on }}"

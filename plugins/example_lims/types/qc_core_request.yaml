@@ -1,0 +1,9 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: QCCoreRequest
+label: Regulated QC core request
+extends: CoreFacilityRequest
+schema_version: 1
+description: Protein production or sequencing with signed authorship, independent review, and QA release of each deliverable.
+hrid: { prefix: QCR }

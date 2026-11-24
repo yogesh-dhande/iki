@@ -540,16 +540,21 @@ class Entities(_Part):
             body["hold_reason"] = hold_reason
         return self._patch(ref, body, revision)
 
-    def review_hold(self, ref: str, hold: str, *, reason: str) -> EntityOut:
+    def review_hold(
+        self, ref: str, hold: str, *, revision: int, review_version: str, reason: str
+    ) -> EntityOut:
         """Reviews one of a record's holds (its ``holds``), saying why it may stand: the
-        hold is cleared. It takes a person with one of the rule's lab roles, other than
-        whoever saved what held it, signed in as themselves: an app's token can't."""
+        hold is cleared. Use the record's ``revision`` and the hold's ``review_version``
+        from the same read. If either changed, it raises ``iki.Conflict``: read it again
+        before reviewing. It takes a person with one of the rule's lab roles, other than
+        whoever saved what held it, signed in as themselves."""
         return cast(
             "EntityOut",
             self._client.request(
                 "POST",
                 _path("/entities/{ref}/holds/{hold}/review", ref=ref, hold=hold),
-                json={"reason": reason},
+                json={"reason": reason, "review_version": review_version},
+                headers={"If-Match": f'"{revision}"'},
             ),
         )
 

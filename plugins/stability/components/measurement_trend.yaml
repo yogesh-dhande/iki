@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: measurement_trend
+label: Results over time
+module: ./components/measurement-trend.js
+element: stability-measurement-trend
+entities:
+  type: Measurement
+  fields:
+    [study, pull, condition, condition_label, month, pulled_on, test, method, value, unit, review]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: Study
+    search:
+      where:
+        all:
+          - { field: study, op: eq, value: "{{ entity }}" }
+          - { field: review, op: in, value: [signed, released] }
+      sort: month

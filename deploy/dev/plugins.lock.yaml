@@ -20,12 +20,15 @@ plugins:
   - { name: iki/plate_assays, local: ../../plugins/plate_assays, state: active }
   - { name: iki/experiments, local: ../../plugins/experiments, state: active }
   - { name: iki/reagents, local: ../../plugins/reagents, state: active }
+  - { name: iki/qc_release, local: ../../plugins/qc_release, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
   - name: iki/example_lims
     local: ../../plugins/example_lims
     state: active
     settings: settings/example_lims.yaml
+  - { name: iki/equipment, local: ../../plugins/equipment, state: active }
   - { name: iki/cell_lines, local: ../../plugins/cell_lines, state: active }
+  - { name: iki/stability, local: ../../plugins/stability, state: active }
   # Calls the fake FoldCloud (manifests/fake-foldcloud.yaml), an outside API.
   - name: iki/example_models
     local: ../../plugins/example_models

@@ -1,0 +1,31 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/qc_release
+version: 0.1.0
+title: QC release testing
+description: Effective-dated lot specifications, out-of-specification investigations and signed certificates of analysis.
+license: Apache-2.0
+iki: ">=0.1"
+homepage: https://ikisci.org/plugins/qc_release
+dependencies:
+  iki/lots:
+    types: { Lot: ">=2" }
+  iki/plate_assays:
+    types: { AssayResult: ">=1" }
+settings:
+  review_flow:
+    type: enum
+    label: Release testing review
+    values: [research, regulated_qc]
+    default: research
+    description: New release cases retain this flow for investigations and certificates.
+roles:
+  analyst:
+    label: QC analyst
+    description: Records tests and signs an investigation or certificate submission.
+  reviewer:
+    label: QC reviewer
+    description: Signs off research work or independently reviews regulated QC work.
+  qa:
+    label: Release testing QA
+    description: Approves specifications and releases independently reviewed regulated work.

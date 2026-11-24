@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Component
+name: calibration_impacts
+label: Calibration impact
+description: Measurements flagged by a failed calibration and their QA dispositions.
+module: ./components/equipment.js
+element: iki-calibration-impacts
+entities:
+  type: CalibrationImpact
+  fields: [failure, failure_revision, use, result, measurement_at, disposition, review]
+  limit: 1000
+slots:
+  - slot: entity.tab
+    type: EquipmentService
+    search:
+      where: { field: failure, op: eq, value: "{{ entity }}" }
+      sort: measurement_at
+  - slot: entity.tab
+    type: InstrumentUse
+    search:
+      where: { field: use, op: eq, value: "{{ entity }}" }
+      sort: measurement_at
+  - slot: entity.tab
+    type: iki/example_lims.AnalysisResult
+    search:
+      where: { field: result, op: eq, value: "{{ entity }}" }
+      sort: measurement_at

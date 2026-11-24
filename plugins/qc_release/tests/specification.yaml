@@ -1,0 +1,167 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: publish_an_approved_specification
+action: publish_version
+description: Register the signed version on its schedule, keeping that update conditional on the schedule revision read.
+inputs:
+  schedule:
+    - values: { material: 00000000-0000-7000-8003-000000000099 }
+  version:
+    - values:
+        schedule: 00000000-0000-7000-8003-000000000001
+        version: USP-2015-example
+        effective_from: 2024-01-01
+        approval: approved
+        source: https://dev.uspnf.com/sites/default/files/usp_pdf/EN/USPNF/sodium-chloride.pdf
+        # USP Sodium Chloride, official December 1, 2015, Definition and Assay.
+        criteria:
+          - {
+              attribute: NaCl assay,
+              method: USP Sodium Chloride assay (2015),
+              unit: "% NaCl, dried basis",
+              lower: 99.0,
+              upper: 100.5,
+            }
+expect:
+  output:
+    updates:
+      schedule:
+        - require_unchanged: true
+          values: { versions: [00000000-0000-7000-8003-000000000002] }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_draft_cannot_be_published
+action: publish_version
+inputs:
+  schedule:
+    - values: { material: 00000000-0000-7000-8003-000000000099 }
+  version:
+    - values:
+        schedule: 00000000-0000-7000-8003-000000000001
+        version: synthetic-draft
+        effective_from: 2024-01-01
+        approval: draft
+expect: { error: Approve the specification version before publishing }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_to_backdate_a_published_schedule
+action: publish_version
+description: An approved draft cannot be inserted before a version already on the material's schedule. The dates and method in this test are synthetic.
+inputs:
+  schedule:
+    - values: { material: 00000000-0000-7000-8003-000000000099 }
+      included:
+        versions:
+          - values:
+              schedule: 00000000-0000-7000-8003-000000000001
+              version: synthetic-published
+              effective_from: 2024-01-01
+              approval: approved
+              source: Synthetic method fixture
+              criteria:
+                - {
+                    attribute: synthetic check,
+                    method: synthetic method,
+                    unit: arbitrary,
+                    lower: 0,
+                  }
+  version:
+    - values:
+        schedule: 00000000-0000-7000-8003-000000000001
+        version: synthetic-backdated
+        effective_from: 2023-01-01
+        approval: approved
+        source: Synthetic method fixture
+        criteria:
+          - { attribute: synthetic check, method: synthetic method, unit: arbitrary, lower: 0 }
+expect: { error: future date }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: pin_the_version_effective_on_the_test_date
+action: open_release
+description: The test date lies between two project applicability dates. The first version uses a published USP range. The second version represents a synthetic future revision.
+settings: { review_flow: regulated_qc }
+params: { testing_on: 2024-12-31 }
+inputs:
+  lot:
+    - type: iki/lots.GenericLot
+      values: { of: 00000000-0000-7000-8003-000000000099, lot_number: SYNTHETIC-NACL-01 }
+  schedule:
+    - values: { material: 00000000-0000-7000-8003-000000000099 }
+      included:
+        versions:
+          - values:
+              schedule: 00000000-0000-7000-8003-000000000002
+              version: USP-2015-example
+              effective_from: 2024-01-01
+              approval: approved
+              source: https://dev.uspnf.com/sites/default/files/usp_pdf/EN/USPNF/sodium-chloride.pdf
+              # USP Sodium Chloride, official December 1, 2015, Definition and Assay.
+              criteria:
+                - {
+                    attribute: NaCl assay,
+                    method: USP Sodium Chloride assay (2015),
+                    unit: "% NaCl, dried basis",
+                    lower: 99.0,
+                    upper: 100.5,
+                  }
+          - values:
+              schedule: 00000000-0000-7000-8003-000000000002
+              version: synthetic-future
+              effective_from: 2025-01-01
+              approval: approved
+              source: Synthetic method fixture
+              criteria:
+                - {
+                    attribute: synthetic check,
+                    method: synthetic method,
+                    unit: arbitrary,
+                    lower: 0,
+                  }
+expect:
+  output:
+    creates:
+      - type: iki/qc_release.ReleaseCase
+        values:
+          lot: 00000000-0000-7000-8003-000000000001
+          lot_revision: 1
+          lot_number: SYNTHETIC-NACL-01
+          schedule: 00000000-0000-7000-8003-000000000002
+          schedule_revision: 1
+          specification: 00000000-0000-7000-8003-000000000003
+          specification_revision: 1
+          version: USP-2015-example
+          testing_on: 2024-12-31
+          review_flow: regulated_qc
+          sealed: false
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: refuse_a_test_date_before_the_first_effective_version
+action: open_release
+params: { testing_on: 2023-12-31 }
+inputs:
+  lot:
+    - type: iki/lots.GenericLot
+      values: { of: 00000000-0000-7000-8003-000000000099, lot_number: SYNTHETIC-NACL-01 }
+  schedule:
+    - values: { material: 00000000-0000-7000-8003-000000000099 }
+      included:
+        versions:
+          - values:
+              schedule: 00000000-0000-7000-8003-000000000002
+              version: synthetic-first
+              effective_from: 2024-01-01
+              approval: approved
+              source: Synthetic method fixture
+              criteria:
+                - {
+                    attribute: synthetic check,
+                    method: synthetic method,
+                    unit: arbitrary,
+                    upper: 1,
+                  }
+expect: { error: effective }

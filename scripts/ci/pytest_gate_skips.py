@@ -7,7 +7,7 @@ import pytest
 
 _LOCAL_OPT_OUT = (
     "Partial local run: browser coverage disabled by IKI_SKIP_BROWSER_TESTS=1 "
-    "(Playwright/browser fixtures and built_web_app tests)."
+    "(Playwright/browser fixtures and tests marked browser or built_web_app)."
 )
 
 # These separately invoked suites attach an exact opt-in reason to marked tests.
@@ -85,12 +85,12 @@ class _GateSkips:
 
 class _LocalBrowserOptOut:
     def pytest_collection_modifyitems(self, items: list[pytest.Item]) -> None:
+        # Load the shard plugin after pytest has registered any requested plugins.
+        from pytest_shards import item_kind
+
         skip = pytest.mark.skip(reason=_LOCAL_OPT_OUT)
         for item in items:
-            if item.get_closest_marker("built_web_app") or (
-                isinstance(item, pytest.Function)
-                and ("browser" in item.fixturenames or "playwright" in item.fixturenames)
-            ):
+            if item_kind(item) == "browser":
                 item.add_marker(skip)
 
     def pytest_terminal_summary(self, terminalreporter: pytest.TerminalReporter) -> None:

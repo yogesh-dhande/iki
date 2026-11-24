@@ -1,0 +1,25 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ResearchCertificate
+label: Research certificate of analysis
+schema_version: 1
+extends: ReleaseCertificate
+hrid: { prefix: RCA }
+exports: [{ export: signed_report, report: report, review: review, issued: [signed_off] }]
+fields:
+  review:
+    type: state
+    initial: recorded
+    states:
+      recorded: { label: Recorded }
+      signed_off:
+        label: Issued
+        set_by: [reviewer]
+        locks: true
+        signatures:
+          - meaning: review
+            statement: I reviewed the pinned specification, test results and investigations and issue this certificate.
+        guards:
+          complete:
+            check: state.from == "recorded" && record.review_flow == "research" && record.case.sealed == true
+            message: Sign the certificate assembled from a completed research release case.

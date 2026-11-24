@@ -1,5 +1,6 @@
 """A missing Playwright revision must be visible in the result of running pytest."""
 
+import json
 import os
 import subprocess
 import sys
@@ -11,6 +12,48 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 # This browser test needs neither a database nor a built app.
 CASE = "server/tests/test_plate_map_component.py::test_preview_issues_and_repeated_wells[chromium]"
+
+
+def test_browser_shards_follow_the_real_cases_and_their_fixtures(tmp_path: Path) -> None:
+    # These standalone component suites use the shared browser, including through
+    # an alias. Some have no application-build marker.
+    click_tests = "server/tests/test_click_stability.py"
+    expected = {
+        "server/tests/test_qc_release_component.py": "browser",
+        "server/tests/test_stability_component.py": "browser",
+        "server/tests/test_equipment_components.py": "browser",
+        f"{click_tests}::test_stable_press": "browser",
+        f"{click_tests}::test_finish_writes_reports_and_only_fails_for_mismatches": "plain",
+        "plugins/qc_release/tests/test_release_actions.py": "plain",
+    }
+    run = subprocess.run(  # noqa: S603 - the repository's collection entry point
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "pytest_shards",
+            "--shard",
+            "browser:1/1",
+            "--shard-report",
+            str(tmp_path),
+            *expected,
+        ],
+        cwd=ROOT,
+        env={**os.environ, "PYTEST_ADDOPTS": ""},
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    kinds = json.loads((tmp_path / "plan.json").read_text())["kinds"]
+    for selection, kind in expected.items():
+        assert {value for test, value in kinds.items() if test.startswith(selection)} == {kind}, (
+            selection
+        )
 
 
 @pytest.mark.parametrize(

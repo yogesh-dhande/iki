@@ -119,15 +119,21 @@ def sign(user, record):
     record = Entity.objects.get(pk=record.pk)
     signing = signatures.begin(
         user, f"session-{user.pk}", record, "status", "in_review", index=None,
-        expected_revision=record.revision, reason="", return_to=f"/entities/{record.hrid}",
+        expected_revision=record.revision,
+        expected_entry_revision=entities.entry_revision(record),
+        reason="", return_to=f"/entities/{record.hrid}",
         acknowledge=True,
     )
+    done = reauthenticate(user, signing)
+    assert done.status == "signed", done.message
+
+
+def reauthenticate(user, signing):
     evidence = signatures.Evidence(
         protocol="oidc", issuer=provider.issuer, subject=f"uid-{user.email.split('@')[0]}",
         authenticated_at=timezone.now(), methods=("pwd", "otp"),
     )
-    done = signatures.finish(signing, evidence)
-    assert done.status == "signed", done.message
+    return signatures.finish(signing, evidence)
 """
 
 #: Each signature's record check, by its record's HRID: whether it passed, and what it says.
@@ -314,6 +320,119 @@ def _dependencies(migration: str) -> list[tuple[str, str]]:
             found: list[tuple[str, str]] = ast.literal_eval(node.value)
             return found
     return []
+
+
+def test_signing_checks_the_registry_entry_revision_the_signer_read(
+    lab: Path, database: str
+) -> None:
+    (lab / "types" / "reagent.yaml").write_text(
+        REAGENT
+        + """\
+      approved:
+        label: Approved
+        set_by: [analyst]
+        signatures: [{ meaning: review }, { meaning: approval }]
+"""
+    )
+    made("lab", "--no-input", cwd=lab.parent)
+    out = build(lab.parent, "lab")
+    migrate(out, database)
+    orm(
+        out,
+        database,
+        PEOPLE
+        + """
+from api_client import Api, problem
+from browser import Browser
+from iki_server.signatures.models import Signature, Signing
+
+analyst = person("analyst", project)
+curator = person("curator")
+Registrar.objects.create(registry=project.registry, user=curator)
+record = entities.create(
+    analyst, "acme/lab.Reagent", project, {"code": "NACL-01", "cas": "7647-14-5"},
+).entity
+entry = Entity.objects.get(pk=record.entry_id)
+browser = Browser()
+browser.force_login(analyst)
+api = Api(browser)
+path = f"/entities/{record.pk}"
+body = {"field": "status", "state": "in_review", "acknowledge": True, "return_to": path}
+
+
+def start(reviewed, *, send_entry=True):
+    payload = dict(body)
+    if send_entry:
+        payload["entry_revision"] = reviewed.json()["entry"]["revision"]
+    return api.post(f"{path}/signatures", payload, headers={"If-Match": reviewed["ETag"]})
+
+
+reviewed = api.get(path)
+assert reviewed.status_code == 200, reviewed.content
+assert reviewed.json()["values"]["cas"] == "7647-14-5"
+missing = problem(start(reviewed, send_entry=False), 422, "validation_failed")
+assert missing["errors"][0]["pointer"] == "#/entry_revision"
+changed = entries.curate(
+    curator, entry, {"cas": "7758-02-3"}, expected_revision=entry.revision,
+    reason="Correct the registry fact",
+)
+stale = start(reviewed)
+assert "registry entry" in problem(stale, 412, "stale")["detail"]
+assert stale["ETag"] == reviewed["ETag"]
+assert not Signing.objects.exists()
+
+reviewed_again = api.call("GET", path, headers={"If-None-Match": reviewed["ETag"]})
+assert reviewed_again.status_code == 200, reviewed_again.content
+assert reviewed_again["ETag"] == reviewed["ETag"]
+assert reviewed_again.json()["values"]["cas"] == "7758-02-3"
+assert reviewed_again.json()["entry"]["revision"] == changed.number
+started = start(reviewed_again)
+assert started.status_code == 201, started.content
+signing = Signing.objects.get(pk=started.json()["id"])
+assert signing.entry_revision == changed.number
+assert signing.entry_revision_reviewed
+entries.curate(
+    curator, entry, {"cas": "7647-14-5"}, expected_revision=changed.number,
+    reason="Reinstate the confirmed registry fact",
+)
+done = reauthenticate(analyst, signing)
+assert done.status == "failed", done.message
+assert "changed while you were signing in" in done.message
+assert not Signature.objects.exists()
+
+current = api.get(path)
+started = start(current)
+assert started.status_code == 201, started.content
+legacy = Signing.objects.get(pk=started.json()["id"])
+Signing.objects.filter(pk=legacy.pk).update(entry_revision_reviewed=False)
+done = reauthenticate(analyst, legacy)
+assert done.status == "failed", done.message
+assert "confirm the registry entry revision" in done.message
+assert not Signature.objects.exists()
+
+started = start(current)
+assert started.status_code == 201, started.content
+done = reauthenticate(analyst, Signing.objects.get(pk=started.json()["id"]))
+assert done.status == "signed", done.message
+assert done.signature.entry_revision == current.json()["entry"]["revision"]
+assert all(c.ok for c in signatures.verify(done.signature))
+
+body.update(state="approved", index=0)
+current = api.get(path)
+started = start(current)
+assert started.status_code == 201, started.content
+pending = reauthenticate(analyst, Signing.objects.get(pk=started.json()["id"]))
+assert pending.status == "signed" and pending.signature is not None
+assert api.get(path).json()["values"]["status"] == "in_review"
+entries.curate(
+    curator, entry, {"cas": "7758-02-3"}, expected_revision=current.json()["entry"]["revision"],
+    reason="Correct the registry fact again",
+)
+withdrawal = api.post(f"/signatures/{pending.signature_id}/withdrawal", {"reason": "Withdraw"})
+assert "lapsed" in problem(withdrawal, 409, "refused")["detail"]
+result = None
+""",
+    )
 
 
 def test_a_signature_survives_moving_its_record_to_the_replacement_entry(

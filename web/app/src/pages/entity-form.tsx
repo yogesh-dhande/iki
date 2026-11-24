@@ -620,6 +620,12 @@ function EditEntityForm({
   const [holdReason, setHoldReason] = useState("");
   // Only rules reading what it changes, as the server checks an edit.
   const proposed = { ...base.entity.values, ...typedValues(type, drafts) };
+  const clearing = changed.some(
+    (field) =>
+      field.reason_on_clear &&
+      base.entity.values[field.name] === true &&
+      proposed[field.name] !== true,
+  );
   const changedNames = new Set(changed.map((f) => f.name));
   for (const r of returns) {
     proposed[r.field] = r.to;
@@ -674,7 +680,10 @@ function EditEntityForm({
     if (!canSave) return;
     setUnchanged(false);
     const { values, errors } = encodeAll(type, changed, drafts);
-    if (returns.length && !reason.trim()) errors["reason"] = "Give a reason for this correction.";
+    if (!reason.trim()) {
+      if (clearing) errors["reason"] = "Give a reason for clearing this flag.";
+      else if (returns.length) errors["reason"] = "Give a reason for this correction.";
+    }
     if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     if (changed.length === 0) {
       setUnchanged(true);
@@ -784,7 +793,7 @@ function EditEntityForm({
             value={reason}
             onChange={setReason}
             error={form.errors["reason"]}
-            required={returns.length > 0}
+            required={clearing || returns.length > 0}
           />
           <div className="actions">
             <Button

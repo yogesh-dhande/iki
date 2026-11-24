@@ -1,0 +1,45 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ReleaseCase
+label: Lot release case
+schema_version: 1
+hrid: { prefix: QRC }
+description: A lot's release tests against the specification in force on its testing date.
+fields:
+  lot: { type: ref, to: iki/lots.Lot, computed: true, immutable: true }
+  lot_revision: { type: int, min: 1, computed: true, immutable: true }
+  lot_number: { type: string, max_length: 100, computed: true, immutable: true }
+  schedule: { type: ref, to: SpecificationSchedule, computed: true, immutable: true }
+  schedule_revision: { type: int, min: 1, computed: true, immutable: true }
+  specification: { type: ref, to: SpecificationVersion, computed: true, immutable: true }
+  specification_revision: { type: int, min: 1, computed: true, immutable: true }
+  version: { type: string, max_length: 100, computed: true, immutable: true }
+  testing_on: { type: date, computed: true, immutable: true }
+  review_flow:
+    type: enum
+    values: [research, regulated_qc]
+    computed: true
+    immutable: true
+  attempts:
+    type: json
+    computed: true
+    description: The sequence, attribute and outcome of every test. Certificate preparation checks this list for completeness.
+  sealed:
+    type: bool
+    computed: true
+    description: The certificate was assembled from all test attempts and their signed exception decisions.
+rules:
+  lot_case:
+    label: Keep all release attempts for the lot in one case
+    unique: [lot]
+    message: Use the existing release case for this lot.
+  pinned:
+    label: The release case pins the effective specification
+    check: >-
+      record.lot != null && record.lot_revision != null && record.lot_number != null &&
+      record.schedule != null && record.schedule_revision != null &&
+      record.specification != null && record.specification_revision != null &&
+      record.version != null && record.testing_on != null && record.review_flow != null &&
+      record.attempts != null && record.sealed != null
+    message: Open the lot release case with the effective specification action.
+display: { title: "{{ lot_number or hrid }} · {{ testing_on }}" }

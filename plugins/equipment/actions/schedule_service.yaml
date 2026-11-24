@@ -1,0 +1,17 @@
+apiVersion: iki/v1
+kind: Action
+name: schedule_service
+label: Schedule service
+description: Create an instrument service appointment under this deployment's selected review flow.
+inputs:
+  instrument: { type: iki/example_lims.Instrument }
+params:
+  kind: { type: enum, values: [calibration, maintenance], required: true }
+  due_on: { type: date, required: true, label: Scheduled for }
+  procedure:
+    { type: string, max_length: 240, required: true, description: Written procedure and revision. }
+effects:
+  creates: [{ type: EquipmentService, cardinality: one, derived_from: [instrument] }]
+runs_on: { tier: backend, environment: equipment-tools }
+command: [python, ./scripts/equipment.py, schedule]
+timeout: 1m

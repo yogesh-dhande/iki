@@ -366,6 +366,8 @@ class _Search:
         if name in _COLUMNS:
             return conditions.BUILT_IN[name], None
         found = self.rules.field(name, path)
+        if found is not None and found.type == "state":
+            return "enum", found  # As the server's search does for the field's live states.
         return (found.type, found) if found is not None else (None, None)
 
     def condition(self, node: Mapping[str, Any], path: Path) -> None:

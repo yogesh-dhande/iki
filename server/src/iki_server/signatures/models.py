@@ -241,6 +241,8 @@ class Signing(models.Model):
     entity = models.ForeignKey("iki_entities.Entity", on_delete=models.CASCADE, related_name="+")
     revision = models.PositiveIntegerField()
     entry_revision = models.PositiveIntegerField(null=True, blank=True)
+    #: The caller supplied the matching entry revision. Older attempts default to false.
+    entry_revision_reviewed = models.BooleanField(default=False, db_default=False)
     field = models.CharField(max_length=63)
     state = models.CharField(max_length=50)
     index = models.PositiveSmallIntegerField()

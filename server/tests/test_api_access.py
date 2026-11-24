@@ -174,7 +174,11 @@ def batch_hold(w: World) -> tuple[Any, ...]:
         hold_reason="Measured twice.",
     )
     hold = RuleHold.objects.get(entity_id=found.entity.pk)
-    return f"/entities/{found.entity.pk}/holds/{hold.pk}/review", {"reason": "Fine."}
+    return (
+        f"/entities/{found.entity.pk}/holds/{hold.pk}/review",
+        {"reason": "Fine.", "review_version": "0" * 64},
+        {"If-Match": f'"{hold.revision}"'},
+    )
 
 
 def sample_amount(suffix: str, body: Any = None) -> Build:

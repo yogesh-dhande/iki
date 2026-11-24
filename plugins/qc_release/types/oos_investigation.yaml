@@ -1,0 +1,31 @@
+apiVersion: iki/v1
+kind: EntityType
+name: OOSInvestigation
+label: Out-of-specification investigation
+schema_version: 1
+abstract: true
+description: A signed explanation and decision about an original out-of-specification observation.
+fields:
+  case: { type: ref, to: ReleaseCase, computed: true, immutable: true }
+  test: { type: ref, to: ReleaseTest, computed: true, immutable: true }
+  resolution:
+    type: enum
+    values: [confirmed, invalidated]
+    description: Confirm the original finding or document the assignable cause that invalidates it.
+  findings:
+    type: text
+    max_length: 12000
+    description: The investigation, its conclusion and the reason for that conclusion.
+  evidence:
+    type: file
+    description: The investigation report or other evidence for the assignable cause.
+    media_types: [application/pdf, text/plain, text/csv, image/png, image/jpeg]
+    max_size: 50MiB
+rules:
+  original_attempt:
+    label: Investigate the original observation
+    check: >-
+      record.case != null && record.test != null && record.test.outcome == "oos" &&
+      record.test.case == record.case.id
+    message: Record an out-of-specification test to open its investigation.
+display: { title: "OOS investigation · {{ hrid }}" }

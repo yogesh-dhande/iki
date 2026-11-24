@@ -25,13 +25,13 @@ from django.db import transaction
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.entities import access, registry
+from iki_server.entities import access, registry, signed_reports
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.sequence_files import Organism, SequenceFile, Written, fasta, genbank
 from iki_server.entities.services import values_at
 from iki_server.entities.values import shape, to_json
 from iki_spec import titles
-from iki_spec.model import EntityType, Export
+from iki_spec.model import EntityType, Export, ReportExport
 
 __all__ = ["FORMATS", "Format", "Unexportable", "export", "exports_of"]
 
@@ -65,6 +65,22 @@ FORMATS: dict[str, tuple[Format, ...]] = {
             "no features.",
         ),
     ),
+    "signed_report": (
+        Format(
+            "signed-report-html",
+            "Signed report (HTML)",
+            "html",
+            "text/html; charset=utf-8",
+            "A printable report with electronic signature manifestations and verification data.",
+        ),
+        Format(
+            "signed-report-json",
+            "Signed report (JSON)",
+            "json",
+            "application/json",
+            "The exact report and native signature proofs for verification.",
+        ),
+    ),
 }
 _WRITERS = {"genbank": genbank, "fasta": fasta}
 #: What a file's name may hold, beyond letters and digits: the rest become underscores.
@@ -79,7 +95,7 @@ class Unexportable(Exception):  # noqa: N818 - raised for its message, as Refuse
         self.code = code
 
 
-def exports_of(entity_type: EntityType) -> tuple[Export, ...]:
+def exports_of(entity_type: EntityType) -> tuple[Export | ReportExport, ...]:
     """What a type exports: its own, or its nearest ancestor's."""
     return registry.exports(entity_type)
 
@@ -95,22 +111,38 @@ class Downloaded:
 def export(user: User, entity: Entity, file_format: str, revision: int | None) -> Downloaded:
     """The record as ``file_format`` at ``revision`` (its latest if None), audited."""
     entity_type = registry.types().get(entity.type)
-    sequence = (
-        next((e for e in exports_of(entity_type) if e.export == "sequence"), None)
-        if entity_type is not None
-        else None
+    match = next(
+        (
+            (export_, fmt)
+            for export_ in (exports_of(entity_type) if entity_type is not None else ())
+            for fmt in FORMATS[export_.export]
+            if fmt.format == file_format
+        ),
+        None,
     )
-    if sequence is None:
-        raise Unexportable(f"{entity.hrid} isn't exported as a file.", "no_export")
-    chosen = next((f for f in FORMATS["sequence"] if f.format == file_format), None)
-    if chosen is None:
-        raise Unexportable(f"A sequence isn't exported as {file_format}.", "no_export")
+    if entity_type is None or match is None:
+        raise Unexportable(f"{entity.hrid} isn't exported as {file_format}.", "no_export")
+    export_, chosen = match
     number = entity.revision if revision is None else revision
     if not 1 <= number <= entity.revision:
         raise Unexportable(f"{entity.hrid} has no revision {number}.", "not_found")
-    record = _sequence_file(user, entity, number, sequence)
-    written: Written = _WRITERS[chosen.format](record)
-    name = file_name(record, chosen)
+    if isinstance(export_, ReportExport):
+        try:
+            snapshot = signed_reports.snapshot(entity, number, export_)
+        except signed_reports.Unissued as error:
+            raise Unexportable(str(error), "report_not_issued") from error
+        issued = snapshot["record"]["issued_revision"]
+        report = (
+            signed_reports.html_file(snapshot)
+            if chosen.format == "signed-report-html"
+            else signed_reports.json_file(snapshot)
+        )
+        written = Written(report, [])
+        name = f"{entity.hrid} (revision {issued}).{chosen.extension}"
+    else:
+        record = _sequence_file(user, entity, number, export_)
+        written = _WRITERS[chosen.format](record)
+        name = file_name(record, chosen)
     with transaction.atomic():
         audit.record(
             "entity.exported",
@@ -157,7 +189,7 @@ def _sequence_file(user: User, entity: Entity, number: int, export_: Export) -> 
     if spec is not None and spec.type == "ref":
         target = _referenced(user, entity, number, values.get(export_.sequence))
         inner_type = registry.types()[target.entity.type]
-        inner_export = next(e for e in exports_of(inner_type) if e.export == "sequence")
+        inner_export = next(e for e in exports_of(inner_type) if isinstance(e, Export))
         inner = _sequence_file(user, target.entity, target.revision, inner_export)
         return replace(
             inner,

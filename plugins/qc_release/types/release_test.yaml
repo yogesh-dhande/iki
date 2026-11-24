@@ -1,0 +1,48 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ReleaseTest
+label: Release test
+schema_version: 1
+hrid: { prefix: QRT }
+description: An immutable observed result and its evaluation against a pinned lot release criterion.
+fields:
+  case: { type: ref, to: ReleaseCase, computed: true, immutable: true }
+  lot: { type: ref, to: iki/lots.Lot, computed: true, immutable: true }
+  sequence: { type: int, min: 1, computed: true, immutable: true }
+  attribute: { type: string, max_length: 120, computed: true, immutable: true, indexed: true }
+  method: { type: string, max_length: 200, computed: true, immutable: true }
+  unit: { type: string, max_length: 50, computed: true, immutable: true }
+  value: { type: float, computed: true, immutable: true }
+  lower: { type: float, computed: true, immutable: true, label: Inclusive lower limit }
+  upper: { type: float, computed: true, immutable: true, label: Inclusive upper limit }
+  outcome: { type: enum, values: [pass, oos], computed: true, immutable: true, indexed: true }
+  observed_by: { type: person, computed: true, immutable: true }
+  repeat_of: { type: ref, to: ReleaseTest, computed: true, immutable: true }
+  evidence:
+    type: ref
+    to: iki/plate_assays.AssayResult
+    computed: true
+    immutable: true
+  evidence_revision: { type: int, min: 1, computed: true, immutable: true }
+  lab_report:
+    type: file
+    computed: true
+    immutable: true
+    media_types: [application/pdf, text/plain, text/csv]
+    max_size: 50MiB
+    description: The source laboratory report for a manually recorded observation, if supplied.
+rules:
+  ordered_attempt:
+    label: Each attempt occupies one position in the release case
+    unique: [case, sequence]
+    message: This release case already has that attempt number.
+  recorded_observation:
+    label: Keep the value, criterion and origin of every attempt
+    check: >-
+      record.case != null && record.lot != null && record.sequence != null &&
+      record.attribute != null && record.method != null && record.unit != null &&
+      record.value != null && (record.lower != null || record.upper != null) &&
+      record.outcome != null && record.observed_by != null &&
+      (record.evidence != null) == (record.evidence_revision != null)
+    message: Record the observation using the lot release testing action.
+display: { title: "{{ attribute or hrid }} · {{ outcome or 'pending' }}" }

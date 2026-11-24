@@ -5699,7 +5699,7 @@
           },
           "reason": {
             "default": "",
-            "description": "Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination.",
+            "description": "Why the values changed. Required for an edit that returns a state field to its declared `on_edit` destination or clears a true Boolean with `reason_on_clear`.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
@@ -5804,7 +5804,21 @@
           "exports": {
             "description": "The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.",
             "items": {
-              "$ref": "#/components/schemas/FileExportOut"
+              "discriminator": {
+                "mapping": {
+                  "sequence": "#/components/schemas/FileExportOut",
+                  "signed_report": "#/components/schemas/SignedReportExportOut"
+                },
+                "propertyName": "export"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/FileExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/SignedReportExportOut"
+                }
+              ]
             },
             "title": "Exports",
             "type": "array"
@@ -6763,10 +6777,12 @@
       "ExportParams": {
         "properties": {
           "format": {
-            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "description": "Which file, as its type's `exports` list them.",
             "enum": [
               "genbank",
-              "fasta"
+              "fasta",
+              "signed-report-html",
+              "signed-report-json"
             ],
             "title": "Format",
             "type": "string"
@@ -7070,6 +7086,18 @@
             "description": "The plugin that defines the field.",
             "title": "Plugin",
             "type": "string"
+          },
+          "reason_on_clear": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when clearing this Boolean requires a reason.",
+            "title": "Reason On Clear"
           },
           "registry": {
             "anyOf": [
@@ -7654,7 +7682,9 @@
             "description": "What `/entities/{ref}/export` takes.",
             "enum": [
               "genbank",
-              "fasta"
+              "fasta",
+              "signed-report-html",
+              "signed-report-json"
             ],
             "title": "Format",
             "type": "string"
@@ -8786,7 +8816,7 @@
         "type": "object"
       },
       "HeldOut": {
-        "description": "A hold a revision opened (ADR 0127), as the record's history keeps it: why the save\nwas kept, and its review, once someone has reviewed it.",
+        "description": "Evidence of a rule that a revision broke (ADR 0127), with the hold's review.",
         "properties": {
           "agent": {
             "anyOf": [
@@ -8800,10 +8830,42 @@
             "description": "The app or agent that saved it for them.",
             "title": "Agent"
           },
+          "entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry read with the record.",
+            "title": "Entry Id"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry revision, if known.",
+            "title": "Entry Revision"
+          },
           "held_at": {
-            "format": "date-time",
-            "title": "Held At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Held At"
           },
           "held_by": {
             "anyOf": [
@@ -8814,7 +8876,7 @@
                 "type": "null"
               }
             ],
-            "description": "Who saved it; null for a deploy's check."
+            "description": "Who saved it, when known."
           },
           "id": {
             "format": "uuid",
@@ -8830,15 +8892,40 @@
             "title": "Last Revision",
             "type": "integer"
           },
+          "legacy_gap": {
+            "default": false,
+            "description": "Earlier repeated failures have incomplete evidence.",
+            "title": "Legacy Gap",
+            "type": "boolean"
+          },
           "message": {
-            "description": "What the save that held it was told.",
-            "title": "Message",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the save was told, when kept in the evidence.",
+            "title": "Message"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
             "type": "string"
           },
           "reason": {
-            "description": "Why it was saved anyway.",
-            "title": "Reason",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was saved anyway, when recorded.",
+            "title": "Reason"
           },
           "review_reason": {
             "description": "Why the reviewer let it stand.",
@@ -8869,7 +8956,7 @@
             "description": "Who reviewed it; null while it's held."
           },
           "revision": {
-            "description": "The revision that held it.",
+            "description": "The record revision this evidence is about.",
             "title": "Revision",
             "type": "integer"
           },
@@ -8880,6 +8967,7 @@
         },
         "required": [
           "id",
+          "occurrence_id",
           "rule",
           "label",
           "message",
@@ -9179,6 +9267,127 @@
         "title": "HelmReadingOut",
         "type": "object"
       },
+      "HoldOccurrenceOut": {
+        "description": "Evidence of one save that broke the rule and was kept under a hold (ADR 0127).",
+        "properties": {
+          "agent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app or agent that saved it for them.",
+            "title": "Agent"
+          },
+          "entry_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry read with the record.",
+            "title": "Entry Id"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The registry entry revision, if known.",
+            "title": "Entry Revision"
+          },
+          "held_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When the save was held, when known.",
+            "title": "Held At"
+          },
+          "held_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who saved it, when known."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "legacy_gap": {
+            "default": false,
+            "description": "Earlier repeated failures have incomplete evidence.",
+            "title": "Legacy Gap",
+            "type": "boolean"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the save was told, when kept in the evidence.",
+            "title": "Message"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why it was saved anyway, when recorded.",
+            "title": "Reason"
+          },
+          "revision": {
+            "description": "The record revision this evidence is about.",
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "message",
+          "held_by",
+          "held_at",
+          "reason",
+          "revision"
+        ],
+        "title": "HoldOccurrenceOut",
+        "type": "object"
+      },
       "HoldOut": {
         "description": "A rule holding the record for review (ADR 0127): a save broke it, and was kept\nwith a reason.",
         "properties": {
@@ -9230,13 +9439,33 @@
             "type": "integer"
           },
           "message": {
-            "description": "What the save that held it was told.",
-            "title": "Message",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the opening save was told, when known.",
+            "title": "Message"
+          },
+          "occurrences": {
+            "description": "The observations that broke the rule, in the order they were saved.",
+            "items": {
+              "$ref": "#/components/schemas/HoldOccurrenceOut"
+            },
+            "title": "Occurrences",
+            "type": "array"
           },
           "reason": {
             "description": "Why it was saved anyway.",
             "title": "Reason",
+            "type": "string"
+          },
+          "review_version": {
+            "description": "The version of the hold and record you reviewed.",
+            "title": "Review Version",
             "type": "string"
           },
           "reviewed_by": {
@@ -9280,6 +9509,8 @@
           "reason",
           "revision",
           "last_revision",
+          "occurrences",
+          "review_version",
           "can_review"
         ],
         "title": "HoldOut",
@@ -9293,10 +9524,17 @@
             "minLength": 1,
             "title": "Reason",
             "type": "string"
+          },
+          "review_version": {
+            "description": "The `review_version` from the hold you read.",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Review Version",
+            "type": "string"
           }
         },
         "required": [
-          "reason"
+          "reason",
+          "review_version"
         ],
         "title": "HoldReviewIn",
         "type": "object"
@@ -14789,6 +15027,18 @@
             "description": "The plugin that defines the field.",
             "title": "Plugin",
             "type": "string"
+          },
+          "reason_on_clear": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when clearing this Boolean requires a reason.",
+            "title": "Reason On Clear"
           },
           "registry": {
             "anyOf": [
@@ -24689,6 +24939,50 @@
         "title": "SignedChangeOut",
         "type": "object"
       },
+      "SignedReportExportOut": {
+        "properties": {
+          "export": {
+            "const": "signed_report",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "issued": {
+            "description": "States in which a signed report has been issued.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Issued",
+            "type": "array"
+          },
+          "report": {
+            "description": "The JSON field holding the report.",
+            "title": "Report",
+            "type": "string"
+          },
+          "review": {
+            "description": "The state field whose signed transitions issue the report.",
+            "title": "Review",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "report",
+          "review",
+          "issued"
+        ],
+        "title": "SignedReportExportOut",
+        "type": "object"
+      },
       "SigningIn": {
         "properties": {
           "acknowledge": {
@@ -24696,6 +24990,19 @@
             "description": "Before your first signature: that you agree to `acknowledgment` in GET /me/signing.",
             "title": "Acknowledge",
             "type": "boolean"
+          },
+          "entry_revision": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Required for a record of a registry entry. Send `entry.revision` from the record you reviewed.",
+            "title": "Entry Revision"
           },
           "field": {
             "description": "The state field (ADR 0125), such as status: a key of `can.states`.",
@@ -29152,12 +29459,15 @@
       "WithdrawalIn": {
         "properties": {
           "reason": {
-            "default": "",
+            "description": "Why you withdraw the pending signature.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
           }
         },
+        "required": [
+          "reason"
+        ],
         "title": "WithdrawalIn",
         "type": "object"
       },
@@ -34724,15 +35034,17 @@
             }
           },
           {
-            "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+            "description": "Which file, as its type's `exports` list them.",
             "in": "query",
             "name": "format",
             "required": true,
             "schema": {
-              "description": "Which file: `genbank` (with its features) or `fasta`, as its type's `exports` list them.",
+              "description": "Which file, as its type's `exports` list them.",
               "enum": [
                 "genbank",
-                "fasta"
+                "fasta",
+                "signed-report-html",
+                "signed-report-json"
               ],
               "title": "Format",
               "type": "string"
@@ -34780,8 +35092,10 @@
         "responses": {
           "200": {
             "content": {
+              "application/json": {},
               "chemical/seq-na-fasta": {},
-              "chemical/seq-na-genbank": {}
+              "chemical/seq-na-genbank": {},
+              "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
           }
@@ -34912,7 +35226,7 @@
     },
     "/api/v1/entities/{ref}/holds/{hold_id}/review": {
       "post": {
-        "description": "Reviews a rule's hold on the record (ADR 0127), with why it may stand: the hold is\ncleared, and the audit log keeps who reviewed it, when and why. It takes a person, not\nan app or agent's token, with one of the rule's lab roles in the record's project, and\nnot whoever saved what held it: `holds[].can_review` says whether you may. Editing the\nrecord back within the rule doesn't clear a hold; only a review does.",
+        "description": "Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the\nrecord's `ETag` as `If-Match` and the hold's `review_version` from the same read. If the\nrecord, hold or deployed rule changed, it answers 412 and you need to read it again.\nIt takes a person with one of the rule's lab roles in the record's project, other than\nwhoever saved what held it: `holds[].can_review` says whether you may.",
         "operationId": "iki_server_api_entities_review_hold",
         "parameters": [
           {
@@ -34932,6 +35246,22 @@
               "format": "uuid",
               "title": "Hold Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           },
           {
@@ -35893,7 +36223,7 @@
         ]
       },
       "post": {
-        "description": "Starts giving one of the signatures setting the record's state needs (ADR 0126),\nas the person in\nthe web app's browser session: send the browser to `sign_in_url`, where the identity\nprovider signs them in again, however recently they did (ADR 0124). Its answer signs\nthe revision you read (send its ETag as If-Match), and comes back to `return_to`. No\ntoken, app or AI agent can sign: they're refused with 403.",
+        "description": "Starts giving one of the signatures setting the record's state needs (ADR 0126),\nas the person in\nthe web app's browser session: send the browser to `sign_in_url`, where the identity\nprovider signs them in again, however recently they did (ADR 0124). Send the ETag of\nthe record you reviewed as If-Match and, if it has a registry entry, send its\n`entry.revision` as `entry_revision`. Both revisions are checked when signing starts\nand finishes. The identity provider's answer comes back to `return_to`. Tokens,\napps and AI agents are refused with 403.",
         "operationId": "iki_server_api_signatures_start_signing",
         "parameters": [
           {
@@ -44868,7 +45198,7 @@
     },
     "/api/v1/signatures/{signature_id}/withdrawal": {
       "post": {
-        "description": "Takes back your signature while setting the state waits for others. Once the\nstate is set with it, it stays.",
+        "description": "Takes back your signature, with a reason, while setting the state waits for others.\nOnce the state is set with it, it stays.",
         "operationId": "iki_server_api_signatures_withdraw_signature",
         "parameters": [
           {

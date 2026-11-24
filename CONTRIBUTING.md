@@ -74,8 +74,9 @@ retry the commit.
 
 CI runs the Python tests in shards side by side, whole test files at a time
 (`scripts/ci/pytest_shards.py`). Each kind of test has shards of its own with
-the setup it needs. Tests marked `built_web_app` or `browser` run in browser
-shards with Playwright and the built web app. Worker shards run tests marked
+the setup it needs. Tests that use Playwright or browser fixtures, directly
+or through another fixture, run in browser shards. Tests can also request
+the browser shard with the `built_web_app` or `browser` marker. Worker shards run tests marked
 `worker_e2e` with iki-worker. Plain shards run the remaining tests.
 Every shard builds the shared WASM for rules and the standalone modules included in its checkout.
 3.12 runs the plain tests; 3.14 runs every kind. The **Python tests (summary)**
@@ -112,7 +113,7 @@ If you provide test services, set `IKI_TEST_DATABASE_URL` and/or
 
 For a partial local pytest run without browsers, use
 `IKI_SKIP_BROWSER_TESTS=1 uv run pytest`. Its summary counts the selected
-tests that use Playwright or browser fixtures and tests marked `built_web_app`. Use pytest
+browser-shard tests skipped by this opt-out. Use pytest
 with `-rs` to list skip reasons. Direct pytest otherwise fails when
 a required browser is missing and reports the install command. CI,
 `make check`, and `make check-python` reject the opt-out even when all browsers
