@@ -3922,10 +3922,12 @@ def apply_plate_starter(
         "role_assignments": assignments,
     }
     path = f"/starters/{starter['id']}"
+    # Applying names the plan its preview returned: what was reviewed (ADR 0207).
     for operation in ("preview", "apply"):
         response = api_call(alice, "POST", f"{path}/{operation}", setup)
         if response.status_code != 200:
             fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
+        setup = {**setup, "plan": response.json()["plan"]}
     installed = response.json()
     again = api_call(alice, "POST", f"{path}/apply", setup)
     if (

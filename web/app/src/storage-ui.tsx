@@ -5,7 +5,7 @@
  * hand them over.
  */
 
-import { unwrap, type Problem } from "@ikisci/sdk";
+import { ApiError, unwrap, type Problem } from "@ikisci/sdk";
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
@@ -14,6 +14,7 @@ import { Dialog, Heading, Modal, ModalOverlay } from "react-aria-components";
 import { fieldErrors, iki, meQuery, problemOf, useApiMutation } from "./api";
 import { ENTITIES, typesQuery } from "./entities";
 import { PersonPicker } from "./entity-inputs";
+import { StaleNote, type StaleItem } from "./observations";
 import { cameraUnavailable, makeDetector, useScanner, type ScanRejection } from "./scan";
 import {
   candidatePlace,
@@ -783,8 +784,41 @@ async function previewMoves(body: {
   reason: string;
   confirmations: Record<string, Proof>;
   preview: boolean;
+  plan?: string;
 }) {
   return unwrap(await iki.POST("/api/v1/storage/moves", { body }));
+}
+
+/** Where a planned move ends: “BOX-000014, A2”, or out of storage. */
+function endOf(x: Planned["items"][number]): string {
+  return x.to ? `${x.to.hrid}${x.to.position ? `, ${x.to.position}` : ""}` : "Out of storage";
+}
+
+/** Where a planned move starts: “BOX-000003, B2”, or nowhere. */
+function startOf(x: Planned["items"][number]): string {
+  return x.from_place
+    ? `${x.from_place.ref?.hrid ?? "A place you can’t open"}${
+        x.from_place.position ? `, ${x.from_place.position}` : ""
+      }`
+    : "Nowhere";
+}
+
+/**
+ * How what the moves do changed between the plan shown and the one Iki would make now:
+ * each record that would now go elsewhere, come from elsewhere, or can't move. A sentence
+ * each, without its full stop.
+ */
+export function moveChanges(shown: Planned, now: Planned): StaleItem[] {
+  const before = new Map(shown.items.map((x) => [x.record.id, x]));
+  return now.items.flatMap((x) => {
+    const was = before.get(x.record.id);
+    const said: string[] = [];
+    if (!was || startOf(was) !== startOf(x)) said.push(`now in ${startOf(x)}`);
+    if (x.problems.length) said.push(`can’t move: ${x.problems.join(" ")}`);
+    else if (!was || endOf(was) !== endOf(x))
+      said.push(was ? `goes to ${endOf(x)}, not ${endOf(was)}` : `goes to ${endOf(x)}`);
+    return said.length ? [{ key: x.record.id, about: x.record.hrid, body: said.join("; ") }] : [];
+  });
 }
 
 /**
@@ -810,6 +844,8 @@ export function MoveDialog({
   const [reason, setReason] = useState("");
   const [confirmed, setConfirmed] = useState<Record<string, Proof>>({});
   const [planned, setPlanned] = useState<Planned | null>(null);
+  // After a refused move: how what they'd do changed since it was shown.
+  const [stale, setStale] = useState<StaleItem[] | null>(null);
   // The container chosen for a code several share, and those it was chosen from.
   const [toChoice, setToChoice] = useState<ScanCandidate | null>(null);
   const [toOptions, setToOptions] = useState<ScanCandidate[] | null>(null);
@@ -872,18 +908,21 @@ export function MoveDialog({
           }
           setToChoice(choice);
           setToOptions(null);
+          setStale(null);
           setPlanned(done);
         },
       },
     );
   };
+  // The moves the table shows, as Iki identified them: made only as shown (ADR 0207).
   const move = useApiMutation(
-    () =>
+    (shown: Planned) =>
       previewMoves({
         items: items(positions, toChoice),
         reason: reason.trim(),
         confirmations: confirmed,
         preview: false,
+        ...(shown.plan ? { plan: shown.plan } : {}),
       }),
     [STORAGE, ENTITIES],
   );
@@ -899,6 +938,7 @@ export function MoveDialog({
   const named = n === 1 ? (records[0]?.hrid ?? "") : `${String(n)} records`;
   const changed = () => {
     setPlanned(null);
+    setStale(null);
     setToChoice(null);
     setToOptions(null);
     preview.reset();
@@ -1003,6 +1043,17 @@ export function MoveDialog({
             }}
             failed={move.error}
           />
+          {planned && stale ? (
+            <StaleNote
+              changes={stale}
+              what="Where they go"
+              again={
+                blocked
+                  ? "Change where they go, then check again."
+                  : "If it’s still what you want, move them."
+              }
+            />
+          ) : null}
           {planned ? (
             <div className="table-scroll">
               <table className="table move-plan">
@@ -1019,18 +1070,8 @@ export function MoveDialog({
                   {planned.items.map((x) => (
                     <tr key={x.record.id} className={x.problems.length ? "row-problem" : undefined}>
                       <th scope="row">{x.record.hrid}</th>
-                      <td>
-                        {x.from_place
-                          ? `${x.from_place.ref?.hrid ?? "A place you can’t open"}${
-                              x.from_place.position ? `, ${x.from_place.position}` : ""
-                            }`
-                          : "Nowhere"}
-                      </td>
-                      <td>
-                        {x.to
-                          ? `${x.to.hrid}${x.to.position ? `, ${x.to.position}` : ""}`
-                          : "Out of storage"}
-                      </td>
+                      <td>{startOf(x)}</td>
+                      <td>{endOf(x)}</td>
                       <td>{x.problems.length ? x.problems.join(" ") : "None"}</td>
                     </tr>
                   ))}
@@ -1046,7 +1087,23 @@ export function MoveDialog({
                 busyText="Moving…"
                 disabled={unconfirmed}
                 onClick={() => {
-                  move.mutate(undefined, {
+                  const shown = planned;
+                  setStale(null);
+                  move.mutate(shown, {
+                    onError: (error) => {
+                      // Where they'd go changed: nothing moved. Show where they'd go now, and
+                      // what changed, to review; moving them again makes that.
+                      const now = error instanceof ApiError ? error.problem.moves : undefined;
+                      if (
+                        error instanceof ApiError &&
+                        error.problem.code === "moves_plan_changed" &&
+                        now
+                      ) {
+                        move.reset();
+                        setPlanned(now);
+                        setStale(moveChanges(shown, now));
+                      }
+                    },
                     onSuccess: () => {
                       say(`Moved ${named}.`);
                       onMoved?.();

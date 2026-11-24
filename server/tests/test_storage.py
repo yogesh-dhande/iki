@@ -205,6 +205,67 @@ def test_a_freezer_holds_racks_and_boxes_and_a_box_says_where_it_is(world: World
     assert api.get("/storage/scan", code="nothing-at-all").json()["items"] == []
 
 
+def test_a_bulk_move_makes_the_plan_its_preview_showed(world: World) -> None:
+    """ADR 0207, with two clients: moves sent with their preview's ``plan`` are made as it
+    showed them, each record from where it was and to the well shown, or not at all. Another
+    placement into a well shown, or another move of a record shown, refuses them with what
+    they'd do now; that plan, reviewed, is made as shown."""
+    me, other = Api(world.browser("editor")), Api(world.browser("admin"))
+    dest, bench = box(me, world.project, "Dest", 2, 2), box(me, world.project, "Bench", 2, 2)
+    mine, theirs = tube(me, world.project, "PV-1"), tube(me, world.project, "PV-2")
+    moved(me, (mine, bench, "A1"), reason="Thawing")
+
+    def unchanged() -> tuple[Any, ...]:
+        return (
+            contents(me, dest),
+            contents(me, bench),
+            list(Event.objects.order_by("created_at").values_list("pk", flat=True)),
+            AuditEvent.objects.filter(action="storage.moved").count(),
+        )
+
+    # Starting at the first free well, the preview shows A1.
+    shown = moved(me, (mine, dest, None), preview=True)
+    assert shown["items"][0]["to"]["position"] == "A1" and len(shown["plan"]) == 64
+    # Meanwhile, at another bench, someone puts their tube in A1.
+    moved(other, (theirs, dest, "A1"), reason="Bench 2")
+    before = unchanged()
+    refused = moves(me, (mine, dest, None), plan=shown["plan"])
+    assert refused.status_code == 409, refused.content
+    assert refused.json()["code"] == "moves_plan_changed"
+    now = refused.json()["moves"]
+    # The same one move, to another well: nothing moved, and what it would do now is said.
+    assert [(i["record"]["hrid"], i["to"]["position"]) for i in now["items"]] == [
+        (mine["hrid"], "A2")
+    ]
+    assert now["plan"] != shown["plan"] and now["done"] is False
+    assert unchanged() == before
+
+    # The record itself moved meanwhile, to another well of its bench: where it comes from
+    # is part of what was shown, so that refuses them too.
+    moved(other, (mine, bench, "B2"), reason="Rearranged")
+    before = unchanged()
+    again = moves(me, (mine, dest, None), plan=now["plan"])
+    assert again.status_code == 409, again.content
+    latest = again.json()["moves"]
+    assert latest["items"][0]["from_place"]["position"] == "B2"
+    assert latest["items"][0]["to"]["position"] == "A2"
+    assert unchanged() == before
+
+    # Reviewed again, it's made as shown, by whoever approved it.
+    done = moved(me, (mine, dest, None), plan=latest["plan"], reason="Into Dest")
+    assert done["done"] is True and done["plan"] is None
+    assert contents(me, dest) == {"A1": theirs["hrid"], "A2": mine["hrid"]}
+    [event] = Event.objects.filter(operation=done["operation"])
+    assert (event.from_row, event.from_column, event.to_row, event.to_column) == (2, 2, 1, 2)
+    assert event.user == world.users["editor"] and event.reason == "Into Dest"
+    # An explicit well is bound the same way, and a plan names its moves in order.
+    swap = moved(me, (mine, dest, "B1"), (theirs, dest, "B2"), preview=True)
+    flipped = moved(me, (theirs, dest, "B2"), (mine, dest, "B1"), preview=True)
+    assert swap["plan"] != flipped["plan"]
+    moved(me, (mine, dest, "B1"), (theirs, dest, "B2"), plan=swap["plan"])
+    assert contents(me, dest) == {"B1": mine["hrid"], "B2": theirs["hrid"]}
+
+
 def test_a_bulk_move_is_all_or_none_with_one_reason_and_history(world: World) -> None:
     api = Api(world.browser("editor"))
     first, second = box(api, world.project, "Box 1"), box(api, world.project, "Box 2", 2, 2)

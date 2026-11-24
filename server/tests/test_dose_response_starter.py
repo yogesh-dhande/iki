@@ -128,9 +128,11 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
             roles,
             requester_project=asker,
             by=admin,
+            plan=preview.json()["plan"],
         )
     assert not Entity.objects.filter(owner_project__in=[project, asker]).exists()
     assert not requests.accepts(project, asker, dose_response.REQUEST_TYPE)
+    body["plan"] = preview.json()["plan"]
     applied = api.post("/starters/dose-response/apply", body)
     assert applied.status_code == 200, applied.content
     assert applied.json()["changed"]

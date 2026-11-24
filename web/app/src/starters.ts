@@ -39,13 +39,60 @@ export async function previewStarter(id: string, setup: StarterSetup): Promise<S
   );
 }
 
-export async function applyStarter(id: string, setup: StarterSetup): Promise<StarterPlan> {
+/** Applies the plan a preview returned. If what applying does has changed since, nothing is
+ * applied: Iki answers 409 `starter_plan_changed` with the plan as it is now (ADR 0207). */
+export async function applyStarter(
+  id: string,
+  setup: StarterSetup,
+  plan: string,
+): Promise<StarterPlan> {
   return unwrap(
     await iki.POST("/api/v1/starters/{starter}/apply", {
       params: { path: { starter: id } },
-      body: setup,
+      body: { ...setup, plan },
     }),
   );
+}
+
+/** Each lab role grant a plan adds, as `role member` pairs. */
+function grantsOf(plan: StarterPlan): Set<string> {
+  return new Set(
+    Object.entries(plan.grants_to_add).flatMap(([role, ids]) => ids.map((m) => `${role} ${m}`)),
+  );
+}
+
+/**
+ * How what applying does changed between the plan previewed and the one Iki would apply
+ * now: each grant it now adds or no longer adds, and whether someone applied it first. A
+ * sentence each, without its full stop.
+ */
+export function planChanges(
+  shown: StarterPlan,
+  now: StarterPlan,
+  label: (role: string) => string,
+  memberName: (membership: string) => string,
+): { key: string; body: string }[] {
+  if (!now.changed) return [{ key: "nothing", body: "It’s set up this way already" }];
+  const out: { key: string; body: string }[] = [];
+  const before = grantsOf(shown);
+  const after = grantsOf(now);
+  const said = (grant: string) => {
+    const [role = "", member = ""] = grant.split(" ");
+    return `${memberName(member)} becomes ${label(role)}`;
+  };
+  for (const grant of after)
+    if (!before.has(grant))
+      out.push({ key: `+${grant}`, body: `Applying now also: ${said(grant)}` });
+  for (const grant of before)
+    if (!after.has(grant))
+      out.push({ key: `-${grant}`, body: `Applying no longer does: ${said(grant)}` });
+  if (shown.examples_to_create.length && !now.examples_to_create.length)
+    out.push({
+      key: "examples",
+      body: "It was applied meanwhile: its example records are there, and none are made",
+    });
+  if (!out.length) out.push({ key: "else", body: "What’s set up changed" });
+  return out;
 }
 
 const RANK = { viewer: 0, editor: 1, runner: 2, admin: 3 } as const;

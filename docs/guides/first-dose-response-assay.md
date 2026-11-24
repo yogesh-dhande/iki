@@ -37,10 +37,12 @@ if [[ "$FLOW" == regulated_qc ]]; then
   options+=(--role "iki/plate_assays.qa=$QA")
 fi
 iki starter preview "${options[@]}"
-iki starter apply "${options[@]}"
+iki starter apply "${options[@]}" --plan "$PLAN"    # The plan the preview printed.
 ```
 
-Preview shows the example records to create and roles to grant. Apply returns the IDs of the
+Preview shows the example records to create and roles to grant, and ends with its plan. Apply
+applies that plan: if what applying does changed since the preview, nothing is applied, and it
+prints what applying does now and its new plan, to review. Apply returns the IDs of the
 submitted request, tube, sample, plate and reader file. Repeating the same setup reuses these IDs.
 To change flow, preview and apply again with the original requester. Existing results finish
 under their original flow. A fit still running when the flow changes may need to be run again.

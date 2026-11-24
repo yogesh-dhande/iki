@@ -1045,7 +1045,8 @@ export interface paths {
          *     (ADR 0175). Values are as the grid shows them, as you can read them: a reference by
          *     its HRID, a person by name, a state by its label; numbers in full, a quantity's unit
          *     in its column's heading, times in ISO 8601 (UTC). Each row ends with when the record
-         *     last changed, its revision and its UUID.
+         *     last changed, its revision and its UUID: each page is read at one moment, so a row's
+         *     values are those of that revision, whatever's edited while it's read.
          *
          *     It's written a page at a time as it's read, so a large result starts at once. Each
          *     page may run for 15 seconds; one that runs out ends the file with a row saying so. No
@@ -1660,7 +1661,9 @@ export interface paths {
          *     them: one made through a project you can't read says what it set, not who, how or when.
          *
          *     Anyone who can read the record may download it, and each download is in the audit
-         *     log (``entity.trail_exported``) before its first row is sent. No cell starts as a
+         *     log (``entity.trail_exported``) before its first row is sent, with the record's
+         *     ``revision`` and its entry's ``entry_revision``: the file holds those and the ones
+         *     before them, and nothing made after. No cell starts as a
          *     formula would (OWASP's CSV injection guidance): one that would starts with a quote.
          */
         get: operations["iki_server_api_trails_trail_csv"];
@@ -4453,8 +4456,12 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Create the examples and grant the chosen roles. Reapplying the same setup is idempotent.
-         *     Changing the flow selects the result type for future fits. Existing results keep their flow.
+         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         *     If what applying does changed since the preview, as when another Admin removed a grant or
+         *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
+         *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
+         *     changes nothing. Changing the flow selects the result type for future fits. Existing
+         *     results keep their flow.
          */
         post: operations["iki_server_api_starters_apply_starter"];
         delete?: never;
@@ -4668,7 +4675,9 @@ export interface paths {
          * @description Puts each record in its container, at its position or the next free one, or takes it
          *     out of storage, as one change with one reason. Any move refused refuses them all (422),
          *     saying which and why. ``preview`` answers the plan, with each problem, and changes
-         *     nothing. Needs Editor in the project of each container a record goes into or leaves.
+         *     nothing; with its ``plan``, the moves are made only as it showed them (ADR 0207), or
+         *     refused with 409 ``moves_plan_changed`` and what they'd do now. Needs Editor in the
+         *     project of each container a record goes into or leaves.
          */
         post: operations["iki_server_api_storage_move"];
         delete?: never;
@@ -11491,6 +11500,11 @@ export interface components {
             /** Items */
             items: components["schemas"]["MoveItemIn"][];
             /**
+             * Plan
+             * @description The `plan` a preview of these moves returned: what was reviewed. They're made only if they'd still do exactly that, each record from where it was shown and to the position shown; otherwise nothing moves (409 `moves_plan_changed`, with `moves`, what they'd do now). Without it, a null position is the next free one when it's made.
+             */
+            plan?: string | null;
+            /**
              * Preview
              * @description Say what each move would do, changing nothing.
              * @default false
@@ -11517,6 +11531,11 @@ export interface components {
              * @description The moves' operation, once they're made.
              */
             operation: string | null;
+            /**
+             * Plan
+             * @description A preview's: identifies what it shows, to send with the moves. Null once they're made.
+             */
+            plan: string | null;
         };
         /**
          * MySigningOut
@@ -17502,6 +17521,43 @@ export interface components {
              */
             state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
         };
+        /** StarterApplyIn */
+        StarterApplyIn: {
+            /**
+             * Flow
+             * @enum {string}
+             */
+            flow: "research" | "regulated_qc";
+            /**
+             * Plan
+             * @description The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
+             */
+            plan: string;
+            /**
+             * Project
+             * Format: uuid
+             * @description The assay service project. Requires its Admin role.
+             */
+            project: string;
+            /**
+             * Requester Project
+             * Format: uuid
+             * @description A different project in which the caller can create the example request.
+             */
+            requester_project: string;
+            /**
+             * Role Assignments
+             * @description Each qualified lab role and the service project membership IDs receiving it.
+             */
+            role_assignments: {
+                [key: string]: string[];
+            };
+            /**
+             * Version
+             * @description Installed starter version shown at setup.
+             */
+            version: string;
+        };
         /** StarterFlowOut */
         StarterFlowOut: {
             /**
@@ -17623,6 +17679,11 @@ export interface components {
             grants_to_add: {
                 [key: string]: string[];
             };
+            /**
+             * Plan
+             * @description Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.
+             */
+            plan: string;
             /**
              * Project
              * Format: uuid
@@ -25916,7 +25977,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["StarterSetupIn"];
+                "application/json": components["schemas"]["StarterApplyIn"];
             };
         };
         responses: {

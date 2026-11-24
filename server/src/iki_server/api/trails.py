@@ -153,7 +153,9 @@ def trail_csv(request: HttpRequest, ref: str, project: UUID | None = None) -> An
     them: one made through a project you can't read says what it set, not who, how or when.
 
     Anyone who can read the record may download it, and each download is in the audit
-    log (``entity.trail_exported``) before its first row is sent. No cell starts as a
+    log (``entity.trail_exported``) before its first row is sent, with the record's
+    ``revision`` and its entry's ``entry_revision``: the file holds those and the ones
+    before them, and nothing made after. No cell starts as a
     formula would (OWASP's CSV injection guidance): one that would starts with a quote."""
     me = caller(request)
     record = _find(me, ref, project)
@@ -161,21 +163,33 @@ def trail_csv(request: HttpRequest, ref: str, project: UUID | None = None) -> An
     place = record.owner_project
     name = _file_name(record)
     with transaction.atomic():
+        # The file holds the trail as of this event (ADR 0207): the record's and its
+        # entry's revisions, read together in one statement, bound what's streamed below,
+        # however late it's read.
+        bounds = dict(
+            Entity.objects.filter(pk__in=[record.pk, record.entry_id]).values_list("pk", "revision")
+        )
+        upto = bounds[record.pk]
+        entry_upto = bounds.get(record.entry_id) if record.entry_id is not None else None
         audit.record(
             "entity.trail_exported",
             actor=me,
             target=record,
             project=place,
-            data={"format": "csv", "file": name, "revision": record.revision},
+            data={"format": "csv", "file": name, "revision": upto, "entry_revision": entry_upto},
         )
     rows = _Trail(me, record, place.name if place is not None else "")
 
     def table() -> Iterator[list[Any]]:
         yield COLUMNS
-        yield from rows.of(record, Revision.objects.filter(entity=record), told=None)
-        if entry is not None and record.entry is not None:
+        mine = Revision.objects.filter(entity=record, number__lte=upto)
+        yield from rows.of(record, mine, told=None)
+        if entry is not None and record.entry is not None and entry_upto is not None:
             yield from rows.of(
-                record.entry, entry, told=None if curates else readable, of="Registry entry"
+                record.entry,
+                entry.filter(number__lte=entry_upto),
+                told=None if curates else readable,
+                of="Registry entry",
             )
 
     return csvs.streamed(request, csvs.chunks(table()), name)
