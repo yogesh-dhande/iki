@@ -46,5 +46,8 @@ plugins/plasmid/components/plasmid-map.js
 plugins/oligo/components/chemistry.js
 plugins/oligo/components/duplex.js
 plugins/complex/components/composition.js
+plugins/plasmid_sequencing/components/whole-plasmid-map.js
+# Written by conda-lock, each package with its URL and hash.
+plugins/plasmid_sequencing/conda/long-read-tools-lock.yml
 # Translated from the checked Rust binary by pnpm generate:temperature.
 web/packages/science/generated/oligo-temperature.js

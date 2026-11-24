@@ -13,6 +13,8 @@ import re
 from pathlib import Path as FilePath
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 from iki_spec import apis, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import (
@@ -315,7 +317,7 @@ class _Rules:
         if env.conda_lockfile is not None:
             text = self.file(env.conda_lockfile, source, ("conda", "lockfile"))
             if text is not None:
-                self.conda(text, source)
+                self.conda(text, source, env.conda_lockfile)
         self.volumes(env, source)
 
     def file(self, relative: str, source: Document, path: Path) -> str | None:
@@ -380,18 +382,14 @@ class _Rules:
                     hint=hint,
                 )
 
-    def conda(self, text: str, source: Document) -> None:
+    def conda(self, text: str, source: Document, name: str) -> None:
+        """A conda lockfile: an explicit one, for one platform, or conda-lock's own, which
+        locks each of several platforms and which micromamba installs for the platform it
+        runs on (ADR 0208). Either way, each package is pinned by its hash."""
         path: Path = ("conda", "lockfile")
         lines = [ln.strip() for ln in text.splitlines()]
         if "@EXPLICIT" not in lines:
-            self.add(
-                "conda-not-explicit",
-                "The lockfile isn't an explicit one (it has no `@EXPLICIT` line).",
-                source,
-                path,
-                hint="Write it with `conda-lock --kind explicit`, or `conda list --explicit "
-                "--md5`.",
-            )
+            self.conda_lock(text, source, name)
             return
         after = lines[lines.index("@EXPLICIT") + 1 :]
         for offset, line in enumerate(after):
@@ -406,6 +404,83 @@ class _Rules:
                     path,
                     hint="Write it with `conda list --explicit --md5`.",
                 )
+
+    def conda_lock(self, text: str, source: Document, name: str) -> None:
+        path: Path = ("conda", "lockfile")
+        try:
+            data = yaml.safe_load(text)
+        except yaml.YAMLError:
+            data = None
+        packages = data.get("package") if isinstance(data, dict) else None
+        metadata = data.get("metadata") if isinstance(data, dict) else None
+        platforms = metadata.get("platforms") if isinstance(metadata, dict) else None
+        if (
+            not isinstance(data, dict)
+            or data.get("version") != 1
+            or not isinstance(packages, list)
+            or not isinstance(platforms, list)
+            or not platforms
+        ):
+            self.add(
+                "conda-not-explicit",
+                "The lockfile is neither an explicit one (it has no `@EXPLICIT` line) nor "
+                "conda-lock's (version 1, with its platforms and packages).",
+                source,
+                path,
+                hint="Write it with `conda-lock lock` (for several platforms) or `conda-lock "
+                "--kind explicit`, or `conda list --explicit --md5`.",
+            )
+            return
+        if not name.endswith(("-lock.yml", "-lock.yaml")):
+            self.add(
+                "conda-lock-name",
+                f"micromamba reads `{FilePath(name).name}` as an environment file, not a "
+                "lockfile: it takes conda-lock's lockfiles by their name.",
+                source,
+                path,
+                hint="Name it so it ends in `-lock.yml`, as conda-lock does.",
+            )
+        locked: set[str] = set()
+        for index, package in enumerate(packages):
+            if not isinstance(package, dict):
+                package = {}
+            label = f"`{package.get('name')}`" if package.get("name") else f"Package {index + 1}"
+            sha256 = (
+                (package.get("hash") or {}).get("sha256")
+                if isinstance(package.get("hash"), dict)
+                else None
+            )
+            if package.get("manager") == "conda":
+                locked.add(str(package.get("platform")))
+            if package.get("manager") != "conda":
+                self.add(
+                    "conda-unpinned",
+                    f"{label} is installed by {package.get('manager') or 'nothing named'}, "
+                    "not conda: a conda environment installs only conda packages.",
+                    source,
+                    path,
+                    hint="Lock the environment's Python packages from conda-forge too.",
+                )
+            elif not (
+                isinstance(package.get("url"), str)
+                and isinstance(sha256, str)
+                and re.fullmatch(r"[0-9a-f]{64}", sha256)
+            ):
+                self.add(
+                    "conda-unpinned",
+                    f"{label} has no URL and SHA-256, so builds could install something else.",
+                    source,
+                    path,
+                    hint="Write the lockfile with `conda-lock lock`, which gives both.",
+                )
+        missing = [str(p) for p in platforms if str(p) not in locked]
+        if missing:
+            self.add(
+                "conda-unpinned",
+                f"The lockfile names {', '.join(missing)} but locks no package for it.",
+                source,
+                path,
+            )
 
     def volumes(self, env: Environment, source: Document) -> None:
         if env.volumes and not set(env.tiers) <= PROVISIONED:

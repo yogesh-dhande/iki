@@ -1,0 +1,8 @@
+apiVersion: iki/v1
+kind: Component
+name: search_results
+label: Identifications
+description: Counts by identification level and the first matched protein groups and peptide identifications.
+module: ./components/search-results.js
+element: proteomics-search-results
+slots: [{ slot: entity.tab, type: ProteomicsResult }]

@@ -18,7 +18,8 @@
       "eae4484e220ef08e362876dc48f728b2eb576305",
       "be447ee3b1ead0640f24c8b969e1bb90a308706c",
       "bd3ef7f15f14a6be0439d1728d07857c29f48099",
-      "9f75e538eee8877071e58ed4af6cd84f4adbde9d"
+      "9f75e538eee8877071e58ed4af6cd84f4adbde9d",
+      "d7cd31ef820110e197af4709c0465053babffca9"
     ],
     "iki/biologics_ms": [
       "601addb5886f9c28f6cd9318f1e59c7b9a451e18",
@@ -190,7 +191,11 @@
       "5981da957b8979505e6bab34d75814929fe6d82b",
       "1982b5b66202981016f849f42aca1737f82451b1",
       "118df138815593e9cc40611756dd0cedeae1e762",
-      "deb9f8d3ee1c69011c0294441554705768cd024b"
+      "deb9f8d3ee1c69011c0294441554705768cd024b",
+      "ed61276632f2a3fce47733a64ca9336cfbd1e91c"
+    ],
+    "iki/plasmid_sequencing": [
+      "a75cacbd131d8b9c241f7bce714b28581403b513"
     ],
     "iki/plate_assays": [
       "c32078e932aae67d30c25cd770f1a1f5ef8e85f2",
@@ -218,6 +223,10 @@
       "09ccc66a8483930596edba1fc5b21c03bd1ff983",
       "2e537fd04ae9849548f66bb7f3159bdf231601b9"
     ],
+    "iki/proteomics": [
+      "1c57489b458db9c35c8f40a6668e0320309d66e8",
+      "c55676068c9ff79f73cd52e6ca798e1db068a42a"
+    ],
     "iki/qc_release": [
       "9867f16287f5e4ec1929501d7c06b904fa4fb0c9",
       "8606b26a81780ddbe30a0e071950887e890bf014"
@@ -227,6 +236,10 @@
     ],
     "iki/sequencing": [
       "a5c9e5eb42fa4e5d19bcecbfceddcb8213cd8dd0"
+    ],
+    "iki/sequencing_analysis": [
+      "05e495f0eb5bce4753b18ea00c784cb66a141b8f",
+      "323fa5d9602e1aa00b3326bc151f4faf471e9a37"
     ],
     "iki/small_molecule": [
       "c37cd0b7ca39aa3ce2d99d989b5a04de828d496b",

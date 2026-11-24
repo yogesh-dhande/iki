@@ -389,6 +389,11 @@ export function SelectField<T extends string>({
             {error}
           </p>
         ) : null}
+        {help ? (
+          <p className="field-help" id={`${id}-help`}>
+            {help}
+          </p>
+        ) : null}
       </>
     );
   }

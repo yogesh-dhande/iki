@@ -1,0 +1,21 @@
+apiVersion: iki/v1
+kind: Plugin
+name: iki/proteomics
+version: 0.1.0
+title: Proteomics
+description: Review peptide and protein identifications and quantities from search reports while retaining their raw MS files.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/protein:
+    types: { Protein: ">=1" }
+settings:
+  review_flow:
+    type: enum
+    label: Proteomics review
+    values: [research, regulated_qc]
+    default: research
+roles:
+  analyst: { label: Proteomics analyst }
+  reviewer: { label: Proteomics reviewer }
+  qa: { label: Proteomics QA }

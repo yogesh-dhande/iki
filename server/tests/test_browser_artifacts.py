@@ -29,6 +29,7 @@ def run_probe(tmp_path: Path, *args: str, gate: bool = False) -> subprocess.Comp
             "-m",
             "pytest",
             "-q",
+            "--color=no",  # The caller checks the captured outcome summary.
             "-c",
             str(tests.parents[1] / "pyproject.toml"),
             "--rootdir",

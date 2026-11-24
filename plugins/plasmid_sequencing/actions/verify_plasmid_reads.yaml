@@ -1,0 +1,66 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: verify_plasmid_reads
+label: Verify a plasmid from its long reads
+description: >-
+  Aligns a prep's whole-plasmid reads, nanopore or PacBio HiFi, to the plasmid's own
+  registered sequence, round its circle, and calls their consensus. Records the depth of
+  reads along the plasmid, the consensus, and each difference from the record, named as
+  HGVS names it, with the features it falls in, the run of repeated bases it lies in, and
+  the reads that support it on each strand. A prep's verification takes the result as its
+  read alignment. The reads stay where they are: the run reads them from the read set's
+  files.
+inputs:
+  plasmid:
+    type: iki/plasmid.Plasmid
+    schema: ">=4"
+    include: [sequence]
+    description: The plasmid the prep should be. Its registered sequence is the reference.
+  reads:
+    type: iki/sequencing.ReadSet
+    schema: ">=1"
+    include: [library]
+    label: Read set
+    description: The prep's reads, as basecalled FASTQ. Its library's sample is the prep.
+params:
+  platform:
+    type: enum
+    values: [nanopore, pacbio_hifi]
+    default: nanopore
+    label: Reads from
+    description: The kind of reads, which sets how minimap2 aligns them.
+  min_depth:
+    type: int
+    min: 1
+    max: 10000
+    default: 10
+    label: Minimum depth
+    description: >-
+      The fewest reads a base needs for the consensus to call it. A base with fewer is N,
+      not called, and the result can't match.
+  name:
+    type: string
+    max_length: 200
+    description: The result's name. Without one, it's named after the plasmid.
+effects:
+  creates: [{ type: WholePlasmidAlignment, cardinality: one, derived_from: [plasmid, reads] }]
+software:
+  - { name: minimap2, version: "2.31", url: https://github.com/lh3/minimap2 }
+runs_on: { tier: backend, environment: long-read-tools }
+command: [python, ./scripts/whole_plasmid.py]
+deterministic: true
+artifacts:
+  keep: [consensus.fasta, differences.tsv, coverage.tsv, alignments.paf.gz]
+metrics:
+  reads: { label: Reads, description: The reads in the read set's files. }
+  aligned: { label: Aligned, description: The reads that aligned to the plasmid. }
+  mean_depth: { label: Mean depth, description: "The reads at each base, on average." }
+  called_percent:
+    {
+      label: Called (%),
+      description: "The plasmid's bases the consensus called: A, C, G, T or a deletion.",
+    }
+  differences:
+    { label: Differences, description: The consensus's differences from the plasmid's sequence. }
+timeout: 2h

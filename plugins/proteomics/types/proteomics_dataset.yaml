@@ -1,0 +1,26 @@
+apiVersion: iki/v1
+kind: EntityType
+name: ProteomicsDataset
+label: Proteomics dataset
+schema_version: 1
+hrid: { prefix: PSD }
+description: The acquisitions searched together, with sample information and their raw files or public archive.
+fields:
+  name: { type: string, required: true, max_length: 200, indexed: true }
+  sample: { type: ref, to: iki/core.Entity }
+  raw_files:
+    type: list
+    max_items: 300
+    items: { type: ref, to: MSFile }
+  archive:
+    type: string
+    max_length: 400
+    pattern: "^https://[^ ]+$"
+    label: Public archive page
+    description: An archive landing page with the public dataset and its instrument files.
+rules:
+  raw_data:
+    check: size(record.raw_files) > 0 || record.archive != null
+    message: Link registered raw files or the public archive that holds the acquisitions.
+    fields: [raw_files, archive]
+display: { title: "{{ name }}" }

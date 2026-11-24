@@ -10,7 +10,8 @@ from test_storage import box, contents, errors, sent_with_tubes
 from test_storage import lab as lab
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities.models import ProjectLink
+from iki_server.entities import services as entities
+from iki_server.entities.models import Entity, ProjectLink
 from iki_server.notifications.models import Notification
 from iki_server.storage.models import Event, Place
 
@@ -150,3 +151,55 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
     assert contents(api, incoming) == {"A1": tubes[0]["hrid"], "A2": tubes[1]["hrid"]}
     assert api.get(queue).json() == []
     assert read(requester, path) == report
+
+
+def test_a_damaged_tube_kept_in_custody_reads_back_as_held_and_awaiting_put_away(lab: Lab) -> None:
+    api, requester = lab.api("tech"), lab.api("editor")
+    incoming = box(api, lab.core, "Receiving", 1, 2)
+    request, tubes = sent_with_tubes(lab, 2)
+    opened = change(api, "POST", f"/entities/{request['id']}/receipts", status=201)
+    path = f"/receipts/{opened['id']}"
+    matched, damaged = (line["id"] for line in opened["lines"])
+    change(api, "POST", path + "/scan", code="RC000")
+    change(api, "PATCH", f"{path}/lines/{damaged}", outcome="damaged", note="Cracked cap")
+    receipt = change(api, "PATCH", path, read(api, path), handed_over_by="Courier 104")
+    done = change(
+        api,
+        "POST",
+        path + "/complete",
+        receipt,
+        put_away=[{"line": matched, "to": incoming["id"], "position": "A1"}],
+        keep_in_custody=[damaged],
+    )
+    lines = {line["id"]: line for line in done["lines"]}
+    # Damaged, kept by hand: in the receiver's custody, in no box, and its note kept.
+    assert (lines[damaged]["outcome"], lines[damaged]["note"]) == ("damaged", "Cracked cap")
+    assert (lines[damaged]["put_away"], lines[damaged]["received_unplaced"]) == (None, True)
+    assert lines[matched]["put_away"]["position"] == "A1"
+    assert not lines[matched]["received_unplaced"]
+    held = read(api, f"/entities/{tubes[1]['id']}/location")
+    assert held["custodian"]["id"] == str(lab.users["tech"].pk) and not held["stored"]
+    assert held["path"] == [] and held["position"] is None
+    assert contents(api, incoming) == {"A1": tubes[0]["hrid"]}
+    for reader in (api, requester):
+        waiting = reader.get("/storage/awaiting-put-away")
+        assert waiting.status_code == 200, waiting.content
+        assert [row["id"] for row in waiting.json()] == [tubes[1]["id"]]
+    assert [line["received_unplaced"] for line in read(requester, path)["lines"]] == [False, True]
+
+
+def test_an_archived_box_and_tube_read_back_as_archived_where_receiving_offers_wells(
+    lab: Lab,
+) -> None:
+    api = lab.api("tech")
+    incoming = box(api, lab.core, "Retired", 1, 2)
+    request, tubes = sent_with_tubes(lab, 2)
+    opened = change(api, "POST", f"/entities/{request['id']}/receipts", status=201)
+    path = f"/receipts/{opened['id']}"
+    for record, who in ((incoming, "tech"), (tubes[1], "editor")):
+        entities.set_archived(
+            lab.users[who], Entity.objects.get(pk=record["id"]), True, reason="Retired"
+        )
+    shown = read(api, f"/storage/containers/{incoming['id']}")
+    assert shown["archived"] is True
+    assert [line["ref"]["archived"] for line in read(api, path)["lines"]] == [False, True]

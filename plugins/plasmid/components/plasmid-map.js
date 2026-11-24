@@ -15,6 +15,7 @@ function rangesOf(start, end, length) {
 	return stretches(start, end, length);
 }
 // web/packages/science/src/plasmid-map.ts
+const TRACKS = ["coverage", "differences"];
 const STYLE = `
   :host { display: block; color: CanvasText; background: Canvas; padding: 1rem; border-radius: 8px;
     font: 14px/1.45 system-ui, sans-serif; }
@@ -56,6 +57,12 @@ const STYLE = `
   .link { font: inherit; color: CanvasText; background: none; border: 0; padding: 0;
     text-decoration: underline; cursor: pointer; text-align: left; }
   .link:focus-visible { outline: 2px solid CanvasText; outline-offset: 2px; }
+  .hgvs { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
+    word-break: break-all; min-width: 9rem; max-width: 18rem; }
+  .depth { stroke: none; fill-opacity: 0.3; }
+  .depth-edge { fill: none; stroke-width: 1.5; stroke-linejoin: round; }
+  .threshold { fill: none; stroke-dasharray: 3 3; stroke-width: 1; }
+  .low { fill: none; stroke-dasharray: 4 3; }
   td.protein { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
     word-break: break-all; max-width: 22rem; }
 `;
@@ -70,7 +77,10 @@ const COLOURS = {
 	recombination: ["#6e4b00", "#d4a72c"],
 	regulatory: ["#4f4f8f", "#a9a9e6"],
 	orf: ["#3f6212", "#a3e635"],
-	primer: ["#9f1239", "#fda4af"]
+	primer: ["#9f1239", "#fda4af"],
+	depth: ["#0550ae", "#79c0ff"],
+	difference: ["#cf222e", "#ff7b72"],
+	low: ["#57606a", "#c9d1d9"]
 };
 const ROLES = {
 	origin: "Origin of replication",
@@ -155,7 +165,68 @@ function tickLabel(at, step) {
 	if (at === 1) return "1";
 	return `${((at - 1) / 1e3).toFixed(step < 1e3 ? 1 : 0).replace(/\.0$/, "")}k`;
 }
-function drawing(length, features, orfs, sites) {
+/** The depth of reads round the ring, as a histogram outwards from `inner` up to
+* `inner + height` at the deepest bin, with the minimum depth as a dashed circle. */
+function depthRing(coverage, length, inner, height) {
+	const deepest = Math.max(1, ...coverage.mean, coverage.minDepth ?? 0);
+	const outline = [];
+	coverage.mean.forEach((depth, i) => {
+		const from = i * coverage.bin_size + 1;
+		const to = Math.min((i + 1) * coverage.bin_size, length) + 1;
+		const radius = inner + height * depth / deepest;
+		for (const at of [from, to]) {
+			const [x, y] = point(at, length, radius);
+			outline.push(`${x.toFixed(2)} ${y.toFixed(2)}`);
+		}
+	});
+	const [sx, sy] = point(1, length, inner);
+	const [hx, hy] = point(1 + length / 2, length, inner);
+	const r = String(inner);
+	const base = `M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${r} ${r} 0 1 0 ${hx.toFixed(2)} ${hy.toFixed(2)} A ${r} ${r} 0 1 0 ${sx.toFixed(2)} ${sy.toFixed(2)} Z`;
+	const drawn = [svg("path", {
+		class: "depth",
+		d: `M ${outline.join(" L ")} Z ${base}`,
+		fill: colourOf("depth"),
+		"fill-rule": "evenodd"
+	}), svg("path", {
+		class: "depth-edge",
+		d: `M ${outline.join(" L ")} Z`,
+		stroke: colourOf("depth")
+	})];
+	if (coverage.minDepth) drawn.push(svg("circle", {
+		class: "threshold",
+		cx: CENTRE,
+		cy: CENTRE,
+		r: (inner + height * coverage.minDepth / deepest).toFixed(2),
+		stroke: colourOf("low")
+	}));
+	return drawn;
+}
+/** A mark for each difference: a line across the backbone and a diamond outside it, so
+* one base among thousands still shows. */
+function differenceMarks(differences, length) {
+	const drawn = [];
+	for (const difference of differences) {
+		const at = difference.start + spanOf(difference, length) / 2;
+		const [ix, iy] = point(at, length, 128);
+		const [ox, oy] = point(at, length, 152);
+		const [dx, dy] = point(at, length, 184);
+		const colour = colourOf("difference");
+		drawn.push(svg("line", {
+			x1: ix,
+			y1: iy,
+			x2: ox,
+			y2: oy,
+			stroke: colour,
+			"stroke-width": 2.5
+		}), svg("path", {
+			d: `M ${dx.toFixed(2)} ${(dy - 5).toFixed(2)} l 5 5 l -5 5 l -5 -5 Z`,
+			fill: colour
+		}));
+	}
+	return drawn;
+}
+function drawing(length, features, orfs, sites, coverage, differences = []) {
 	const parts = svg("svg", {
 		viewBox: `0 0 ${String(SIZE)} ${String(SIZE)}`,
 		width: SIZE,
@@ -169,6 +240,17 @@ function drawing(length, features, orfs, sites) {
 		r: RADIUS,
 		"stroke-width": 8
 	}));
+	for (const low of coverage?.low ?? []) {
+		const span = spanOf(low, length);
+		const [body] = arc(low.start, span, length, RADIUS, "none");
+		parts.append(svg("path", {
+			class: "low",
+			d: body,
+			stroke: colourOf("low"),
+			"stroke-width": 8
+		}));
+	}
+	if (coverage) parts.append(...depthRing(coverage, length, 64, 34));
 	const step = tickEvery(length);
 	for (let at = 1; at < length; at += step) {
 		const [ix, iy] = point(at, length, 132);
@@ -215,11 +297,12 @@ function drawing(length, features, orfs, sites) {
 			fill: colour
 		}));
 	}
-	const orfLanes = ORF_RINGS.map(() => []);
+	const orfRings = coverage ? ORF_RINGS.map((r) => r - 30) : ORF_RINGS;
+	const orfLanes = orfRings.map(() => []);
 	for (const orf of orfs) {
 		const span = spanOf(orf, length);
 		const ring = laneFor(orfLanes, [orf.start, orf.start + span - 1]);
-		const [body, head] = arc(orf.start, span, length, ORF_RINGS[ring] ?? RADIUS, orf.strand);
+		const [body, head] = arc(orf.start, span, length, orfRings[ring] ?? RADIUS, orf.strand);
 		parts.append(svg("path", {
 			class: "arc",
 			d: body,
@@ -245,6 +328,7 @@ function drawing(length, features, orfs, sites) {
 			fill: colourOf("primer")
 		}));
 	}
+	parts.append(...differenceMarks(differences, length));
 	return parts;
 }
 const WIDE = 680;
@@ -302,11 +386,14 @@ function bar(from, to, length, y, forward, tipped) {
 /** The line view: the molecule along a line from base 1 on the left, each layer's parts
 * on lanes of its own -- above the line where they run forward and below where they run
 * reverse, as SnapGene's linear view has them. */
-function lineDrawing(length, layers, circular) {
-	const shown = layers.filter((layer) => layer.items.length > 0);
+function lineDrawing(length, layers, circular, coverage, differences = []) {
+	const shown = layers.filter((layer) => layer.items.length > 0 && !TRACKS.includes(layer.key));
 	const count = Math.max(shown.length, 1);
-	const spine = spineAt(count);
-	const tall = tallAt(count);
+	const depthHeight = 40;
+	const marksAt = (coverage ? 80 : 26) + 4;
+	const above = (coverage ? 54 : 0) + (differences.length ? 20 : 0);
+	const spine = spineAt(count) + above;
+	const tall = tallAt(count) + above;
 	const parts = svg("svg", {
 		viewBox: `0 0 ${String(WIDE)} ${String(tall)}`,
 		width: WIDE,
@@ -321,6 +408,60 @@ function lineDrawing(length, layers, circular) {
 		y2: spine,
 		"stroke-width": 8
 	}));
+	for (const low of coverage?.low ?? []) for (const [from, to] of piecesOf(low, length)) parts.append(svg("line", {
+		class: "low",
+		x1: along(from, length).toFixed(2),
+		y1: spine,
+		x2: along(to, length).toFixed(2),
+		y2: spine,
+		stroke: colourOf("low"),
+		"stroke-width": 8
+	}));
+	if (coverage) {
+		const deepest = Math.max(1, ...coverage.mean, coverage.minDepth ?? 0);
+		const floor = 66;
+		const outline = coverage.mean.flatMap((depth, i) => {
+			const y = (floor - depthHeight * depth / deepest).toFixed(2);
+			const from = along(i * coverage.bin_size + 1, length).toFixed(2);
+			const to = along(Math.min((i + 1) * coverage.bin_size, length), length).toFixed(2);
+			return [`${from} ${y}`, `${to} ${y}`];
+		});
+		parts.append(svg("path", {
+			class: "depth",
+			d: `M ${String(LEFT)} ${String(floor)} L ${outline.join(" L ")} L ${String(RIGHT)} ${String(floor)} Z`,
+			fill: colourOf("depth")
+		}), svg("path", {
+			class: "depth-edge",
+			d: `M ${outline.join(" L ")}`,
+			stroke: colourOf("depth")
+		}));
+		if (coverage.minDepth) {
+			const y = (floor - depthHeight * coverage.minDepth / deepest).toFixed(2);
+			parts.append(svg("line", {
+				class: "threshold",
+				x1: LEFT,
+				y1: y,
+				x2: RIGHT,
+				y2: y,
+				stroke: colourOf("low")
+			}));
+		}
+	}
+	for (const difference of differences) {
+		const x = along(difference.start + (spanOf(difference, length) - 1) / 2, length);
+		const colour = colourOf("difference");
+		parts.append(svg("line", {
+			x1: x.toFixed(2),
+			y1: spine - 12,
+			x2: x.toFixed(2),
+			y2: spine + 12,
+			stroke: colour,
+			"stroke-width": 2.5
+		}), svg("path", {
+			d: `M ${x.toFixed(2)} ${String(marksAt - 5)} l 5 5 l -5 5 l -5 -5 Z`,
+			fill: colour
+		}));
+	}
 	if (!circular) for (const x of [LEFT, RIGHT]) parts.append(svg("line", {
 		class: "cap",
 		x1: x,
@@ -372,8 +513,8 @@ function lineDrawing(length, layers, circular) {
 	});
 	return parts;
 }
-function middle(parts, name, length, count) {
-	const found = `${String(count)} ${count === 1 ? "part" : "parts"}`;
+function middle(parts, name, length, count, own = false) {
+	const found = `${String(count)} ${own ? "feature" : "part"}${count === 1 ? "" : "s"}`;
 	for (const [i, text] of [
 		name,
 		`${length.toLocaleString("en")} bp`,
@@ -391,14 +532,14 @@ function middle(parts, name, length, count) {
 		parts.append(line);
 	}
 }
-function table(features, length) {
+function table(features, length, own = false) {
 	const rows = features.map((feature) => {
 		const where = feature.end >= feature.start ? `${feature.start.toLocaleString("en")}–${feature.end.toLocaleString("en")}` : `${feature.start.toLocaleString("en")}–${length.toLocaleString("en")}, 1–${feature.end.toLocaleString("en")}`;
 		const swatch = element("span", { className: "swatch" });
 		swatch.style.background = colourOf(feature.qualifiers?.role);
-		return element("tr", {}, element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name), element("td", { className: "where" }, where), element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`), element("td", {}, feature.strand === "reverse" ? "reverse" : "forward"), element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type), element("td", {}, feature.qualifiers?.identity ?? ""));
+		return element("tr", {}, element("th", { scope: "row" }, swatch, feature.qualifiers?.label ?? feature.name), element("td", { className: "where" }, where), element("td", {}, `${spanOf(feature, length).toLocaleString("en")} bp`), element("td", {}, feature.strand === "reverse" ? "reverse" : "forward"), element("td", {}, ROLES[feature.qualifiers?.role ?? ""] ?? feature.type), ...own ? [] : [element("td", {}, feature.qualifiers?.identity ?? "")]);
 	});
-	return element("table", {}, element("caption", {}, "Parts found along it"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "Part"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Length"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "What it is"), element("th", { scope: "col" }, "Matched"))), element("tbody", {}, ...rows));
+	return element("table", {}, element("caption", {}, own ? "Its features" : "Parts found along it"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, own ? "Feature" : "Part"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Length"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "What it is"), ...own ? [] : [element("th", { scope: "col" }, "Matched")])), element("tbody", {}, ...rows));
 }
 /** Where something lies, as the table writes it: two stretches where it crosses the
 * origin of a circle, which is where the line's drawing cuts it. */
@@ -453,6 +594,47 @@ function siteTable(sites, length, primers, open) {
 	});
 	return element("table", {}, element("caption", {}, "Primer binding sites"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "Primer"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Strand"), element("th", { scope: "col" }, "3′ end"), element("th", { scope: "col" }, "Annealed"), element("th", { scope: "col" }, "5′ tail"), element("th", { scope: "col" }, "Pairing"), element("th", { scope: "col" }, "Tm (50 mM Na⁺)"))), element("tbody", {}, ...rows));
 }
+function percentOf(part, whole) {
+	return whole ? `${String(Math.round(100 * part / whole))}%` : "—";
+}
+/** The reads that agree with a difference, of all those there, and on each strand: a
+* difference only one strand's reads show is the sort a sequencing error makes. */
+function readsOf(difference) {
+	if (difference.depth === void 0 || difference.support === void 0) return "—";
+	const strands = difference.forward !== void 0 && difference.reverse !== void 0 ? ` (${String(difference.forward)} forward, ${String(difference.reverse)} reverse)` : "";
+	return `${String(difference.support)} of ${String(difference.depth)}, ${percentOf(difference.support, difference.depth)}${strands}`;
+}
+function changeOf(difference) {
+	const shown = (bases, change) => bases.length > 12 ? `${String(bases.length + Math.max(change - bases.length, 0))} bp` : bases;
+	const was = difference.reference ? shown(difference.reference, 0) : "—";
+	const now = difference.observed ? shown(difference.observed, difference.length_change) : "—";
+	return `${difference.kind.replace("_", "-")}: ${was} \u2192 ${now}`;
+}
+/** Each difference: its HGVS name, where it lies, what changed, the features it lies in,
+* its reads, and the run of one base it touches. */
+function differenceTable(differences, length) {
+	const rows = differences.map((difference) => {
+		const swatch = element("span", { className: "swatch" });
+		swatch.style.background = colourOf("difference");
+		const run = difference.homopolymer ?? 1;
+		return element("tr", {}, element("th", {
+			scope: "row",
+			className: "hgvs"
+		}, swatch, difference.hgvs), element("td", { className: "where" }, difference.start === difference.end ? difference.start.toLocaleString("en") : whereOf(difference, length)), element("td", {}, changeOf(difference)), element("td", {}, difference.features?.length ? difference.features.join(", ") : "—"), element("td", {}, readsOf(difference)), element("td", { className: "where" }, run > 1 ? `${String(run)} bases` : "—"));
+	});
+	return element("table", {}, element("caption", {}, "Differences from the record"), element("thead", {}, element("tr", {}, element("th", { scope: "col" }, "HGVS"), element("th", { scope: "col" }, "Bases"), element("th", { scope: "col" }, "Change"), element("th", { scope: "col" }, "In"), element("th", { scope: "col" }, "Reads agreeing"), element("th", { scope: "col" }, "Repeated base"))), element("tbody", {}, ...rows));
+}
+/** The depth of reads in figures, with each stretch under the minimum depth. */
+function coverageTable(coverage, length) {
+	const low = coverage.low ?? [];
+	const row = (what, value) => element("tr", {}, element("th", { scope: "row" }, what), element("td", {}, value));
+	const rows = [];
+	if (coverage.meanDepth !== void 0) rows.push(row("Mean depth", `${String(coverage.meanDepth)} reads`));
+	if (coverage.leastDepth !== void 0) rows.push(row("Least depth", `${String(coverage.leastDepth)} reads`));
+	if (coverage.minDepth !== void 0) rows.push(row("Called at", `${String(coverage.minDepth)} reads or more`));
+	rows.push(row("Under it", low.length ? low.map((span) => whereOf(span, length)).join("; ") : "none"));
+	return element("table", {}, element("caption", {}, "Read depth"), element("tbody", {}, ...rows));
+}
 /** The buttons that turn each layer on and off: one for each layer a run has found, each
 * saying whether it is showing and how many it holds. */
 function layerButtons(layers, toggle) {
@@ -466,7 +648,8 @@ function layerButtons(layers, toggle) {
 			type: "button",
 			"aria-pressed": String(layer.shown)
 		});
-		button.textContent = `${layer.label} (${layer.count.toLocaleString("en")})`;
+		button.dataset["layer"] = layer.key;
+		button.textContent = layer.button ?? `${layer.label} (${layer.count.toLocaleString("en")})`;
 		button.addEventListener("click", () => {
 			toggle(layer.key);
 		});
@@ -487,13 +670,31 @@ function describe(length, layers, circular, view) {
 function eachOf(items, how) {
 	return items.map((i) => `${how(i)}, ${i.start.toLocaleString("en")} to ${i.end.toLocaleString("en")} on the ${i.strand === "reverse" ? "reverse" : "forward"} strand`).join("; ");
 }
-function describeParts(items) {
+function describeParts(items, own = false) {
+	if (own) {
+		if (!items.length) return "with no features of its own";
+		return `with ${`${String(items.length)} ${items.length === 1 ? "feature" : "features"}`} of its own: ${eachOf(items, (i) => i.qualifiers?.label ?? i.name)}`;
+	}
 	if (!items.length) return "with none of the library's parts found along it";
 	return `with ${`${String(items.length)} ${items.length === 1 ? "part" : "parts"}`} of the library found along it: ${eachOf(items, (i) => i.qualifiers?.label ?? i.name)}`;
 }
 function describeOrfs(items) {
 	if (!items.length) return "with no open reading frame found in any of its six frames";
 	return `with ${`${String(items.length)} open reading ${items.length === 1 ? "frame" : "frames"}`}: ${eachOf(items, (i) => `${String(i.amino_acids)} amino acids in frame ${frameOf(i)}`)}`;
+}
+function describeCoverage(coverage, length) {
+	const depth = [coverage.meanDepth !== void 0 ? `${String(coverage.meanDepth)} reads deep on average` : "", coverage.leastDepth !== void 0 ? `${String(coverage.leastDepth)} at the least` : ""].filter(Boolean).join(", ");
+	const low = coverage.low ?? [];
+	const minimum = coverage.minDepth ?? 1;
+	const under = low.length ? `under the minimum depth of ${String(minimum)} at ${low.map((span) => whereOf(span, length)).join(", ")}` : `every base at the minimum depth of ${String(minimum)} or more`;
+	return `with the depth of reads drawn along it${depth ? `, ${depth}` : ""}, and ${under}`;
+}
+function describeDifferences(items) {
+	if (!items.length) return "with no differences from the record";
+	return `with ${`${String(items.length)} ${items.length === 1 ? "difference" : "differences"} from the record`}: ${items.map((i) => {
+		const where = i.features?.length ? ` in ${i.features.join(" and ")}` : "";
+		return `${i.hgvs.length > 40 ? `${i.hgvs.slice(0, 40)}\u2026` : i.hgvs} at ${i.start.toLocaleString("en")}${i.end !== i.start ? ` to ${i.end.toLocaleString("en")}` : ""}${where}`;
+	}).join("; ")}`;
 }
 function describeSites(items) {
 	if (!items.length) return "with none of the primers binding it";
@@ -527,7 +728,9 @@ function onMap(item, length) {
 const LABELS = {
 	parts: "Library parts",
 	orfs: "Open reading frames",
-	primers: "Primer binding sites"
+	primers: "Primer binding sites",
+	coverage: "Read depth",
+	differences: "Differences"
 };
 /** A read-only diagram of the annotations supplied by its host. */
 var PlasmidMap = class extends HTMLElement {
@@ -575,11 +778,39 @@ var PlasmidMap = class extends HTMLElement {
 			});
 		};
 		const data = this.#value;
-		add("parts", null, data.parts, describeParts, (items) => table(items, length));
+		const own = data.parts?.own === true;
+		add("parts", null, data.parts, (items) => describeParts(items, own), (items) => table(items, length, own));
+		if (own) {
+			const parts = made.find((layer) => layer.key === "parts");
+			if (parts) parts.label = "Features";
+		}
 		add("orfs", "orf", data.orfs, describeOrfs, (items) => orfTable(items, length));
 		add("primers", "primer", data.sites, describeSites, (items) => siteTable(items, length, data.linkedPrimerIds ?? [], (id) => {
 			this.emit("primer-open", { id });
 		}));
+		const coverage = data.coverage;
+		if (coverage && coverage.bin_size > 0 && coverage.mean.length) {
+			const low = (coverage.low ?? []).filter((item) => onMap(item, length));
+			const shown = !this.#hidden.has("coverage");
+			made.push({
+				key: "coverage",
+				colour: "depth",
+				label: LABELS.coverage,
+				count: low.length,
+				button: LABELS.coverage,
+				shown,
+				items: shown ? [...low] : [],
+				describe: () => describeCoverage({
+					...coverage,
+					low
+				}, length),
+				table: () => coverageTable({
+					...coverage,
+					low
+				}, length)
+			});
+		}
+		add("differences", "difference", data.differences, describeDifferences, (items) => differenceTable(items, length));
 		return made;
 	}
 	draw() {
@@ -606,12 +837,18 @@ var PlasmidMap = class extends HTMLElement {
 		}
 		const of = (key) => layers.find((layer) => layer.key === key)?.items ?? [];
 		const name = data.name;
+		const showing = (key) => layers.some((layer) => layer.key === key && layer.shown);
+		const coverage = showing("coverage") && data.coverage ? {
+			...data.coverage,
+			low: of("coverage")
+		} : void 0;
+		const differences = of("differences");
 		let picture;
 		if (circular && this.#view === "ring") {
-			picture = drawing(length, of("parts"), of("orfs"), of("primers"));
-			middle(picture, name, length, of("parts").length);
+			picture = drawing(length, of("parts"), of("orfs"), of("primers"), coverage, differences);
+			middle(picture, name, length, of("parts").length, data.parts?.own === true);
 		} else {
-			picture = lineDrawing(length, layers, circular);
+			picture = lineDrawing(length, layers, circular, coverage, differences);
 			const heading = svg("text", {
 				class: "middle name",
 				x: LEFT,
@@ -627,7 +864,7 @@ var PlasmidMap = class extends HTMLElement {
 		if (layers.length > 1) children.push(layerButtons(layers, (key) => {
 			this.toggle(key);
 		}));
-		const shown = layers.filter((layer) => layer.shown && layer.items.length);
+		const shown = layers.filter((layer) => layer.shown && (layer.items.length || layer.key === "coverage"));
 		children.push(element("p", {}, describe(length, layers, circular, this.#view)), element("div", { className: "map" }, picture, ...shown.map((layer) => element("div", {
 			className: "tables",
 			tabindex: "0",
@@ -637,7 +874,9 @@ var PlasmidMap = class extends HTMLElement {
 		const notes = [
 			["Annotated with", data.parts?.source],
 			["ORFs found with", data.orfs?.source],
-			["Binding sites found with", data.sites?.source]
+			["Binding sites found with", data.sites?.source],
+			["Read depth from", data.coverage?.source],
+			["Differences found with", data.differences?.source]
 		].filter(([, said]) => Boolean(said));
 		if (notes.length) children.push(element("dl", {}, ...notes.flatMap(([what, said]) => [element("dt", {}, what), element("dd", { className: "note" }, said ?? "")])));
 		this.#root.replaceChildren(...children);
@@ -656,7 +895,7 @@ var PlasmidMap = class extends HTMLElement {
 		else this.#hidden.add(key);
 		this.draw();
 		const group = this.#root.querySelector("[aria-label=\"Layers\"]");
-		(group ? [...group.querySelectorAll("button")] : []).find((b) => b.textContent.startsWith(LABELS[key]))?.focus();
+		(group ? [...group.querySelectorAll("button")] : []).find((b) => b.dataset["layer"] === key)?.focus();
 		this.emit("layer-change", {
 			key,
 			shown: !this.#hidden.has(key)

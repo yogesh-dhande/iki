@@ -1,0 +1,12 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# minimap2 from bioconda and Python from conda-forge, locked by conda-lock for both
+# platforms workers run on, so a worker on either builds the same tools (ADR 0208).
+apiVersion: iki/v1
+kind: Environment
+name: long-read-tools
+label: Long-read tools
+description: minimap2 2.31 and Python 3.12, for linux-64 and linux-aarch64 workers.
+tiers: [backend]
+resources: { cpu: 0.25, memory: 1Gi }
+conda: { lockfile: conda/long-read-tools-lock.yml }
