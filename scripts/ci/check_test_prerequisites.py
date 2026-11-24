@@ -201,7 +201,11 @@ def app_assets(static: Path) -> None:
 def docs() -> None:
     """The docs site, built and indexed, with each page's policy (make docs)."""
     site = Path("docs/site/dist")
-    for path in ("index.html", "pagefind/pagefind.js", "concepts/prep-verification/index.html"):
+    for path in (
+        "index.html",
+        "pagefind/pagefind.js",
+        "concepts/whole-plasmid-alignments/index.html",
+    ):
         populated(site / path, "make docs")
     if 'http-equiv="Content-Security-Policy"' not in (site / "index.html").read_text():
         raise SystemExit(f"{site} has no Content Security Policy. Run make docs.")

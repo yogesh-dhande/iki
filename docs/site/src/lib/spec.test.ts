@@ -173,6 +173,6 @@ describe("the generator", () => {
       "list of ",
       { text: "where", href: "/reference/plugin-spec/thing/#where" },
     ]);
-    expect(text(keys[0] as Key)).toBe("object");
+    expect(keys[0] && text(keys[0])).toBe("object");
   });
 });
