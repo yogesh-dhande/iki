@@ -991,6 +991,8 @@ def test_an_outcome_stays_under_the_press_while_the_line_above_changes(
     # Drawn at the bench's size from the start, so nothing's still settling from a resize.
     page.set_viewport_size(BENCH[screen])
     page.reload()
+    # And with the request's title under the heading, which arrives on its own.
+    page.get_by_text("Intact mass", exact=True).filter(visible=True).first.wait_for()
     receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
     first = receipt_line(page, above)
     # Named with its tick once it's pressed.

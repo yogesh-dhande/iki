@@ -6110,10 +6110,15 @@ button.scan-choice:disabled {
 }
 
 /* The tick's place is kept while it isn't pressed, so pressing one never widens it and
-   moves the outcomes beside it. */
-.button.outcome[aria-pressed]::before {
+   moves the outcomes beside it; as much again after the label keeps the label centred. */
+.button.outcome[aria-pressed]::before,
+.button.outcome[aria-pressed]::after {
   content: "✓";
   visibility: hidden;
+}
+
+.button.outcome[aria-pressed]::after {
+  content: "✓" / "";
 }
 
 .button.outcome[aria-pressed="true"]::before {
