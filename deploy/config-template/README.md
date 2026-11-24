@@ -123,8 +123,8 @@ environment: chromatography.chromeleon
 labels: [lab-3]
 ```
 
-The full format is in the
-[spec](../../spec/README.md#a-deployments-compute). Ask the plugin's owners
+The full format is in
+[Configure a deployment's plugins and compute](https://ikisci.org/guides/configure-plugins-and-compute/). Ask the plugin's owners
 and your compute admins to review changes, with `CODEOWNERS` if you use it.
 
 ## Setting it up

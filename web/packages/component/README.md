@@ -3,7 +3,7 @@
 Types and helpers for writing a plugin's component: a piece of UI a plugin
 adds to Iki's pages, such as a plate map, a box map or a bookings calendar.
 The manifest a component declares is described in the
-[plugin spec](../../../spec/README.md#components); the decisions behind it
+[plugin guide](https://ikisci.org/guides/write-a-plugin/viewers-and-components/); the decisions behind it
 are [ADR 0084](../../../docs/adr/0084-plugin-components-run-in-sandboxed-frames.md)
 and [ADR 0117](../../../docs/adr/0117-components-show-many-entities-in-more-places.md).
 

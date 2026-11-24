@@ -216,7 +216,8 @@ termination grace period of at least a minute.
 
 How a command is run, and what it can see, is in
 [ADR 0046](../docs/adr/0046-how-iki-worker-runs-a-command.md); what it reads
-and writes is in [`spec/`](../spec/README.md#what-a-command-reads).
+and writes is in
+[Read a run's input and write its results](https://ikisci.org/guides/write-a-plugin/run-input-and-output/).
 
 ## Running an action locally
 
@@ -231,7 +232,7 @@ cd my-plugin
 iki-worker run --local tests/relax/input.json > output.json
 ```
 
-The input is a run input ([`run-input/v1`](../spec/README.md#what-a-command-reads))
+The input is a run input ([`run-input/v1`](https://ikisci.org/reference/plugin-spec/run-input/))
 that may leave out `job`. Each of its `files` gives a `path` relative to
 input.json; leave out `name`, `media_type`, `size` and `sha256` to have
 them read from the file, or give them to check the fixture still matches.

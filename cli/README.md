@@ -136,7 +136,7 @@ Built build/plugins/iki_plugin_iki__protein
 
 Runs the plugin's action tests: each `kind: ActionTest` fixture in its
 `tests/` directory ([ADR 0093](../docs/adr/0093-plugin-action-tests-run-fixtures-through-the-worker.md),
-and the [spec](../spec/README.md#action-tests)). For each, it makes the
+and [Test actions with fixtures](https://ikisci.org/guides/write-a-plugin/action-tests/)). For each, it makes the
 run input the server would, runs the action with `iki-worker run --local`,
 and checks what it writes: against `run-output/v1`, against what the action
 declares it changes, and against the test's `expect`.
@@ -236,7 +236,7 @@ anything doesn't (an untrusted key included), and 2 for a usage mistake.
 ## `iki deploy build`
 
 In a deployment's config repository, build the plugins its
-`plugins.lock.yaml` pins (see [`spec/`](../spec/README.md#a-deployments-lockfile)),
+`plugins.lock.yaml` pins (see [its lockfile](https://ikisci.org/guides/configure-plugins-and-compute/)),
 for its server image:
 
 ```console
@@ -252,7 +252,7 @@ It fetches each plugin at its commit and checks them together, along with
 the deployment's settings for each and that their migrations are complete.
 If the deployment has a `compute.yaml`, it checks its templates and bindings
 against the plugins' environments and actions
-([spec](../spec/README.md#a-deployments-compute)), and writes them as
+([its compute](https://ikisci.org/guides/configure-plugins-and-compute/)), and writes them as
 `compute.json` for the server. It writes the same bytes for the same lockfile. Git may only use https and
 ssh, and never prompts; credentials come from git's helpers, as CI sets
 them up. See [ADR 0034](../docs/adr/0034-deployment-lockfile-and-plugin-builds.md).

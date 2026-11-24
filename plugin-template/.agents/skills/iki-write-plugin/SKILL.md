@@ -15,7 +15,7 @@ Use the [Iki plugin template](https://github.com/yogesh-dhande/iki/tree/main/plu
 2. Replace the template's example types, actions, tests, and settings as needed. Remove the copied initial migration when this is a new plugin with no deployed data. That migration belongs to the example schema. Generate your own after the edit.
 3. Fill in the template workflow's Iki version and dependency commit. Update its dependency checkout and `--with` arguments to match your manifest. For a plugin with no external dependencies, remove the dependency checkout and its `--with` arguments.
 
-Use the [manifest spec](https://github.com/yogesh-dhande/iki/blob/main/spec/README.md) and the template's schema hints when editing YAML. The CLI validates the manifests and generates the Django models and migrations.
+Use the [Write a plugin guide](https://ikisci.org/guides/write-a-plugin/), the [plugin spec reference](https://ikisci.org/reference/plugin-spec/) and the template's schema hints when editing YAML. The CLI validates the manifests and generates the Django models and migrations.
 
 ## Model the workflow
 

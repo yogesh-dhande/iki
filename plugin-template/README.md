@@ -40,7 +40,8 @@ What's here:
   build will.
 
 The manifest format is in Iki's
-[spec](https://github.com/yogesh-dhande/iki/tree/main/spec#readme). Editors that read
+[plugin guide](https://ikisci.org/guides/write-a-plugin/) and
+[spec reference](https://ikisci.org/reference/plugin-spec/). Editors that read
 `yaml-language-server` comments (VS Code with the YAML extension, JetBrains)
 complete and check it as you type.
 
@@ -71,7 +72,7 @@ directory intact so the agent can run its scripts.
    molecule, however it's written), states, lists of rows, references to one
    of several types and, for what the lab keeps, an `amount`: how much of
    each record there is, drawn and split into aliquots
-   ([spec](https://github.com/yogesh-dhande/iki/tree/main/spec#amounts)).
+   ([amounts](https://ikisci.org/guides/write-a-plugin/amounts/)).
 4. Delete `migrations/` and make your first migration:
 
    ```sh
@@ -105,11 +106,11 @@ A deployment installs the plugin by pinning a commit in its lockfile
 
 ```yaml
 plugins:
-  - name: acme_assays
+  - name: acme/assays
     git: https://github.com/acme/iki-plugin-acme-assays.git
     sha: <the commit>
     state: active
-    settings: settings/acme_assays.yaml
+    settings: settings/assays.yaml
 ```
 
 Its CI builds the plugins into the deployment's image, checking them
