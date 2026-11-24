@@ -44,6 +44,25 @@ def test_known_midpoint_plateaus_signed_slope_and_ci(kind, direction):
     assert result["ci_high"] == pytest.approx(1.133491606)
 
 
+@pytest.mark.parametrize(("kind", "increasing"), [("EC50", True), ("IC50", False)])
+def test_measured_zero_dose_wells_constrain_the_fitted_plateau(kind, increasing):
+    doses = [0.125, 0.25, 0.5, 1, 2, 4, 8]
+    points = [(dose, 100 * (dose if increasing else 1) / (1 + dose)) for dose in doses]
+    vehicle = 0 if increasing else 100
+    result = fit_curve([*points, (0, vehicle), (0, vehicle)], kind)
+    assert result["fit_status"] == "fitted", result.get("fit_reason")
+    assert result["point_count"] == 9
+    assert result["endpoint_value"] == pytest.approx(1)
+    assert result["hill_slope"] == pytest.approx(1 if increasing else -1)
+    assert result["ci_low"] <= result["endpoint_value"] <= result["ci_high"]
+
+    # The measured zero-dose values have weight, including their replicate residuals.
+    shifted = fit_curve([*points, (0, vehicle + 2), (0, vehicle + 4)], kind)
+    assert shifted["fit_status"] == "fitted"
+    assert shifted["bottom" if increasing else "top"] > vehicle + 1
+    assert shifted["ci_low"] < shifted["endpoint_value"] < shifted["ci_high"]
+
+
 @pytest.mark.parametrize(("mid", "status"), [(0.9, "below_range"), (9.0, "above_range")])
 def test_report_extrapolation(mid, status):
     # Synthetic 4PL from Ritz et al., eq. 2. The midpoint falls beyond the test doses.
@@ -72,8 +91,8 @@ def test_concentration_units_change_only_midpoint_and_limits():
         ([(1, 4)] * 4, "more than four"),
         ([(1, 0), (2, 0), (2, 1), (4, 0), (4, 1)], "distinct concentrations"),
         ([(x, 23) for x in [1, 2, 3, 4, 5]], "constant"),
-        ([(x, 7) for x in [0, 1, 2, 3, 4]], "positive concentration"),
-        ([(x, 7) for x in [-1, 1, 2, 3, 4]], "positive concentration"),
+        ([(x, 7) for x in [0, 1, 2, 3, 4]], "constant"),
+        ([(x, 7) for x in [-1, 1, 2, 3, 4]], "nonnegative concentration"),
         ([(x, math.nan) for x in [1, 2, 3, 4, 5]], "finite values"),
     ],
 )

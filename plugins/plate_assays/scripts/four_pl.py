@@ -21,7 +21,11 @@ def _response(params: Vector, log_dose: Vector) -> Vector:
 
 
 def _residual(params: Vector, log_dose: Vector, observed: Vector) -> Vector:
-    return _response(params, log_dose) - observed
+    # Zero-dose sample wells observe the left asymptote directly. Each replicate
+    # contributes a residual with the same weight as a positive-dose reading.
+    zero_count = observed.size - log_dose.size
+    predicted = np.concatenate((np.full(zero_count, params[0]), _response(params, log_dose)))
+    return predicted - observed
 
 
 def _jacobian(params: Vector, log_dose: Vector, observed: Vector) -> Vector:
@@ -31,7 +35,10 @@ def _jacobian(params: Vector, log_dose: Vector, observed: Vector) -> Vector:
     position = expit(hill * distance)
     complement = expit(-hill * distance)
     gradient = (right - left) * position * complement
-    return np.column_stack((complement, position, -hill * gradient, distance * gradient))
+    positive = np.column_stack((complement, position, -hill * gradient, distance * gradient))
+    zero = np.zeros((observed.size - log_dose.size, 4))
+    zero[:, 0] = 1
+    return np.vstack((zero, positive))
 
 
 def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str, Any]:
@@ -62,8 +69,8 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
         result["fit_reason"] = "A four-parameter fit needs more than four readings for uncertainty."
         return result
     doses, signals = np.asarray(points, dtype=np.float64).T
-    if not (np.isfinite(doses).all() and np.isfinite(signals).all() and (doses > 0).all()):
-        result["fit_reason"] = "Each well needs a positive concentration and finite values."
+    if not (np.isfinite(doses).all() and np.isfinite(signals).all() and (doses >= 0).all()):
+        result["fit_reason"] = "Each well needs a nonnegative concentration and finite values."
         return result
     if len(np.unique(doses)) < 4:
         result["fit_reason"] = "A four-parameter fit needs at least four distinct concentrations."
@@ -78,11 +85,17 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
     scaled = signals / signal_scale
     low, span = scaled.min(), np.ptp(scaled)
     observed = (scaled - low) / span
-    log_dose = np.log(doses)
+    positive = doses > 0
+    log_dose = np.log(doses[positive])
     offset = float(np.median(log_dose))
     log_dose -= offset
     left = observed[doses == doses.min()].mean()
     right = observed[doses == doses.max()].mean()
+    zero = ~positive
+    observed = np.concatenate((observed[zero], observed[positive]))
+    # With measured zeros, a positive Hill magnitude makes "left" the limit at
+    # zero for either response direction. Both asymptotes remain free.
+    has_zero = bool(zero.any())
     # Start at three positions across the concentration series. The asymptotes and
     # midpoint are unconstrained so extrapolated midpoints can be marked as such.
     best = None
@@ -92,7 +105,8 @@ def fit_curve(points: Sequence[tuple[float, float]], endpoint: str) -> dict[str,
             [left, right, center, 1.0],
             jac=_jacobian,
             args=(log_dose, observed),
-            method="lm",
+            method="trf" if has_zero else "lm",
+            bounds=([-np.inf, -np.inf, -np.inf, 0.0], np.inf) if has_zero else (-np.inf, np.inf),
             max_nfev=600,
         )
         if candidate.success and (best is None or candidate.cost < best.cost):
