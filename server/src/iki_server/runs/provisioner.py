@@ -176,7 +176,27 @@ class Fleet:
 
 
 type Mounts = dict[str, dict[str, Any]]
-type GroupKey = tuple[str, str, str, str | None]
+
+
+@dataclass(frozen=True)
+class GroupKey:
+    environment: str
+    plugin_sha: str
+    template: str
+    build_id: str | None
+    image: str
+    image_pull_secret: str
+
+    @classmethod
+    def from_launch(cls, launch: Launch) -> GroupKey:
+        return cls(
+            launch.environment,
+            launch.plugin_sha,
+            launch.template,
+            setups.build_id(launch.volumes),
+            launch.image,
+            launch.image_pull_secret,
+        )
 
 
 @dataclass
@@ -188,11 +208,19 @@ class Group:
     template: Template
     image: str
     volumes: Mounts
+    image_pull_secret: str = ""
     jobs: list[Job] = field(default_factory=list)
 
     @property
     def key(self) -> GroupKey:
-        return self.environment, self.plugin_sha, self.template.name, setups.build_id(self.volumes)
+        return GroupKey(
+            self.environment,
+            self.plugin_sha,
+            self.template.name,
+            setups.build_id(self.volumes),
+            self.image,
+            self.image_pull_secret,
+        )
 
     @property
     def once(self) -> bool:
@@ -209,7 +237,7 @@ def spec_of(group: Group, namespace: str, pods: RunPods) -> str:
         template=group.template,
         environment=group.environment,
         image=group.image,
-        pods=pods,
+        pods=pods.with_image_pull_secret(group.image_pull_secret),
         once=group.once,
         volumes=group.volumes,
     )
@@ -241,17 +269,23 @@ def _group_for(
     if pins is None or catalog.action(job.run.action) is None:
         return None
     environment = setups.environment_of(job.environment)
-    if environment is None or environment.image is None:
+    if environment is None:
+        return None
+    image = job.run.environment_image or environment.image
+    image_pull_secret = job.run.environment_image_pull_secret
+    if image is None:
         return None
     action = action_from_dict(job.run.spec)
     wanted = _resources(job)
     first = slurm.first(job)
     if first is not None and first.provisioner == "slurm":
         return None  # a Slurm cluster's workers lease it (ADR 0133)
+    available = catalog.availability(action, pinned_image=bool(job.run.environment_image))
     fitting = [
         template
-        for template in catalog.availability(action).templates
+        for template in available.templates
         if template.provisioner in provisioners
+        and (not image_pull_secret or template.provisioner in PROVISIONERS)
         and template.fits(wanted)
         and (action.lifecycle is None or template.lifecycle == action.lifecycle)
     ]
@@ -266,7 +300,7 @@ def _group_for(
             if pinned is None or setups.provenance(pinned) != pins:
                 continue
             data = pinned
-        return Group(job.environment, job.run.plugin_sha, template, environment.image, data)
+        return Group(job.environment, job.run.plugin_sha, template, image, data, image_pull_secret)
     return None
 
 
@@ -290,13 +324,18 @@ def demand(now: datetime, fleet: Fleet | None = None) -> dict[GroupKey, Group]:
     )
     groups: dict[GroupKey, Group] = {}
     mounts = cache(setups.volumes_for)
-    waiting: set[tuple[str, str]] = set()
+    waiting: set[tuple[str, str, str, str]] = set()
     for job in jobs:
         run = job.run
         if run.volumes is None:
             # A batch can wait thousands of jobs deep for the same first build. Check
             # once this round per action revision (local code has no commit).
-            revision = (run.action, run.plugin_sha or json.dumps(run.spec, sort_keys=True))
+            revision = (
+                run.action,
+                run.plugin_sha or json.dumps(run.spec, sort_keys=True),
+                run.environment_image,
+                run.environment_image_pull_secret,
+            )
             if revision in waiting:
                 continue
             if setups.environment_of(job.environment) is None or not pin_waiting(
@@ -321,19 +360,26 @@ def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[GroupKey, Group]:
     for qualified, binding in deployment.bindings.items():
         plugin, _, name = qualified.partition(".")
         environment = plugins[plugin].environments.get(name) if plugin in plugins else None
-        if environment is None or environment.image is None:
+        if environment is None:
+            continue
+        bound = catalog.customer_image(environment, deployment)
+        image = bound.image if bound else environment.image
+        image_pull_secret = (bound.pull_secret or "") if bound else ""
+        if image is None:
             continue
         sha = plugin_sha(plugin)
         for template_name, _ in binding.templates:
             template = deployment.templates.get(template_name)
             if template is None or template.provisioner not in provisioners:
                 continue
+            if image_pull_secret and template.provisioner not in PROVISIONERS:
+                continue
             if template.min_warm and template.lifecycle == "persistent":
                 place = setups.place_of(template)
                 data = setups.volumes_for(qualified, place) if place is not None else None
                 if data is None:
                     continue
-                group = Group(qualified, sha, template, environment.image, data)
+                group = Group(qualified, sha, template, image, data, image_pull_secret)
                 found[group.key] = group
     return found
 
@@ -377,7 +423,7 @@ def _now_queued_and_free(
     return set(queued), [found[pk] for pk in free if pk in found]
 
 
-def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
+def _serves(launch: Launch, job: Job, group: Group, templates: dict[str, Template]) -> bool:
     """Whether `launch`'s worker may lease `job`, as :func:`queue.lease` decides."""
     template = templates.get(launch.template)
     return (
@@ -385,6 +431,8 @@ def _serves(launch: Launch, job: Job, templates: dict[str, Template]) -> bool:
         and launch.volumes == job.run.volumes
         and launch.environment == job.environment
         and launch.plugin_sha == job.run.plugin_sha
+        and launch.image == group.image
+        and launch.image_pull_secret == group.image_pull_secret
         and job.lifecycle in ("", launches.lifecycle(launch))
         and template.fits(_resources(job))
     )
@@ -402,7 +450,9 @@ def _unmet(groups: dict[GroupKey, Group], provisioners: tuple[str, ...]) -> Coun
         for job in group.jobs:
             if job.pk not in queued:
                 continue  # leased, or cancelled, since demand() read it
-            taken = next((i for i, m in enumerate(spare) if _serves(m, job, templates)), None)
+            taken = next(
+                (i for i, m in enumerate(spare) if _serves(m, job, group, templates)), None
+            )
             if taken is None:
                 unmet[key] += 1
             else:
@@ -415,6 +465,8 @@ def _backing_off(group: Group, now: datetime) -> bool:
         Launch.objects.filter(
             environment=group.environment,
             template=group.template.name,
+            image=group.image,
+            image_pull_secret=group.image_pull_secret,
             ended_reason__in=FAILED_TO_START,
             ended_at__gt=now - FAILURE_WINDOW,
         )
@@ -432,9 +484,9 @@ def _running() -> Counter[GroupKey]:
     """Live run machines, counted by the jobs they can serve."""
     machines = Launch.objects.exclude(state=LaunchState.ENDED).filter(setup__isnull=True)
     return Counter(
-        (environment, sha, template, setups.build_id(data))
-        for environment, sha, template, data in machines.values_list(
-            "environment", "plugin_sha", "template", "volumes"
+        GroupKey(environment, sha, template, setups.build_id(data), image, secret)
+        for environment, sha, template, data, image, secret in machines.values_list(
+            "environment", "plugin_sha", "template", "volumes", "image", "image_pull_secret"
         )
     )
 
@@ -485,6 +537,7 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         environment=group.environment,
         plugin_sha=group.plugin_sha,
         image=group.image,
+        image_pull_secret=group.image_pull_secret,
         namespace=namespace,
         once=group.once,
         spec=spec_of(group, namespace, pods),
@@ -496,7 +549,7 @@ def _launch(cluster: Cluster, group: Group, namespace: str, pods: RunPods) -> bo
         template=group.template,
         environment=group.environment,
         image=group.image,
-        pods=pods,
+        pods=pods.with_image_pull_secret(group.image_pull_secret),
         once=group.once,
         volumes=group.volumes,
     )
@@ -743,6 +796,8 @@ def give_up_if_hopeless(
     failures = Launch.objects.filter(
         environment=launch.environment,
         plugin_sha=launch.plugin_sha,
+        image=launch.image,
+        image_pull_secret=launch.image_pull_secret,
         ended_reason=reason,
         ended_at__gt=now - FAILURE_WINDOW,
     ).count()
@@ -754,13 +809,19 @@ def give_up_if_hopeless(
         f"{fleet.check(launch, reason)}. {message}"
     )
     with transaction.atomic():
-        for job in Job.objects.select_for_update(skip_locked=True).filter(
+        jobs = Job.objects.select_for_update(skip_locked=True).filter(
+            Q(run__environment_image="")
+            | Q(
+                run__environment_image=launch.image,
+                run__environment_image_pull_secret=launch.image_pull_secret,
+            ),
             state=JobState.QUEUED,
             tier=fleet.tier,
             environment=launch.environment,
             run__plugin_sha=launch.plugin_sha,
             packed_into__isnull=True,
-        ):
+        )
+        for job in jobs:
             queue.fail_queued(job, "machine_unavailable", _clip(text))
     logger.warning(
         "environment_unavailable", environment=launch.environment, image=launch.image, reason=reason
@@ -832,8 +893,8 @@ def stop_idle(
     templates = catalog.compute().templates
     running = _running()
     occupied: Counter[str] = Counter()
-    for (_, _, template_name, _), count in running.items():
-        occupied[template_name] += count
+    for key, count in running.items():
+        occupied[key.template] += count
     # A warm machine with another build can occupy the only slot for a pinned run.
     # Free a slot for each waiting group that has no machine, even inside idle_shutdown.
     blocked = Counter(
@@ -847,12 +908,7 @@ def stop_idle(
     idle.sort(key=lambda each: each.last or each.registered_at or each.created_at)
     stopped = 0
     for launch in idle:
-        key = (
-            launch.environment,
-            launch.plugin_sha,
-            launch.template,
-            setups.build_id(launch.volumes),
-        )
+        key = GroupKey.from_launch(launch)
         template = templates.get(launch.template)
         since = launch.last or launch.registered_at or launch.created_at
         reason = message = ""
@@ -865,7 +921,16 @@ def stop_idle(
             group = groups.get(key) or kept.get(key)
             if group is None:
                 data = setups.volumes_for(launch.environment, place) or {}
-                group = Group(launch.environment, launch.plugin_sha, template, launch.image, data)
+                environment = setups.environment_of(launch.environment)
+                bound = catalog.customer_image(environment) if environment else None
+                group = Group(
+                    launch.environment,
+                    launch.plugin_sha,
+                    template,
+                    bound.image if bound else launch.image,
+                    data,
+                    (bound.pull_secret or "") if bound else launch.image_pull_secret,
+                )
             if launch.spec != fleet.spec(group, place):
                 reason = "replaced"
                 message = f"Its template, or how Iki starts {fleet.kind}, changed."

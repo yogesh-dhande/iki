@@ -520,6 +520,10 @@ class ActionRun(models.Model):
     workflow_step = models.CharField(max_length=63, blank=True, default="")
     tier = models.CharField(max_length=16)
     environment = models.CharField(max_length=63)
+    #: A deployment-supplied image pinned when this run was queued, if it needs one.
+    environment_image = models.CharField(max_length=500, blank=True, default="")
+    #: A Kubernetes Secret reference for that image. The Secret's contents aren't stored here.
+    environment_image_pull_secret = models.CharField(max_length=253, blank=True, default="")
     #: What a self-hosted machine must have to run it (ADR 0112): its environment's labels,
     #: its deployment binding's and its launcher's, sorted. Empty on other tiers.
     labels = ArrayField(models.CharField(max_length=50), default=list, blank=True)
@@ -910,6 +914,7 @@ class SetupBuild(models.Model):
     plugin_version = models.CharField(max_length=100)
     plugin_sha = models.CharField(max_length=64, blank=True, default="")
     image = models.CharField(max_length=500, db_comment="Pinned by its digest.")
+    image_pull_secret = models.CharField(max_length=253, blank=True, default="")
     #: Where its volumes are, and runs that read them run: a Kubernetes namespace.
     place = models.CharField(max_length=63)
     #: The compute template its machine was started on.
@@ -1092,6 +1097,7 @@ class Launch(models.Model):
     environment = models.CharField(max_length=200, db_comment="plugin.environment")
     plugin_sha = models.CharField(max_length=64)
     image = models.CharField(max_length=500, db_comment="Pinned by its digest.")
+    image_pull_secret = models.CharField(max_length=253, blank=True, default="")
     #: Where it runs: a Kubernetes namespace and object name, or an AWS region.
     namespace = models.CharField(max_length=63)
     name = models.CharField(max_length=63, unique=True)

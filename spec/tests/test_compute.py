@@ -7,8 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from iki_spec.compute import ComputeResult, compute_from_dict, compute_to_dict, load_compute
-from iki_spec.model import ApiUse, Plugin, Resources
+from iki_spec.compute import (
+    Compute,
+    ComputeResult,
+    ImageBinding,
+    compute_from_dict,
+    compute_to_dict,
+    load_compute,
+)
+from iki_spec.model import ApiUse, Environment, Plugin, Resources
 from iki_spec.problems import Severity
 from iki_spec.validate import load_plugin
 
@@ -113,6 +120,142 @@ def codes(result: ComputeResult) -> list[str]:
 def only(result: ComputeResult, code: str) -> str:
     assert codes(result) == [code], [(p.code, p.message) for p in result.problems]
     return result.problems[0].message
+
+
+CUSTOMER_IMAGE = "registry.example/team/tools@sha256:" + "a" * 64
+CUSTOMER_ENVIRONMENT = "acme/tools.analysis-tools"
+IMAGE_BINDING = f"""\
+apiVersion: iki/v1
+kind: EnvironmentImageBinding
+environment: {CUSTOMER_ENVIRONMENT}
+plugin_version: ">=1.2,<2"
+image: {CUSTOMER_IMAGE}
+pull_secret: private-registry
+"""
+CUSTOMER_JOB = """\
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: customer-job
+provisioner: k8s_job
+capacity: { cpu: 1, memory: 2Gi }
+price: { per_hour: 0.10, currency: USD }
+"""
+CUSTOMER_TEMPLATES = f"""\
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: {CUSTOMER_ENVIRONMENT}
+templates: [{{ template: customer-job }}]
+labels: [local-site]
+"""
+
+
+@pytest.fixture
+def customer_plugin() -> Plugin:
+    env = Environment(
+        "acme/tools",
+        "analysis-tools",
+        ("container", "self_hosted"),
+        labels=("local-tools",),
+        python_version="3.12",
+        requirements="requirements.txt",
+        customer_image_required=True,
+    )
+    return Plugin("acme/tools", "1.2.0-rc.1+dev", environments={env.name: env})
+
+
+def test_image_bindings_follow_plugin_releases(tmp_path: Path, customer_plugin: Plugin) -> None:
+    later = IMAGE_BINDING.replace('">=1.2,<2"', '">=2,<3"')
+    result = load(
+        tmp_path, [customer_plugin], CUSTOMER_JOB, CUSTOMER_TEMPLATES, IMAGE_BINDING, later
+    )
+    assert result.problems == []
+    compiled = result.compute
+    assert compiled is not None
+    assert compiled.image_binding(CUSTOMER_ENVIRONMENT, customer_plugin.version) == ImageBinding(
+        CUSTOMER_ENVIRONMENT, ">=1.2,<2", CUSTOMER_IMAGE, "private-registry"
+    )
+    assert compiled.image_binding(CUSTOMER_ENVIRONMENT, "1.1.9") is None
+    assert compiled.image_binding("acme/tools.other", "1.2.0") is None
+    assert compiled.bindings[CUSTOMER_ENVIRONMENT].labels == ("local-site",)
+    assert len(compiled.image_bindings) == 2
+    assert compute_from_dict(json.loads(json.dumps(compute_to_dict(compiled)))) == compiled
+    old = {"apiVersion": "iki/v1", "templates": {}, "bindings": {}, "prices": {}}
+    assert compute_from_dict(old) == Compute()
+    assert compute_to_dict(Compute()) == old
+
+
+def test_an_unmatched_image_binding_still_builds(tmp_path: Path, customer_plugin: Plugin) -> None:
+    later = IMAGE_BINDING.replace('">=1.2,<2"', '">=2,<3"')
+    result = load(tmp_path, [customer_plugin], CUSTOMER_JOB, CUSTOMER_TEMPLATES, later)
+    assert only(result, "unbound-environment-image")
+    assert result.ok
+    assert result.compute is not None
+    assert result.compute.image_binding(CUSTOMER_ENVIRONMENT, customer_plugin.version) is None
+
+
+def test_overlapping_image_bindings_are_ambiguous(tmp_path: Path, customer_plugin: Plugin) -> None:
+    overlap = IMAGE_BINDING.replace('">=1.2,<2"', '">=1,<3"')
+    result = load(tmp_path, [customer_plugin], IMAGE_BINDING, overlap)
+    assert customer_plugin.version in only(result, "overlapping-image-bindings")
+    assert not result.ok
+    first = ImageBinding(CUSTOMER_ENVIRONMENT, ">=1.2,<2", CUSTOMER_IMAGE)
+    second = ImageBinding(CUSTOMER_ENVIRONMENT, ">=1,<3", CUSTOMER_IMAGE)
+    assert (
+        Compute(image_bindings=(first, second)).image_binding(CUSTOMER_ENVIRONMENT, "1.2") is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "code"),
+    [
+        (CUSTOMER_ENVIRONMENT, "acme/tools.unknown-tools", "unknown-environment"),
+        (CUSTOMER_ENVIRONMENT, "analysis-tools", "schema"),
+        (CUSTOMER_IMAGE, "registry.example/team/tools:latest", "schema"),
+        (CUSTOMER_IMAGE, json.dumps(CUSTOMER_IMAGE + "\n"), "schema"),
+        ('">=1.2,<2"', '"~=1.2"', "schema"),
+        ("private-registry", "not/a-secret", "schema"),
+        ("private-registry", json.dumps("private-registry\n"), "schema"),
+    ],
+)
+def test_image_bindings_check_their_references(
+    tmp_path: Path, customer_plugin: Plugin, old: str, new: str, code: str
+) -> None:
+    result = load(tmp_path, [customer_plugin], IMAGE_BINDING.replace(old, new))
+    assert only(result, code)
+    assert not result.ok
+
+
+def test_an_image_binding_needs_an_opted_in_environment(
+    tmp_path: Path, customer_plugin: Plugin
+) -> None:
+    env = customer_plugin.environments["analysis-tools"]
+    pinned = replace(env, customer_image_required=False, image=CUSTOMER_IMAGE)
+    plugin = replace(customer_plugin, environments={pinned.name: pinned})
+    assert only(load(tmp_path, [plugin], IMAGE_BINDING), "environment-image-not-requested")
+
+
+def test_image_pull_secrets_need_kubernetes_templates(
+    tmp_path: Path, customer_plugin: Plugin
+) -> None:
+    on_slurm = CUSTOMER_TEMPLATES.replace("customer-job", "hpc-gpu")
+    slurm_binding = load(tmp_path, [customer_plugin], SLURM, on_slurm, IMAGE_BINDING)
+    assert "hpc-gpu" in only(slurm_binding, "image-pull-secret-wrong-provisioner")
+    without_secret = IMAGE_BINDING.replace("pull_secret: private-registry\n", "")
+    assert load(tmp_path, [customer_plugin], SLURM, on_slurm, without_secret).problems == []
+
+
+def test_a_pull_secret_does_not_change_native_templates(
+    tmp_path: Path, customer_plugin: Plugin
+) -> None:
+    env = customer_plugin.environments["analysis-tools"]
+    mixed = replace(env, tiers=(*env.tiers, "backend"))
+    plugin = replace(customer_plugin, environments={mixed.name: mixed})
+    templates = CUSTOMER_TEMPLATES.replace(
+        "[{ template: customer-job }]", "[{ template: customer-job }, { template: backend-small }]"
+    )
+    result = load(tmp_path, [plugin], CUSTOMER_JOB, BACKEND, templates, IMAGE_BINDING)
+    assert result.problems == []
+    assert result.ok
 
 
 def test_a_deployment_that_runs_every_action(tmp_path: Path, plugins: list[Plugin]) -> None:

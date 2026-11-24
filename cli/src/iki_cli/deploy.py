@@ -406,19 +406,24 @@ def _compute(lock: Lock, fetched: list[_Fetched], err: TextIO) -> compute_spec.C
 
 
 def run_images(plugins: Sequence[Plugin], compute: compute_spec.Compute) -> list[str]:
-    """The images runs use: each environment's that the deployment binds to a template that
-    starts machines in its image, sorted and once each."""
+    """The manifest and deployment images used by container templates, sorted and unique."""
     found = set()
     for plugin in plugins:
         for environment in plugin.environments.values():
-            binding = compute.bindings.get(f"{plugin.name}.{environment.name}")
-            if environment.image is None or binding is None:
+            qualified = f"{plugin.name}.{environment.name}"
+            binding = compute.bindings.get(qualified)
+            if binding is None:
                 continue
             if any(
                 name in compute.templates and compute.templates[name].tier == "container"
                 for name, _ in binding.templates
             ):
-                found.add(environment.image)
+                image = environment.image
+                if environment.customer_image_required:
+                    supplied = compute.image_binding(qualified, plugin.version)
+                    image = supplied.image if supplied else None
+                if image is not None:
+                    found.add(image)
     return sorted(found)
 
 

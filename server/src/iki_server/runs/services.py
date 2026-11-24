@@ -45,6 +45,7 @@ from iki_server.runs import (
     endings,
     included,
     input_files,
+    launches,
     live,
     queue,
     quotas,
@@ -497,6 +498,8 @@ def _queue(
         reason=reason,
         tier=copy_of.tier if copy_of else action.tier,
         environment=copy_of.environment if copy_of else action.environment,
+        environment_image=made.image,
+        environment_image_pull_secret=made.image_pull_secret,
         labels=copy_of.labels if copy_of else sorted({*catalog.labels(action), *labels}),
         params=values,
         plugin_settings=made.settings,
@@ -558,6 +561,7 @@ def _queue(
             "action": action.qualified_name,
             "tier": action.tier,
             "inputs": sum(len(e) for e in entities.values()),
+            **({"image": made.image} if made.image else {}),
             **({"labels": run.labels} if run.labels else {}),
             **({"approval": str(approval.pk)} if approval else {}),
             **({"batch": batch.hrid} if batch else {}),
@@ -580,6 +584,8 @@ class _Made:
     #: What its inputs' references name, which it reads too (ADR 0105).
     pins: list[included.Pin]
     volumes: dict[str, Any] | None
+    image: str = ""
+    image_pull_secret: str = ""
 
 
 def _made(
@@ -595,16 +601,32 @@ def _made(
     pins: list[included.Pin],
 ) -> _Made:
     sha = plugin_sha(action.plugin)
-    key = reuse.key(action, sha, entities, values, settings, pins, volumes=volumes)
+    bound = catalog.customer_image_for(action)
+    image = bound.image if bound else ""
+    key = reuse.key(
+        action,
+        sha,
+        entities,
+        values,
+        settings,
+        pins,
+        volumes=volumes,
+        image_digest=launches.image_digest(image),
+    )
     original = reuse.find(user, key, project) if reuse_results and volumes is not None else None
-    return _Made(sha, settings, key, original, pins, volumes)
+    pull_secret = (bound.pull_secret or "") if bound else ""
+    return _Made(sha, settings, key, original, pins, volumes, image, pull_secret)
 
 
 def pin_waiting(run: ActionRun, action: Action) -> bool:
     """Complete a waiting run's launch key with its first available reference build.
     A second provisioner observes the winning pin, and a retry keeps it."""
     with transaction.atomic():
-        volumes = setups.pin_for(action)
+        volumes = setups.pin_for(
+            action,
+            pinned_image=bool(run.environment_image),
+            image_pull_secret=run.environment_image_pull_secret,
+        )
         if not volumes:
             return False
         key = reuse.with_volumes(run.reuse_key, volumes)
@@ -682,6 +704,13 @@ def reproduce(
     )
     if why:
         raise Refused(why)
+    bound = catalog.customer_image_for(action)
+    image = bound.image if bound else ""
+    if launches.image_digest(original.environment_image) != launches.image_digest(image):
+        raise Refused(
+            f"{original.hrid} cannot be reproduced exactly with this deployment's current "
+            "image binding. Restore the digest-pinned image the original run used."
+        )
     # What it read: its inputs, and what their references named (ADR 0105).
     read = (
         RunInput.objects.filter(run=original)
@@ -738,7 +767,14 @@ def reproduce(
             reason,
             approval,
             made=_Made(
-                original.plugin_sha, dict(original.plugin_settings), "", None, [], original.volumes
+                original.plugin_sha,
+                dict(original.plugin_settings),
+                "",
+                None,
+                [],
+                original.volumes,
+                image,
+                (bound.pull_secret or "") if bound else "",
             ),
             copy_of=original,
             consent=agreed,

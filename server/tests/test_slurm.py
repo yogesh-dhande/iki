@@ -4,6 +4,7 @@ partition and charged to its project's Slurm account, and says what Slurm report
 The worker's own side, against a real Slurm, is test_slurm_e2e.py's."""
 
 import json
+from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -14,11 +15,13 @@ from api_client import problem
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
+from test_run_results import done, output
 from test_runs import TEMPLATE, protein
 from test_workers import LOCAL, WorkerClient
 
 from iki_server.audit.models import AuditEvent
-from iki_server.runs import catalog, costs, provisioner, queue, slurm, workers
+from iki_server.entities import registry
+from iki_server.runs import catalog, costs, provisioner, queue, services, slurm, workers
 from iki_server.runs.models import (
     ActionRun,
     CostRecord,
@@ -121,7 +124,13 @@ def keep_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(views, "close_old_connections", lambda: None)
 
 
-def login_node(world: World, cluster: str = "hpc1", name: str = "hpc1-login1") -> WorkerClient:
+def login_node(
+    world: World,
+    cluster: str = "hpc1",
+    name: str = "hpc1-login1",
+    *,
+    plugins: list[dict[str, Any]] | None = None,
+) -> WorkerClient:
     _, value = workers.create_registration(
         label="hpc1 login nodes",
         tier="container",
@@ -135,7 +144,7 @@ def login_node(world: World, cluster: str = "hpc1", name: str = "hpc1-login1") -
             "version": "0.1.0",
             # What the login node has doesn't matter: Slurm's nodes run the jobs.
             "capacity": {"cpu": 2, "memory": 4 * GI},
-            "plugins": LOCAL,
+            "plugins": LOCAL if plugins is None else plugins,
         },
     )
     assert made.status_code == 201, made.content
@@ -193,6 +202,107 @@ def test_a_login_nodes_worker_leases_its_clusters_jobs_placed_where_the_template
     placed = SlurmJob.objects.get(job=job)
     assert (placed.cluster, placed.partition, placed.account) == ("hpc1", "gpu", "rd-shared")
     assert ActionRun.objects.get(pk=run["id"]).status == RunStatus.RUNNING
+
+
+@pytest.fixture
+def customer_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    plugin = registry.plugins()["acme/prediction"]
+    monkeypatch.setitem(
+        plugin.environments,
+        "colabfold",
+        replace(plugin.environments["colabfold"], image=None, customer_image_required=True),
+    )
+
+
+def bind_customer_image(
+    compute: dict[str, Any], image: str, *, pull_secret: str | None = None
+) -> None:
+    plugin = registry.plugins()["acme/prediction"]
+    compute["image_bindings"] = [
+        {
+            "environment": "acme/prediction.colabfold",
+            "plugin_version": f"=={plugin.version}",
+            "image": image,
+            "pull_secret": pull_secret,
+        }
+    ]
+    use(compute)
+
+
+def test_slurm_customer_image_is_pinned_and_controls_reuse_and_reproduction(
+    world: World,
+    compute: dict[str, Any],
+    customer_environment: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sha = "1" * 40
+    monkeypatch.setattr(services, "plugin_sha", lambda _plugin: sha)
+    original = "registry.example.com/lab/analysis@sha256:" + "a" * 64
+    updated = "registry.example.com/lab/analysis@sha256:" + "b" * 64
+
+    runner = api_as(world, "runner")
+    entity = protein(runner, world.project, name="ACDE")
+    payload = {"project": str(world.project.pk), "inputs": {"protein": entity["id"]}}
+
+    bind_customer_image(compute, original)
+    first = runner.post(f"/actions/{COLABFOLD}/runs", payload)
+    assert first.status_code == 201, first.content
+    run = first.json()
+    assert ActionRun.objects.get(pk=run["id"]).environment_image == original
+
+    # A deployment change after enqueue does not change what the job submits to Slurm.
+    bind_customer_image(compute, updated)
+    node = login_node(world, plugins=[{**item, "sha": sha} for item in LOCAL])
+    leased = node.lease()
+    assert leased.status_code == 200, leased.content
+    job = leased.json()
+    assert job["job"]["slurm"]["image"] == original
+    assert Job.objects.get(pk=job["job"]["id"]).environment_build == original.rpartition("@")[2]
+    assert done(node, job, output())["run_status"] == "succeeded"
+
+    # Even with the same plugin revision, the new image doesn't reuse old results.
+    different = runner.post(f"/actions/{COLABFOLD}/runs", payload)
+    assert different.status_code == 201, different.content
+    assert not different.json()["reused"]
+    assert ActionRun.objects.get(pk=different.json()["id"]).environment_image == updated
+    path = f"/runs/{run['hrid']}"
+    assert not runner.get(path).json()["can"]["reproduce"]
+    refused = runner.post(f"{path}/reproduce", {})
+    assert refused.status_code == 409, refused.content
+    assert "image binding" in refused.json()["detail"]
+
+    alias = "mirror.example.com/tools@sha256:" + "a" * 64
+    bind_customer_image(compute, alias)
+    again = runner.post(f"/actions/{COLABFOLD}/runs", payload)
+    assert again.status_code == 201, again.content
+    assert again.json()["reused_from"]["id"] == run["id"]
+    assert runner.get(path).json()["can"]["reproduce"]
+    reproduced = runner.post(f"{path}/reproduce", {})
+    assert reproduced.status_code == 201, reproduced.content
+    assert ActionRun.objects.get(pk=reproduced.json()["id"]).environment_image == alias
+
+
+def test_a_pinned_kubernetes_secret_cannot_follow_a_run_to_slurm(
+    world: World, compute: dict[str, Any], customer_environment: None
+) -> None:
+    image = "registry.example.com/lab/analysis@sha256:" + "a" * 64
+    binding = compute["bindings"]["acme/prediction.colabfold"]
+    slurm_templates = binding["templates"]
+    compute["templates"]["kube-gpu"] = hpc(name="kube-gpu", provisioner="k8s_job", slurm={})
+    binding["templates"] = [["kube-gpu", 0]]
+    bind_customer_image(compute, image, pull_secret="lab-registry")
+    run = queue_run(world)
+    assert queue.recover_expired() == 0
+
+    binding["templates"] = slurm_templates
+    bind_customer_image(compute, image)
+    assert login_node(world).lease().status_code == 204
+    assert queue.recover_expired() == 1
+    ended = ActionRun.objects.get(pk=run["id"])
+    assert ended.status == RunStatus.FAILED
+    assert ended.error is not None
+    assert ended.error["code"] == "unplaceable"
+    assert "no longer binds" in ended.error["message"]
 
 
 def test_a_cluster_holds_many_jobs_at_once_up_to_its_templates_limit(world: World) -> None:

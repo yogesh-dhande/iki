@@ -72,6 +72,7 @@ from iki_server.runs.models import (
     RunStatus,
     Worker,
 )
+from iki_spec.compute import KUBERNETES
 
 __all__ = [
     "HEARTBEAT_EVERY",
@@ -352,8 +353,17 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
         # whose actions take its kind of machine (ADR 0062).
         candidates = candidates.filter(
             Q(lifecycle="") | Q(lifecycle=launches.lifecycle(worker.launch)),
+            Q(run__environment_image="")
+            | Q(
+                run__environment_image=worker.launch.image,
+                run__environment_image_pull_secret=worker.launch.image_pull_secret,
+            ),
             environment=worker.launch.environment,
         )
+    elif not cluster:
+        # Customer images run on their launch or as a provisioned Slurm job, not on a
+        # worker that registered its own environment under the same name.
+        candidates = candidates.filter(run__environment_image="")
     scope: list[uuid.UUID] | None = None
     labels: list[str] | None = None
     if worker.tier == workers.SELF_HOSTED:
@@ -440,8 +450,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
                 return None
             template = job.template
             # The image is the environment: its digest is the build it ran (ADR 0061).
-            action = catalog.action(run.action)
-            image = catalog.environment(action).image if action is not None else None
+            image = slurm.image_for(job)
             build = launches.image_digest(image) if image else ""
         members = _pack(job, run)
         job.state = JobState.LEASED
@@ -514,6 +523,8 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
             run__plugin_version=run.plugin_version,
             run__plugin_sha=run.plugin_sha,
             run__volumes=run.volumes,
+            run__environment_image=run.environment_image,
+            run__environment_image_pull_secret=run.environment_image_pull_secret,
             tier=job.tier,
             environment=job.environment,
             labels=job.labels,
@@ -1086,9 +1097,39 @@ def interrupt_outside(worker: Worker, covered: QuerySet[Any]) -> int:
     return count
 
 
+def _end_incompatible_pull_secrets() -> int:
+    """A run can only use its pinned Kubernetes Secret on a Kubernetes template."""
+    compute = catalog.compute()
+    kubernetes = {name for name, t in compute.templates.items() if t.provisioner in KUBERNETES}
+    eligible = {
+        name
+        for name, binding in compute.bindings.items()
+        if any(template in kubernetes for template, _ in binding.templates)
+    }
+    jobs = (
+        Job.objects.select_for_update(skip_locked=True, of=("self",))
+        .filter(state=JobState.QUEUED, packed_into__isnull=True)
+        .exclude(run__environment_image_pull_secret="")
+        .exclude(environment__in=eligible)
+        .order_by("queued_at")[:500]
+    )
+    ended = 0
+    for job in jobs:
+        fail_queued(
+            job,
+            "unplaceable",
+            "This run's pinned image uses a Kubernetes pull Secret, but the deployment "
+            f"no longer binds `{job.environment}` to a Kubernetes template. Ask a compute "
+            "admin to restore a Kubernetes template, or queue a new run under the current binding.",
+        )
+        ended += 1
+    return ended
+
+
 def recover_expired() -> int:
     """Ends attempts whose lease ran out (the worker went away), and those running well past
-    their timeout. The task runner calls it every few seconds. Returns how many it ended."""
+    their timeout, as well as queued runs whose pinned pull Secret no template can use.
+    The task runner calls it every few seconds. Returns how many it ended."""
     now = timezone.now()
     ended = 0
     with transaction.atomic():
@@ -1125,6 +1166,7 @@ def recover_expired() -> int:
                     f"It ran past its {job.run.timeout}s timeout, and its worker didn't stop it.",
                 )
                 ended += 1
+        ended += _end_incompatible_pull_secrets()
     return ended
 
 

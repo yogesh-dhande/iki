@@ -22,7 +22,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from iki_server.entities import registry
 from iki_server.runs import secrets
-from iki_spec.compute import Compute, Template, compute_from_dict
+from iki_spec.compute import Compute, ImageBinding, Template, compute_from_dict
 from iki_spec.model import Action, Environment
 
 __all__ = [
@@ -31,6 +31,8 @@ __all__ = [
     "actions",
     "availability",
     "compute",
+    "customer_image",
+    "customer_image_for",
     "environment",
     "unset_settings",
 ]
@@ -50,6 +52,23 @@ def action(name: str) -> Action | None:
 
 def environment(of: Action) -> Environment:
     return registry.plugins()[of.plugin].environments[of.environment]
+
+
+def customer_image(env: Environment, deployment: Compute | None = None) -> ImageBinding | None:
+    """A deployment's image for this installed plugin revision, if the environment asks."""
+    if not env.customer_image_required:
+        return None
+    deployment = compute() if deployment is None else deployment
+    return deployment.image_binding(
+        f"{env.plugin}.{env.name}", registry.plugins()[env.plugin].version
+    )
+
+
+def customer_image_for(of: Action) -> ImageBinding | None:
+    """A provisioned action's customer image. Native actions use their usual packages."""
+    if of.tier not in {"container", "vm"}:
+        return None
+    return customer_image(environment(of))
 
 
 def unset_settings(of: Action) -> list[str]:
@@ -102,7 +121,7 @@ class Availability:
     templates: tuple[Template, ...] = ()
 
 
-def availability(of: Action) -> Availability:
+def availability(of: Action, *, pinned_image: bool = False) -> Availability:
     if of.plugin in registry.detached():
         return Availability(False, detached(of.plugin))
     unset = unset_settings(of)
@@ -140,6 +159,16 @@ def availability(of: Action) -> Availability:
             return Availability(False, why)
     deployment = compute()
     qualified = f"{of.plugin}.{of.environment}"
+    if of.tier in {"container", "vm"} and not pinned_image:
+        env = environment(of)
+        if env.customer_image_required and customer_image(env, deployment) is None:
+            version = registry.plugins()[of.plugin].version
+            return Availability(
+                False,
+                f"`{qualified}` needs a deployment-supplied image for plugin version {version}. "
+                "A compute admin can add an EnvironmentImageBinding with a digest-pinned image "
+                "in the deployment's compute.yaml.",
+            )
     binding = deployment.bindings.get(qualified)
     bound = [
         (priority, deployment.templates[name])

@@ -1254,6 +1254,8 @@ class Environment:
     setup_requires_approval: bool = False
     setup_network: tuple[str, ...] = ()
     file: str | None = None
+    #: Provisioned runs need an image supplied by this deployment.
+    customer_image_required: bool = False
 
 
 #: A condition's operators: how its value compares with its operand.
@@ -1694,6 +1696,11 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 f.name == "reason_on_clear"
                 and isinstance(value, Field)
                 and not value.reason_on_clear
+            )
+            and not (
+                f.name == "customer_image_required"
+                and isinstance(value, Environment)
+                and not value.customer_image_required
             )
         }
     if isinstance(value, dict):

@@ -63,6 +63,7 @@ def create(
     spec: str = "",
     setup: SetupBuild | None = None,
     volumes: dict[str, Any] | None = None,
+    image_pull_secret: str = "",
 ) -> tuple[Launch, str]:
     """A new launch, and its token (given to the pod only). With `setup`, its machine runs
     that environment setup build, and nothing else (ADR 0075); `volumes` are the versions
@@ -76,6 +77,7 @@ def create(
             environment=environment,
             plugin_sha=plugin_sha,
             image=image,
+            image_pull_secret=image_pull_secret,
             namespace=namespace,
             once=once,
             spec=spec,

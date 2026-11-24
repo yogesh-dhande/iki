@@ -24,10 +24,11 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef
 from iki_server.audit import log as audit
+from iki_server.entities import registry
 from iki_server.org.models import Project, Team
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs import overview, queue, slurm, workers
+from iki_server.runs import catalog, overview, queue, slurm, workers
 from iki_server.runs.models import (
     MAX_LABELS,
     TIERS,
@@ -100,6 +101,50 @@ def compute_overview(request: HttpRequest) -> dict[str, Any]:
         "machines": [vars(m) for m in found.machines],
         "as_of": now,
     }
+
+
+class ImageBindingOut(Schema):
+    environment: str = Field(description="The qualified plugin environment.")
+    plugin_version: str = Field(description="The plugin release range the image applies to.")
+    image: str = Field(description="The deployment-supplied image pinned by digest.")
+    pull_secret: str | None = Field(description="The name of a Kubernetes pull Secret, if set.")
+    installed_version: str | None = Field(description="The installed plugin version, if any.")
+    active: bool = Field(description="Whether this binding applies to the installed environment.")
+
+
+@router.get(
+    "/compute/image-bindings",
+    response=list[ImageBindingOut],
+    summary="Deployment-supplied environment images",
+)
+def list_image_bindings(request: HttpRequest) -> list[ImageBindingOut]:
+    """List the image pins configured in compute.yaml for this deployment."""
+    require(caller(request), Action.COMPUTE_MANAGE)
+    deployment = catalog.compute()
+    plugins = registry.plugins()
+    found = []
+    for binding in sorted(
+        deployment.image_bindings, key=lambda binding: (binding.environment, binding.plugin_version)
+    ):
+        plugin_name, _, environment_name = binding.environment.partition(".")
+        plugin = plugins.get(plugin_name)
+        environment = plugin.environments.get(environment_name) if plugin else None
+        found.append(
+            ImageBindingOut(
+                environment=binding.environment,
+                plugin_version=binding.plugin_version,
+                image=binding.image,
+                pull_secret=binding.pull_secret,
+                installed_version=plugin.version if plugin else None,
+                active=bool(
+                    plugin
+                    and environment
+                    and environment.customer_image_required
+                    and deployment.image_binding(binding.environment, plugin.version) == binding
+                ),
+            )
+        )
+    return found
 
 
 Label = Annotated[str, Field(min_length=1, max_length=50)]

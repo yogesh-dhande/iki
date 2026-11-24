@@ -161,6 +161,7 @@ def _takes(template: Template) -> Q:
         takes &= needs_nothing | Q(**{f"resources__{key}__lte": limit})
     if template.provisioner != "slurm":
         return takes & (Q(lifecycle="") | Q(lifecycle=template.lifecycle))
+    takes &= Q(run__environment_image_pull_secret="")
     walltime = template.slurm.get("max_walltime")
     if walltime is not None:
         takes &= Q(run__timeout__lte=walltime)
@@ -184,6 +185,8 @@ def _takes_job(template: Template, job: Job, wanted: Resources) -> bool:
         return False
     if template.provisioner != "slurm":
         return not job.lifecycle or job.lifecycle == template.lifecycle
+    if job.run.environment_image_pull_secret:
+        return False
     walltime = template.slurm.get("max_walltime")
     if walltime is not None and job.run.timeout > walltime:
         return False
@@ -197,6 +200,8 @@ def first(job: Job) -> Template | None:
     """The template a queued job goes to: the first of its environment's that takes it.
     When that's a Slurm template, its cluster's workers lease it, and Iki starts no machine
     for it (ADR 0133)."""
+    if job.tier != "container":
+        return None
     wanted = _resources(job)
     return next((t for t in _bound(job.environment) if _takes_job(t, job, wanted)), None)
 
@@ -313,21 +318,27 @@ def place(job: Job, worker: Worker) -> SlurmJob:
     return found
 
 
+def image_for(job: Job) -> str | None:
+    """The image this attempt will run, pinned at enqueue for a customer binding."""
+    if job.run.environment_image:
+        return job.run.environment_image
+    action = catalog.action(job.run.action)
+    return catalog.environment(action).image if action is not None else None
+
+
 def for_payload(job: Job) -> dict[str, Any]:
     """What a cluster's worker needs to submit the job: ``job.slurm`` in its run input."""
     placed = SlurmJob.objects.filter(job=job).first()
     template = template_of(job)
     if placed is None or template is None:
         return {}
-    action = catalog.action(job.run.action)
-    image = catalog.environment(action).image if action is not None else None
     found: dict[str, Any] = {
         "cluster": placed.cluster,
         "template": template.name,
         "partition": placed.partition,
         "account": placed.account,
         **placed.requested,
-        "image": image,
+        "image": image_for(job),
     }
     for key in ("constraint", "gpu_type"):
         if template.slurm.get(key):

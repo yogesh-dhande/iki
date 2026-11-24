@@ -37,7 +37,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from iki_spec import API_VERSION, schemas
+from iki_spec import API_VERSION, releases, schemas
 from iki_spec.model import (
     Action,
     Environment,
@@ -56,6 +56,7 @@ __all__ = [
     "Binding",
     "Compute",
     "ComputeResult",
+    "ImageBinding",
     "Template",
     "TemplateVolume",
     "compute_from_dict",
@@ -68,6 +69,7 @@ FILENAME = "compute.yaml"
 KINDS = {
     "ComputeTemplate": "compute-template",
     "EnvironmentBinding": "environment-binding",
+    "EnvironmentImageBinding": "environment-image-binding",
     "ApiPrice": "api-price",
 }
 
@@ -256,6 +258,16 @@ class Binding:
 
 
 @dataclass(frozen=True)
+class ImageBinding:
+    """A deployment's image for a plugin environment and a range of plugin releases."""
+
+    environment: str
+    plugin_version: str
+    image: str
+    pull_secret: str | None = None
+
+
+@dataclass(frozen=True)
 class ApiPrice:
     """What the deployment pays for a plugin's outside API (ADR 0130): per call answered,
     and per unit of each usage it reports."""
@@ -272,6 +284,17 @@ class Compute:
     bindings: dict[str, Binding] = field(default_factory=dict)
     #: Outside APIs' prices, by ``plugin.api``.
     prices: dict[str, ApiPrice] = field(default_factory=dict)
+    image_bindings: tuple[ImageBinding, ...] = ()
+
+    def image_binding(self, environment: str, plugin_version: str) -> ImageBinding | None:
+        """Return the one image for this release, or None if no unique binding applies."""
+        matches = [
+            binding
+            for binding in self.image_bindings
+            if binding.environment == environment
+            and releases.fits(binding.plugin_version, version=plugin_version)
+        ]
+        return matches[0] if len(matches) == 1 else None
 
 
 @dataclass
@@ -329,6 +352,7 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
     templates: dict[str, tuple[Template, Document]] = {}
     bindings: dict[str, tuple[Binding, Document]] = {}
     prices: dict[str, tuple[ApiPrice, Document]] = {}
+    image_bindings: list[tuple[ImageBinding, Document]] = []
     for document in documents:
         if document.data is None:
             continue
@@ -337,13 +361,15 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
         if kind not in KINDS:
             problems.add(
                 "unknown-kind",
-                "compute.yaml holds compute templates, environment bindings and API prices, "
+                "compute.yaml holds compute templates, environment bindings, environment image "
+                "bindings and API prices, "
                 f"not `{kind}`."
                 if kind
                 else "Each document in compute.yaml needs a `kind`.",
                 document,
                 ("kind",) if kind else (),
-                hint="Use `kind: ComputeTemplate`, `kind: EnvironmentBinding` or `kind: ApiPrice`.",
+                hint="Use `kind: ComputeTemplate`, `kind: EnvironmentBinding`, "
+                "`kind: EnvironmentImageBinding` or `kind: ApiPrice`.",
             )
             continue
         issues = schemas.check(KINDS[kind], data)
@@ -384,6 +410,18 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
                 )
                 continue
             prices[price.api] = (price, document)
+        elif kind == "EnvironmentImageBinding":
+            image_bindings.append(
+                (
+                    ImageBinding(
+                        environment=data["environment"],
+                        plugin_version=data["plugin_version"],
+                        image=data["image"],
+                        pull_secret=data.get("pull_secret"),
+                    ),
+                    document,
+                )
+            )
         else:
             binding = Binding(
                 environment=data["environment"],
@@ -405,11 +443,12 @@ def load_compute(file: Path, plugins: Sequence[Plugin], name: str | None = None)
             bindings[binding.environment] = (binding, document)
     if any(p.is_error for p in problems.problems):
         return ComputeResult(None, problems.problems)
-    _Rules(templates, bindings, plugins, problems, prices).run()
+    _Rules(templates, bindings, plugins, problems, prices, image_bindings).run()
     compute = Compute(
         templates={n: t for n, (t, _) in templates.items()},
         bindings={n: b for n, (b, _) in bindings.items()},
         prices={n: p for n, (p, _) in prices.items()},
+        image_bindings=tuple(binding for binding, _ in image_bindings),
     )
     errors = any(p.is_error for p in problems.problems)
     return ComputeResult(None if errors else compute, problems.problems)
@@ -552,9 +591,12 @@ class _Rules:
         plugins: Sequence[Plugin],
         problems: _Problems,
         prices: dict[str, tuple[ApiPrice, Document]] | None = None,
+        image_bindings: Sequence[tuple[ImageBinding, Document]] = (),
     ) -> None:
         self.templates = templates
         self.bindings = bindings
+        self.image_bindings = image_bindings
+        self.plugin_versions = {plugin.name: plugin.version for plugin in plugins}
         self.api_prices = prices or {}
         self.apis: dict[str, OutsideApi] = {
             api.qualified_name: api for plugin in plugins for api in plugin.apis.values()
@@ -577,6 +619,7 @@ class _Rules:
         for binding, document in self.bindings.values():
             used.update(t for t, _ in binding.templates)
             self.binding(binding, document)
+        self.images()
         for name, (_, document) in self.templates.items():
             if name not in used:
                 self.add(
@@ -609,6 +652,74 @@ class _Rules:
             name in self.templates and self.templates[name][0].tier == tier
             for name, _ in binding[0].templates
         )
+
+    def images(self) -> None:
+        active: dict[str, Document] = {}
+        for binding, document in self.image_bindings:
+            name = binding.environment
+            environment = self.environments.get(name)
+            if environment is None:
+                self.add(
+                    "unknown-environment",
+                    f"No installed plugin has the environment `{name}`.",
+                    document,
+                    ("environment",),
+                    hint=schemas._did_you_mean(name, list(self.environments)),
+                )
+                continue
+            if not environment.customer_image_required:
+                self.add(
+                    "environment-image-not-requested",
+                    f"`{name}` does not ask this deployment to supply its image.",
+                    document,
+                    ("environment",),
+                )
+                continue
+            version = self.plugin_versions[environment.plugin]
+            if not releases.fits(binding.plugin_version, version=version):
+                continue  # This binding can serve a different installed release.
+            if name in active:
+                self.add(
+                    "overlapping-image-bindings",
+                    f"Several image bindings match `{name}` at plugin version {version}. "
+                    f"The first is on line {active[name].start.line}.",
+                    document,
+                    ("plugin_version",),
+                    hint="Give the installed release at most one matching image binding.",
+                )
+            else:
+                active[name] = document
+            compute_binding = self.bindings.get(name)
+            if binding.pull_secret is None or compute_binding is None:
+                continue
+            for template_name, _ in compute_binding[0].templates:
+                template = self.templates.get(template_name)
+                if (
+                    template is not None
+                    and template[0].tier in {"container", "vm"}
+                    and template[0].provisioner not in KUBERNETES
+                ):
+                    self.add(
+                        "image-pull-secret-wrong-provisioner",
+                        f"`{template_name}` does not use Kubernetes image pull secrets.",
+                        document,
+                        ("pull_secret",),
+                        hint="Only use `pull_secret` with Kubernetes run templates.",
+                    )
+                    break
+        for name, environment in self.environments.items():
+            if (
+                environment.customer_image_required
+                and name not in active
+                and (self._bound(name, "container") or self._bound(name, "vm"))
+            ):
+                self.add(
+                    "unbound-environment-image",
+                    f"`{name}` has no image for the installed plugin release.",
+                    None,
+                    severity=Severity.WARNING,
+                    hint=f"Add a matching EnvironmentImageBinding for `{name}` to run it here.",
+                )
 
     def prices(self) -> None:
         """Costs add up in one currency, for reports and budgets (ADR 0070): templates' and
@@ -1109,6 +1220,11 @@ def compute_to_dict(compute: Compute) -> dict[str, Any]:
         "templates": {n: asdict(t) for n, t in sorted(compute.templates.items())},
         "bindings": {n: asdict(b) for n, b in sorted(compute.bindings.items())},
         "prices": {n: asdict(p) for n, p in sorted(compute.prices.items())},
+        **(
+            {"image_bindings": [asdict(binding) for binding in compute.image_bindings]}
+            if compute.image_bindings
+            else {}
+        ),
     }
 
 
@@ -1135,4 +1251,5 @@ def compute_from_dict(data: dict[str, Any]) -> Compute:
         },
         # Deployments built before outside APIs price none.
         prices={n: ApiPrice(**p) for n, p in (data.get("prices") or {}).items()},
+        image_bindings=tuple(ImageBinding(**b) for b in data.get("image_bindings", ())),
     )
