@@ -35,6 +35,17 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app
 FRAMES = "() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))"
 
 
+def settled(page: Page, reading: set[Request]) -> None:
+    """Waits till no read is in flight for two frames running."""
+    quiet = 0
+    for _ in range(200):
+        page.evaluate(FRAMES)
+        quiet = quiet + 1 if not reading else 0
+        if quiet == 2:
+            return
+    raise AssertionError(f"Still reading: {[r.url for r in reading]}")
+
+
 def press(page: Page, target: Any) -> None:
     """Puts the pointer down at the middle of `target`, where it is now."""
     box = target.bounding_box()
@@ -144,17 +155,26 @@ def test_a_confirmation_comes_without_moving_whats_pressed(open_as: Any, world: 
         take.click()
     tab = page.get_by_role("navigation", name="Show").get_by_role("link", name="Assigned to me")
     press(page, tab)
+    # Take is answered, then what it changed is read again, then it's said: once every read
+    # that follows the answer is in, the confirmation has come (or, held, would have).
+    reading: set[Request] = set()
+    page.on("request", lambda r: reading.add(r) if "/api/v1/events" not in r.url else None)
+    # In lambdas: Playwright can't wrap a builtin method (set.discard) as a handler.
+    page.on("requestfinished", lambda r: reading.discard(r))
+    page.on("requestfailed", lambda r: reading.discard(r))
     with page.expect_response("**/api/v1/entities/*/take"):
         held[0].continue_()
-    # Taken, and the list refreshed: what's left is what says so.
-    take.wait_for(state="detached")
-    page.evaluate(FRAMES)
+    page.get_by_role("list", name="Open work").get_by_role("link", name=hrid, exact=True).wait_for(
+        state="detached"
+    )
+    settled(page, reading)
     page.mouse.up()
     page.wait_for_url(re.compile(r"/work/$"))
     page.get_by_role("list", name="Your work").get_by_role("link", name=hrid, exact=True).wait_for()
     assert_clean(page)
 
     # Said where it moves nothing: after the page, at the foot of the window.
+    page.unroute("**/api/v1/entities/*/take")
     page.goto("/work/?open=true")
     page.get_by_role("list", name="Open work").wait_for()
     tab_before = tab.bounding_box()
