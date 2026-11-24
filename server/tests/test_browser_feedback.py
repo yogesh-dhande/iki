@@ -109,7 +109,7 @@ def test_a_forms_problem_comes_without_moving_whats_pressed(open_as: Any) -> Non
     page.get_by_role("alert").get_by_text("Check the highlighted fields.").wait_for()
     page.get_by_text(TAKEN).wait_for()
     page.wait_for_function("id => document.activeElement?.id === id", arg=name.get_attribute("id"))
-    assert_clean(page)
+    # Not assert_clean: Chromium and WebKit log the 422 this test answers with.
 
 
 def test_a_confirmation_comes_without_moving_whats_pressed(open_as: Any, world: World) -> None:
@@ -138,7 +138,7 @@ def test_a_confirmation_comes_without_moving_whats_pressed(open_as: Any, world: 
     page: Page = open_as("editor", "/work/?open=true")
     page.get_by_role("list", name="Open work").wait_for()
     held: list[Route] = []
-    page.route("**/api/v1/entities/*/take", held.append)
+    page.route("**/api/v1/entities/*/take", lambda route: held.append(route))
     take = page.get_by_role("button", name=f"Take {hrid} as Analyst")
     with page.expect_request("**/api/v1/entities/*/take"):
         take.click()
