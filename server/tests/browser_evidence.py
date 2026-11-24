@@ -29,14 +29,9 @@ class BrowserEvidence:
     def record(self, context: BrowserContext) -> None:
         self.count += 1
         try:
-            # A short-lived WebKit page can close before its first screencast frame.
-            browser = context.browser
-            context.tracing.start(
-                screenshots=True,
-                snapshots=True,
-                screen_snapshots=browser is not None and browser.browser_type.name == "webkit",
-                sources=False,
-            )
+            # Use the native screencast. WebKit's per-action screenshots insert an inline
+            # stylesheet into the page and trigger the production style-src policy.
+            context.tracing.start(screenshots=True, snapshots=True, sources=False)
         except PlaywrightError as error:
             self.errors.append(f"Could not start trace: {error}")
             return

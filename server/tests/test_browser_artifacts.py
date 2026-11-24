@@ -56,7 +56,9 @@ from test_browser import browser, playwright
 
 def visit(page):
     page.route('http://iki.test/', lambda route: route.fulfill(
-        content_type='text/html', body='<button>Open fixture</button>'))
+        content_type='text/html',
+        headers={'Content-Security-Policy': "default-src 'self'; style-src 'self'"},
+        body='<button>Open fixture</button>'))
     page.goto('http://iki.test/')
     page.get_by_role('button').click()
 
@@ -76,6 +78,25 @@ def test_skip(page): pytest.skip('explicitly skipped in the inner suite')
 def test_short_webkit(page, browser):
     page.context.close()
     assert False
+
+@pytest.mark.parametrize('browser', ['webkit'], indirect=True, scope='module')
+def test_short_webkit_preserves_style_policy(browser):
+    with browser.new_context() as context:
+        page = context.new_page()
+        errors = []
+        page.on('console', lambda msg: errors.append(msg.text) if msg.type == 'error' else None)
+        visit(page)
+        assert errors == []
+        blocked = 'http://elsewhere.test/blocked.css'
+        page.route(blocked, lambda route: route.fulfill(content_type='text/css', body='body {}'))
+        with page.expect_event('console', predicate=lambda msg: blocked in msg.text):
+            page.evaluate('''href => {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                document.head.append(link);
+            }''', blocked)
+        assert len(errors) == 1 and blocked in errors[0] and 'style-src' in errors[0]
 
 @pytest.mark.xfail(reason='expected assertion')
 def test_xfail(page): assert False
@@ -123,7 +144,7 @@ def test_other_chromium(browser):
     )
     run = run_probe(tmp_path, "-n", "2", "--dist", "each")
     assert run.returncode == 1, run.stdout + run.stderr
-    assert "6 failed, 4 passed, 2 skipped, 2 xfailed, 4 errors" in run.stdout, (
+    assert "6 failed, 6 passed, 2 skipped, 2 xfailed, 4 errors" in run.stdout, (
         run.stdout + run.stderr
     )
     assert "Browser evidence (path in archive)" in run.stdout
@@ -138,11 +159,14 @@ def test_other_chromium(browser):
             with ZipFile(trace) as archive:
                 actions = [json.loads(line) for line in archive.read("trace.trace").splitlines()]
                 assert any(event["type"] == "frame-snapshot" for event in actions)
-                if "short_webkit" in trace.parent.name:
-                    assert any(name.startswith("screenshots/") for name in archive.namelist())
-                else:
+                assert any(event.get("method") == "click" for event in actions)
+                # WebKit can close before its first native screencast frame.
+                if "short_webkit" not in trace.parent.name:
                     assert any(event["type"] == "screencast-frame" for event in actions)
-                assert b"iki.test" in archive.read("trace.network")
+                network = [json.loads(line) for line in archive.read("trace.network").splitlines()]
+                assert any(
+                    event["snapshot"]["request"]["url"] == "http://iki.test/" for event in network
+                )
                 assert not any(name.startswith("resources/src@") for name in archive.namelist())
     shutil.rmtree(target)
 

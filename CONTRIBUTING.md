@@ -131,6 +131,8 @@ its path. Extract the archive and open a trace with
 `uv run playwright show-trace path/to/trace.zip`. The traces come from
 disposable test contexts and can contain test cookies, visible data, and
 request and response bodies. Keep them with the test run.
+WebKit can close a short-lived context before its first screencast frame.
+Its trace still shows recorded actions, DOM snapshots and network requests.
 
 For the test VM, submit the full check from the worktree root with the command
 below. A bare `vm-run.sh` returns console output and leaves the full check’s
