@@ -156,19 +156,19 @@ web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (nee
 check-scale: check-scale-import check-scale-grid check-scale-queue check-scale-files ## Load tests: an import of 10M entities, the grid at 100M rows, the queue, and 1M files
 
 .PHONY: check-scale-import
-check-scale-import: ## Load test: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
+check-scale-import: test-wasm ## Load test: import 10M entities, interrupted halfway (IKI_SCALE_RECORDS sets how many)
 	uv run pytest server/tests/test_scale_import.py --scale -s
 
 .PHONY: check-scale-grid
-check-scale-grid: ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets how many)
+check-scale-grid: test-wasm ## Load test: the grid at 100M rows (IKI_SCALE_GRID_ROWS sets how many)
 	uv run pytest server/tests/test_scale_grid.py --scale -s
 
 .PHONY: check-scale-queue
-check-scale-queue: ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
+check-scale-queue: test-wasm ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
 
 .PHONY: check-scale-files
-check-scale-files: ## Load test: a project's Files at 1M files (IKI_SCALE_FILES sets how many)
+check-scale-files: test-wasm ## Load test: a project's Files at 1M files (IKI_SCALE_FILES sets how many)
 	uv run pytest server/tests/test_scale_files.py --scale -s
 
 .PHONY: check-slurm
