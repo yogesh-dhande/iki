@@ -8,8 +8,9 @@ and two people scanning one receipt are both recorded. A label two readable tube
 which, with each one's project and position; one a concealed tube shares is refused in the
 same words whatever's behind it; a typed Iki ID, a draw and a move confirm a tube by its own
 identity; the scanner's exact text is kept in the receipt's history; and a label's vendor
-barcode is an opt-in extra the server checks. Each passes axe in both themes and fits a phone
-and a tablet either way up."""
+barcode is an opt-in extra the server checks. A count's unregistered label seen in another
+slot asks whether it's another tube or that one moved, and a move names its line and asks
+why. Each passes axe in both themes and fits a phone and a tablet either way up."""
 
 import re
 from itertools import pairwise
@@ -30,6 +31,8 @@ from test_browser import (  # noqa: F401 - fixtures
     server,
     world,
 )
+from test_count_observation_history import review
+from test_count_unregistered_slots import by_slot, reading
 from test_requests import ANALYST, ASK
 from test_storage import BOX, FREEZER, TUBE
 
@@ -1302,3 +1305,190 @@ def test_a_label_without_a_vendor_barcode_says_why_it_cant_add_one(
     expect(problem).to_have_count(0)
     expect(face.locator("img")).to_have_count(1)
     page.context.close()
+
+
+# --- Unregistered labels in a count ----------------------------------------------------------
+
+#: A hand-written label two tubes in one box carry: no record has it.
+BUFFER = "BUFFER A"
+#: The label as the page quotes it, in typographic single quotes.
+QUOTED = "\u2018BUFFER A\u2019"
+#: An API request from a signed-in page: its session, and its page's CSRF token.
+SEND = """async ([method, url, body]) => {
+  const token = document.querySelector('meta[name="csrf-token"]')?.content ?? "";
+  const answer = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json", "X-CSRFToken": token },
+    body: body === null ? undefined : JSON.stringify(body),
+  });
+  return [answer.status, await answer.json()];
+}"""
+
+
+def send(page: Page, method: str, path: str, body: Any = None) -> tuple[int, Any]:
+    """`path` under /api/v1, as `page`'s person: what the server answers, and its body."""
+    status, answer = page.evaluate(SEND, [method, f"/api/v1{path}", body])
+    return status, answer
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+def test_an_unregistered_label_seen_in_another_slot_asks_which_tube_it_is(
+    open_as: Any, world: World, color_scheme: str
+) -> None:
+    box = make(world, BOX, {"name": "Counting box", "rows": 1, "columns": 6})
+    # A second operator, signed in beside the first, who sends a rack file through the API.
+    editor = open_as("editor", f"/storage/{box['hrid']}/")
+    status, count = send(editor, "POST", f"/storage/containers/{box['id']}/reconciliations")
+    assert status == 201, count
+    path = f"/reconciliations/{count['id']}"
+    # One rack read: the same label at A1 and A2, a line for each.
+    status, seeded = send(
+        editor, "POST", f"{path}/scans", {"scans": [reading("A1", BUFFER), reading("A2", BUFFER)]}
+    )
+    assert status == 200, seeded
+    before = by_slot(seeded)
+    a1, a2 = before["A1"], before["A2"]
+    assert a1["id"] != a2["id"]
+    page = open_as("admin", f"/storage{path}/", color_scheme)
+    expect(page.get_by_role("heading", level=1, name="Reconcile Counting box")).to_be_visible()
+
+    def scan_a3() -> Any:
+        page.get_by_role("gridcell", name=re.compile(r"^A3, ")).click()
+        scan = page.get_by_role("textbox", name="What’s in A3")
+        scan.fill(BUFFER)
+        scan.press("Enter")
+        chooser = page.get_by_role("region", name=f"{QUOTED} at A3 is…")
+        expect(chooser).to_be_visible()
+        expect(chooser.get_by_role("heading")).to_be_focused()
+        return chooser
+
+    # Nothing is saved until the person says which tube it is; cancelling saves nothing.
+    recorded = ObservationEvent.objects.count()
+    chooser = scan_a3()
+    expect(chooser.get_by_role("button")).to_have_count(4)
+    expect(chooser.get_by_role("button", name=re.compile("^Another tube"))).to_be_visible()
+    for slot in ("A1", "A2"):
+        expect(
+            chooser.get_by_role("button", name=re.compile(f"^The tube from {slot}, moved here"))
+        ).to_contain_text(f"Scanned at {slot} by Editor")
+    expected_refusals(page, "409")
+    checked(page)
+    fits(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    chooser.get_by_role("button", name="Cancel").click()
+    expect(chooser).to_have_count(0)
+    expect(page.get_by_text("Nothing was recorded at A3.")).to_be_visible()
+    assert ObservationEvent.objects.count() == recorded
+
+    # A move names its line, and asks why.
+    chooser = scan_a3()
+    chooser.get_by_role("button", name=re.compile("^The tube from A1, moved here")).click()
+    expect(page.get_by_role("dialog", name="Move the tube from A1 to A3?")).to_be_visible()
+    # Its title follows the choice: the same dialog throughout.
+    dialog = page.get_by_role("dialog")
+    expect(dialog.get_by_role("listitem")).to_contain_text(f"{BUFFER} was scanned at A1")
+    reason = dialog.get_by_role("textbox", name="Why are you changing this?")
+    expect(reason).to_be_focused()
+    move = dialog.get_by_role("button", name="Record the move")
+    move.click()
+    expect(dialog.get_by_role("alert")).to_have_text("Say why you’re making this change.")
+    expected_refusals(page, "409")
+    checked(page)
+    why_moved = "Took the A1 tube out and put it back in A3"
+    reason.fill(why_moved)
+
+    # Meanwhile, a second operator reads A1 again: the move is asked about again.
+    status, reread = send(
+        editor,
+        "POST",
+        f"{path}/scans",
+        {"scans": [reading("A1", BUFFER)], "reviewed_lines": [review(a1)]},
+    )
+    assert status == 200, reread
+    with page.expect_response("**/api/v1/reconciliations/*/scans") as refused:
+        move.click()
+    assert refused.value.status == 409
+    assert refused.value.request.post_data_json == {
+        "scans": [
+            {
+                "position": "A3",
+                "code": BUFFER,
+                "unregistered": {"action": "move", "line_id": a1["id"]},
+            }
+        ],
+        "reviewed_lines": [review(a1)],
+        "reason": why_moved,
+    }
+    stale = dialog.get_by_role("alert").filter(has_text="A1 changed while you were looking at it")
+    expect(stale).to_contain_text("Scan changed by Editor")
+    expect(page.get_by_role("dialog", name=f"Record {QUOTED} at A3?")).to_be_visible()
+    again = dialog.get_by_role("region", name=f"{QUOTED} at A3 is…")
+    expect(again).to_be_visible()
+    expect(reason).to_have_value(why_moved)
+    expect(dialog.get_by_role("button", name="Record the new scan")).to_have_attribute(
+        "aria-disabled", "true"
+    )
+    expected_refusals(page, "409")
+    checked(page)
+    fits(page)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    again.get_by_role("button", name=re.compile("^The tube from A1, moved here")).click()
+    expect(dialog.get_by_text(f"{QUOTED} at A3: the tube from A1, moved here.")).to_be_focused()
+    fresh = by_slot(reread)["A1"]
+    with page.expect_response("**/api/v1/reconciliations/*/scans") as accepted:
+        move.click()
+    assert accepted.value.status == 200
+    assert accepted.value.request.post_data_json["reviewed_lines"] == [review(fresh)]
+    expect(dialog).to_have_count(0)
+    expect(page.get_by_text("A3: BUFFER A, moved from A1.")).to_be_visible()
+
+    # Another tube with the label is one step: no reason, and the others stay.
+    page.get_by_role("gridcell", name=re.compile(r"^A4, ")).click()
+    page.get_by_role("textbox", name="What’s in A4").fill(BUFFER)
+    page.get_by_role("textbox", name="What’s in A4").press("Enter")
+    four = page.get_by_role("region", name=f"{QUOTED} at A4 is…")
+    expect(
+        four.get_by_role("button", name=re.compile("^The tube from A2, moved here"))
+    ).to_be_visible()
+    expect(
+        four.get_by_role("button", name=re.compile("^The tube from A3, moved here"))
+    ).to_be_visible()
+    four.get_by_role("button", name=re.compile("^Another tube")).click()
+    expect(page.get_by_text("A4: BUFFER A, recorded as another tube.")).to_be_visible()
+    expect(page.get_by_role("dialog")).to_have_count(0)
+
+    # The moved line kept its ID; its sibling at A2 is as it was.
+    after = by_slot(send(editor, "GET", path)[1])
+    assert set(after) == {"A2", "A3", "A4"}
+    assert after["A3"]["id"] == a1["id"] and after["A2"] == a2
+    assert after["A4"]["id"] not in {a1["id"], a2["id"]}
+    events = list(reversed(send(editor, "GET", f"{path}/history")[1]["items"]))
+    moved, added = events[-2:]
+    assert (moved["line_id"], moved["reason"]) == (a1["id"], why_moved)
+    assert moved["actor"]["id"] == str(world.users["admin"].pk)
+    assert moved["before"]["position"] == "A1" and moved["after"]["position"] == "A3"
+    assert moved["after"]["unregistered_action"] == "move"
+    assert added["line_id"] == after["A4"]["id"] and added["reason"] == ""
+    assert added["after"]["unregistered_action"] == "additional"
+    # A2's only observation is the rack read that recorded it.
+    assert [e["id"] for e in events if e["line_id"] == a2["id"]] == [a2["observation"]["id"]]
+
+    page.get_by_text("This count’s history").click()
+    trail = page.get_by_role("list", name="History of this count, newest first")
+    expect(
+        trail.get_by_role("listitem").filter(has_text="Recorded as another tube")
+    ).to_contain_text("BUFFER A at A4")
+    shown = trail.get_by_role("listitem").filter(has_text="Moved from A1")
+    expect(shown).to_contain_text("· Admin")
+    expect(shown).to_contain_text(f"“{why_moved}”")
+    # Each line is named with where it is: three read the same label.
+    to_resolve = page.get_by_role("region", name="To resolve")
+    for slot in ("A2", "A3", "A4"):
+        expect(
+            to_resolve.get_by_role("combobox", name=f"What to do about BUFFER A at {slot}")
+        ).to_be_visible()
+    expected_refusals(page, "409")
+    checked(page)
+    fits(page)
+    page.context.close()
+    editor.context.close()
