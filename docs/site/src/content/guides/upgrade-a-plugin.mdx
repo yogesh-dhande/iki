@@ -1,0 +1,275 @@
+---
+title: Upgrade a plugin without losing history
+description: Change a plugin that deployments already run, make the migration that carries its records' values and history forward, test the upgrade from the deployed commit, check the deployment's records, and release it.
+audience: build
+order: 30
+reference:
+  - { label: Plugin manifest, href: /reference/plugin-spec/plugin/ }
+  - { label: Entity type, href: /reference/plugin-spec/entity-type/ }
+  - { label: Field, href: /reference/plugin-spec/field/ }
+  - { label: The iki CLI, href: /reference/cli/ }
+---
+
+A deployment keeps every value its plugins' records have had, in each type's history table. An
+upgrade changes the plugin's manifests and adds a migration that changes those tables to match,
+current values and history alike. Before it's released, the upgrade is tested from the commit the
+deployment runs, and the deployment's own records are checked against it.
+
+This page follows one upgrade of the plugin template, `acme/example`: its `Sample` type gets a
+`concentration`.
+
+## Start from the deployed commit
+
+Find the commit each deployment pins in its lockfile, `plugins.lock.yaml`:
+
+```yaml
+plugins:
+  - name: acme/example
+    git: https://github.com/acme/iki-plugin-example.git
+    sha: <the deployed commit>
+    state: active
+```
+
+Branch from that commit. Keep the plugin's name, which is in every table it made, and every
+migration it has: a deployment has applied them, and new ones follow them. The action tests at
+that commit become the upgrade test's sample records, so they should hold representative values.
+
+## Change the manifests
+
+- Increase the plugin's [`version`](/reference/plugin-spec/plugin/#version) for the release.
+- Increase a type's [`schema_version`](/reference/plugin-spec/entity-type/#schema_version) when what
+  its records may hold changes: a field added, removed or retyped, or a rule tightened. A new
+  label, description, display unit, link or index doesn't count. Plugins that depend on the type
+  pin its schema versions, so check that their constraints take the new one.
+- Add a field as optional. Records made before it have no value, so a required field without a
+  `default` is a blocking finding in the deployment's check below.
+- Remove a field by marking it [`removed: true`](/reference/plugin-spec/field/#removed). Its column
+  goes and its history stays readable. A field that's simply deleted from the manifest is refused.
+- Rename a field by renaming it in the manifest, and answer yes when the migration asks whether it
+  was renamed. Its values and history move to the new name.
+- A field's type changes only when its history can follow: text stays text, and whole numbers may
+  become decimals. A quantity's unit can change, and the migration converts its stored values,
+  current and past.
+- Types and extensions can't be deleted.
+- Remove a state with `removed: true` and a `moved_to` for the records in it: see
+  [Removing states](/guides/write-a-plugin/states/#removing-states). Each record it moves gets a
+  revision of its own.
+
+The template's change adds one optional field, so `Sample` goes from schema version 1 to 2 and the
+plugin from 0.1.0 to 0.2.0:
+
+```yaml
+# types/sample.yaml
+schema_version: 2
+fields:
+  # …
+  storage: { type: string, max_length: 100, indexed: true }
+  concentration: { type: quantity, unit: mg/mL, min: 0, description: "Its concentration, as measured." }
+```
+
+## Make the migration
+
+```console
+$ iki plugin validate . --with ../iki/plugins/dna
+✓ acme/example 0.2.0 is valid: 1 entity type, 1 extension, 1 setting, 3 actions, 2 environments, 1 workflow, 1 trigger, 1 component.
+$ iki plugin makemigrations . --with ../iki/plugins/dna
+Migrations for 'acme__example':
+  migrations/0002_sample_concentration_sample_history_concentration.py
+    + Add field concentration to sample
+    + Add field concentration to sample_history
+    + Create constraint acme__example_sample__concentration__finite on model sample
+    + Create constraint acme__example_sample__concentration__min on model sample
+```
+
+The migration adds the column to the type's table and to its history table, where it's empty for
+every earlier revision, and the database constraints for the field's limits. Review it as code:
+
+```python
+operations = [
+    iki_server.plugins.operations.AddPluginField(
+        model_name='sample',
+        name='concentration',
+        field=iki_server.entities.fields.QuantityField(null=True, unit='mg/mL'),
+    ),
+    migrations.AddField(
+        model_name='sample_history',
+        name='concentration',
+        field=iki_server.entities.fields.QuantityField(null=True, unit='mg/mL'),
+    ),
+    # …the constraints for its limits
+]
+```
+
+`--dry-run` shows what a migration would do and writes nothing. A field deleted from the manifest
+is refused, with what to do instead:
+
+```console
+$ iki plugin makemigrations . --with ../iki/plugins/dna
+error: `notes` is gone from acme/example.Sample. Iki keeps every field's history, so a field can't be deleted.
+  If you renamed it, run this again and answer yes when asked whether it was renamed.
+  If you no longer want it, put it back and mark it `removed: true`: its column goes, its history stays.
+```
+
+Renamed to `comments`, and confirmed, it moves the field's history with it:
+
+```console
+$ iki plugin makemigrations . --with ../iki/plugins/dna --dry-run
+Was sample.notes renamed to sample.comments (a TextField)? [y/N] y
+Migrations for 'acme__example':
+  migrations/0003_remove_sample_notes_fts_7432e696415e1f3fb1da_and_more.py
+    - Remove constraint acme__example_sample__notes__not_empty from model sample
+    - Remove index notes_fts_7432e696415e1f3fb1da from sample
+    ~ Rename field notes on sample to comments
+    ~ Rename field notes on sample_history to comments
+    ? Record that sample_history.notes is now comments
+    + Create index comments_fts_bd75d0a918ddcb61a on SearchVector(F(comments)) on model sample
+    + Create constraint acme__example_sample__comments__not_empty on model sample
+```
+
+`--no-input` asks nothing, so it can't detect a rename: make a rename's migration interactively.
+
+## Test the upgrade from the deployed commit
+
+`iki plugin test --upgrade-from` takes the deployed commit and a PostgreSQL server where it can
+make a scratch database, from `--database` or `IKI_TEST_DATABASE_URL`. A local server for it:
+
+```sh
+docker run -d --rm --name iki-upgrade-test -e POSTGRES_PASSWORD=ci-only -p 5432:5432 postgres:18
+```
+
+On the scratch database, it:
+
+1. compares each type at the deployed commit with the type now, and fails if what its records may
+   hold changed and its `schema_version` didn't;
+2. deploys the plugin as it was at that commit, and creates that commit's action-test records as
+   samples;
+3. deploys the plugin as it is now, and checks every sample is there with its history;
+4. deploys the earlier commit again, as a rollback, and checks each sample has its values back;
+5. drops the database.
+
+The action tests run before it. With the field added and `schema_version` still 1:
+
+```console
+$ iki plugin test . --with ../iki/plugins/dna --upgrade-from main \
+    --database postgres://postgres:ci-only@localhost:5432/postgres
+Running 2 test(s) of acme/example 0.1.0:
+  ok      default_storage  (0.2s)
+  ok      tidied  (0.2s)
+2 passed in 0.3s.
+Upgrading acme/example from f91fd9276bba (0.1.0) to 0.1.0 on the scratch database iki_upgrade_568f4bb4, with 3 sample(s):
+  FAILED  each type whose fields changed has a higher schema_version
+          acme/example.Sample changed (added concentration), and its schema_version is still 1. Increase it to 2: plugins that depend on acme/example pin its types' schema versions.
+```
+
+With `schema_version: 2` and the plugin's `version` still 0.1.0, it passes, and says so:
+
+```console
+Upgrading acme/example from f91fd9276bba (0.1.0) to 0.1.0 on the scratch database iki_upgrade_cb19ae67, with 3 sample(s):
+  ok      each type whose fields changed has a higher schema_version
+          Note: the migrations changed, and acme/example's version is still 0.1.0. Increase it when you release this, so a deployment's history tells the two apart.
+  ok      migrated to the earlier commit and made the samples  (24.4s)
+  ok      upgraded: the samples and their history are intact  (1.8s)
+  ok      rolled back: the samples have their values  (1.6s)
+```
+
+And with the version at 0.2.0:
+
+```console
+$ iki plugin test . --with ../iki/plugins/dna --upgrade-from main \
+    --database postgres://postgres:ci-only@localhost:5432/postgres
+Running 2 test(s) of acme/example 0.2.0:
+  ok      default_storage  (0.2s)
+  ok      tidied  (0.2s)
+2 passed in 0.3s.
+Upgrading acme/example from f91fd9276bba (0.1.0) to 0.2.0 on the scratch database iki_upgrade_c3d67902, with 3 sample(s):
+  ok      each type whose fields changed has a higher schema_version
+  ok      migrated to the earlier commit and made the samples  (26.2s)
+  ok      upgraded: the samples and their history are intact  (1.7s)
+  ok      rolled back: the samples have their values  (1.7s)
+```
+
+For an upgrade meant to be one-way, `--no-rollback` skips the rollback. Say in the release notes
+why it can't be reversed, and how a deployment recovers. When the deployed commit's tests don't
+hold a value the migration changes, such as one in a field that's renamed or converted, add a test
+that does, at the base, or test the migration in Python against such records.
+
+The plugin template's CI workflow runs the same test on every pull request, from its base commit:
+see [Validate and test a plugin in CI on GitHub](/guides/test-a-plugin-in-ci/).
+
+## Check a deployment's records
+
+The upgrade test uses the plugin's own samples. `iki plugin preflight` checks the candidate
+against the records a deployment holds, before it's promoted there, and changes nothing. Build the
+plugin with the dependencies the deployment pins, then send its `manifest.json`:
+
+```console
+$ iki plugin build . ../iki/plugins/dna --output build/plugins
+Built build/plugins/iki_plugin_iki__dna
+Built build/plugins/iki_plugin_acme__example
+$ iki plugin preflight build/plugins/iki_plugin_acme__example/manifest.json --url https://iki.example.org
+```
+
+For a promotion, build from the deployment's configuration repository instead, so the manifest has
+the deployment's settings and pinned dependencies: `iki deploy build deployments/production
+--output build/plugins`.
+
+Run it as an Org Admin who can read every project, archived ones included. Sign in through the
+Python SDK with `iki.login("https://iki.example.org", scopes=["read", "admin"])`, or set `IKI_URL`
+and `IKI_TOKEN` to an all-project token with the `read` and `admin` scopes. Without either, it
+stops:
+
+```console
+$ iki plugin preflight build/plugins/iki_plugin_acme__example/manifest.json --json
+iki plugin preflight: build/plugins/iki_plugin_acme__example/manifest.json: Which Iki? Sign in with iki.login('https://iki.example.com'), or set IKI_URL.
+```
+
+The report names the deployment's configuration revision and the candidate's, then lists each
+type with how many records it has, and each finding about them: whether it's blocking, what it's
+about (a field's new limits, a rule, a unit or a state), how many records it affects, and up to
+five of their IDs. Checks the database can answer for every record give exact counts. Checks that
+read a sample of records say how many they read, and their counts are lower bounds. `--json`
+prints the whole report, to keep with the review.
+
+It exits with 0 when there's nothing blocking, 1 when there are blocking findings or a check read
+only a sample, and 2 when it couldn't check. An admin can also upload the `manifest.json` under
+**Admin → Plugins**, on the plugin's page, and download the report.
+
+Fix a blocking finding with a migration that remedies the records, or a change to the manifests,
+and check again. The deployment's migrate job runs the same check before it writes, and stops on
+a blocking finding unless the promotion acknowledges that candidate in the deployment's
+`values.yaml`:
+
+```yaml
+migrate:
+  acknowledgePreflight:
+    - "<candidate_revision>"
+```
+
+An acknowledgement applies to that candidate only. The database's constraints still apply.
+
+## Release it
+
+1. Commit the version, the schema versions, the new migration, the tests and the release notes
+   together, in one pull request, and merge it when its checks pass.
+2. Keep earlier releases and their commits: deployments pin commits, and a rollback goes back to
+   one.
+3. In each deployment's configuration repository, pin the new commit in `plugins.lock.yaml` in a
+   pull request, staging before production. Its build checks the plugin with the others the
+   deployment installs: see
+   [Configure a deployment's plugins and compute](/guides/configure-plugins-and-compute/).
+4. When it's merged and rolled out, the migrate job runs the new migrations before any new server
+   starts. Workers lease only runs launched with the plugin code they have, so a run started before
+   the upgrade finishes on the old code.
+
+A rollback reverts the pull request that changed the deployment's images. The migrate job reverses
+the migrations the older plugin doesn't have, and refuses, changing nothing, if reversing them
+could lose data entered since. The deployment is then restored from its backup.
+
+## Upgrades for a coding agent
+
+The template's `.agents/skills/iki-upgrade-plugin/SKILL.md` walks Codex and Claude Code through the
+same steps, with a script that builds the candidate and runs the preflight:
+
+```sh
+sh .agents/skills/iki-upgrade-plugin/scripts/build-and-preflight.sh acme/example . ../iki/plugins/dna
+```
