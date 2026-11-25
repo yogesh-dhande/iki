@@ -78,8 +78,8 @@ def check_seed(atlas: Project) -> None:
         "iki/dna.consensus",
         "iki/lots.compute_oligo_lot",
         "iki/mouse_strains.register_mgi_strain",
-        "iki/oligo.register_oligonucleotide",
         "iki/plasmid.annotate_dna_sequence",
+        "iki/plasmid.assemble",
         "iki/plasmid.register_plasmid",
         "iki/polymer.inspect_bigsmiles",
         "iki/protein.align_multiple",
@@ -92,13 +92,19 @@ def check_seed(atlas: Project) -> None:
         "iki/protein.translate",
         "iki/small_molecule.substructure_search",
     }
-    completed = ActionRun.objects.filter(project=atlas, status=RunStatus.SUCCEEDED).values_list(
-        "action", flat=True
-    )
+    completed = ActionRun.objects.filter(project=atlas, status=RunStatus.SUCCEEDED)
     missing.extend(
         f"{atlas.name}: no successful run for {name}"
-        for name in sorted(expected_actions.difference(completed))
+        for name in sorted(expected_actions.difference(completed.values_list("action", flat=True)))
     )
+    # The conjugate and lot scenarios also register oligos. Only this scenario
+    # registers nusinersen, then reuses its record from another representation.
+    registrations = completed.filter(action="iki/oligo.register_oligonucleotide")
+    nusinersen = registrations.filter(
+        params__name="nusinersen", effects__entity__type="iki/oligo.Oligonucleotide"
+    ).values("effects__entity_id")
+    if not registrations.filter(effects__kind="reused", effects__entity_id__in=nusinersen).exists():
+        missing.append(f"{atlas.name}: no reused nusinersen oligonucleotide")
     if missing:
         sys.exit("Missing dev seed evidence:\n" + "\n".join(missing))
     sys.stdout.write(f"Verified the domain seed and signed use cases for {atlas.slug}.\n")
