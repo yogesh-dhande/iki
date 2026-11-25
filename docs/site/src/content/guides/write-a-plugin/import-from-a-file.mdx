@@ -1,0 +1,517 @@
+---
+title: Import records from a file
+description: Write an action that takes a file, such as a core facility's QC report, and creates or updates records from its rows, each saying where it came from.
+audience: build
+order: 125
+reference:
+  - { label: "Action manifest: params", href: /reference/plugin-spec/action/#params }
+  - { label: "Action manifest: match_on", href: /reference/plugin-spec/action/#effects.creates.match_on }
+  - { label: "Run input: files", href: /reference/plugin-spec/run-input/#files }
+  - { label: "Run output: origin", href: /reference/plugin-spec/run-output/#creates.origin }
+  - { label: iki/small_molecule.import_sdf, href: /reference/plugins/small-molecule/#import_sdf }
+  - { label: iki/protein.import_proteins, href: /reference/plugins/protein/#import_proteins }
+---
+
+## When an import needs a plugin
+
+Anyone who can add records to a project can import a spreadsheet's rows as records of one type,
+with no plugin ([Import records from a spreadsheet](/use-cases/import-records-from-a-spreadsheet/)).
+Write an import action when that isn't enough:
+
+- the file is an instrument's or a vendor's own layout, such as an SDF, a FASTA file, or a report
+  with values above its table that every record needs
+- one row becomes several records that refer to each other
+- importing needs science: standardising a structure, reading a sequence's features, checking a
+  value against what's possible
+- the file comes again, revised, and should update the records it made
+- it runs as a step of a workflow, with later steps on what it made
+
+This page follows one such import. A genomics core sends the lab an XLSX QC report for each order
+of RNA samples: the order's number and the day the core received it above a table, then a row for
+each sample with its concentration, RIN, A260/280 and whether it passed QC. The core sends the
+report again as the last samples finish QC, so a second import of it must update the samples, not
+add them again.
+
+## The records it makes
+
+The plugin, `acme/genomics_core`, keeps an order and its samples. Each has a
+[`unique`](/reference/plugin-spec/field/#unique) field for the core's own ID, so the import can
+match the records it made before:
+
+```yaml
+# types/core_order.yaml
+apiVersion: iki/v1
+kind: EntityType
+name: CoreOrder
+label: Core order
+schema_version: 1
+hrid: { prefix: GCO }
+description: An order of samples the genomics core received from the lab.
+fields:
+  order_number:
+    type: string
+    label: Order number
+    required: true
+    immutable: true
+    unique: true
+    indexed: true
+    max_length: 32
+  received_on: { type: date, label: Received }
+display: { title: "{{ order_number }}" }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: CoreSample
+label: Core sample
+schema_version: 1
+hrid: { prefix: GCS }
+description: A sample the genomics core received, and its QC.
+fields:
+  core_id:
+    type: string
+    label: Core ID
+    required: true
+    immutable: true
+    unique: true
+    indexed: true
+    max_length: 32
+  order: { type: ref, to: CoreOrder, required: true, immutable: true }
+  name: { type: string, required: true, max_length: 200 }
+  concentration: { type: quantity, unit: ng/uL, min: 0 }
+  rin: { type: float, label: RIN, min: 1, max: 10 }
+  a260_280: { type: float, label: A260/280, min: 0 }
+  qc: { type: enum, label: QC, values: [pending, pass, fail], default: pending }
+display: { title: "{{ name }}" }
+```
+
+A unique field is a string, `indexed`, with a `max_length`. No two records of a project share its
+value, whatever writes them ([IDs from other systems](/guides/write-a-plugin/fields/#ids-from-other-systems)).
+
+## The action
+
+```yaml
+# actions/import_qc_report.yaml
+apiVersion: iki/v1
+kind: Action
+name: import_qc_report
+label: Import the genomics core's QC report
+description: >-
+  Reads the core's QC report, an XLSX workbook: its order, from the lines above the table, and a
+  core sample for each row, matched by its core ID, so a revised report updates the samples it
+  made before. Each records the report and the row it came from.
+params:
+  report:
+    type: file
+    label: QC report
+    required: true
+    media_types: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
+    max_size: 20MiB
+  on_error:
+    type: enum
+    label: Rows that can't be imported
+    values: [fail, skip]
+    default: fail
+    description: >-
+      Fail: import nothing, and name each row that can't be. Skip: import the rest, and name the
+      rows left out.
+effects:
+  creates:
+    - { type: CoreOrder, match_on: order_number }
+    - { type: CoreSample, cardinality: many, match_on: core_id }
+runs_on: { tier: backend, environment: report-tools }
+command: [python, ./scripts/qc_report.py]
+deterministic: true
+metrics:
+  rows: { label: Rows, description: The samples the report listed. }
+  skipped: { label: Skipped, description: The rows it couldn't import and left out. }
+timeout: 10m
+```
+
+- **The file is a param.** A [`file`](/reference/plugin-spec/action/#params.type) param takes one
+  file, of the [`media_types`](/reference/plugin-spec/field/#media_types) it names and no larger
+  than its [`max_size`](/reference/plugin-spec/field/#max_size). It never has a default, since
+  the file is the person's to choose. On the project's **Run an action** page it offers the
+  project's files that fit, or an upload, and at launch Iki checks that the person can read the
+  file. List every media type the file may arrive as: Iki's own CSV imports also take
+  `text/plain`.
+- **Several files are a list.** A param of `type: list` with
+  [`items`](/reference/plugin-spec/action/#params.items) `{ type: file, media_types: …, max_size: … }`
+  takes several, in the order chosen, with `min_items` and `max_items`, and no default either. The
+  proteomics plugin's [`import_search`](/reference/plugins/proteomics/#import_search) takes up to
+  eight search reports.
+- **An import has no inputs**, as nothing it reads is a record. An import onto a record, such as
+  reports onto a proteomics dataset, takes that record as an input too.
+- **`on_error`** is the person's choice of what a bad row does. Iki's own imports name it so.
+- **What it may create** is in [`effects.creates`](/reference/plugin-spec/action/#effects.creates):
+  one order, and [`cardinality: many`](/reference/plugin-spec/action/#effects.creates.cardinality)
+  samples, each matched on its unique field with
+  [`match_on`](/reference/plugin-spec/action/#effects.creates.match_on). The validator checks that
+  the field is unique (`match-on-not-unique`).
+- **It runs on the backend tier**, Iki's isolated worker pods, so a project's Editors can run it.
+- **It's [`deterministic`](/reference/plugin-spec/action/#deterministic)**: what it writes depends
+  only on the report. Launching it on a report with the same content as one a run already
+  imported reuses that run, and writes nothing; a revised report is new content, and runs.
+
+The environment is a pinned Python environment with openpyxl, MIT-licensed, to read the workbook:
+
+```yaml
+# environments/report-tools.yaml
+apiVersion: iki/v1
+kind: Environment
+name: report-tools
+tiers: [backend]
+resources: { cpu: 0.25, memory: 256Mi }
+python: { version: "3.12", requirements: requirements.txt }
+```
+
+`requirements.txt` pins `openpyxl` and `et-xmlfile` with `==` and their hashes, as
+`uv pip compile --generate-hashes` writes them
+([Pinned packages](/guides/write-a-plugin/actions/#pinned-packages)).
+
+## The command
+
+The worker downloads the report before the command starts and checks its size and SHA-256. The
+param's value in `input.json` is the file's ID, and
+[`files`](/reference/plugin-spec/run-input/#files) describes it by that ID, with the
+[`path`](/reference/plugin-spec/run-input/#files.path) to read it from:
+
+```json
+{
+  "params": { "report": "0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355", "on_error": "fail" },
+  "inputs": {},
+  "files": {
+    "0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355": {
+      "name": "GC-2611-0412 QC.xlsx",
+      "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "size": 11873,
+      "sha256": "5e0b1c7d94f3a2e8b6d0c9f1a4e7b2d8c3f6a9e0b5d2c8f1a7e4b0d3c6f9a2e5",
+      "path": "/tmp/iki-job/inputs/0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355/GC-2611-0412 QC.xlsx"
+    }
+  }
+}
+```
+
+The report's first sheet, as the core writes it:
+
+<div class="table" tabindex="0" role="region" aria-label="The core's QC report">
+  <table>
+    <caption class="sr-only">The first sheet of GC-2611-0412 QC.xlsx, named QC</caption>
+    <thead>
+      <tr><th scope="col">Row</th><th scope="col">A</th><th scope="col">B</th><th scope="col">C</th><th scope="col">D</th><th scope="col">E</th><th scope="col">F</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Order</td><td>GC-2611-0412</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td>2</td><td>Received</td><td>2026-11-16</td><td></td><td></td><td></td><td></td></tr>
+      <tr><td>3</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+      <tr><td>4</td><td>Core ID</td><td>Sample name</td><td>Conc. (ng/µL)</td><td>RIN</td><td>260/280</td><td>QC</td></tr>
+      <tr><td>5</td><td>GC-2611-0412-01</td><td>HepG2 DMSO 24 h rep1</td><td>182.4</td><td>9.6</td><td>2.07</td><td>Pass</td></tr>
+      <tr><td>6</td><td>GC-2611-0412-02</td><td>HepG2 DMSO 24 h rep2</td><td>175.0</td><td>9.4</td><td>2.08</td><td>Pass</td></tr>
+      <tr><td>7</td><td>GC-2611-0412-03</td><td>HepG2 10 µM 24 h rep1</td><td>96.3</td><td>6.1</td><td>2.01</td><td>Fail</td></tr>
+      <tr><td>8</td><td>GC-2611-0412-04</td><td>HepG2 10 µM 24 h rep2</td><td></td><td></td><td></td><td>Pending</td></tr>
+    </tbody>
+  </table>
+</div>
+
+The command reads the order from above the table, then each row, checks it, and writes what it
+found to `output.json`:
+
+```python
+# scripts/qc_report.py
+"""Imports the genomics core's QC report: its order, from the lines above the table, and a core
+sample for each row, each matched on its core ID."""
+
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from openpyxl import load_workbook
+
+PLUGIN = "acme/genomics_core"
+COLUMNS = ("Core ID", "Sample name", "Conc. (ng/µL)", "RIN", "260/280", "QC")
+NAMED = 5  # the rows a failure names, so its ::error line stays short
+
+
+def fail(why: str) -> None:
+    print(f"::error {why}", flush=True)
+    sys.exit(1)
+
+
+def number(cell: object, what: str) -> float | None:
+    if cell in (None, ""):
+        return None
+    try:
+        return float(cell)
+    except ValueError:
+        raise ValueError(f"its {what}, {cell!r}, isn't a number") from None
+
+
+def sample(cells: tuple) -> dict:
+    """A row's values. Blank cells are left out, so a revised report never clears a value."""
+    core_id, name, conc, rin, ratio, qc = (tuple(cells) + (None,) * 6)[:6]
+    values = {"core_id": str(core_id or "").strip(), "name": str(name or "").strip()}
+    if not values["core_id"] or not values["name"]:
+        raise ValueError("it needs a core ID and a sample name")
+    for field, value in (("concentration", number(conc, "concentration")),
+                         ("rin", number(rin, "RIN")), ("a260_280", number(ratio, "260/280"))):
+        if value is not None:
+            values[field] = value
+    if "rin" in values and not 1 <= values["rin"] <= 10:
+        raise ValueError(f"its RIN, {values['rin']}, isn't between 1 and 10")
+    status = str(qc or "pending").strip().lower()
+    if status not in ("pending", "pass", "fail"):
+        raise ValueError(f"its QC, {qc!r}, isn't Pass, Fail or Pending")
+    return {**values, "qc": status, "order": {"$create": "order"}}
+
+
+def main() -> None:
+    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text())
+    file_id = run["params"]["report"]
+    report = run["files"][file_id]
+    skip = run["params"].get("on_error", "fail") == "skip"
+    sheet = load_workbook(report["path"], read_only=True, data_only=True).worksheets[0]
+    rows = [tuple(row) for row in sheet.iter_rows(values_only=True)]
+    top = next((i for i, row in enumerate(rows) if row[:6] == COLUMNS), None)
+    above = {str(row[0]).strip(): row[1] for row in rows[:top or 0] if len(row) > 1 and row[0]}
+    if top is None or not above.get("Order"):
+        fail(f"{report['name']} isn't a QC report: it needs an Order line above a table "
+             f"headed {', '.join(COLUMNS)}.")
+    order = {"order_number": str(above["Order"]).strip()}
+    if isinstance(above.get("Received"), datetime):
+        order["received_on"] = above["Received"].date().isoformat()
+    creates = [{"type": f"{PLUGIN}.CoreOrder", "key": "order", "values": order,
+                "origin": {"source": "Core QC report", "id": f"Order {order['order_number']}",
+                           "file": file_id}}]
+
+    problems, seen, count = [], {}, 0
+    for at, cells in enumerate(rows[top + 1:], start=top + 2):  # rows count from 1
+        if all(cell in (None, "") for cell in cells):
+            continue
+        count += 1
+        try:
+            values = sample(cells)
+            first = seen.get(values["core_id"])
+            if first is not None:
+                raise ValueError(f"it repeats {values['core_id']}, from row {first}")
+        except ValueError as why:
+            problems.append(f"Row {at}: {why}.")
+            continue
+        seen[values["core_id"]] = at
+        creates.append({"type": f"{PLUGIN}.CoreSample", "values": values,
+                        "origin": {"source": "Core QC report", "id": f"{sheet.title}, row {at}",
+                                   "file": file_id}})
+        print(f"::progress {at / len(rows):.2f} Row {at}", flush=True)
+
+    if not count:
+        fail(f"{report['name']} lists no samples.")
+    if problems and (not skip or len(problems) == count):
+        more = f" And {len(problems) - NAMED} more." if len(problems) > NAMED else ""
+        fail(f"{len(problems)} of {count} rows can't be imported, so none was. "
+             + " ".join(problems[:NAMED]) + more)
+    output = {
+        "apiVersion": "iki/v1",
+        "kind": "RunOutput",
+        "creates": creates,
+        "metrics": {"rows": count, "skipped": len(problems)},
+        "messages": [{"level": "warning", "text": f"{p} It was left out."} for p in problems[:100]],
+    }
+    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output))
+
+
+if __name__ == "__main__":
+    main()
+```
+
+## What it writes
+
+For the report above, `output.json` creates the order and four samples:
+
+```json
+{
+  "apiVersion": "iki/v1",
+  "kind": "RunOutput",
+  "creates": [
+    {
+      "type": "acme/genomics_core.CoreOrder",
+      "key": "order",
+      "values": { "order_number": "GC-2611-0412", "received_on": "2026-11-16" },
+      "origin": { "source": "Core QC report", "id": "Order GC-2611-0412", "file": "0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355" }
+    },
+    {
+      "type": "acme/genomics_core.CoreSample",
+      "values": {
+        "core_id": "GC-2611-0412-01",
+        "name": "HepG2 DMSO 24 h rep1",
+        "concentration": 182.4,
+        "rin": 9.6,
+        "a260_280": 2.07,
+        "qc": "pass",
+        "order": { "$create": "order" }
+      },
+      "origin": { "source": "Core QC report", "id": "QC, row 5", "file": "0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355" }
+    },
+    {
+      "type": "acme/genomics_core.CoreSample",
+      "values": {
+        "core_id": "GC-2611-0412-04",
+        "name": "HepG2 10 µM 24 h rep2",
+        "qc": "pending",
+        "order": { "$create": "order" }
+      },
+      "origin": { "source": "Core QC report", "id": "QC, row 8", "file": "0193f6c2-8a41-7d0e-b2f9-4c1e7a90d355" }
+    }
+  ],
+  "metrics": { "rows": 4, "skipped": 0 },
+  "messages": []
+}
+```
+
+Rows 6 and 7's samples are left out of this listing. Iki checks every create against its type,
+and writes all of them in one transaction, or none.
+
+- **Each record says where it came from.** An
+  [`origin`](/reference/plugin-spec/run-output/#creates.origin) gives the `source`, the record's `id`
+  in it, here its sheet and row, and the [`file`](/reference/plugin-spec/run-output/#creates.origin.file)
+  it was read from, one of the run's file params. It can add the
+  [`sha256`](/reference/plugin-spec/run-output/#creates.origin.sha256) of the record as the command
+  read it, as the SDF import does for each record. Iki keeps the origin with the record, under
+  **Imported from** on its page, and again each time an import finds the same record.
+- **One row can make several records.** The order has a
+  [`key`](/reference/plugin-spec/run-output/#creates.key), and each sample refers to it as
+  `{"$create": "order"}`, which becomes the order's ID, whether the run made it or found it
+  ([Records that refer to one another](/guides/write-a-plugin/run-input-and-output/#records-that-refer-to-one-another)).
+- **Values are as the REST API takes them.** A quantity is a number in the field's unit, here
+  ng/µL, and a date is `YYYY-MM-DD`. Convert units in the command.
+- **Leave out what a row doesn't give.** On a record a create matches, a value of `null` clears the
+  field, so the command leaves out blank cells.
+
+A run's `creates` holds at most 10,000, and `output.json` at most 2.5 MB. An import that makes more
+writes them to a creates file instead
+([Creates in a file](/guides/write-a-plugin/run-input-and-output/#creates-in-a-file)), and reports
+its progress with `::progress` lines as it reads, as Iki's SDF import does.
+
+## Import the same report again
+
+A week later the core sends the report again: sample 04 has passed QC, with its concentration, RIN
+and A260/280. Launching the action on the revised report matches each create to a record by its
+`match_on` field:
+
+- **A row that matches a record updates it**: a revision by the run, setting the values the create
+  gives, with the revised report's row as its origin. Sample 04 is updated; its HRID stays.
+- **A row that changes nothing is found again.** The order and samples 01 to 03 get no new
+  revision, and their origins name the revised report too. The run's page counts them as already
+  existing.
+- **A row with no match yet is created.**
+- **Only the project's own records match**, never one shared into it from another project.
+- **A matched record is changed as any edit is.** The person who launched the run must be able to
+  edit it. A value that differs in an `immutable` field, such as a sample moved to another order,
+  fails the run, as does a record that's locked, such as one that's been signed; the run names
+  the record.
+- **A record may come only once.** In a creates file, a second line with the same core ID fails the
+  run. In `creates`, a later create would match the record an earlier one made, and change it. So
+  the command checks for repeats itself, and names both rows.
+
+For a type that's registered by its identity, such as a sequence, a create with no match yet takes
+the project's own record of that identity if that record has no value for the field yet, so a
+record registered before the core knew it takes the core's ID
+([Imports that match records](/guides/write-a-plugin/run-input-and-output/#imports-that-match-records)).
+
+## Report rows that can't be imported
+
+A scientist needs to know which row is wrong, and why, in the file's own terms:
+
+- **To fail the run**, print `::error` and its reason, then exit non-zero. The last `::error`
+  line, of at most 1,000 characters, is what the run's page shows, so name the first few rows and
+  count the rest: `2 of 24 rows can't be imported, so none was. Row 9: its RIN, 11.2, isn't between
+  1 and 10. Row 14: it repeats GC-2611-0412-07, from row 11.` Nothing is written.
+- **To leave rows out**, with `on_error: skip`, write the rest, and a `warning` message for each row
+  left out. A run's output holds at most 100 messages, so name the first 100, and count them all
+  in a metric.
+- **Check rows yourself.** Iki checks every create against its type, and refuses the whole output,
+  naming the create, if one is wrong. A command that checks a row first can name it as the
+  scientist sees it, and leave it out when they asked.
+
+An `error` message about an input record fails only that record's run; an import, with no inputs,
+fails by `::error`.
+
+## Test it
+
+An action test names the workbook in [`files`](/reference/plugin-spec/action-test/#files) and gives
+it to the param as `{ $file: <name> }`:
+
+```yaml
+# tests/qc_report.yaml
+apiVersion: iki/v1
+kind: ActionTest
+name: a_qc_report_makes_its_order_and_samples
+action: import_qc_report
+files: { report: tests/data/GC-2611-0412-two-samples.xlsx }
+params: { report: { $file: report } }
+expect:
+  output:
+    creates:
+      - type: acme/genomics_core.CoreOrder
+        key: order
+        values: { order_number: GC-2611-0412, received_on: "2026-11-16" }
+      - type: acme/genomics_core.CoreSample
+        values: { core_id: GC-2611-0412-01, rin: 9.6, qc: pass, order: { $create: order } }
+        origin: { source: Core QC report, id: "QC, row 5" }
+      - type: acme/genomics_core.CoreSample
+        values: { core_id: GC-2611-0412-04, qc: pending, order: { $create: order } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_repeated_core_id_names_both_rows
+action: import_qc_report
+files: { report: tests/data/GC-2611-0412-repeated.xlsx }
+params: { report: { $file: report } }
+expect: { error: "Row 7: it repeats GC-2611-0412-02, from row 6." }
+```
+
+Make the test workbooks from real reports with the samples' names replaced, or write them, and
+keep them small. A test runs the command as a worker would, with no project, so what `match_on`
+matches is the server's to check
+([Test actions with fixtures](/guides/write-a-plugin/action-tests/)).
+
+## Run it from a workflow
+
+A workflow can take the report as its own param and give it to the import, then run later steps on
+the samples it made or found ([A step for each record](/guides/write-a-plugin/workflows/#a-step-for-each-record)):
+
+```yaml
+params:
+  report:
+    type: file
+    required: true
+    media_types: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
+    max_size: 20MiB
+steps:
+  import:
+    action: import_qc_report
+    params: { report: $params.report }
+  # later steps take its samples as $steps.import.created.CoreSample
+```
+
+A trigger on a schedule gives its action fixed params, with nobody to choose a file, so it suits an
+import that fetches what's new from a LIMS or a database
+([Run actions on a schedule](/guides/write-a-plugin/triggers/#run-actions-on-a-schedule)).
+
+## Iki's own imports
+
+Read these first-party actions and their scripts before writing your own:
+
+- [`iki/small_molecule.import_sdf`](/reference/plugins/small-molecule/#import_sdf) reads an SDF a
+  record at a time, up to a million, and registers each structure as a compound, standardised and
+  identified by its standard InChIKey. With **Register a batch of each**, each record is also a
+  batch that refers to its compound, in the same run. A compound Iki has already is found again.
+  It has `on_error`, metrics for the records read and skipped, and the SHA-256 of each record in
+  its origin, and without batches, past a thousand compounds, it writes a creates file.
+- [`iki/protein.import_proteins`](/reference/plugins/protein/#import_proteins) reads a FASTA file a
+  line at a time and registers each record as a protein, with what UniProt's or NCBI's headers
+  say, and each organism they name as one whose name only fills an empty field
+  ([Entries registered already](/guides/write-a-plugin/run-input-and-output/#entries-registered-already)).
+  A record it can't read fails the whole import, naming it.
+- [`iki/oligo.import_oligonucleotides`](/reference/plugins/oligo/#import_oligonucleotides) and
+  [`iki/strains.import_base_strains`](/reference/plugins/strains/#import_base_strains) read CSV
+  files, by their columns' names.

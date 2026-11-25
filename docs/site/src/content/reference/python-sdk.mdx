@@ -392,6 +392,17 @@ Iki to check the stored bytes, then returns the file's ID, name, size, media typ
 takes a path or an open binary stream (give it `name=` if the stream has none), `acquired=` for
 when the data was acquired, and `timeout=`. It needs project Editor access and the `write` scope.
 
+A file in a bucket location your administrators approved can be registered where it is, instead:
+
+```python
+plate = iki.files.register("s3://lab-data/runs/plate-7.csv", project="qc-lab", media_type="text/csv")
+```
+
+The bucket must keep versions. Iki pins the object's current version, or the one `version=` names,
+so a later write to the key leaves the file as it was, and reads it to learn its SHA-256 before
+returning the file. It takes `name=`, `acquired=` and `timeout=` as `upload` does. A location that
+isn't approved, or an object without a version, raises `iki.Invalid`.
+
 ## Spreadsheet imports
 
 ```python

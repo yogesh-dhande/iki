@@ -299,9 +299,9 @@ MCP server's `get_entity` give both, Iki's record first.
 
 ### Imports that match records
 
-An import from a LIMS or an ELN matches its records to Iki's with
-[`match_on`](/reference/plugin-spec/action/#effects.creates.match_on), one of the type's unique
-fields. The example LIMS connector matches on each protein's LIMS ID:
+An import from a LIMS or an ELN, or of a file that comes again revised, matches its records to
+Iki's with [`match_on`](/reference/plugin-spec/action/#effects.creates.match_on), one of the type's
+unique fields ([Import records from a file](/guides/write-a-plugin/import-from-a-file/)). The example LIMS connector matches on each protein's LIMS ID:
 
 ```yaml
 effects:

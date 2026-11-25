@@ -1,0 +1,261 @@
+---
+title: Import records from a spreadsheet
+description: Bring a spreadsheet's rows into a project as records of one type, checked row by row before anything is written, and the other ways data comes into Iki.
+audience: bench
+topic: Imports
+category: data-tracking
+order: 5
+prerequisites:
+  plugins:
+    - { name: iki/inventory }
+    - { name: iki/protein }
+  roles:
+    - { role: Lab member, needs: "Project Editor" }
+  data:
+    - { name: "A protein production core's manifest of eight tubes, ppc-manifest-2611.csv (synthetic)", source: "Written for this example", licence: "Apache-2.0, with Iki" }
+  services: []
+concepts:
+  - { label: "Records and revisions", href: /concepts/records-and-revisions/ }
+  - { label: "Registries and project records", href: /concepts/registries-and-project-records/ }
+reference:
+  - { label: "POST /projects/{project_id}/spreadsheet-imports", href: /reference/api/post-projects-project-id-spreadsheet-imports/ }
+  - { label: "GET /entities/{ref}/origins", href: /reference/api/get-entities-ref-origins/ }
+  - { label: "POST /registrations", href: /reference/api/post-registrations/ }
+  - { label: "Spreadsheet imports in Python", href: /reference/python-sdk/#spreadsheet-imports }
+  - { label: iki/inventory.Tube, href: /reference/plugins/inventory/#Tube }
+---
+
+import ExampleUses from "../../components/ExampleUses.astro";
+import Step from "../../components/assay/Step.astro";
+
+## In short
+
+The institute's protein production core has purified three KRAS pathway proteins and sends eight
+barcoded tubes with a manifest, a CSV file its LIMS exported. The lab imports the manifest as
+**Tube** records of the inventory plugin, each holding one of the proteins the project has
+registered.
+
+Any type whose records people can make can be imported this way, with no plugin of its own: a
+sheet's rows become records of the type you choose, its columns their fields. Iki checks every row
+before it writes any, and writes them all in one run, or none. Each record keeps the workbook,
+sheet and row it came from.
+
+<ExampleUses prerequisites={frontmatter.prerequisites} />
+
+The core's manifest, as it arrived:
+
+<div class="table" tabindex="0" role="region" aria-label="The core's manifest">
+  <table>
+    <caption class="sr-only">The core's manifest, ppc-manifest-2611.csv</caption>
+    <thead>
+      <tr><th scope="col">Row</th><th scope="col">Barcode</th><th scope="col">Label</th><th scope="col">Protein</th><th scope="col">Conc. (ug/mL)</th><th scope="col">Prepared</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>2</td><td>PPC2611-0418</td><td>KRAS G12C 1.25 mg/mL</td><td>KRAS G12C (1-169)</td><td>1.250</td><td>03.11.2026</td></tr>
+      <tr><td>3</td><td>PPC2611-0419</td><td>KRAS G12C 1.25 mg/mL</td><td>KRAS G12C (1-169)</td><td>1.250</td><td>03.11.2026</td></tr>
+      <tr><td>4</td><td>PPC2611-0420</td><td>KRAS WT 0.98 mg/mL</td><td>KRAS WT (1-169)</td><td>980</td><td>03.11.2026</td></tr>
+      <tr><td>5</td><td>PPC2611-0421</td><td>KRAS WT 0.98 mg/mL</td><td>KRAS WT (1-169)</td><td>980</td><td>03.11.2026</td></tr>
+      <tr><td>6</td><td>PPC2611-0422</td><td>SOS1 cat 2.1 mg/mL</td><td>SOS1 (564-1049)</td><td>2,1 mg/mL</td><td>14.11.2026</td></tr>
+      <tr><td>7</td><td>PPC2611-0423</td><td>SOS1 cat 2.1 mg/mL</td><td>SOS1 (564-1049)</td><td>2,1 mg/mL</td><td>14.11.2026</td></tr>
+      <tr><td>8</td><td>PPC2611-0423</td><td>SOS1 cat 2.1 mg/mL</td><td>SOS1 (564-1049)</td><td>2,1 mg/mL</td><td>14.11.2026</td></tr>
+      <tr><td>9</td><td>PPC2611-0425</td><td>PDEδ 1.6 mg/mL</td><td>PDE6D</td><td>1.600</td><td>14.11.2026</td></tr>
+    </tbody>
+  </table>
+</div>
+
+The core writes numbers with a decimal comma and dates day first, and its columns are separated by
+semicolons. Row 8 repeats row 7's barcode, and the project hasn't registered PDEδ yet.
+
+<Step n={1} id="workbook" title="Choose the workbook and what its rows are" role="Lab member">
+
+On the project's **Entities** tab choose **Import**, or on the **Tubes** page choose **Import**,
+then the project. Choose **Its rows are: Tubes**, then upload the manifest, or choose one already
+in the project's files.
+
+Iki reads an Excel workbook (`.xlsx`) or a CSV file of up to 100 MiB, with up to a million rows and
+1,000 columns a sheet. It reads the values the workbook saved, never its formulas or macros. A
+workbook with a password, an Excel 97–2003 workbook (`.xls`), or an `.xlsb`, `.ods` or Numbers
+file needs saving as `.xlsx` first. A CSV file can be UTF-8, UTF-16 with its byte order mark, or
+Windows-1252 as Excel writes it, separated by commas, semicolons, tabs or bars: Iki finds which.
+
+The workbook stays in the project's **Files**, and each record the import writes names it. Until
+you import its rows, the import is yours: nobody else sees it.
+
+</Step>
+
+<Step n={2} id="rows" title="Choose the sheet and its rows" role="Lab member">
+
+Iki starts with the first visible sheet, its first row with anything in it as the header, and
+every row after it. Change the **Sheet**, the **Header row** (0 if it has none), the **First row**,
+the **Last row** (empty for the sheet's last), and **Rows to leave out**, such as notes at the
+bottom of a sheet (`5-7, 12`). The page shows the sheet's first rows as you choose.
+
+For the manifest, the header is row 1 and the rows are 2 to 9.
+
+</Step>
+
+<Step n={3} id="columns" title="Map its columns to fields" role="Lab member">
+
+Iki maps a column to the field its header names, ignoring case, punctuation and a unit in brackets,
+or to the one field it abbreviates. Here **Barcode** maps to Barcode, **Prepared** to Prepared, and
+**Conc. (ug/mL)** to Concentration, in µg/mL. Map **Label** to **Name** and **Protein** to
+**Contents** yourself. A column mapped to nothing isn't imported.
+
+Each column is read as its field:
+
+- A **quantity** is in the column's unit, or the cell's own (`2,1 mg/mL`), and kept in the field's:
+  the tubes' concentrations are kept in mg/mL, so 980 µg/mL is 0.98 mg/mL.
+- A **reference** names a record by its ID, its HRID or its name, in any case, among the records
+  you can use in the project: **KRAS G12C (1-169)** is the project's protein of that name. A name
+  several records have is a problem that names them.
+- A **list** is split by `;`, or the separator you choose.
+- A **choice** matches its values in any case, and a **true or false** field reads `yes`, `no`, `x`
+  and the like. The column can say what its own spellings mean, such as `circ.` for circular.
+- A **date** is ISO 8601 (`2026-11-03`), written out (`3 Nov 2026`), or numbers in the sheet's
+  order. A date and time without a time zone needs the column's.
+
+Computed fields, state fields, files and structured fields can't be mapped, and the field list
+says why. Add files to the records once they're imported.
+
+Choose **Save this mapping** to name it for the project: the next sheet whose headers include all
+of its columns is mapped by it, wherever the columns are.
+
+</Step>
+
+<Step n={4} id="locale" title="Say how its numbers and dates are written" role="Lab member">
+
+Iki never guesses how a sheet writes numbers and dates. Until you say, a cell that reads two ways
+is a problem of its own: `1.250` is 1.25 with a decimal point and 1 250 with a decimal comma, and
+`03.11.2026` is 3 November day first and 11 March month first. A cell that reads only one way is
+read so: `2,1` and `14.11.2026`. Cells a workbook stores as numbers or dates read one way only.
+
+For the core's manifest, choose **Decimal mark: A decimal comma** and **Dates written as numbers:
+Day first**. The page shows a few of each column's cells as they now read: `1 250 ug/mL =
+1.25 mg/mL`, and `2026-11-03`. Read with a decimal point, the KRAS G12C tubes would have been a
+thousand times too dilute.
+
+Where a date column lost its format and shows plain numbers such as `46023`, choose **Plain numbers
+in date columns are Excel serial dates**. The run that imports the rows keeps how they were read.
+
+</Step>
+
+<Step n={5} id="preview" title="Preview every row" role="Lab member">
+
+The preview checks every row as it would be written: each cell as its field, each record against
+the type's rules, and each unique value, such as a tube's barcode, against the project and the
+rows before it. It counts what importing each row would do:
+
+| What it would do                 | What that means                                                                     |
+| -------------------------------- | ----------------------------------------------------------------------------------- |
+| **New record**                   | A record of the project's own.                                                      |
+| **New registry entry**           | A record of a new entry, for a type registered by its identity, such as a sequence. |
+| **Registered already**           | A record of an entry another project registered.                                    |
+| **In the project already**       | The project's record of that entry, kept as it is.                                  |
+| **Same as an earlier row**       | The same entry as an earlier row: one record.                                       |
+| **Has problems**                 | What's wrong, by its column, such as a reference that names no record.              |
+
+Rows that a plugin's rule would hold for review are counted too: they're imported, and held.
+
+For the manifest, 6 rows are new records and 2 have problems, listed first:
+
+- Row 8: **Barcode “PPC2611-0423” is row 7’s too: no two share it.**
+- Row 9: **Contents** names no record by its ID, HRID or name: the project has no PDEδ yet.
+
+Changing anything, such as the mapping, starts the preview afresh.
+
+</Step>
+
+<Step n={6} id="import" title="Import the rows" role="Lab member">
+
+Rows with problems stop the import unless you choose **Leave out the 2 rows with problems**. Give a
+**Why**, such as "Core delivery PPC-2611, KRAS and SOS1 tubes", for the run and the audit trail,
+and choose **Import 6 rows**.
+
+One run of **Import a spreadsheet** writes the rows, in row order, so the tubes' HRIDs follow the
+manifest's order. It checks every row again first, as the project is then, and writes all of them
+or none. If someone used one of the barcodes since the preview, nothing is imported, and the
+import says which row and column.
+
+</Step>
+
+<Step n={7} id="check" title="Check what it imported" role="Lab member">
+
+Choose **Show the imported records** for the tubes the run wrote. Each tube's page shows, under
+**Imported from**, the file, its row (`row 4`; for a workbook, its sheet too, such as `Samples,
+row 14`) and the run. Its history names the run, and through it you, and any agent acting for
+you. The rows the run imported are kept as a file of the project too,
+`ppc-manifest-2611 (rows imported).ndjson`, and the audit trail records the import, with the
+workbook, sheet and how its numbers and dates were read.
+
+</Step>
+
+## Import more rows of the same sheet later
+
+The core confirms that row 8 is PPC2611-0424 and sends a corrected manifest, and PDEδ is
+registered in the project. Import the corrected file with **First row: 8**. The import doesn't
+update records it finds: the six tubes are the project's already, so their rows would be problems,
+such as **Barcode “PPC2611-0418” is TUB-000231’s already: no two share it.**
+
+An import you leave for a fortnight is discarded, and the workbook stays in the project. A
+committed import's rows are cleared a fortnight after, and its records, run and files stay.
+
+## When a plugin's import fits better
+
+The spreadsheet import writes one record a row, of one type, as the sheet's columns say. Ask your
+plugin's author for an import action when:
+
+- the file is an instrument's or a vendor's own layout, such as values above the table that every
+  record needs
+- one row becomes several records that refer to each other, such as a sample and its library
+- importing needs science, such as standardising a structure or checking a RIN against a
+  threshold
+- the same file comes again, revised, and should update the records it made, rather than stop at
+  each one the project has
+- it runs as a step of a workflow
+
+[Import records from a file](/guides/write-a-plugin/import-from-a-file/) shows how one is written.
+
+## Other ways data comes into Iki
+
+- **One record at a time**: **New** on a type's page or in a project.
+- **Files**: upload them on a project's **Files** tab, or wherever a file field or an action asks
+  for one. Iki checks each upload against its SHA-256 before it's a file, and its stored bytes never
+  change. When its data was acquired is read from the file where its format records it, such as an
+  AB1 trace, an FCS file, an mzML run, a JCAMP-DX spectrum, an image's EXIF or an OME-TIFF, or a
+  SAM or BAM header; otherwise it's what you say when you upload it.
+- **Files where they already are**: a file in a bucket location your admins approved can be
+  registered in place instead of uploaded, through the REST API or the Python SDK. Its bucket must
+  keep versions: Iki pins the version it registers, so a later write to the same name can't change
+  it, and reads it once to learn its SHA-256. Its page says **Registered where it is**. Keep such
+  buckets under a retention policy: Iki can't stop the bucket's owner from deleting a version.
+- **Plugins' imports**: actions that read a file or fetch from a public database, run from the
+  project's **New** menu, **Run**. Each record they make says where it came from, and one already
+  registered is found again rather than made twice.
+- **Another Iki deployment**: a bundle, with each record's history, imported in a project's
+  **Settings** by an Org Admin who is also the project's Admin. Iki shows what importing it would
+  do before anything changes.
+- **Scripts and agents**: the [Python SDK](/reference/python-sdk/#spreadsheet-imports) imports a
+  spreadsheet the same way, and uploads and registers files. An agent connected through the
+  [MCP server](/reference/python-sdk/#mcp-server) makes records and runs actions, such as a
+  plugin's import, as the person it acts for.
+
+Iki's plugins import these:
+
+<div class="table" tabindex="0" role="region" aria-label="Iki's plugins' imports">
+  <table>
+    <caption class="sr-only">Iki's plugins' imports</caption>
+    <thead>
+      <tr><th scope="col">Plugin</th><th scope="col">From a file</th><th scope="col">From a database</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>DNA</td><td><a href="/reference/plugins/dna/#import_sequences">FASTA, GenBank or SnapGene files</a></td><td><a href="/reference/plugins/dna/#fetch_sequences">NCBI</a></td></tr>
+      <tr><td>Protein</td><td><a href="/reference/plugins/protein/#import_proteins">FASTA files</a>, <a href="/reference/plugins/protein/#import_structure">mmCIF or PDB structures</a></td><td><a href="/reference/plugins/protein/#fetch_proteins">UniProt</a>, <a href="/reference/plugins/protein/#fetch_structures">the PDB</a>, <a href="/reference/plugins/protein/#fetch_structures_from_alphafold_db">AlphaFold DB</a></td></tr>
+      <tr><td>Small molecule</td><td><a href="/reference/plugins/small-molecule/#import_sdf">SDF files</a>, with a batch of each compound</td><td><a href="/reference/plugins/small-molecule/#fetch_from_pubchem">PubChem</a>, <a href="/reference/plugins/small-molecule/#fetch_from_chembl">ChEMBL</a></td></tr>
+      <tr><td>Oligo</td><td><a href="/reference/plugins/oligo/#import_oligonucleotides">CSV or SDF files of HELM</a></td><td></td></tr>
+      <tr><td>Strains</td><td><a href="/reference/plugins/strains/#import_base_strains">A strain catalogue CSV</a></td><td></td></tr>
+      <tr><td>Cell lines</td><td><a href="/reference/plugins/cell-lines/#import_parental_line">A Cellosaurus record</a></td><td></td></tr>
+      <tr><td>Proteomics</td><td><a href="/reference/plugins/proteomics/#import_search">mzTab, MaxQuant, DIA-NN or FragPipe reports</a>, onto a dataset</td><td></td></tr>
+      <tr><td>Sequencing analysis</td><td><a href="/reference/plugins/sequencing-analysis/#import_result">VCF, gene counts or AIRR rearrangements</a>, onto a library</td><td></td></tr>
+    </tbody>
+  </table>
+</div>

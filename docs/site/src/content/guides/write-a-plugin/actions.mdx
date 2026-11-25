@@ -61,8 +61,9 @@ own modes or models is a param.
 - **Params** are values the person launching it gives: [`params`](/reference/plugin-spec/action/#params).
   They take a setting's types (`string`, `text`, `int`, `float`, `bool`, `enum` and lists of
   them), and also `date`, `quantity` and `file`. A file param takes one file, such as one to
-  import, with `media_types` and `max_size`. It never has a default, and it's never a record,
-  which is an input.
+  import, with `media_types` and `max_size`, and a list param whose items are files takes
+  several. Neither has a default, and neither is a record, which is an input
+  ([Import records from a file](/guides/write-a-plugin/import-from-a-file/)).
 
 ### Records the run reads through an input
 
