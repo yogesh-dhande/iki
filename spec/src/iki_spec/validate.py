@@ -2428,6 +2428,19 @@ class _Semantics:
                     else "Give the type an `amount`: its records are things in the lab.",
                 )
             return
+        if (entity_type.amount is not None or amount.material == "id") and any(
+            t.identity for t in lineage
+        ):
+            self.add(
+                "amount-on-identity",
+                f"`{entity_type.name}` has an identity, so each project has one record of each "
+                "of its entries: its records aren't things in the lab, with an amount each.",
+                source,
+                ("amount",) if entity_type.amount is not None else ("name",),
+                key=True,
+                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
+                "that refers to the entry.",
+            )
         if entity_type.amount is None:
             return
         parent = next((t for t in lineage[1:] if t.amount is not None), None)
@@ -2439,17 +2452,6 @@ class _Semantics:
                 ("amount",),
                 key=True,
                 hint="A record has one amount: leave this one off.",
-            )
-        if any(t.identity for t in lineage):
-            self.add(
-                "amount-on-identity",
-                f"`{entity_type.name}` has an identity, so each project has one record of each "
-                "of its entries: its records aren't things in the lab, with an amount each.",
-                source,
-                ("amount",),
-                key=True,
-                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
-                "that refers to the entry.",
             )
         try:
             unit = units.parse(amount.unit)
