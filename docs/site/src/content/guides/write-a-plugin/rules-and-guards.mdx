@@ -18,24 +18,45 @@ can't loop, call out or change anything, and an expression that runs too long is
 ## Rules
 
 A rule is one of three kinds: a `check`, a set of fields that's `unique`, or a range that mustn't
-overlap another. The LIMS example's samples and bookings have checks and a range:
+overlap another. The Samples plugin's samples have checks:
 
 ```yaml
 rules:
-  purity_in_specification:
-    label: Purity in specification
-    description: At least 95%, by SEC or SDS-PAGE.
-    check: record.purity >= 95.0
-    message: >-
-      Purity {{ record.purity }}% is below its specification, at least 95%.
-    hold: { reviewed_by: [qa] }
-  reviewer_isnt_analyst:
-    label: Its reviewer isn't its analyst
-    check: record.reviewer != record.analyst
+  identified_work:
+    check: (record.purpose != null) != (record.run != null)
+    message: Identify the work with either a record or a run.
+    fields: [purpose, run]
+  independent_assignment:
     when: record.reviewer != null && record.analyst != null
-    message: Someone other than its analyst reviews it.
+    check: record.reviewer != record.analyst
+    message: Assign a different reviewer and analyst.
     fields: [reviewer]
 ```
+
+The Lots plugin's oligonucleotide lots keep a lot whose mass is out of its tolerance, and hold it
+for QA's review:
+
+```yaml
+rules:
+  mass_within_tolerance:
+    label: Its mass is its oligonucleotide's
+    check: >-
+      record.measured_mass <= (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) + record.mass_tolerance &&
+      record.measured_mass >= (record.mass_basis == "average" ?
+      record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass) - record.mass_tolerance
+    message: >-
+      Its measured mass, {{ record.measured_mass }} Da, is outside its tolerance of
+      ±{{ record.mass_tolerance }} Da of its oligonucleotide's {{ record.mass_basis }}
+      mass, {{ record.mass_basis == "average" ? record.oligonucleotide.molecular_weight :
+      record.oligonucleotide.monoisotopic_mass }} Da.
+    fields: [measured_mass]
+    hold: { reviewed_by: [qa] }
+```
+
+The Equipment plugin's bookings have a check and a range:
 
 ```yaml
 rules:
@@ -117,25 +138,25 @@ refuse it, as a result out of its specification must be kept as measured:
 A state's [`guards`](/reference/plugin-spec/field/#states.guards) say when it may be set, besides
 [`set_by`](/reference/plugin-spec/field/#states.set_by): each must be true, or the change is
 refused with its message. Which state may follow which, four eyes, and what a record must have
-before it moves on are guards. The LIMS example's approval:
+before it moves on are guards. The Samples plugin's review:
 
 ```yaml
-approved:
-  label: Approved
-  set_by: [reviewer]
+reviewed:
+  label: Reviewed
+  set_by: [iki/lab_roles.reviewer]
   locks: true
-  on_edit: in_testing
-  signatures:
-    - meaning: review
+  signatures: [{ meaning: review }]
   guards:
-    reviewed:
-      description: Only a sample in review is approved.
+    submitted:
       check: state.from == "in_review"
-      message: A sample is approved from In review.
-    four_eyes:
-      check: last.status.in_review == null || last.status.in_review.by != actor.person
-      message: >-
-        You submitted it for review, so someone else approves it.
+      message: Review the signed submission.
+    independent:
+      check: >-
+        last.status.in_review.by != actor.person &&
+        (last.status.retesting == null ?
+         edits.status.pending + edits.status.received + edits.status.in_testing :
+         edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in ["measurements", "notes"]))
+      message: Someone other than the submitter and measurement editors must review this testing cycle.
 ```
 
 A guard's [`check`](/reference/plugin-spec/rule/#guard.check) reads what a rule's does, with every
@@ -148,7 +169,7 @@ state field in `record`, and:
 - `history`: each state field's changes, oldest first, each with `from`, `to`, `by` (the person),
   `agent`, `at` and `reason`.
 - `last`: each state field's latest change into each of its states, or null:
-  `last.status.approved.by`.
+  `last.status.in_review.by`.
 - `holds`: the names of the rules holding the record.
 - `signatures`, for a state set by signing for it: those given for the change so far, each with
   its `index`, `meaning`, `by` (the signer) and `at`, so a plugin says whether one person may give

@@ -15,28 +15,19 @@ service account, who can read the record's project, holding the field's lab role
 one. The API takes a person's ID or email address and gives back their ID, with their name in the
 record's `people`.
 
-The LIMS example's sample names its analyst, its reviewer and its QA, each assigned it in turn:
+The Samples plugin's sample names its analyst and its reviewer, each assigned it in turn:
 
 ```yaml
 fields:
-  due_on:
-    type: date
-    label: Due
-    description: When its results are due, which My work sorts by.
+  due_on: { type: date }
   analyst:
     type: person
-    role: analyst
+    role: iki/lab_roles.analyst
     assignment: { field: status, states: [received, in_testing, retesting] }
-    description: Who tests it. Received samples nobody has are open to analysts.
   reviewer:
     type: person
-    role: reviewer
+    role: iki/lab_roles.reviewer
     assignment: { field: status, states: [in_review] }
-  qa:
-    type: person
-    label: QA
-    role: qa
-    assignment: { field: status, states: [approved] }
 due: due_on
 ```
 
@@ -65,7 +56,7 @@ names: it's on their My work, and they're told it's ready for them.
   are that field's (`unknown-state`). A type without state fields uses `assignment: true`.
 - Only a field naming people can be an assignment (`assignment-not-people`).
 - A state that locks a record locks whom it names too, so name whoever has it next before it gets
-  there: the LIMS example names a sample's QA before it's approved.
+  there, such as a sample's reviewer before its results are recorded.
 - A record whose assignment field is empty, or names someone who can't be named, is open to
   whoever holds the field's lab role, and one of them can take it. A lab role is how a record goes
   to a group, such as a lab's QA; the field names the one person who answers for it.

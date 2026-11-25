@@ -53,8 +53,8 @@ it for every project ([Registries and project records](/concepts/registries-and-
 ### Changes to some fields
 
 On `entity.updated`, [`fields`](/reference/plugin-spec/trigger/#fields) narrows it to changes of
-those fields. The example LIMS plugin writes a record's new name to the LIMS when someone renames
-it in Iki:
+those fields. The example LIMS connector writes a protein's new name to the LIMS when someone
+renames it in Iki:
 
 ```yaml
 on: entity.updated
@@ -75,26 +75,25 @@ states ([Track a record's state](/guides/write-a-plugin/states/)).
 ### Changes runs make
 
 A change a triggered run makes never fires a trigger, so a trigger can't fire itself, or another
-that fires it back. The example LIMS plugin's nightly import is a triggered run, so the records it
-renames don't fire `send_renamed`. A run someone launches by hand is a person's change, and does.
+that fires it back. The example LIMS connector's nightly import is a triggered run, so the proteins
+it renames don't fire `send_renamed`. A run someone launches by hand is a person's change, and does.
 To run one action after another, chain them in a [workflow](/guides/write-a-plugin/workflows/).
 
 ## Give the action what's related to the record
 
 A trigger can give the action's other inputs what's related to the record that fired it, across
-the graph of what depends on what. When a donor's consent is withdrawn, the example LIMS plugin
-holds every aliquot and result derived from them:
+the graph of what depends on what. When a tube is put on hold, the Inventory plugin holds every
+tube split from it or filled from it:
 
 ```yaml
-# plugins/example_lims/triggers/hold_withdrawn_consent.yaml
-on: entity.state_changed
-type: Donor
-field: consent
-states: [withdrawn]
+# plugins/inventory/triggers/hold_derived_tubes.yaml
+on: entity.updated
+type: Tube
+fields: [on_hold]
 run: hold_withdrawn
+input: source
 related:
-  aliquots: { direction: downstream }
-  results: { direction: downstream }
+  tubes: { direction: downstream, edges: [aliquot, transfer] }
 ```
 
 - Each input named under [`related`](/reference/plugin-spec/trigger/#related) gets every record of
@@ -102,7 +101,7 @@ related:
   of the record (derived from it) or `upstream` (what it was derived from), up to
   [`depth`](/reference/plugin-spec/trigger/#related.depth) edges away (10 if left out, at most 30),
   through [`edges`](/reference/plugin-spec/trigger/#related.edges) of those kinds (`reference`,
-  `run`, `file`; all if left out).
+  `run`, `file`, `aliquot`, `transfer`, `used`; all if left out).
 - The walk is the Admin's who turned the trigger on, reads only the project's records, and leaves
   out archived ones.
 - It's all of them or none: past the most an input takes (its `max`, and never more than 1,000),
@@ -115,11 +114,11 @@ related:
 
 A trigger can run on a [`schedule`](/reference/plugin-spec/trigger/#schedule) instead, in cron's
 five fields (minute, hour, day of the month, month, day of the week) and a
-[`timezone`](/reference/plugin-spec/trigger/#timezone), UTC if left out. The example LIMS plugin
-imports what the LIMS added or changed every night:
+[`timezone`](/reference/plugin-spec/trigger/#timezone), UTC if left out. The example LIMS
+connector imports what the LIMS added or changed every night:
 
 ```yaml
-# plugins/example_lims/triggers/import_nightly.yaml
+# plugins/lims_connector_example/triggers/import_nightly.yaml
 apiVersion: iki/v1
 kind: Trigger
 name: import_nightly
@@ -137,7 +136,7 @@ run: import_from_lims
   [`scheduled_for`](/reference/plugin-spec/run-input/#run.trigger.scheduled_for), the time it was
   for, and [`since`](/reference/plugin-spec/run-input/#run.trigger.since), the time the last run
   that succeeded was for (null the first time), so an import can fetch only what's new. The
-  example LIMS plugin's import asks the LIMS for what changed since then.
+  example LIMS connector's import asks the LIMS for what changed since then.
 
 ## What the build checks
 

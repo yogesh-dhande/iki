@@ -124,8 +124,8 @@ her change on it if it's still needed.
 - An immutable field is set once, when its record is made or while it's still empty, and never
   changes after that.
 - A computed field is set only by an action's runs.
-- A field can ask for a reason when it's cleared. Clearing the example LIMS plugin's **On hold**
-  flag on a result without a reason is refused.
+- A field can ask for a reason when it's cleared. Clearing the Inventory plugin's **On hold** flag
+  on a tube without a reason is refused.
 - Values are checked against their fields on every path that writes them: the web app, the API,
   agents, runs, bulk imports and bundles. The database checks them again.
 - A reference names a record the person writing it can read. A record they can't read is refused

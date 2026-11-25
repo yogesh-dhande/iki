@@ -28,19 +28,19 @@ location and a registry fact each have a correction of their own.
 
 A value that no state locks is corrected by editing it. The edit is a revision of kind
 **Edited**, and the record's history keeps the value before it. A reason is optional, and kept when
-given; a field can ask for one when it's cleared, as the example LIMS plugin's **On hold** flag
-does.
+given; a field can ask for one when it's cleared, as the Inventory plugin's **On hold** flag on a
+tube does.
 
 A record made in error is archived, saying why, rather than deleted: it keeps its ID, its history
 and everything that refers to it.
 
 ### Correcting a locked record
 
-A state that locks a record can name where a correction returns it, such as In testing for an
-approved sample. When the record is in that state, editing a value is a correction:
+A state that locks a record can name where a correction returns it, such as Recorded for a
+reviewed QC deliverable. When the record is in that state, editing a value is a correction:
 
 1. The form says where saving will take the record, such as "Saving these changes will return
-   Status from Approved to In testing", and asks why.
+   Review from Reviewed to Recorded", and asks why.
 2. Iki checks that the editor may edit the record and may set it to that state, its lab roles and
    guards included.
 3. The return and the edit are saved together, as two revisions in that order, each with the
@@ -52,8 +52,8 @@ the record said then, not to the corrected value. A guard can read who edited th
 returned, so that whoever corrected a result doesn't review it.
 
 A locking state that names no return is corrected by setting the record to another state, as
-its plugin allows. The example LIMS plugin's QA returns a released sample to testing, which takes a
-signature and a reason; the analyst then corrects and resubmits it.
+its plugin allows. In the Samples plugin, a reviewer returns a sample whose results are recorded to
+testing, which takes a signature and a reason; the analyst then corrects and resubmits it.
 
 ### Corrections with histories of their own
 
@@ -72,26 +72,25 @@ signature and a reason; the analyst then corrects and resubmits it.
 
 ## Worked example
 
-The example LIMS sample `SAM-000231` was approved on 18 November 2026, with a purity of 97.8%.
+The QC deliverable `QCD-000012`, a SEC purity result of 97.8%, was reviewed on 18 November 2026.
 On 19 November, Priya Natarajan, its analyst, finds that the chromatography report gives 97.3%:
-she typed it wrongly. The sample is locked by its Status (Approved), and Approved returns a
-correction to In testing.
+she typed it wrongly. The deliverable is locked by its Review (Reviewed), and Reviewed returns a
+correction to Recorded.
 
-Priya edits the purity. The form tells her that saving will return its Status from Approved to In
-testing, and she gives the reason "Transcription error: the chromatography report gives 97.3%."
+Priya edits the purity. The form tells her that saving will return its Review from Reviewed to
+Recorded, and she gives the reason "Transcription error: the chromatography report gives 97.3%."
 Saving makes two revisions:
 
 | Revision | Kind          | Change                          | By              | Reason                                                       |
 | -------- | ------------- | ------------------------------- | --------------- | ------------------------------------------------------------ |
-| 6        | State changed | Status: In review to Approved   | Tomás Herrera   |                                                              |
-| 7        | State changed | Status: Approved to In testing  | Priya Natarajan | Transcription error: the chromatography report gives 97.3%. |
+| 6        | State changed | Review: Submitted to Reviewed   | Tomás Herrera   |                                                              |
+| 7        | State changed | Review: Reviewed to Recorded    | Priya Natarajan | Transcription error: the chromatography report gives 97.3%. |
 | 8        | Edited        | Purity: 97.8% to 97.3%          | Priya Natarajan | Transcription error: the chromatography report gives 97.3%. |
 
 Tomás's review signature, carried by revision 6, stays where it is, bound to the values he reviewed,
-with 97.8%; its check still passes. Priya submits the sample again, signing for authorship, and
-Tomás reviews it again. Had Tomás made the correction himself, the plugin's guard on Approved would
-refuse his approval: he edited its results since it was last in testing, so someone else approves
-it.
+with 97.8%; its check still passes. Priya submits the deliverable again, signing for authorship,
+and Tomás reviews it again. Had Tomás made the correction himself, the plugin's guard on Reviewed
+would refuse his review: he edited it since it was last recorded, so someone else reviews it.
 
 The same week, a recount of the Tris lot `RMG-000031` finds 985.0 g where its ledger says 987.9 g.
 Marta Okafor adjusts it to 985,000 mg with the reason "Recount on 21 Nov 2026: spill when weighing
@@ -149,4 +148,4 @@ on 20 Nov". The ledger keeps the earlier movements, and the adjustment of −2,9
 - Change a registry fact: [PATCH /entries/\{ref\}](/reference/api/patch-entries-ref/), and move a
   record to its entry's replacement: [POST /entities/\{ref\}/move](/reference/api/post-entities-ref-move/)
 - Withdraw a signature: [POST /signatures/\{id\}/withdrawal](/reference/api/post-signatures-signature-id-withdrawal/)
-- Record type: [iki/example_lims.Sample](/reference/plugins/example-lims/#Sample)
+- Record type: [iki/requests.QCDeliverable](/reference/plugins/requests/#QCDeliverable)

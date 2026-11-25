@@ -10,7 +10,7 @@ agent the same through the Model Context Protocol. Both call the [REST API](/ref
 person who signed in, and everything they do is recorded as done by that person, through the SDK
 or through MCP.
 
-The examples use the example LIMS plugin's samples, in a project with the slug `qc-lab`.
+The examples use the Samples plugin's samples, in a project with the slug `qc-lab`.
 
 ## Install it
 
@@ -25,7 +25,7 @@ import iki
 
 iki.login("https://iki.example.org")
 
-samples = iki.entities.search("iki/example_lims.Sample", project="qc-lab")
+samples = iki.entities.search("iki/samples.Sample", project="qc-lab")
 table = samples.to_pandas()  # one row per record, a column per field
 ```
 
@@ -74,7 +74,7 @@ For more than one deployment, make a client for each. A client also takes a toke
 
 ```python
 staging = iki.Client("https://iki-staging.example.org")
-staging.entities.search("iki/example_lims.Sample").first()
+staging.entities.search("iki/samples.Sample").first()
 
 ci = iki.Client("https://iki.example.org", token=token)
 ```
@@ -100,26 +100,28 @@ certificates, so it works behind proxies that inspect TLS.
 
 ```python
 found = iki.entities.search(
-    "iki/example_lims.Sample",  # with its subtypes; exact_type=True for only this type
+    "iki/samples.Sample",  # with its subtypes; exact_type=True for only this type
     project="qc-lab",  # its slug or ID
     q="stability",  # text
     where={
         "all": [
             {"field": "status", "op": "eq", "value": "in_review"},
-            {"field": "purity", "op": "lt", "value": 98},
+            {"field": "due_on", "op": "lt", "value": "2026-12-01"},
         ]
     },
     sort="-created_at",  # newest first
 )
 for sample in found:  # fetched a page at a time
-    print(sample["hrid"], sample["values"]["purity"])
+    print(sample["hrid"], sample["values"]["due_on"])
 
 found.first()  # the first, or None
 found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 sample = iki.entities.get("SAM-000231")
 # By a unique field, such as the ID a LIMS gives its record: one per project at most.
-[sample] = iki.entities.lookup("iki/example_lims.Sample", "lims_id", "S-0042", project="qc-lab")
+[protein] = iki.entities.lookup(
+    "iki/protein.Protein", "lims_id", "LIMS-0042", project="qc-lab"
+)
 ```
 
 `search` also takes `collection=` (a collection's records), `run=` (what a run made), and
@@ -143,10 +145,10 @@ holding it for review, `breaks` the rules it breaks, saved before they applied. 
 for whoever searches:
 
 ```python
-held = {"field": "held", "op": "eq", "value": "purity_in_specification"}
-mine = {"field": "analyst", "op": "eq", "value": "{{ me }}"}
-for sample in iki.entities.search("iki/example_lims.Sample", where={"all": [held, mine]}):
-    print(sample["hrid"], [(h["label"], h["reason"]) for h in sample["holds"]])
+held = {"field": "held", "op": "eq", "value": "mass_within_tolerance"}
+breaking = {"field": "breaks", "op": "is_set", "value": True}
+for lot in iki.entities.search("iki/lots.OligoLot", where={"any": [held, breaking]}):
+    print(lot["hrid"], [(h["label"], h["reason"]) for h in lot["holds"]])
 ```
 
 A search also downloads as CSV, the columns the grid shows, from
@@ -158,10 +160,10 @@ would run as a formula.
 
 ```python
 made = iki.entities.create(
-    "iki/example_lims.Sample",
-    {"lims_id": "S-0042", "volume": {"value": 1.5, "unit": "mL"}},
+    "iki/samples.Sample",
+    {"source": "TUB-000014", "purpose": "QCR-000007", "due_on": "2026-12-04"},
     project="qc-lab",
-    reason="Received with the stability batch",
+    reason="Drawn for QCR-000007",
 )
 
 # A change names the revision you read. If the record changed since,
@@ -171,7 +173,7 @@ iki.entities.update(
     "SAM-000231", {"notes": "Cloudy on thawing"}, revision=sample["revision"], reason="Seen at receipt"
 )
 iki.entities.archive("SAM-000231", revision=7, reason="Duplicate of SAM-000229")
-iki.entities.restore("SAM-000231", revision=8, reason="Not a duplicate: different donor")
+iki.entities.restore("SAM-000231", revision=8, reason="Not a duplicate: drawn from another tube")
 ```
 
 A value that breaks a rule which holds records for review is refused unless you say why in
@@ -185,23 +187,29 @@ says which, and why not for the others:
 
 ```python
 iki.entities.set_state(
-    "SAM-000231", "status", "in_testing", revision=sample["revision"], reason="Rerun on column B"
+    "SAM-000231",
+    "status",
+    "in_testing",
+    revision=sample["revision"],
+    reason="Begin testing the received portion",
 )
 
 # A locked record may allow a correction: the same update returns it for review, and its
 # history keeps the return and the edit, each with the reason.
-if sample["can"]["correct"]:
+result = iki.entities.get("QCD-000012")
+if result["can"]["correct"]:
     iki.entities.update(
-        "SAM-000231",
+        "QCD-000012",
         {"purity": 97.3},
-        revision=sample["revision"],
+        revision=result["revision"],
         reason="Transcription error: the chromatography report gives 97.3%",
     )
 
 # A hold a rule placed, reviewed by someone with the rule's lab role.
-hold = sample["holds"][0]
+lot = iki.entities.get("OLOT-000008")
+hold = lot["holds"][0]
 iki.entities.review_hold(
-    "SAM-000231", hold["id"], revision=sample["revision"],
+    "OLOT-000008", hold["id"], revision=lot["revision"],
     review_version=hold["review_version"], reason="Within the method's uncertainty",
 )
 ```
@@ -217,7 +225,7 @@ Fields can name people, by ID or email address:
 ```python
 client = iki.client()
 iki.entities.update("SAM-000231", {"reviewer": "tomas.herrera@example.org"}, revision=9)
-for item in client.work.mine(type="iki/example_lims.Sample"):  # yours now, soonest due first
+for item in client.work.mine(type="iki/samples.Sample"):  # yours now, soonest due first
     print(item["entity"]["hrid"], item["fields"], item["due"])
 for item in client.work.open():  # nobody's yet, and open to your lab roles
     record = item["entity"]
@@ -225,7 +233,7 @@ for item in client.work.open():  # nobody's yet, and open to your lab roles
 
 # Many at once, each its own revision. What can't change is skipped, with why.
 bos = {"field": "analyst", "op": "eq", "value": "bo.lindqvist@example.org"}
-late = list(iki.entities.search("iki/example_lims.Sample", where=bos))
+late = list(iki.entities.search("iki/samples.Sample", where=bos))
 iki.entities.assign(late, "analyst", "priya.natarajan@example.org", reason="Bo is away")["skipped"]
 ```
 
@@ -249,10 +257,10 @@ iki.signatures.verify(signature["id"])  # one, checked now
 # aliquots, transfers and draws: nearest first, each with the path that reached it.
 for item in iki.entities.upstream("SAM-000231"):
     print(item["depth"], item["entity"]["hrid"], [step["kind"] for step in item["path"]])
-impact = iki.entities.downstream("RMG-000031", type="iki/example_lims.Sample")
+impact = iki.entities.downstream("TUB-000014", type="iki/samples.Sample")  # drawn from it
 impact.to_pandas()  # hrid, title, type, project, depth, archived, path
 impact.summary()["total"]  # "hidden" counts what you can't read
-iki.entities.downstream_csv("RMG-000031")  # everything at once, as the CSV has it
+iki.entities.downstream_csv("TUB-000014")  # everything at once, as the CSV has it
 iki.entities.graph("SAM-000231", up=2, down=1)  # a few steps each way, to draw
 ```
 
@@ -269,7 +277,7 @@ iki.entities.draw("RMG-000031", (12.1, "g"), reason="1 M Tris buffer")
 iki.entities.draw("TUB-000014", (50, "uL"), confirm="TUB-000014", used_in="EXP-000003")
 iki.entities.transfer("RMG-000031", "RMG-000035", (100, "g"), reason="Pooled")
 iki.entities.adjust("RMG-000031", (985000, "mg"), reason="Recount on 21 Nov 2026")
-iki.entities.split("SAM-000231", 3, (20, "uL"), values=[{"label": f"S-1.{n}"} for n in (1, 2, 3)])
+iki.entities.split("TUB-000014", 3, (20, "uL"), values=[{"name": f"mAb-17 A{n}"} for n in (1, 2, 3)])
 iki.entities.movements("RMG-000031")  # its ledger, newest first
 ```
 
@@ -294,9 +302,9 @@ iki.entities.move("SAM-000231", reason="Its entry was superseded")  # to the rep
 ### Requests between projects
 
 ```python
-core = iki.projects.services("qc-lab", type="iki/example_lims.AnalysisRequest")[0]
+core = iki.projects.services("qc-lab", type="iki/requests.PlainRequest")[0]
 asked = iki.entities.create(
-    "iki/example_lims.AnalysisRequest", {"title": "Lot 12", "samples": ["SAM-000231"]}, project="qc-lab"
+    "iki/requests.PlainRequest", {"title": "Lot 12", "materials": [sample["id"]]}, project="qc-lab"
 )
 iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
 iki.entities.request(asked["hrid"])["results"]  # what the core released back
@@ -307,7 +315,7 @@ iki.entities.request(asked["hrid"])["results"]  # what the core released back
 ```python
 for n in client.notifications.list(unread=True):
     print(n["title"], [r["hrid"] for r in n["records"]])
-client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})  # or "email", "off"
+client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})  # or "email", "off"
 client.notifications.watch("SAM-000231")  # or mode="muted", or "default"
 ```
 
@@ -315,10 +323,10 @@ client.notifications.watch("SAM-000231")  # or mode="muted", or "default"
 
 ```python
 iki.actions.list(takes=["iki/stability.Study"])  # what can run on stability studies
-iki.actions.get("iki/example_lims.import_from_lims")  # its inputs, params and tier
+iki.actions.get("iki/lims_connector_example.import_from_lims")  # its inputs, params and tier
 
 run = iki.run(
-    "iki/example_lims.import_from_lims",
+    "iki/lims_connector_example.import_from_lims",
     project="qc-lab",
     reason="Catch up after the LIMS was down",
 )
@@ -389,12 +397,12 @@ when the data was acquired, and `timeout=`. It needs project Editor access and t
 ```python
 imported = iki.spreadsheets.import_sheet(
     "manifest.xlsx",
-    type="iki/example_lims.Sample",
+    type="iki/inventory.Tube",
     project="qc-lab",
     locale={"decimal": "comma", "dates": "day_first"},
     reason="Batch 12 from the core facility",
 )
-samples = iki.entities.search("iki/example_lims.Sample", run=imported["run"]["hrid"])
+tubes = iki.entities.search("iki/inventory.Tube", run=imported["run"]["hrid"])
 ```
 
 Iki maps the sheet's columns to the type's fields by their headers, or by a mapping the project
@@ -407,9 +415,9 @@ raise `iki.ImportFailed`, whose `problems` give each one's row, column and what'
 To look before importing, a step at a time:
 
 ```python
-sheet = iki.spreadsheets.start("manifest.xlsx", type="iki/example_lims.Sample", project="qc-lab")
+sheet = iki.spreadsheets.start("manifest.xlsx", type="iki/inventory.Tube", project="qc-lab")
 sheet["columns"]  # each column's header, the field Iki suggests, and a few of its cells
-sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "lims_id"}])
+sheet = iki.spreadsheets.change(sheet, columns=[{"index": 0, "field": "barcode"}])
 sheet = iki.spreadsheets.preview(sheet)
 sheet["preview"]["counts"]  # rows to create, register, add, reuse, merge or fix
 for row in iki.spreadsheets.rows(sheet, outcome=["problem"]):

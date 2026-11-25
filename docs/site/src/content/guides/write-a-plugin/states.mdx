@@ -13,7 +13,7 @@ A state field (`type: state`) holds where a record is in a process: one of its
 [`states`](/reference/plugin-spec/field/#states), which new records start in
 [`initial`](/reference/plugin-spec/field/#initial). A type can have several, each set on its own:
 a lot's production status and its QA disposition, or an instrument's service and its calibration,
-as in the LIMS example. [States, locks and signatures](/concepts/states-locks-and-signatures/)
+as in the Equipment plugin. [States, locks and signatures](/concepts/states-locks-and-signatures/)
 explains how people use them.
 
 ```yaml
@@ -22,16 +22,16 @@ service:
   label: Service
   initial: in_service
   states:
-    in_service: { label: In service, set_by: [engineer] }
+    in_service: { label: In service, set_by: [iki/lab_roles.engineer] }
     out_of_service:
       label: Out of service
       description: Broken, or being repaired. Anyone who finds it so says why.
-      set_by: [engineer, analyst]
+      set_by: [iki/lab_roles.engineer, iki/lab_roles.analyst]
       reason: required
     retired:
       label: Retired
       description: No longer used. Its record is kept as it was.
-      set_by: [engineer]
+      set_by: [iki/lab_roles.engineer]
       locks: true
       reason: required
 calibration:
@@ -39,9 +39,12 @@ calibration:
   label: Calibration
   initial: due
   states:
-    due: { label: Due, description: It needs calibrating before use., set_by: [engineer, qa] }
-    calibrated: { label: Calibrated, set_by: [engineer], reason: optional }
-    failed: { label: Failed, set_by: [engineer], reason: required }
+    due:
+      label: Due
+      description: It needs calibrating before use.
+      set_by: [iki/lab_roles.engineer, iki/lab_roles.qa]
+    calibrated: { label: Calibrated, set_by: [iki/lab_roles.engineer], reason: optional }
+    failed: { label: Failed, set_by: [iki/lab_roles.engineer], reason: required }
 ```
 
 ## States and who sets them
@@ -78,18 +81,18 @@ amount being drawn, which a lock alone doesn't: see
 ## Returning a corrected record
 
 A locking state can name the state a correction returns the record to, in
-[`on_edit`](/reference/plugin-spec/field/#states.on_edit). The LIMS example's approved samples go
-back to testing when someone changes a value:
+[`on_edit`](/reference/plugin-spec/field/#states.on_edit). The Requests plugin's submitted QC
+deliverables go back to Recorded when someone changes a value:
 
 ```yaml
-approved:
-  label: Approved
-  description: A reviewer checked its results; they can't change now.
-  set_by: [reviewer]
+submitted:
+  label: Submitted
+  set_by: [iki/lab_roles.analyst]
   locks: true
-  on_edit: in_testing
+  on_edit: recorded
   signatures:
-    - meaning: review
+    - meaning: authorship
+      statement: I recorded this deliverable and its evidence.
 ```
 
 The editor sees the return before saving and gives a reason. They must be allowed to edit the
@@ -104,19 +107,17 @@ different, live, unlocked state with `set_by` and no required signatures (`state
 [`signatures`](/reference/plugin-spec/field/#states.signatures) makes setting a state an
 electronic signature under 21 CFR Part 11. The state is set by the last of them, once each is
 given on the same revision, never directly, and each signer signs in again at the identity
-provider to give theirs. The LIMS example's release:
+provider to give theirs. The Requests plugin's QC deliverable release:
 
 ```yaml
 released:
   label: Released
-  description: QA released it, so its results can be used.
-  set_by: [qa]
+  set_by: [iki/lab_roles.qa]
   locks: true
-  reason: optional
   signatures:
     - meaning: approval
       label: QA release
-      statement: I release this sample for use.
+      statement: I release the independently reviewed deliverable to the requesting project.
 ```
 
 - Each signature has a [`meaning`](/reference/plugin-spec/field/#states.signatures.meaning):

@@ -36,7 +36,7 @@ settings:
     description: Where new samples are stored unless someone says otherwise.
 ```
 
-The example LIMS plugin needs to know which LIMS it talks to, and each deployment's is its own:
+The example LIMS connector needs to know which LIMS it talks to, and each deployment's is its own:
 
 ```yaml
 settings:
@@ -44,18 +44,17 @@ settings:
     type: string
     format: hostname
     required: true
-    description: >-
-      The LIMS's host name, such as lims.example.org. Runs reach it, and only
-      it, over HTTPS, and each protein's LIMS ID links to its page there.
+    description: The LIMS hostname used for HTTPS API calls and links to protein records.
 ```
 
 - A setting is `string`, `text`, `int`, `float`, `bool`, `enum`, or a `list` of any of those but
   text, with the same options as a field of that type
   ([Declare fields](/guides/write-a-plugin/fields/)).
-- A setting is [`required`](/reference/plugin-spec/settings/#required), or has a
-  [`default`](/reference/plugin-spec/settings/#default), or neither. One that's both is refused
-  (`required-with-default`).
-- A setting that's neither may be left unset. An action that can't run without it names it under
+- A setting says [`required: true`](/reference/plugin-spec/settings/#required),
+  `required: false`, or gives a [`default`](/reference/plugin-spec/settings/#default). One that
+  says none of them is refused (`setting-policy`), and so is one that's both required and given a
+  default (`required-with-default`).
+- A setting that's `required: false` without a default may be left unset. An action that can't run without it names it under
   [`requires_settings`](/reference/plugin-spec/action/#requires_settings), and isn't offered
   until the deployment sets it
   ([Settings an action needs](/guides/write-a-plugin/actions/#settings-an-action-needs)).
@@ -84,14 +83,14 @@ A deployment's lockfile names each plugin's settings file, a YAML mapping of set
 values:
 
 ```yaml
-# deployments/production/settings/example_lims.yaml
+# deployments/production/settings/lims_connector_example.yaml
 lims_host: lims.northfield-bio.org
 ```
 
 Check one against your plugin before the deployment builds:
 
 ```sh
-iki plugin validate . --settings deployments/production/settings/example_lims.yaml
+iki plugin validate . --settings deployments/production/settings/lims_connector_example.yaml
 ```
 
 It reports a value of the wrong type or outside its options (`invalid-setting`), a required

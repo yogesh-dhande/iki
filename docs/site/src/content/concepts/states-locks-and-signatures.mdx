@@ -99,49 +99,47 @@ nothing. Its signer can **withdraw** it before then, with a reason. None is ever
 
 ## Worked example
 
-The example LIMS plugin's **Sample** has a state field, **Status**. Its states, the roles that set
-them, and what each does:
+The Requests plugin's **QC deliverable** has a state field, **Review**. Its states, the roles that
+set them, and what each does:
 
-| State               | Set by                    | Locks | Signatures                    |
-| ------------------- | ------------------------- | ----- | ----------------------------- |
-| Registered          | Coordinator               | No    |                               |
-| Received            | Coordinator, Analyst      | No    |                               |
-| In testing          | Analyst, Reviewer, QA     | No    |                               |
-| In review           | Analyst                   | No    | Authorship                    |
-| Approved            | Reviewer                  | Yes   | Review                        |
-| Released            | QA                        | Yes   | Approval, labelled QA release |
-| Returned to testing | QA                        | No    | Approval, with a reason       |
-| Rejected            | QA                        | Yes   | Responsibility, with a reason |
+| State     | Set by                | Locks | Signatures                    |
+| --------- | --------------------- | ----- | ----------------------------- |
+| Recorded  | Analyst, Reviewer, QA | No    | None; a reason is required    |
+| Submitted | Analyst               | Yes   | Authorship                    |
+| Reviewed  | Reviewer              | Yes   | Review                        |
+| Released  | QA                    | Yes   | Approval, labelled QA release |
 
-Sample `SAM-000214` is tested against its specification: purity at least 95%, and a concentration
-from 0.5 to 10 mg/mL. Its revisions:
+New deliverables start in Recorded. A correction to a submitted or reviewed deliverable returns it
+to Recorded.
 
-| Revision | Change                                                           | By                                |
-| -------- | ---------------------------------------------------------------- | --------------------------------- |
-| 1        | Created, in Registered                                           | Sam Whitfield, Coordinator        |
-| 2        | Status: Registered to Received                                   | Sam Whitfield                     |
-| 3        | Status: Received to In testing                                   | Priya Natarajan, Analyst          |
-| 4        | Purity 97.8%, concentration 2.04 mg/mL, result pass              | Priya Natarajan                   |
-| 5        | Status: In testing to In review, signed for authorship           | Priya Natarajan                   |
-| 6        | Status: In review to Approved, signed for review                 | Tomás Herrera, Reviewer           |
-| 7        | Status: Approved to Released, signed as QA release               | Ingrid Larsen, QA                 |
+Deliverable `QCD-000214` answers a QC request for the SEC purity of a sample the requesting project
+sent. Its revisions:
 
-At revision 5, Priya's signature reads "Authored by Priya Natarajan on 2026-11-12 at 16:47:30 UTC.
-Meaning: Authorship.", with the statement she attested to: "I performed these tests and recorded the
-results as observed." It's bound to revision 4, the values she submitted.
+| Revision | Change                                                  | By                          |
+| -------- | ------------------------------------------------------- | --------------------------- |
+| 1        | Created, in Recorded, for SEC purity of `SAM-000231`    | Priya Natarajan, Analyst    |
+| 2        | Purity 97.8%, result pass                               | Priya Natarajan             |
+| 3        | Review: Recorded to Submitted, signed for authorship    | Priya Natarajan             |
+| 4        | Review: Submitted to Reviewed, signed for review        | Tomás Herrera, Reviewer     |
+| 5        | Review: Reviewed to Released, signed as QA release      | Ingrid Larsen, QA           |
 
-Before revision 6, the plugin's guards on Approved are checked: the sample is In review; whoever
-approves it isn't Priya, who submitted it; and they didn't edit its purity, concentration, result
-or notes since it was last in testing. Tomás passes all three and signs. From revision 6 the sample
-is locked. A change to its purity now is refused, saying that `SAM-000214` is locked by its Status
-(Approved), and which states and roles would unlock it.
+At revision 3, Priya's signature reads "Authored by Priya Natarajan on 2026-11-12 at 16:47:30 UTC.
+Meaning: Authorship.", with the statement she attested to: "I recorded this deliverable and its
+evidence." It's bound to revision 2, the values she submitted. From revision 3 the deliverable is
+locked: a change to its purity is a correction, which returns it to Recorded with a reason.
 
-Ingrid releases it at revision 7. Her guards check that it's approved, that it passed, and that she
-neither approved it nor edited its results. Her signature reads "Approved by Ingrid Larsen on
-2026-11-13 at 14:20:05 UTC. Meaning: QA release."
+Before revision 4, the plugin's guards on Reviewed are checked: the deliverable is Submitted;
+whoever reviews it didn't create it, submit it or edit it while it was recorded; the request is
+still open and in progress; and the measurement still answers the request for the sample it sent.
+Tomás passes them all and signs.
 
-Had its purity been 93.1%, the plugin's rule would have held the sample for QA's review when Priya
-saved it, and nobody could set it to Approved until QA had reviewed the hold.
+Ingrid releases it at revision 5. Her guards check that it was reviewed after it was submitted,
+and that she neither created, submitted, reviewed nor edited it. Her signature reads "Approved by
+Ingrid Larsen on 2026-11-13 at 14:20:05 UTC. Meaning: QA release." The deliverable goes back to the
+project that asked, and is final: a change to its purity is refused, saying that `QCD-000214` is
+locked by its Review (Released). Once every sample the request sent has a returned deliverable,
+and every deliverable recorded for it has been returned, a reviewer or QA in the service's project
+can set the request to Delivered.
 
 ## The rules in full
 
@@ -211,4 +209,4 @@ saved it, and nobody could set it to Approved until QA had reviewed the hold.
   and a record's signatures: [GET /entities/\{ref\}/signatures](/reference/api/get-entities-ref-signatures/)
 - Check a signature again: [GET /signatures/\{id\}/verification](/reference/api/get-signatures-signature-id-verification/),
   or withdraw one: [POST /signatures/\{id\}/withdrawal](/reference/api/post-signatures-signature-id-withdrawal/)
-- Record type: [iki/example_lims.Sample](/reference/plugins/example-lims/#Sample)
+- Record type: [iki/requests.QCDeliverable](/reference/plugins/requests/#QCDeliverable)

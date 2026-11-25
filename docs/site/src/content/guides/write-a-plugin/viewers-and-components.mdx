@@ -92,11 +92,11 @@ it, and helpers for writing one.
 A component can show many records at once, such as a box map, a bookings calendar or a sheet of
 labels, by declaring which it reads in [`entities`](/reference/plugin-spec/component/#entities):
 a type, the fields it reads of each, and how many it may hold, at most 1,000. It can then fill
-more places than a tab, each with a search of its own or one it's given. The example LIMS plugin's
+more places than a tab, each with a search of its own or one it's given. The Equipment plugin's
 calendar of instrument bookings fills all four:
 
 ```yaml
-# plugins/example_lims/components/booking_calendar.yaml
+# plugins/equipment/components/booking_calendar.yaml
 entities: { type: Booking, fields: [purpose, instrument, starts_at, ends_at], limit: 1000 }
 slots:
   - slot: entity.tab

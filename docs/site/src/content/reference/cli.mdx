@@ -437,11 +437,11 @@ Lists the installed starters, each with its review flows and the lab roles it ne
 
 ```console
 $ iki starter list --project "$SERVICE"
-dose-response 1.0.0  Dose-response plate assay
+dose-response 1.2.0  Dose-response plate assay
   Receive an example request, map a reader file to wells, fit a curve and return the signed result to the requester.
   research  Research  iki/plate_assays.RequestedResearchAssayResult
   regulated_qc  Regulated QC  iki/plate_assays.RequestedQCAssayResult
-  iki/example_lims.coordinator  Coordinator
+  iki/lab_roles.coordinator  Coordinator
   iki/plate_assays.analyst  Assay analyst
   iki/plate_assays.reviewer  Assay reviewer
   iki/plate_assays.qa  Assay QA
@@ -456,21 +456,22 @@ dose-response 1.0.0  Dose-response plate assay
 ### `iki starter preview`
 
 Shows what applying a starter version and review flow to a service project would change, and
-changes nothing. Give the service and requesting projects' UUIDs, and a membership UUID from the
+changes nothing. It ends with its plan: a code that stands for what you reviewed, which
+`iki starter apply` takes. Give the service and requesting projects' UUIDs, and a membership UUID from the
 service project for each lab role the flow needs. Repeat `--role` to give a role to more than one
 member.
 
 ```console
-$ iki starter preview dose-response --version 1.0.0 --flow research \
+$ iki starter preview dose-response --version 1.2.0 --flow research \
     --project "$SERVICE" --requester-project "$REQUESTER" \
-    --role "iki/example_lims.coordinator=$COORDINATOR" \
+    --role "iki/lab_roles.coordinator=$COORDINATOR" \
     --role "iki/plate_assays.analyst=$ANALYST" \
     --role "iki/plate_assays.reviewer=$REVIEWER"
-Would apply  dose-response 1.0.0
+Would apply  dose-response 1.2.0
   Service project   5b0e9a3c-2f41-4d8e-9a6b-1c7e0d3f8a25
   Requester project c81f4e27-6a90-4b3d-8e15-2d9a7c0b4f63
   Review flow       research  iki/plate_assays.RequestedResearchAssayResult
-  iki/example_lims.coordinator  0d6a2f19-8c34-4e7b-a1f5-93b2e6c4d708
+  iki/lab_roles.coordinator  0d6a2f19-8c34-4e7b-a1f5-93b2e6c4d708
   iki/plate_assays.analyst  7e3b9c45-1d26-4f8a-b0e7-5a4c2d9f1e36
   iki/plate_assays.reviewer  a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
   Grant iki/plate_assays.reviewer to a92c6e18-4b7d-43f0-9e25-6f1d8b3a7c04
@@ -478,8 +479,11 @@ Would apply  dose-response 1.0.0
   Create example protein
   Create example sample
   Create example tube
+  Create example apigenin
+  Create example daidzein
   Create example reader_file
   Create example plate
+  Plan              3f9c2a71d04e8b65c1a7f3e9d2b0c4a68e5f17d3b9a2c0e4f6d81b3a5c7e9f02  (apply it with --plan)
 ```
 
 | Option                                | What it does                                                                |
@@ -498,8 +502,17 @@ needs a member whose project role is high enough: the deployment refuses the set
 
 ### `iki starter apply`
 
-Applies the setup, with the same arguments as `iki starter preview`. It prints `Applied`, and the
-example records it made, or `Already applied` when the project has that version and flow already.
+Applies the setup, with the same arguments as `iki starter preview` and `--plan` set to the plan
+the preview printed. It prints `Applied`, and the example records it made, or `Already applied`
+when the project has that version and flow already.
+
+If what applying does has changed since the preview, because another Admin changed a grant or
+applied the starter first, nothing is applied. The command prints what applying does now, and its
+new plan, to review and apply.
+
+| Option        | What it does                                                                 |
+| ------------- | ---------------------------------------------------------------------------- |
+| `--plan PLAN` | The plan `iki starter preview` printed for the same arguments. Required.      |
 
 `iki starter` exits with 0 when the deployment answers, and 2 when it refuses or can't be reached,
 with its reason.

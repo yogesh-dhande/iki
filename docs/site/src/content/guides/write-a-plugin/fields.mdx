@@ -206,7 +206,7 @@ A string field may [`link`](/reference/plugin-spec/field/#link) to where its val
 system. `{value}` is the value and `{settings.name}` one of the plugin's settings, so each
 deployment points at its own LIMS. A link starts with `https://` or a setting
 (`link-not-https`, `link-without-value`, `link-unknown-placeholder`), and Iki shows only links
-that are https once the settings are filled in. The LIMS example's sample:
+that are https once the settings are filled in. The example LIMS connector adds one to proteins:
 
 ```yaml
 lims_id:
@@ -215,8 +215,10 @@ lims_id:
   max_length: 64
   indexed: true
   unique: true
-  link: "https://{settings.lims_host}/samples/{value}"
-  description: Its record in the LIMS, when it came from there.
+  link: "https://{settings.lims_host}/proteins/{value}"
+  description: >-
+    Its record in the LIMS. No two proteins in a project have the same one,
+    so importing the record again updates the protein it already is.
 ```
 
 The API, the SDK and MCP look records up by a unique field's value, and an import matches its
@@ -316,8 +318,8 @@ which roles its parts take with `refines`.
 
 A field is never deleted, because its history is kept. To stop using one, mark it
 [`removed: true`](/reference/plugin-spec/field/#removed): its column is dropped, and its values
-stay in the type's history. The LIMS example's tubes kept their box and volume as fields before
-Iki kept where a tube is and how much is in it:
+stay in the type's history. A tube type that kept its box and volume as fields, before Iki kept
+where a tube is and how much is in it, keeps them as removed fields:
 
 ```yaml
 box: { type: ref, to: Box, removed: true }

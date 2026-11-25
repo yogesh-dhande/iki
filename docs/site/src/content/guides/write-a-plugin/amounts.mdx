@@ -19,24 +19,25 @@ Each change is a movement of the record's ledger, with who made it, how, when an
 drawing at once take turns. The amount isn't one of the record's values, so it isn't in its
 revisions, and a state that locks the record doesn't stop it being drawn.
 
-The LIMS example's sample is drawn by volume, or by protein mass at its concentration, and split
-into aliquots:
+The Inventory plugin's tube is drawn by volume, or by mass at its concentration, and split into
+tubes of its own type:
 
 ```yaml
-name: Sample
+name: Tube
 amount:
   unit: uL
   label: Volume
-  description: How much of the sample is left.
-  display_unit: mL
+  description: How much is left in the tube.
   concentration: concentration
-  aliquots: { type: Aliquot, of: sample }
+  material: contents
+  follows: [contents]
 fields:
+  contents: { type: ref, to: iki/core.Entity, immutable: true }
   concentration:
     type: quantity
     unit: mg/mL
     min: 0
-    description: Its protein concentration.
+    description: Mass per unit volume, when known.
 ```
 
 ## Units and concentrations
@@ -69,9 +70,10 @@ fields:
 - Each aliquot depends on what it was split from, and a record transferred into depends on what
   was moved into it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer` or `used`.
-- [`material`](/reference/plugin-spec/entity-type/#amount.material) names a required, immutable
-  reference of the type to what its amount is of, such as a lot's catalogue item
-  (`amount-material`). A transfer into one of its records takes only material of that entity, from
+- [`material`](/reference/plugin-spec/entity-type/#amount.material) names an immutable reference
+  of the type to what its amount is of, such as a lot's catalogue item (`amount-material`). An
+  empty container can leave it unset and name its contents when it's first filled, but a record
+  with a positive amount must name its material. A transfer into one of its records takes only material of that entity, from
   a record whose type says so too (a reference to a registry entry and one to a project's record of
   it are the same entity), and its aliquots are of it too, whatever they're given. Pooling different
   materials makes a mixture: a record of its own.
@@ -79,8 +81,8 @@ fields:
   record in that same state, so nothing that wasn't released becomes part of what was.
 - [`follows`](/reference/plugin-spec/entity-type/#amount.follows) names references whose records'
   eligibility a draw also meets, such as a tube's lot: a state holding the lot's amount holds the
-  tube's, and the lot's draw guards are checked too. The LIMS example's tubes follow
-  `[lot, sample]`.
+  tube's, and the lot's draw guards are checked too. The Inventory plugin's tubes follow
+  `[contents]`.
 
 ## Holds and locks
 
@@ -113,6 +115,29 @@ field among its fields, such as `material_draws: { type: json, computed: true }`
   the destination and draw from the material, and a state lock on the destination prevents the
   draw.
 - Signatures cover the receipts on the revision they sign, and subtypes inherit the field.
+
+A destination can also take its one draw from the record assigned to it, while it waits in a
+state: declare [`draw_target`](/reference/plugin-spec/entity-type/#draw_target). The Samples
+plugin's sample takes its draw from its source tube or lot while it's awaiting the draw:
+
+```yaml
+draw_target: { from: source, state: { field: status, is: pending } }
+draws_received: receipt
+```
+
+- [`from`](/reference/plugin-spec/entity-type/#draw_target.from) names the required, immutable
+  reference to the container the draw must come from, and
+  [`state`](/reference/plugin-spec/entity-type/#draw_target.state) the state the destination must
+  be in. One draw can be recorded against that source while the destination is in it, and the
+  debit and the destination's receipt commit together.
+- A prepared draw also fixes the upstream
+  [`source`](/reference/plugin-spec/entity-type/#draw_target.source), such as a lot, the planned
+  [`amount`](/reference/plugin-spec/entity-type/#draw_target.amount), the computed
+  [`ready`](/reference/plugin-spec/entity-type/#draw_target.ready) field that must be set first,
+  and the lab roles, [`by`](/reference/plugin-spec/entity-type/#draw_target.by), that may record
+  it. These four go together.
+- [`stored: true`](/reference/plugin-spec/entity-type/#draw_target.stored) requires the container
+  to be in its storage position before the draw.
 
 ## One amount per record
 
@@ -151,8 +176,8 @@ fields:
 - [`barcode`](/reference/plugin-spec/entity-type/#storage.barcode) names a unique string field
   holding the code on it already, and
   [`confirm`](/reference/plugin-spec/entity-type/#storage.confirm) what needs that code scanned
-  first, a `draw` or a `move`. The LIMS example's tubes are scanned before each draw.
-- A type kept in storage declares `storage: {}`, as the inventory plugin's stock lots do.
+  first, a `draw` or a `move`. The Inventory plugin's tubes are scanned before each draw.
+- A type kept in storage declares `storage: {}`, as the Reagents plugin's stock lots do.
 
 ## Stock and reorders
 

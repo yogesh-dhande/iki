@@ -85,10 +85,10 @@ lower-case letters, digits and single underscores, starting with a letter. The n
 lab's or company's. Name the plugin before you make its migrations: the name is in every table it makes,
 so it can't change later.
 
-- The namespace `iki` is Iki's own, for the plugins in Iki's repository, such as `iki/dna`,
-  `iki/lots`, `iki/reagents` and `iki/example_lims`. No other plugin may use it, or a namespace
-  starting with `iki_` (`reserved-namespace`), and a deployment's lockfile takes an `iki/...`
-  plugin only from Iki's repository.
+- The namespace `iki` is reserved for the core and the plugins on Iki's first-party name list
+  (`FIRST_PARTY` in `iki_spec.naming`). Namespaces starting with `iki_` are reserved too
+  (`reserved-namespace`), and a deployment's lockfile takes an `iki/...` plugin only from Iki's
+  repository.
 - A plugin names its own types, actions and the rest without its namespace: `Sample`, or in full,
   `acme/example.Sample`. Anything of another plugin's is named in full: `iki/dna.DNASequence`,
   `iki/protein.translate`, and dependencies by their full names. A short name for another plugin's
@@ -104,29 +104,24 @@ A plugin can declare lab roles: who may decide something in a lab, such as revie
 results or releasing a sample. A project's Admins give them to its members, people or teams, beside
 their project role. A lab role grants no access of its own: it's what a state's
 [`set_by`](/reference/plugin-spec/field/#states.set_by), a signature, a hold's review or a workflow
-step's approval can require. The LIMS example's:
+step's approval can require. The Lab roles plugin's, which Iki's other plugins share:
 
 ```yaml
 roles:
   analyst:
     label: Analyst
-    description: >-
-      Tests samples and records their results, then submits them for review,
-      and says when an instrument is out of service.
+    description: Performs tests, records measurements and submits results for review.
   reviewer:
     label: Reviewer
-    description: >-
-      Checks analysts' results, and approves them or sends them back.
+    description: Independently reviews submitted work and signs its review or returns it for correction.
   qa:
     label: Sample and result QA
-    description: >-
-      Releases or rejects approved samples, sends released ones back when they
-      need correcting, and says when an instrument's calibration is due.
+    description: Signs the release of independently reviewed QC deliverables.
 ```
 
 - Names are lower-case letters, digits and single underscores. `viewer`, `editor`, `runner` and
   `admin` are the project roles' and can't be lab roles.
-- A role is known in full as `namespace/plugin.name` (`iki/example_lims.qa`). A plugin names its
+- A role is known in full as `namespace/plugin.name` (`iki/lab_roles.qa`). A plugin names its
   own by the short name, and another plugin's in full, which needs that plugin under
   `dependencies` (`undeclared-dependency`), so several plugins can share one QA role.
 - Naming a role nobody declares is `unknown-role`. Two roles with the same
@@ -273,7 +268,7 @@ Warnings are marked.
 | Files, JSON fields and titles   | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Extensions                      | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Dependencies                    | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             |
-| Settings                        | `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Settings                        | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Lockfiles                       | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                         |
 | Actions                         | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                                                                   |
 | What actions write              | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                |

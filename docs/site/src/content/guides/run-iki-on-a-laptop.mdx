@@ -70,12 +70,13 @@ the worker pod, so their backend actions run there: see
 | Keycloak                         | `http://keycloak.iki.localhost:8080` | Realm `iki` with `alice`, `bob` and `carol`, the OIDC client `iki-web` and a SAML client  |
 | Mailpit (email)                  | `http://localhost:8025`              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | `http://localhost:8090/requests`     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
-| Fake LIMS                        | `http://localhost:8091/requests`     | `https://fake-lims.iki.svc`, for the example LIMS plugin; lists the requests runs made    |
+| Fake LIMS                        | `http://localhost:8091/requests`     | `https://fake-lims.iki.svc`, for the example LIMS connector; lists the requests runs made |
 | Fake FoldCloud                   | `http://localhost:8092/requests`     | `https://fake-foldcloud.iki.svc`, for the example models plugin; lists the requests made  |
 | Grafana, Tempo, Loki, Prometheus | `http://localhost:3300`              | `grafana/otel-lgtm`; Iki sends it OTLP traces and metrics. Its dashboard is Dashboards → Iki → Iki |
 
-The example LIMS plugin imports from the fake LIMS as it would from a lab's: over HTTPS, through
-the egress proxy, to the host its `lims_host` setting gives (`deploy/dev/settings/example_lims.yaml`).
+The example LIMS connector (`plugins/lims_connector_example`) imports from the fake LIMS as it
+would from a lab's: over HTTPS, through the egress proxy, to the host its `lims_host` setting gives
+(`deploy/dev/settings/lims_connector_example.yaml`).
 The fake LIMS's certificate comes from a dev CA that `deploy/dev/up.sh` makes. The backend worker
 trusts it, with the public CAs, through the chart's `backendWorkers.caSecret`, as a deployment
 would trust its internal CA. Its token is in the `iki-run-secrets` Secret (`runSecrets`), which the

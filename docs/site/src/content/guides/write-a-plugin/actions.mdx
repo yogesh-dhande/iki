@@ -135,7 +135,7 @@ Each deployment decides which machines each tier and environment get
   again. Runs whose machine went away (`worker_lost`, `interrupted`) are tried twice more by
   default. Actions that reach the network or an outside API aren't retried unless they say so,
   since a retry could repeat what they did elsewhere, such as placing an order. The example LIMS
-  plugin's import says so, as reading is safe to repeat:
+  connector's import says so, as reading is safe to repeat:
 
   ```yaml
   retries: { max: 2, on: [worker_lost, interrupted] }
@@ -160,7 +160,7 @@ Each deployment decides which machines each tier and environment get
   that ran Biopython would say `software: [{ name: Biopython, version: "1.88", url: https://biopython.org }]`.
 - [`metrics`](/reference/plugin-spec/action/#metrics) names the numbers a run reports, which a
   workflow's conditions read ([Steps that run only when conditions hold](/guides/write-a-plugin/workflows/#steps-that-run-only-when-conditions-hold)).
-  The example LIMS plugin's import reports how many records the LIMS listed:
+  The example LIMS connector's import reports how many records the LIMS listed:
 
   ```yaml
   metrics:
@@ -171,7 +171,7 @@ Each deployment decides which machines each tier and environment get
 
 A run keeps as artifacts the files in its output directory (`$IKI_OUT_DIR`) that one of
 [`artifacts.keep`](/reference/plugin-spec/action/#artifacts.keep)'s patterns matches, whether the
-command succeeded or not, for people to download from the run's page. The example LIMS plugin's
+command succeeded or not, for people to download from the run's page. The example LIMS connector's
 `send_to_lims` keeps what it wrote:
 
 ```yaml
@@ -191,14 +191,14 @@ A run gets the secrets its action declares under
 [`secrets`](/reference/plugin-spec/action/#secrets) as environment variables, and no others:
 
 ```yaml
-# plugins/example_lims/actions/import_from_lims.yaml
+# plugins/lims_connector_example/actions/import_from_lims.yaml
 secrets:
   - name: LIMS_TOKEN
     description: An API token the LIMS issued for Iki, which can read and change proteins.
 ```
 
 - Each deployment keeps a plugin's secrets in its own secret manager, for that plugin alone
-  (`iki__example_lims.LIMS_TOKEN` is the example LIMS plugin's), so a secret is never another
+  (`iki__lims_connector_example.LIMS_TOKEN` is the example LIMS connector's), so a secret is never another
   plugin's even under the same name.
 - Their values are never in the run's input, and `***` stands for them in its log.
 - A required secret the deployment hasn't set keeps the action from running, and says so.
@@ -208,7 +208,7 @@ secrets:
 ## Settings an action needs
 
 A run gets all its plugin's settings ([Take settings from each deployment](/guides/write-a-plugin/settings/)).
-A setting that's neither required nor given a default may be left unset. An action that can't
+A setting that's `required: false` without a default may be left unset. An action that can't
 run without it names it under [`requires_settings`](/reference/plugin-spec/action/#requires_settings).
 Until the deployment sets it, the action isn't offered: people see why before they launch it,
 and a launch is refused, instead of a worker taking the run only for it to fail.
@@ -229,7 +229,7 @@ itself.
 - On a deployment without the proxy, such actions can't run.
 
 When the host differs between deployments, as a LIMS's does, name a setting instead. The
-example LIMS plugin reaches the host its `lims_host` setting gives, a string setting with
+example LIMS connector reaches the host its `lims_host` setting gives, a string setting with
 `format: hostname`:
 
 ```yaml
@@ -341,7 +341,7 @@ image: docker.io/library/python:3.13-alpine@sha256:1e1f6334529d1fb26a2ef619d7cff
 - On the backend tier, Iki builds a Python environment from a pinned
   [requirements file](/reference/plugin-spec/environment/#python.requirements), or a conda one
   from a [lockfile](/reference/plugin-spec/environment/#conda.lockfile). The self-hosted tier does
-  too, or runs the image with Docker or Podman. The example LIMS plugin's environment is
+  too, or runs the image with Docker or Podman. The example LIMS connector's environment is
   `python: { version: "3.12", requirements: requirements.txt }`.
 - On the self-hosted tier, [`labels`](/reference/plugin-spec/environment/#labels) name what a
   machine needs to run it, such as `labels: [chromeleon]` for the software its actions drive. A

@@ -88,6 +88,11 @@ A file holds as many tests as you like, each its own YAML document after `---`.
   for a list of rows' references, such as `components.part`, each row's, in order.
 - [`files`](/reference/plugin-spec/action-test/#files) names files in your plugin. A value or a
   param uses one as `{"$file": "name"}`.
+- [`upgrade: true`](/reference/plugin-spec/action-test/#upgrade) marks a test whose records are
+  complete enough to seed `iki plugin test --upgrade-from`: its inputs and included records are
+  created in the earlier build. The upgrade test prefers the marked tests of the earlier commit,
+  and a plugin can mark tests of its own for earlier commits whose tests give only part of a
+  record ([Upgrade a plugin without losing history](/guides/upgrade-a-plugin/)).
 
 The run input has fixed IDs and a fixed seed, so a deterministic action writes the same every
 time. The fixture's run input builder, `iki_spec.action_tests`,

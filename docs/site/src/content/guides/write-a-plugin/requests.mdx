@@ -6,6 +6,7 @@ order: 80
 reference:
   - { label: "Entity type: request", href: /reference/plugin-spec/entity-type/#request }
   - { label: "Entity type: result", href: /reference/plugin-spec/entity-type/#result }
+  - { label: "Entity type: work_item", href: /reference/plugin-spec/entity-type/#work_item }
 ---
 
 A type's records can be requests one project sends to another project's service, such as a core
@@ -17,36 +18,43 @@ A service's Admins choose which request types it takes, and from which projects 
 
 ## A request type
 
-The LIMS example's analysis request, abridged:
+The Requests plugin's request, abridged:
 
 ```yaml
-name: AnalysisRequest
+name: Request
+abstract: true
 request:
-  service_fields: [status, priority, scheduled_on, analyst, core_notes]
-  sends: [samples, protein, tubes]
-  receives: { field: tubes, by: [coordinator] }
+  service_fields: [status, priority, scheduled_on, analyst, service_notes]
+  sends: [records, materials, tubes]
+  materials: [materials, tubes]
+  completed: { field: status, state: delivered }
+  receives: { field: tubes, by: [iki/lab_roles.coordinator] }
 fields:
   title: { type: string, required: true, max_length: 200 }
-  samples: { type: list, items: { type: ref, to: Sample }, max_items: 50 }
-  tubes: { type: list, items: { type: ref, to: Tube }, max_items: 96 }
+  records: { type: list, items: { type: ref, to: iki/core.Entity }, max_items: 50 }
+  materials: { type: list, items: { type: ref, to: iki/core.Entity }, max_items: 50 }
+  tubes: { type: list, items: { type: ref, to: iki/inventory.Tube }, max_items: 96 }
   needed_by: { type: date, label: Needed by }
   status:
     type: state
     label: Status
     initial: submitted
     states:
-      submitted: { label: Submitted, set_by: [coordinator] }
-      accepted: { label: Accepted, set_by: [coordinator] }
-      in_progress: { label: In progress, set_by: [analyst] }
-      delivered: { label: Delivered, set_by: [reviewer, qa], locks: true }
-      declined: { label: Declined, set_by: [coordinator], reason: required }
+      submitted: { label: Submitted, set_by: [iki/lab_roles.coordinator] }
+      accepted: { label: Accepted, set_by: [iki/lab_roles.coordinator] }
+      in_progress: { label: In progress, set_by: [iki/lab_roles.analyst] }
+      delivered:
+        label: Delivered
+        set_by: [iki/lab_roles.reviewer, iki/lab_roles.qa]
+        locks: true
+      declined: { label: Declined, set_by: [iki/lab_roles.coordinator], reason: required }
   priority: { type: enum, values: [routine, urgent], default: routine }
   scheduled_on: { type: date, label: Scheduled }
   analyst:
     type: person
-    role: analyst
+    role: iki/lab_roles.analyst
     assignment: { field: status, states: [accepted, in_progress] }
-  core_notes: { type: text, label: Core notes }
+  service_notes: { type: text, label: Service notes }
 due: needed_by
 ```
 
@@ -63,6 +71,15 @@ due: needed_by
   `request-sends-not-a-reference`). The service reads those, and nothing else of the asking
   project's, as long as the request is there. None of them is a service field
   (`request-sends-service-field`).
+- [`materials`](/reference/plugin-spec/entity-type/#request.materials) names the sent fields that
+  hold the subjects of the work: the physical records, such as tubes and samples, each of which
+  needs a result. Each is one of `sends` (`request-material-not-sent`) and refers to a physical
+  record, not a registry entry (`request-material-identity`).
+- [`completed`](/reference/plugin-spec/entity-type/#request.completed) names the state of a
+  service field that closes the request, not its initial state (`request-completion-state`). The
+  service can set it only when at least one result has been returned, every result it recorded
+  has been returned, and every subject has a returned result for it or for an aliquot recorded
+  from it. Several results for one subject all count toward that subject.
 - [`receives`](/reference/plugin-spec/entity-type/#request.receives) names one of the sent lists
   whose records the service checks in, a type with storage such as tubes, each as matched,
   missing, damaged or rejected, with what's extra.
@@ -73,49 +90,69 @@ due: needed_by
 
 ## A result type
 
-The LIMS example's analysis result, abridged:
+The Requests plugin's QC deliverable, abridged:
 
 ```yaml
-name: AnalysisResult
+name: QCDeliverable
+extends: Deliverable
 result:
   of: request
+  material: material
   released: { field: review, states: [released] }
 fields:
-  request: { type: ref, to: AnalysisRequest, required: true, immutable: true }
+  request: { type: ref, to: QCRequest, required: true, immutable: true }
+  material: { type: ref, to: iki/core.Entity, immutable: true }
+  analysis: { type: enum, values: [sec_purity, intact_mass, peptide_map, endotoxin] }
   purity: { type: float, label: Purity (%), min: 0, max: 100 }
   review:
     type: state
-    label: Review
-    initial: draft
+    initial: recorded
     states:
-      draft: { label: Draft, set_by: [analyst, reviewer, qa], reason: required }
-      in_review:
-        label: In review
-        set_by: [analyst]
+      recorded:
+        label: Recorded
+        set_by: [iki/lab_roles.analyst, iki/lab_roles.reviewer, iki/lab_roles.qa]
+        reason: required
+      submitted:
+        label: Submitted
+        set_by: [iki/lab_roles.analyst]
         locks: true
-        on_edit: draft
+        on_edit: recorded
         signatures:
           - meaning: authorship
-            statement: I recorded this measurement and its result as observed.
+            statement: I recorded this deliverable and its evidence.
+        guards:
+          measured_scope:
+            when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
+            check: >-
+              record.analysis != null && record.request.analyses != null &&
+              record.analysis in record.request.analyses && size(covered_subjects) > 0
+            message: The measurement must still answer this request for the material it sent.
       reviewed:
         label: Reviewed
-        set_by: [reviewer]
+        set_by: [iki/lab_roles.reviewer]
         locks: true
-        on_edit: draft
+        on_edit: recorded
         signatures:
           - meaning: review
       released:
         label: Released
-        set_by: [qa]
+        set_by: [iki/lab_roles.qa]
         locks: true
         signatures:
           - meaning: approval
             label: QA release
-            statement: I release these results to the project that requested them.
 ```
+
+In the plugin, `material` is declared on `Deliverable`, which `QCDeliverable` extends.
 
 - [`of`](/reference/plugin-spec/entity-type/#result.of) is a required, immutable reference to a
   request type (`result-of-not-a-request`, `result-of-changes`).
+- [`material`](/reference/plugin-spec/entity-type/#result.material) names an immutable reference
+  to the result's subject, a physical record (`result-material`). Iki checks the subject when the
+  result is recorded and again when it's released. A state's guards can read `covered_subjects`:
+  the IDs of the request's subjects this result's material covers, itself or through aliquots
+  recorded from it at any depth. `covered_subjects.exists(id, id in record.request.tubes)` checks
+  a result against the tubes the request names now.
 - Setting [`released.field`](/reference/plugin-spec/entity-type/#result.released.field) to one of
   [`released.states`](/reference/plugin-spec/entity-type/#result.released.states) sends the result
   back to the asking project, for good. Until then that project can't see it. The field is one of
@@ -127,6 +164,38 @@ fields:
 - When the release field has a separate state signed for with the meaning `review`, a signed
   release must lock the record (`result-release-lock`). It releases the revision that completed
   review, and the asking project receives the result with those reviewed values.
+- A release needs no signature. The Requests plugin's `PlainDeliverable` is returned when a
+  reviewer sets its `status` to `delivered`, with no signature.
+
+## A work item
+
+A [`work_item`](/reference/plugin-spec/entity-type/#work_item) type is work the service keeps in
+its own project: its schedule, its instrument, its internal notes. The Requests plugin's, abridged:
+
+```yaml
+name: WorkItem
+work_item: { of: request }
+fields:
+  request: { type: ref, to: Request, required: true, immutable: true }
+  scheduled_on: { type: date, label: Scheduled date }
+  instrument: { type: string, max_length: 200 }
+  notes: { type: text, label: Internal notes, max_length: 10000 }
+  status:
+    type: state
+    initial: queued
+    states:
+      queued: { label: Queued }
+      scheduled: { label: Scheduled, set_by: [iki/lab_roles.analyst] }
+      running: { label: Running, set_by: [iki/lab_roles.analyst] }
+      done: { label: Done, set_by: [iki/lab_roles.analyst] }
+      cancelled: { label: Cancelled, set_by: [iki/lab_roles.analyst], reason: required }
+```
+
+- [`of`](/reference/plugin-spec/entity-type/#work_item.of) names a required, immutable reference
+  to a request sent to the project.
+- Other projects can't link to a work item or refer to it, the asking project included.
+- A work item isn't a request, a result or a registry record, and inherits none of them
+  (`work-item-conflict`).
 
 ## Requests, results and identities
 

@@ -20,27 +20,27 @@ when it's sent, and whom it tells. Iki decides the rest:
 Each person chooses, per notification, in Iki and by email, in Iki only, or off, everywhere or in
 one project, and can watch or mute a record.
 
-The LIMS example's samples tell QA when one is submitted for review, and the analyst when QA
-rejects one:
+The Lots plugin's lots tell whoever made a lot when QA releases it, and when QA puts it on hold or
+rejects it, which nobody can turn off:
 
 ```yaml
 notifications:
-  in_review:
-    label: Submitted for review
-    description: QA hears when an analyst submits a sample's results, to plan its release.
-    when: { field: status, to: in_review }
-    tell: { roles: [qa], watchers: true }
+  released:
+    label: Released
+    description: Whoever made a lot hears when QA releases it.
+    when: { field: disposition, to: released }
+    tell: { fields: [made_by], watchers: true }
     message:
-      title: "{{ hrid }} is in review"
-      body: "{{ protein }}, lot {{ lot or 'not given' }}, tested by {{ analyst or 'nobody named' }}."
-  rejected:
-    label: Rejected
-    when: { field: status, to: rejected }
-    tell: { fields: [analyst], watchers: true }
-    message:
-      title: "{{ hrid }} was rejected"
-      body: "QA rejected {{ protein }}, lot {{ lot or 'not given' }}. Its history says why."
+      title: "{{ hrid }} was released"
+      body: "QA released lot {{ lot_number or hrid }} for use."
+  held:
+    label: On hold or rejected
+    when: { field: disposition, to: [on_hold, rejected] }
+    tell: { fields: [made_by], watchers: true }
     required: true
+    message:
+      title: "{{ hrid }} is {{ disposition }}"
+      body: "Lot {{ lot_number or hrid }} can't be used. Its history says why."
 ```
 
 ## When it's sent
@@ -64,7 +64,7 @@ notifications:
 
 [`where`](/reference/plugin-spec/entity-type/#notifications.where) keeps only the records a search's
 conditions find, on the type's own fields, as a component's search takes them; `{{ now }}` is the
-moment it's sent, for date and datetime fields (`notification-where`). The LIMS example's
+moment it's sent, for date and datetime fields (`notification-where`). The Equipment plugin's
 bookings tell whoever a booking is for when its instrument goes out of service, if the booking
 hasn't ended:
 
@@ -105,7 +105,7 @@ Iki's own "It's ready for you" (`notification-repeats-ready`, a warning).
 and a [`body`](/reference/plugin-spec/entity-type/#notifications.message.body), up to 1000, in the
 display title's template language: field names, `hrid`, strings and `or`
 (`notification-message`). States show their label, people their name, and references their HRID
-only to someone who can read them. Without a message it reads "SAM-000012: Submitted for review".
+only to someone who can read them. Without a message it reads "SAM-000012: Sample ready for review".
 
 ## Email and notifications nobody can turn off
 
