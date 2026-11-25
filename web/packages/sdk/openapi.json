@@ -1350,19 +1350,6 @@
             "title": "Flow",
             "type": "string"
           },
-          "requester_project": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Original requester for an assay project Admin who may edit that project.",
-            "title": "Requester Project"
-          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1370,8 +1357,7 @@
         },
         "required": [
           "version",
-          "flow",
-          "requester_project"
+          "flow"
         ],
         "title": "AppliedStarterOut",
         "type": "object"
@@ -26897,15 +26883,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -26916,7 +26896,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -26930,7 +26910,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments",
           "plan"
@@ -26961,7 +26940,7 @@
             "type": "array"
           },
           "result_type": {
-            "description": "Qualified type for a requested result in this flow.",
+            "description": "Qualified result type for new fits in this flow.",
             "title": "Result Type",
             "type": "string"
           }
@@ -27081,15 +27060,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -27100,7 +27073,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -27114,7 +27087,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments"
         ],
@@ -27127,23 +27099,6 @@
             "description": "Whether applying this choice would change anything (preview), or did (apply).",
             "title": "Changed",
             "type": "boolean"
-          },
-          "examples": {
-            "additionalProperties": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "description": "IDs of example records already present at preview or available after setup.",
-            "title": "Examples",
-            "type": "object"
-          },
-          "examples_to_create": {
-            "description": "Names of examples missing when the setup was checked.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Examples To Create",
-            "type": "array"
           },
           "flow": {
             "enum": [
@@ -27175,11 +27130,6 @@
             "title": "Project",
             "type": "string"
           },
-          "requester_project": {
-            "format": "uuid",
-            "title": "Requester Project",
-            "type": "string"
-          },
           "result_type": {
             "title": "Result Type",
             "type": "string"
@@ -27208,14 +27158,11 @@
           "starter",
           "version",
           "project",
-          "requester_project",
           "flow",
           "result_type",
           "changed",
           "role_assignments",
           "grants_to_add",
-          "examples_to_create",
-          "examples",
           "plan"
         ],
         "title": "StarterSetupOut",
@@ -46886,7 +46833,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Apply the plan a preview returned: create the examples and grant the chosen roles.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -46937,7 +46884,7 @@
     },
     "/api/v1/starters/{starter}/preview": {
       "post": {
-        "description": "Check the installed version, projects, roles and flow without changing either project.",
+        "description": "Preview the version, review flow and role grants for the assay project.",
         "operationId": "iki_server_api_starters_preview_starter",
         "parameters": [
           {

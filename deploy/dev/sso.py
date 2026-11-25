@@ -1,8 +1,8 @@
 """Sets up sign-in on the dev cluster through the real wizard and Keycloak.
 
-    uv run python deploy/dev/sso.py                     # set up SSO, bob becomes admin
-    uv run python deploy/dev/sso.py --check             # exercise sign-in and product scenarios
-    uv run python deploy/dev/sso.py --check --fixtures  # also exercise the dev-ci overlay
+    uv run python -m deploy.dev.sso                     # set up SSO, bob becomes admin
+    uv run python -m deploy.dev.sso --check             # exercise sign-in and product scenarios
+    uv run python -m deploy.dev.sso --check --fixtures  # also exercise the dev-ci overlay
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -36,8 +36,7 @@ from uuid import UUID
 
 import requests
 import urllib3.util.connection
-
-from iki_server.setup import public_plate
+from examples.dose_response import public_plate, tutorial
 
 IKI = "http://localhost:8000"
 #: The web workload to exec into and read logs from (``--web``).
@@ -4096,18 +4095,51 @@ def fit_assay_plate(
     return fits
 
 
-def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> None:
-    """Two cores choose different flows for the same assay and return the signed result."""
+class TutorialApi:
+    """Run the same tutorial as a lab, through Alice's browser session and upload URLs."""
+
+    def __init__(self, session: requests.Session) -> None:
+        self.session = session
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:  # noqa: ANN401 - parsed API response
+        response = api_call(self.session, method, path, json, headers)
+        if not 200 <= response.status_code < 300:
+            fail(f"{method} {path} answered HTTP {response.status_code}: {response.text[:300]}")
+        return response.json() if response.content else None
+
+    def upload(self, project: str, path: Path) -> str:
+        return upload(self.session, {"id": project}, path.name, path.read_bytes(), "text/csv")
+
+
+def dose_response_tutorial(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Run the Tox21 tutorial in each review flow and return the signed fits to its requester."""
     bob, carol = sign_in_as("bob"), sign_in_as("carol")
     people = {
         name: api_call(s, "GET", "/me").json()["id"]
         for name, s in (("alice", alice), ("bob", bob), ("carol", carol))
     }
-    requester = cli_read_token(alice, project=asking["id"])
-    for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
-        core = core_project(alice, asking, name)
-        example = apply_plate_starter(alice, core, asking, flow, people)
-        receive_starter_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
+    api = TutorialApi(alice)
+    team = project["team"]["id"]
+    for flow in ("research", "regulated_qc"):
+        example = tutorial.prepare(
+            api,
+            team=team,
+            flow=flow,
+            state=tutorial.state_path(IKI, team, flow),
+            analyst=people["alice"],
+            reviewer=people["bob"],
+            qa=people["carol"] if flow == "regulated_qc" else None,
+        )
+        core = api.request("GET", f"/projects/{example['project']}")
+        requester = cli_read_token(alice, project=example["requester_project"])
+        receive_tutorial_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
         plate = record(alice, example["plate"])
         if plate["values"]["reagent_tube"] != example["tube"]:
             fail("the example plate lost its luciferase reagent tube")
@@ -4121,66 +4153,11 @@ def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> N
                 or plate["values"]["reader_file"] != example["reader_file"]
             ):
                 fail(f"{result['hrid']} failed to retain the starter flow, source or request")
-            sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
-        ok(f"{name} returned both signed flavonoid IC50s to {asking['name']}")
+            sign_tutorial_result(result, example["request"], requester, alice, bob, carol, people)
+        ok(f"{core['name']} returned both signed flavonoid IC50s to its tutorial requester")
 
 
-def apply_plate_starter(
-    alice: requests.Session,
-    core: dict[str, Any],
-    asking: dict[str, Any],
-    flow: str,
-    people: dict[str, str],
-) -> dict[str, str]:
-    name = core["name"]
-    members = {}
-    for user, user_id in people.items():
-        grant = api_call(
-            alice,
-            "PUT",
-            f"/projects/{core['id']}/members/users/{user_id}",
-            {"role": "admin" if user == "alice" else "editor"},
-        )
-        if grant.status_code != 200:
-            fail(f"adding {user} to {name} answered HTTP {grant.status_code}: {grant.text}")
-        members[user] = grant.json()["id"]
-    catalogue = api_call(alice, "GET", f"/starters?project={core['id']}").json()
-    starter = next(st for st in catalogue if st["id"] == "dose-response")
-    assignments = {
-        "iki/lab_roles.coordinator": [members["alice"]],
-        "iki/plate_assays.analyst": [members["alice"]],
-        "iki/plate_assays.reviewer": [members["bob"]],
-    }
-    if flow == "regulated_qc":
-        assignments["iki/plate_assays.qa"] = [members["carol"]]
-    setup = {
-        "version": starter["version"],
-        "project": core["id"],
-        "requester_project": asking["id"],
-        "flow": flow,
-        "role_assignments": assignments,
-    }
-    path = f"/starters/{starter['id']}"
-    # Applying names the plan its preview returned: what was reviewed (ADR 0207).
-    for operation in ("preview", "apply"):
-        response = api_call(alice, "POST", f"{path}/{operation}", setup)
-        if response.status_code != 200:
-            fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
-        setup = {**setup, "plan": response.json()["plan"]}
-    installed = response.json()
-    again = api_call(alice, "POST", f"{path}/apply", setup)
-    if (
-        again.status_code != 200
-        or again.json()["changed"]
-        or (again.json()["examples"] != installed["examples"])
-    ):
-        fail(f"applying the starter twice in {name} gave {again.status_code}: {again.text}")
-
-    examples: dict[str, str] = installed["examples"]
-    return examples
-
-
-def sign_starter_result(
+def sign_tutorial_result(
     result: dict[str, Any],
     request: str,
     requester: str,
@@ -4226,7 +4203,7 @@ def sign_starter_result(
         fail(f"{result['hrid']} did not return the signed fit and its release revision")
 
 
-def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
+def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
     """Scan all the labelled tubes once, even if the dev check is being run again."""
     path = f"/entities/{request_id}/receipts"
     prior = api_call(alice, "GET", path).json()["receipts"]
@@ -4271,14 +4248,14 @@ def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: li
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
     if len(completed) != 1:
-        fail(f"the starter request has {len(completed)} completed receipts")
+        fail(f"the tutorial request has {len(completed)} completed receipts")
     received = read_completed_receipt(alice, completed[0]["id"])
     if {
         line["entity"]
         for line in received["lines"]
         if line["outcome"] == "matched" and line["received_unplaced"] and line["put_away"] is None
     } != set(tube_ids) or len(received["lines"]) != len(tube_ids):
-        fail(f"the starter tubes were not received in unplaced custody: {received['lines']}")
+        fail(f"the tutorial tubes were not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(
@@ -6930,7 +6907,7 @@ def product_scenarios(alice: requests.Session, project: dict[str, Any]) -> None:
     stability_study(alice, project)
     plate_assay(alice, project)
     reagent_stock(alice, project)
-    dose_response_starters(alice, project)
+    dose_response_tutorial(alice, project)
     qc_release(alice, project)
     sequencing(alice, project)
     sequencing_analysis(alice, project)

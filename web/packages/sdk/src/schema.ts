@@ -4496,7 +4496,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         * @description Apply the reviewed flow and role grants to the assay project.
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
@@ -4521,7 +4521,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a starter choice
-         * @description Check the installed version, projects, roles and flow without changing either project.
+         * @description Preview the version, review flow and role grants for the assay project.
          */
         post: operations["iki_server_api_starters_preview_starter"];
         delete?: never;
@@ -6153,11 +6153,6 @@ export interface components {
              * @enum {string}
              */
             flow: "research" | "regulated_qc";
-            /**
-             * Requester Project
-             * @description Original requester for an assay project Admin who may edit that project.
-             */
-            requester_project: string | null;
             /** Version */
             version: string;
         };
@@ -17712,18 +17707,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17750,7 +17739,7 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified type for a requested result in this flow.
+             * @description Qualified result type for new fits in this flow.
              */
             result_type: string;
         };
@@ -17802,18 +17791,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17831,18 +17814,6 @@ export interface components {
              * @description Whether applying this choice would change anything (preview), or did (apply).
              */
             changed: boolean;
-            /**
-             * Examples
-             * @description IDs of example records already present at preview or available after setup.
-             */
-            examples: {
-                [key: string]: string;
-            };
-            /**
-             * Examples To Create
-             * @description Names of examples missing when the setup was checked.
-             */
-            examples_to_create: string[];
             /**
              * Flow
              * @enum {string}
@@ -17865,11 +17836,6 @@ export interface components {
              * Format: uuid
              */
             project: string;
-            /**
-             * Requester Project
-             * Format: uuid
-             */
-            requester_project: string;
             /** Result Type */
             result_type: string;
             /** Role Assignments */

@@ -3,6 +3,8 @@
 import os
 import sys
 
+from django.db.models import F
+
 from iki_server.entities.models import Entity
 from iki_server.org.models import Project
 from iki_server.runs.models import ActionRun, RunStatus
@@ -15,7 +17,14 @@ def check_seed(atlas: Project) -> None:
         owner_project__team_id=atlas.team_id, archived_at__isnull=True, purged_at__isnull=True
     )
 
-    def require(kind: str, count: int = 1, *, signature: str = "", returned_from: str = "") -> None:
+    def require(
+        kind: str,
+        count: int = 1,
+        *,
+        signature: str = "",
+        returned_from: str = "",
+        returned_to: str = "",
+    ) -> None:
         project = returned_from or atlas.name
         rows = records.filter(type=kind)
         if signature:
@@ -23,8 +32,9 @@ def check_seed(atlas: Project) -> None:
         if returned_from:
             rows = rows.filter(
                 owner_project__name=returned_from,
-                links__project=atlas,
-                links__via_request__isnull=False,
+                links__project__team_id=atlas.team_id,
+                links__project__name=returned_to or atlas.name,
+                links__via_request__owner_project=F("links__project"),
             )
         else:
             rows = rows.filter(owner_project=atlas)
@@ -32,7 +42,7 @@ def check_seed(atlas: Project) -> None:
         if found < count:
             details = f" with a {signature!r} signature" if signature else ""
             if returned_from:
-                details += f" returned to {atlas.name}"
+                details += f" returned to {returned_to or atlas.name}"
             missing.append(f"{project}: expected at least {count} {kind}{details}, found {found}")
 
     # Results of the eleven scenarios previously reached only through the example connector.
@@ -54,12 +64,14 @@ def check_seed(atlas: Project) -> None:
         2,
         signature="signed",
         returned_from="Research plate assays",
+        returned_to="Research plate assay requester",
     )
     require(
         "iki/plate_assays.RequestedQCAssayResult",
         2,
         signature="released",
         returned_from="QC plate assays",
+        returned_to="QC plate assay requester",
     )
     require(
         "iki/requests.ResearchDeliverable", signature="signed_off", returned_from="Analytical Core"

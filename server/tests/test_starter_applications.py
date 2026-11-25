@@ -1,11 +1,10 @@
-"""Preview, apply and switch a starter, preserving project grants and its example work."""
+"""Preview, apply and switch a starter, preserving project grants and the reviewed configuration."""
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from functools import partial
 from threading import Barrier
-from unittest.mock import Mock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from api_client import Api, problem
@@ -14,97 +13,86 @@ from django.http import Http404
 from org_world import World, build_world
 
 from iki_server.accounts.models import User
+from iki_server.amounts.models import Movement
 from iki_server.audit.models import AuditEvent
+from iki_server.entities.models import Entity, Intake
+from iki_server.files.models import File
 from iki_server.org import services
-from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
+from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
 from iki_server.setup import starters
 from iki_server.setup.models import StarterApplication
 
 pytestmark = pytest.mark.django_db
 
-# Use the ordinary test installation's real, declared roles. The two-project recipe with
-# the shipping plate plugin, including its actual examples, runs in test_dose_response_starter.
+# Use the ordinary test installation's real roles to exercise the config service.
 ANALYST, REVIEWER, QA = (f"acme/protein.{r}" for r in ("analyst", "reviewer", "qa"))
 
 
 @dataclass
 class Setup:
     world: World
-    requester: Project
     roles: dict[str, list[UUID]]
-    examples: Mock
 
 
 @pytest.fixture
 def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
     world = build_world()
-    examples = Mock()
-    examples.seed_example.side_effect = lambda *a, **kw: {"plate": str(uuid4())}
     recipe = replace(
         starters.DOSE_RESPONSE,
-        version="1.0.0",
         roles={ANALYST: ProjectRole.EDITOR, REVIEWER: ProjectRole.VIEWER, QA: ProjectRole.VIEWER},
         required_roles={"research": (ANALYST, REVIEWER), "regulated_qc": (ANALYST, REVIEWER, QA)},
         independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-        examples=examples,
-        example_keys=("plate",),
     )
     monkeypatch.setattr(starters, "installed_starters", lambda: {recipe.id: recipe})
-    requester = Project.objects.create(team=world.team, name="Requester")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
     member = world.project.memberships.get
     roles = {
         ANALYST: [member(user=world.users["editor"]).pk],
         REVIEWER: [member(user=world.users["runner"]).pk],
         QA: [member(user=world.users["viewer"]).pk],
     }
-    return Setup(world, requester, roles, examples)
+    return Setup(world, roles)
 
 
-def test_an_upgrade_previews_the_new_examples_and_applies_them_once(setup: Setup) -> None:
-    project, admin, requester = setup.world.project, setup.world.users["admin"], setup.requester
-    previous = {"legacy_plate": str(uuid4())}
-    StarterApplication.objects.create(
+def test_upgrade_records_the_reviewed_version(setup: Setup) -> None:
+    project, admin = setup.world.project, setup.world.users["admin"]
+    existing = StarterApplication.objects.create(
         project=project,
-        requester_project=requester,
         starter="dose-response",
-        version="0.9.0",
+        version="1.2.0",
         flow="regulated_qc",
-        examples=previous,
         applied_by=admin,
     )
-    args = (project, "dose-response", "1.0.0", "regulated_qc", setup.roles)
-    plan = starters.preview(*args, requester_project=requester, by=admin)
-    assert plan["examples_to_create"] == ["plate"] and plan["examples"] == previous
-    applied = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
-    replay = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
-    assert applied["examples"] == replay["examples"] and not replay["changed"]
-    setup.examples.seed_example.assert_called_once()
+    args = (project, "dose-response", "2.0.0", "regulated_qc", setup.roles)
+    plan = starters.preview(*args, by=admin)
+    assert plan["changed"]
+    assert starters.apply(*args, by=admin, plan=plan["plan"])["changed"]
+    assert not starters.apply(*args, by=admin, plan=plan["plan"])["changed"]
+    existing.refresh_from_db()
+    assert existing.version == "2.0.0"
+    assert StarterApplication.objects.count() == 1
+    assert AuditEvent.objects.get(action="starter.applied").data["before"] == {
+        "version": "1.2.0",
+        "flow": "regulated_qc",
+    }
 
 
 def test_preview_apply_replay_and_switch(setup: Setup) -> None:
-    world, ask, roles = setup.world, setup.requester, setup.roles
+    world, roles = setup.world, setup.roles
     project, admin = world.project, world.users["admin"]
-    args = (project, "dose-response", "1.0.0", "regulated_qc", roles)
-    plan = starters.preview(*args, requester_project=ask, by=admin)
-    assert plan["changed"] and plan["examples_to_create"] == ["plate"] and plan["examples"] == {}
+    args = (project, "dose-response", "2.0.0", "regulated_qc", roles)
+    plan = starters.preview(*args, by=admin)
+    assert plan["changed"]
+    assert plan["result_type"] == starters.PLATE + "QCAssayResult"
     assert plan["grants_to_add"] == {k: list(map(str, v)) for k, v in roles.items()}
     assert len(plan["plan"]) == 64
     assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
     assert not AuditEvent.objects.filter(action="starter.applied").exists()
-    setup.examples.seed_example.assert_not_called()
 
-    applied = starters.apply(*args, requester_project=ask, by=admin, plan=plan["plan"])
-    original = applied["examples"]
-    assert applied["changed"] and str(UUID(original["plate"])) == original["plate"]
+    applied = starters.apply(*args, by=admin, plan=plan["plan"])
+    assert applied == plan
     # Sent again, the same approval changes nothing: it's set up that way already.
-    replay = starters.apply(*args, requester_project=ask, by=admin, plan=plan["plan"])
-    assert (
-        not replay["changed"] and replay["grants_to_add"] == {} and replay["examples"] == original
-    )
-    setup.examples.seed_example.assert_called_once()
+    replay = starters.apply(*args, by=admin, plan=plan["plan"])
+    assert not replay["changed"] and replay["grants_to_add"] == {}
     assert LabRoleGrant.objects.filter(granted_by=admin).count() == 3
     events = AuditEvent.objects.filter(action="starter.applied", project=project, actor=admin)
     assert events.count() == 1
@@ -112,22 +100,21 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     assert first.data["before"] is None and first.data["after"]["flow"] == "regulated_qc"
     assert first.data["grants_added"] == plan["grants_to_add"]
     assert first.data["plan"] == plan["plan"]
-    assert starters.list_starters(project, by=admin)[0]["applied"]["requester_project"] == str(
-        ask.pk
-    )
-    visible = starters.list_starters(project, by=world.users["viewer"])[0]["applied"]
-    assert visible == {"version": "1.0.0", "flow": "regulated_qc", "requester_project": None}
+    assert starters.list_starters(project)[0]["applied"] == {
+        "version": "2.0.0",
+        "flow": "regulated_qc",
+    }
 
     research_roles = {k: v for k, v in roles.items() if k != QA}
-    switch = (project, "dose-response", "1.0.0", "research", research_roles)
-    reviewed = starters.preview(*switch, requester_project=ask, by=admin)
+    switch = (project, "dose-response", "2.0.0", "research", research_roles)
+    reviewed = starters.preview(*switch, by=admin)
     assert reviewed["changed"] and reviewed["grants_to_add"] == {}
     # Another Admin revokes the reviewer's grant before this switch is applied. The switch
     # reviewed grants nothing (ADR 0207): applying it is refused, and changes nothing.
     revoked = LabRoleGrant.objects.get(role=REVIEWER)
     revoked.delete()
     with pytest.raises(starters.PlanChanged) as refused:
-        starters.apply(*switch, requester_project=ask, by=admin, plan=reviewed["plan"])
+        starters.apply(*switch, by=admin, plan=reviewed["plan"])
     now = refused.value.plan
     assert now["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
     assert now["plan"] != reviewed["plan"]
@@ -135,54 +122,50 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     assert not LabRoleGrant.objects.filter(role=REVIEWER).exists()
     assert events.count() == 1
     # Reviewed again, the switch shows the grant it adds back; applying that plan adds it.
-    again = starters.preview(*switch, requester_project=ask, by=admin)
+    again = starters.preview(*switch, by=admin)
     assert again == now
-    switched = starters.apply(*switch, requester_project=ask, by=admin, plan=again["plan"])
-    assert switched["changed"] and switched["examples"] == original
+    switched = starters.apply(*switch, by=admin, plan=again["plan"])
+    assert switched["changed"] and switched["result_type"] == starters.PLATE + "ResearchAssayResult"
     assert switched["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
-    assert switched["examples_to_create"] == []
     assert LabRoleGrant.objects.filter(role=QA).exists()
     assert LabRoleGrant.objects.filter(role=REVIEWER, granted_by=admin).exists()
     assert starters.effective_flow(project, "dose-response") == "research"
     change = events.exclude(pk=first.pk).get()
     assert change.data["before"]["flow"] == "regulated_qc"
-    assert change.data["after"] == {"version": "1.0.0", "flow": "research"}
+    assert change.data["after"] == {"version": "2.0.0", "flow": "research"}
     assert change.data["grants_added"] == switched["grants_to_add"]
     assert change.data["plan"] == again["plan"]
-    setup.examples.seed_example.assert_called_once()
+    assert not Entity.objects.exists()
+    assert not File.objects.exists()
+    assert not Movement.objects.exists()
+    assert not Intake.objects.exists()
 
 
-def test_a_stale_first_apply_seeds_nothing(setup: Setup) -> None:
-    """Applied first by another Admin, a first apply's plan (examples to create, every grant)
-    no longer holds: it creates no second example and grants nothing it didn't show."""
-    world, ask, roles = setup.world, setup.requester, setup.roles
+def test_a_stale_first_apply_adds_no_grants(setup: Setup) -> None:
+    """Changing the choice after another Admin applied a flow requires a fresh preview."""
+    world, roles = setup.world, setup.roles
     project, admin = world.project, world.users["admin"]
-    args = (project, "dose-response", "1.0.0", "regulated_qc", roles)
-    mine = starters.preview(*args, requester_project=ask, by=admin)
-    # The other Admin applies the Research flow first; then this one's plan, which showed
-    # every grant and a new example, is stale.
+    args = (project, "dose-response", "2.0.0", "regulated_qc", roles)
+    mine = starters.preview(*args, by=admin)
+    # The other Admin applies Research first, which adds both common grants.
     fewer = {k: v for k, v in roles.items() if k != QA}
-    theirs = starters.preview(
-        project, "dose-response", "1.0.0", "research", fewer, requester_project=ask, by=admin
-    )
+    theirs = starters.preview(project, "dose-response", "2.0.0", "research", fewer, by=admin)
     starters.apply(
         project,
         "dose-response",
-        "1.0.0",
+        "2.0.0",
         "research",
         fewer,
-        requester_project=ask,
         by=admin,
         plan=theirs["plan"],
     )
     grants = set(LabRoleGrant.objects.values_list("membership_id", "role"))
     with pytest.raises(starters.PlanChanged) as refused:
-        starters.apply(*args, requester_project=ask, by=admin, plan=mine["plan"])
-    assert refused.value.plan["examples_to_create"] == []
+        starters.apply(*args, by=admin, plan=mine["plan"])
+    assert refused.value.plan["grants_to_add"] == {QA: list(map(str, roles[QA]))}
     assert set(LabRoleGrant.objects.values_list("membership_id", "role")) == grants
     assert starters.effective_flow(project, "dose-response") == "research"
     assert AuditEvent.objects.filter(action="starter.applied").count() == 1
-    setup.examples.seed_example.assert_called_once()
 
 
 def test_the_api_refuses_a_changed_plan_and_answers_what_applying_does_now(setup: Setup) -> None:
@@ -191,8 +174,7 @@ def test_the_api_refuses_a_changed_plan_and_answers_what_applying_does_now(setup
     api = Api(world.browser("admin"))
     body = {
         "project": str(world.project.pk),
-        "requester_project": str(setup.requester.pk),
-        "version": "1.0.0",
+        "version": "2.0.0",
         "flow": "regulated_qc",
         "role_assignments": {k: list(map(str, v)) for k, v in roles.items()},
     }
@@ -211,7 +193,6 @@ def test_the_api_refuses_a_changed_plan_and_answers_what_applying_does_now(setup
     assert not StarterApplication.objects.exists()
     assert not AuditEvent.objects.filter(action="starter.applied").exists()
     assert LabRoleGrant.objects.count() == 1
-    setup.examples.seed_example.assert_not_called()
     applied = api.post("/starters/dose-response/apply", {**body, "plan": now["plan"]})
     assert applied.status_code == 200, applied.content
     assert applied.json()["grants_to_add"] == now["grants_to_add"]
@@ -220,11 +201,11 @@ def test_the_api_refuses_a_changed_plan_and_answers_what_applying_does_now(setup
 
 
 def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Setup) -> None:
-    world, ask, roles = setup.world, setup.requester, setup.roles
+    world, roles = setup.world, setup.roles
     project, admin = world.project, world.users["admin"]
 
     def attempt(
-        assign: dict[str, list[UUID]], *, version: str = "1.0.0", starter: str = "dose-response"
+        assign: dict[str, list[UUID]], *, version: str = "2.0.0", starter: str = "dose-response"
     ) -> None:
         starters.apply(
             project,
@@ -232,7 +213,6 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
             version,
             "regulated_qc",
             assign,
-            requester_project=ask,
             by=admin,
             plan="0" * 64,
         )
@@ -240,13 +220,13 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
     with pytest.raises(Http404):
         attempt(roles, starter="unknown")
     with pytest.raises(services.Refused, match="installed version"):
-        attempt(roles, version="2.0.0")
+        attempt(roles, version="1.2.0")
     with pytest.raises(services.Refused, match="project member"):
         attempt({ANALYST: roles[ANALYST]})
     with pytest.raises(services.Refused, match="not a role"):
         attempt({**roles, "acme/protein.unrelated": roles[QA]})
     with pytest.raises(services.Refused, match="direct membership"):
-        attempt({**roles, ANALYST: [ask.memberships.get(user=admin).pk]})
+        attempt({**roles, ANALYST: [world.archived.memberships.get(user=admin).pk]})
     with pytest.raises(services.Refused, match="active people"):
         attempt({**roles, QA: [project.memberships.get(user=world.users["inactive"]).pk]})
     with pytest.raises(services.Refused, match="Editor"):
@@ -257,7 +237,6 @@ def test_rejects_unusable_role_choices_and_stale_recipe_without_writes(setup: Se
             {ANALYST: roles[ANALYST], REVIEWER: roles[ANALYST] * 5, QA: roles[QA] + roles[REVIEWER]}
         )
     assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
-    setup.examples.seed_example.assert_not_called()
 
 
 @pytest.mark.parametrize("operation", [starters.preview, partial(starters.apply, plan="0" * 64)])
@@ -267,16 +246,15 @@ def test_archived_service_refuses_setup(setup: Setup, operation: object) -> None
         operation(
             setup.world.archived,
             "dose-response",
-            "1.0.0",
+            "2.0.0",
             "research",
             setup.roles,
-            requester_project=setup.requester,
             by=setup.world.users["admin"],
         )
 
 
 @pytest.mark.django_db(transaction=True)
-def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup) -> None:
+def test_concurrent_applies_keep_one_configuration_and_other_role_grants(setup: Setup) -> None:
     """An ordinary membership update committed during two first applies stays on the member."""
     project, admin = setup.world.project, setup.world.users["admin"]
     membership = ProjectMembership.objects.get(pk=setup.roles[ANALYST][0])
@@ -285,10 +263,9 @@ def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup)
     reviewed = starters.preview(
         project,
         "dose-response",
-        "1.0.0",
+        "2.0.0",
         "regulated_qc",
         setup.roles,
-        requester_project=setup.requester,
         by=admin,
     )["plan"]
 
@@ -300,10 +277,9 @@ def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup)
                 starters.apply(
                     project,
                     "dose-response",
-                    "1.0.0",
+                    "2.0.0",
                     "regulated_qc",
                     setup.roles,
-                    requester_project=setup.requester,
                     by=actor,
                     plan=reviewed,
                 )["changed"]
@@ -322,4 +298,3 @@ def test_concurrent_applies_keep_one_example_and_other_role_grants(setup: Setup)
     assert set(membership.lab_roles.values_list("role", flat=True)) == {ANALYST, QA}
     assert StarterApplication.objects.count() == 1
     assert AuditEvent.objects.filter(action="starter.applied").count() == 1
-    setup.examples.seed_example.assert_called_once()

@@ -1097,7 +1097,6 @@ def test_a_staged_import_checks_the_projects_flow_at_commit(
     monkeypatch.setattr(starters, "CATALOG", (assay,))
     application = StarterApplication.objects.create(
         project=world.project,
-        requester_project=Project.objects.create(team=world.team, name="Requests"),
         starter=assay.id,
         version=assay.version,
         flow="research",
