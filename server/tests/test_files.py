@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import requests
 from api_client import Api, problem
+from django.db import transaction
 from django.utils import timezone
 from org_world import World, build_world
 from test_oauth import bearer, signed_in_token
@@ -14,7 +15,7 @@ from test_oauth import bearer, signed_in_token
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import services as entities
 from iki_server.files import services, storage
-from iki_server.files.models import Blob, File, Upload
+from iki_server.files.models import Blob, File, Upload, UploadKind, UploadState
 from iki_server.oauth.models import Consent
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.tasks.runner import Runner
@@ -108,6 +109,39 @@ def test_an_upload_becomes_a_file_stored_under_its_content(world: World, s3: Any
     assert event.target_id == file["id"] and event.project_id == world.project.pk
     assert event.actor_id == world.users["editor"].pk
     assert event.data == {"sha256": sha, "size": len(PDB), "media_type": "chemical/x-pdb"}
+
+
+@pytest.mark.parametrize("kind", [UploadKind.FILE, UploadKind.ARTIFACT])
+def test_rolling_back_a_finish_preserves_the_staged_input_for_a_retry(
+    world: World, s3: Any, kind: UploadKind
+) -> None:
+    digest = hashlib.sha256(PDB).hexdigest()
+    upload = services.start(
+        world.users["editor"],
+        world.project,
+        name="result.pdb",
+        media_type="chemical/x-pdb",
+        size=len(PDB),
+        sha256=digest,
+        kind=kind,
+    )
+    send({"parts": services.parts(upload)}, PDB)
+    services.complete(upload)
+    with transaction.atomic():
+        assert services.check(str(upload.pk)) == "ready"
+        assert storage.digest(upload.staging_key) == (digest, len(PDB))
+        transaction.set_rollback(True)
+    upload.refresh_from_db()
+    assert upload.state == UploadState.CHECKING
+    assert storage.digest(upload.staging_key) == (digest, len(PDB))
+    assert not File.objects.exists()
+    # The queued check can finish the upload from the same staged input.
+    run_tasks()
+    upload.refresh_from_db()
+    assert upload.state == UploadState.READY
+    kept = storage.blob_key(digest) if kind == UploadKind.FILE else storage.artifact_key(upload.pk)
+    assert storage.digest(kept) == (digest, len(PDB))
+    assert not storage.exists(upload.staging_key)
 
 
 def test_large_files_go_in_parts(world: World, s3: Any, small_parts: int) -> None:

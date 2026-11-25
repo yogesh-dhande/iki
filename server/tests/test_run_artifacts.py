@@ -13,13 +13,15 @@ from django.test import override_settings
 from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as
-from test_files import run_tasks
+from test_files import run_tasks, send
 from test_run_results import done, output
 from test_runs import launch, protein, world
 from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.audit.models import AuditEvent
+from iki_server.files import services as files
 from iki_server.files import storage
+from iki_server.files.models import Upload, UploadState
 from iki_server.org import holds
 from iki_server.runs import artifacts
 from iki_server.runs.models import RunArtifact
@@ -119,6 +121,27 @@ def test_a_run_keeps_its_artifacts_for_its_readers(world: World) -> None:
     files = api_as(world).get("/files", project=str(world.project.pk)).json()["items"]
     assert files == []
     assert listed(world, run, "outsider").status_code == 404
+
+
+def test_finishing_a_ready_artifact_again_preserves_its_stored_bytes(world: World) -> None:
+    pod, _, job = aligning(world)
+    started = keep(pod, job, "alignment.txt").json()
+    send(started, ALIGNMENT)
+    upload = files.complete(Upload.objects.get(pk=started["id"]))
+    assert upload.state == UploadState.CHECKING
+
+    assert files.check(str(upload.pk)) == "ready"
+    # Another checker may already have verified these bytes before the first committed.
+    files._finish(upload, upload.sha256, upload.size)
+    key = storage.artifact_key(upload.pk)
+    assert storage.digest(key) == (upload.sha256, len(ALIGNMENT))
+    run_tasks()
+    assert not storage.exists(upload.staging_key)
+
+    files._finish(upload, upload.sha256, upload.size)
+    upload.refresh_from_db()
+    assert upload.state == UploadState.READY
+    assert storage.digest(key) == (upload.sha256, len(ALIGNMENT))
 
 
 def test_a_failed_run_keeps_them_too(world: World) -> None:

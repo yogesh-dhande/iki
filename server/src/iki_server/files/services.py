@@ -269,7 +269,6 @@ def check(upload_id: str) -> str:
         return "nothing to check"
     sha256, size = storage.digest(upload.staging_key)
     if (sha256, size) != (upload.sha256, upload.size):
-        storage.delete(upload.staging_key)
         with transaction.atomic():
             locked = Upload.objects.select_for_update().get(pk=upload.pk)
             if locked.state != UploadState.CHECKING:
@@ -299,29 +298,35 @@ def _finish(
 ) -> None:
     """Moves checked bytes to their content's key, and makes the upload a file, acquired
     `when` its bytes say; or, for an artifact or a checkpoint, to its own key."""
-    if upload.kind != UploadKind.FILE:
-        kept = storage.kept_key(upload.kind, upload.pk)
-        storage.copy(upload.staging_key, kept)
-        storage.delete(upload.staging_key)
-        with transaction.atomic():
-            locked = Upload.objects.select_for_update().get(pk=upload.pk)
-            if locked.state in (UploadState.PENDING, UploadState.CHECKING):
-                _end(locked, UploadState.READY)
-                if locked.kind == UploadKind.BUNDLE:
-                    from iki_server.bundles import imports
-
-                    imports.uploaded(locked)
-                return
-        # Cancelled while it was checked (its run's checkpoints were deleted, say): keep none.
-        storage.delete_for_good(kept)
+    finishing = (UploadState.PENDING, UploadState.CHECKING)
+    # A finished upload's bytes are where they belong (or retention has removed them), so a
+    # stale attempt copies nothing.
+    if not Upload.objects.filter(pk=upload.pk, state__in=finishing).exists():
         return
-    key = storage.blob_key(sha256)
-    if not storage.exists(key):
+    key = (
+        storage.blob_key(sha256)
+        if upload.kind == UploadKind.FILE
+        else storage.kept_key(upload.kind, upload.pk)
+    )
+    # The copy runs outside the transaction: a large object takes minutes, and its key is
+    # the content's or this upload's own, so copying twice writes the same bytes.
+    copied = not storage.exists(key)
+    if copied:
         storage.copy(upload.staging_key, key)
-    storage.delete(upload.staging_key)
     with transaction.atomic():
+        # Only one finisher publishes the upload.
         locked = Upload.objects.select_for_update().get(pk=upload.pk)
-        if locked.state not in (UploadState.PENDING, UploadState.CHECKING):
+        if locked.state not in finishing:
+            if copied and locked.kind != UploadKind.FILE and locked.state == UploadState.CANCELLED:
+                # Cancelled while it was copied (its run's checkpoints were deleted, say).
+                storage.delete_for_good(key)
+            return
+        if locked.kind != UploadKind.FILE:
+            _end(locked, UploadState.READY)
+            if locked.kind == UploadKind.BUNDLE:
+                from iki_server.bundles import imports
+
+                imports.uploaded(locked)
             return
         blob = _blob(sha256, size, storage.uri(key))
         # An empty file says nothing of itself: only what its uploader gave.
@@ -413,6 +418,12 @@ def _end(upload: Upload, state: UploadState) -> None:
     upload.state = state
     upload.finished_at = timezone.now()
     upload.save(update_fields=["state", "finished_at", "error", "file"])
+    if state in (UploadState.READY, UploadState.FAILED):
+        from iki_server.files.tasks import discard_staging
+
+        # The runner sees this deletion only after the enclosing transaction commits.
+        # A rolled-back finish can read its input again, even if the final copy exists.
+        discard_staging.enqueue(str(upload.pk))
     if upload.kind != UploadKind.FILE:
         return  # a worker's, for a run: the run's page says how it went
     # Postgres delivers it when the transaction commits.
