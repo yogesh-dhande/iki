@@ -57,7 +57,7 @@ FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
-    version="1.0.0",
+    version="1.1.0",
     label="Dose-response plate assay",
     description="Receive an example request, map a reader file to wells, fit a curve and return "
     "the signed result to the requester.",
@@ -71,6 +71,8 @@ DOSE_RESPONSE = Starter(
     },
     types=(
         "iki/protein.Protein",
+        "iki/small_molecule.Compound",
+        "iki/lots.GenericLot",
         "iki/example_lims.Sample",
         "iki/example_lims.Tube",
         "iki/example_lims.AnalysisRequest",
@@ -94,7 +96,16 @@ DOSE_RESPONSE = Starter(
         "regulated_qc": (COORDINATOR, ANALYST, REVIEWER, QA),
     },
     independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-    example_keys=("request", "protein", "sample", "tube", "reader_file", "plate"),
+    example_keys=(
+        "request",
+        "protein",
+        "sample",
+        "tube",
+        "apigenin",
+        "daidzein",
+        "reader_file",
+        "plate",
+    ),
     examples=dose_response,
 )
 CATALOG = (DOSE_RESPONSE,)
@@ -291,7 +302,10 @@ def _plan(
             "Use the original requester project to keep its example request and results together.",
             field="requester_project",
         )
-    if current is None:
+    new_examples = current is None or (
+        current.version != version and not set(recipe.example_keys).issubset(current.examples)
+    )
+    if new_examples:
         recipe.examples.check_example(project, requester_project, by=by)
     selected = {role: set(ids) for role, ids in role_assignments.items()}
     members = _members(project, recipe, flow, selected)
@@ -318,7 +332,7 @@ def _plan(
         or bool(grants),
         "role_assignments": assignments,
         "grants_to_add": missing,
-        "examples_to_create": list(recipe.example_keys) if current is None else [],
+        "examples_to_create": list(recipe.example_keys) if new_examples else [],
         "examples": dict(current.examples) if current is not None else {},
     }
     before = {"version": current.version, "flow": current.flow} if current is not None else None
@@ -378,10 +392,11 @@ def apply(
         held = {g.role for g in membership.lab_roles.all()}
         services.set_lab_roles(membership, held | roles, by=by)
     if current is None:
-        examples = planned.starter.examples.seed_example(project, requester_project, by=by)
         current = StarterApplication(
-            project=project, requester_project=requester_project, starter=starter, examples=examples
+            project=project, requester_project=requester_project, starter=starter
         )
+    if result["examples_to_create"]:
+        current.examples = planned.starter.examples.seed_example(project, requester_project, by=by)
     current.version, current.flow, current.applied_by = version, flow, by
     current.save()
     result["examples"] = dict(current.examples)

@@ -65,8 +65,8 @@ def reader_output(run: dict[str, Any], *, commit: bool) -> dict[str, Any]:
     }
     for reading in preview["readings"]:
         fields = dict(reading)
-        fields["signal"] = fields.pop("value")
-        del fields["unit"]  # Raw OD is stored in the typed dimensionless signal field.
+        signal = "activity_percent" if fields.pop("unit") == "%" else "signal"
+        fields[signal] = fields.pop("value")
         key = fields["well"]
         creates.append(
             {
@@ -132,6 +132,7 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     unit = selected[0]["values"].get("concentration_unit")
     points = []
     included = []
+    response_units = set()
     for measurement in selected:
         values = measurement["values"]
         well = values["well"]
@@ -144,7 +145,11 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
         ):
             raise ValueError(f"{well} is not from this committed read.")
         dose = values["concentration"] * (MOLAR[given_unit] / MOLAR[unit])
-        response = values["signal"]
+        if values.get("activity_percent") is None:
+            response, response_unit = values["signal"], "AU"
+        else:
+            response, response_unit = values["activity_percent"], "percent"
+        response_units.add(response_unit)
         reason = excluded.pop(well, None)
         points.append(
             {
@@ -164,7 +169,7 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
     if excluded:
         raise ValueError("Excluded wells outside this sample's series: " + ", ".join(excluded))
     channels = {m["values"]["channel"] for m in selected}
-    if len(channels) != 1:
+    if len(channels) != 1 or len(response_units) != 1:
         raise ValueError("Fit one detector channel at a time.")
     fitted = fit_curve(included, run["params"].get("endpoint_kind", "IC50"))
     flow = run.get("settings", {}).get("review_flow", "research")
@@ -180,7 +185,7 @@ def fit_output(run: dict[str, Any]) -> dict[str, Any]:
         "review_flow": flow,
         "points": points,
         "channel": channels.pop(),
-        "response_unit": "AU",
+        "response_unit": response_units.pop(),
         "concentration_unit": unit,
         "measurements": [m["id"] for m in selected],
     }

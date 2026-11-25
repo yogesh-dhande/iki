@@ -1,8 +1,6 @@
-"""Example material and a MARS export for the dose-response starter (ADR 0198)."""
+"""Example material and published Tox21 measurements for the dose-response starter (ADR 0198)."""
 
 import hashlib
-from pathlib import Path
-from typing import Any
 
 from django.db import transaction
 
@@ -16,11 +14,10 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_server.setup import public_plate
 
 REQUEST_TYPE = "iki/example_lims.AnalysisRequest"
-# Packaged with the server for offline setup. The plate plugin's synthetic reader fixture
-# and its generating model are documented in plugins/plate_assays/data/reader.md.
-READER_FILE = Path(__file__).with_name("data") / "mars-96-series.csv"
+READER_FILE = public_plate.READER_FILE
 
 
 def check_example(project: Project, requester_project: Project, *, by: User) -> None:
@@ -45,24 +42,6 @@ def check_example(project: Project, requester_project: Project, *, by: User) -> 
         )
 
 
-def _assignments(sample: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = [
-        {
-            "well": f"A{column + 1}",
-            "sample": sample,
-            "concentration": 2**column,
-            "concentration_unit": "nM",
-            "replicate": 1,
-        }
-        for column in range(8)
-    ]
-    rows.extend(
-        {"well": well, "control": control, "replicate": 1}
-        for well, control in (("A9", "blank"), ("A10", "reference"))
-    )
-    return rows
-
-
 @transaction.atomic
 def seed_example(project: Project, requester_project: Project, *, by: User) -> dict[str, str]:
     """Prepare the request, its expected tube and the mapped plate once on first apply.
@@ -79,7 +58,7 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         by,
         "iki/protein.Protein",
         requester_project,
-        {"name": "Synthetic assay reference peptide", "sequence": "GGGGSGGGGSGGGGS"},
+        {"name": "Firefly luciferase (Photinus pyralis)", "sequence": public_plate.LUCIFERASE},
     ).entity
     sample = services.create(
         by,
@@ -87,27 +66,45 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         requester_project,
         {
             "protein": str(protein.pk),
-            "lot": "Synthetic dilution standard",
-            "notes": "Practice sample. All concentrations and absorbance readings are simulated.",
+            "lot": "Firefly luciferase assay target",
+            "notes": "Target enzyme for the Tox21 flavonoid dilution series (PubChem AID 1224835).",
         },
     ).entity
     tube = services.create(
         by,
         "iki/example_lims.Tube",
         requester_project,
-        {"name": "Synthetic dilution standard", "sample": str(sample.pk)},
+        {"name": "Firefly luciferase assay target", "sample": str(sample.pk)},
     ).entity
+    compound_tubes = {}
+    for key, series in public_plate.SERIES.items():
+        compound = services.create(
+            by, "iki/small_molecule.Compound", requester_project, public_plate.compound_values(key)
+        ).entity
+        lot = services.create(
+            by,
+            "iki/lots.GenericLot",
+            requester_project,
+            {"of": str(compound.pk), "lot_number": f"Tox21 SID {series['sid']}"},
+        ).entity
+        compound_tube = services.create(
+            by,
+            "iki/example_lims.Tube",
+            requester_project,
+            {"name": series["name"], "lot": str(lot.pk)},
+        ).entity
+        compound_tubes[key] = str(compound_tube.pk)
     saved = services.create(
         by,
         REQUEST_TYPE,
         requester_project,
         {
-            "title": "Example dose-response assay (synthetic)",
-            "tubes": [str(tube.pk)],
+            "title": public_plate.PLATE_NAME,
+            "tubes": [str(tube.pk), *compound_tubes.values()],
             "samples": [str(sample.pk)],
             "instructions": (
-                "Report the IC50 for this synthetic dilution series. The simulated acquisition "
-                "note records a dispensing error in A4. Review the exclusion with the raw data."
+                "Fit the IC50 of apigenin and daidzein against the supplied luciferase. "
+                "Use all three replicate series from PubChem AID 1224835."
             ),
         },
     )
@@ -130,14 +127,17 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         "iki/plate_assays.AssayPlate",
         project,
         {
-            "name": "Example MARS dose-response plate (synthetic)",
+            "name": public_plate.PLATE_NAME,
+            "procedure": public_plate.ASSAY,
+            "procedure_revision": public_plate.SOURCE["procedure_revision"],
             "size": "plate_96",
             "reader_file": str(reader.pk),
             "request": str(request.pk),
-            "assignments": _assignments(str(sample.pk)),
+            "assignments": public_plate.assignments(compound_tubes),
         },
     ).entity
     return {
+        **compound_tubes,
         "requester_project": str(requester_project.pk),
         "request": str(request.pk),
         "protein": str(protein.pk),

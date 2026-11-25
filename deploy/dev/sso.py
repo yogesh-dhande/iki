@@ -44,6 +44,8 @@ from uuid import UUID
 import requests
 import urllib3.util.connection
 
+from iki_server.setup import public_plate
+
 IKI = "http://localhost:8000"
 #: The web workload to exec into and read logs from (``--web``).
 WEB = {"target": "deploy/iki-web"}
@@ -3805,125 +3807,130 @@ def matching_records(
 
 
 def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
-    """Import a MARS export, trace an excluded well and sign the synthetic research result."""
+    """Import the public Tox21 matrix and sign the research fits."""
     prefix = "iki/plate_assays."
     give_lab_roles(alice, project, prefix + "analyst", prefix + "reviewer")
-
-    sample_name = "Synthetic MARS dilution standard"
-    samples = matching_records(alice, project, "acme/example.Sample", "name", sample_name)
-    sample = (
-        samples[0]
-        if samples
-        else created(alice, project, "acme/example.Sample", {"name": sample_name, "kind": "other"})
-    )
-    name = "Synthetic MARS endpoint assay"
+    compounds = {
+        key: created(
+            alice, project, "iki/small_molecule.Compound", public_plate.compound_values(key)
+        )["id"]
+        for key in public_plate.SERIES
+    }
+    name = public_plate.PLATE_NAME
     plates = matching_records(alice, project, prefix + "AssayPlate", "name", name)
     if plates:
         plate = record(alice, plates[0]["id"])
     else:
-        fixture = (
-            Path(__file__).resolve().parents[2]
-            / "plugins/plate_assays/tests/data/mars-96-series.csv"
-        )
+        fixture = public_plate.READER_FILE
         source = upload(alice, project, fixture.name, fixture.read_bytes(), "text/csv")
-        assignments = [
-            {
-                "well": f"A{column + 1}",
-                "sample": sample["id"],
-                "concentration": 2**column,
-                "concentration_unit": "nM",
-                "replicate": 1,
-            }
-            for column in range(8)
-        ]
-        assignments.extend(
-            {"well": well, "control": control, "replicate": 1}
-            for well, control in (("A9", "blank"), ("A10", "reference"))
-        )
         plate = created(
             alice,
             project,
             prefix + "AssayPlate",
-            {"name": name, "size": "plate_96", "assignments": assignments, "reader_file": source},
+            {
+                "name": name,
+                "size": "plate_96",
+                "assignments": public_plate.assignments(compounds),
+                "reader_file": source,
+                "procedure": public_plate.ASSAY,
+                "procedure_revision": public_plate.SOURCE["procedure_revision"],
+            },
         )
-    entity = fit_assay_plate(alice, project, plate, sample)
-    if entity["values"]["review"] == "recorded":
-        signature = signing(alice, entity, "signed", "alice", field="review")
-        if signature["status"] != "signed" or not signature["set"]:
-            fail(f"signing the plate result {entity['hrid']} gave {signature}")
-    proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
-    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
-        fail(f"{entity['hrid']} has no verifiable research sign-off")
-    ok(f"{plate['hrid']}: ten measured wells and one signed IC50 curve ({entity['hrid']})")
-    linked_experiment(alice, project, sample["id"], plate["values"]["reader_file"], entity["id"])
-    equipment_calibration(alice, project, entity)
+    fits = fit_assay_plate(alice, project, plate, compounds)
+    for entity in fits.values():
+        if entity["values"]["review"] == "recorded":
+            signature = signing(alice, entity, "signed", "alice", field="review")
+            if signature["status"] != "signed" or not signature["set"]:
+                fail(f"signing the plate result {entity['hrid']} gave {signature}")
+        proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
+        if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+            fail(f"{entity['hrid']} has no verifiable research sign-off")
+    ok(f"{plate['hrid']}: 72 measured wells and two signed flavonoid IC50s")
+    linked_experiment(
+        alice,
+        project,
+        compounds["apigenin"],
+        plate["values"]["reader_file"],
+        fits["apigenin"]["id"],
+    )
+    equipment_calibration(alice, project, fits["apigenin"])
 
 
 def fit_assay_plate(
     alice: requests.Session,
     project: dict[str, Any],
     plate: dict[str, Any],
-    sample: dict[str, Any],
-) -> dict[str, Any]:
-    """Join the real reader file to the plate and fit the eight-dose synthetic series."""
+    compounds: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """Check imported controls, each compound's measurements, and its source potencies."""
     prefix = "iki/plate_assays."
     plate_input = {"plate": plate["id"]}
     if not plate["values"].get("committed"):
         launch(alice, project, prefix + "preview_reader", plate_input)
         preview = record(alice, plate["id"])["values"]["preview"]
-        if preview["issues"] or len(preview["readings"]) != 10:
-            fail(f"{plate['hrid']}: expected eight sample wells and two controls: {preview}")
+        if preview["issues"] or len(preview["readings"]) != 72 or preview["unit"] != "%":
+            fail(f"{plate['hrid']} has an unexpected normalized activity preview: {preview}")
         launch(alice, project, prefix + "commit_reader", plate_input)
     [read] = matching_records(alice, project, prefix + "PlateRead", "plate", plate["id"])
     measurements = matching_records(
         alice, project, prefix + "WellMeasurement", "plate", plate["id"]
     )
     measured = {m["values"]["well"]: m for m in measurements}
-    if len(measurements) != 10 or set(measured) != {f"A{i}" for i in range(1, 11)}:
-        fail(f"{plate['hrid']} has unexpected measured wells: {list(measured)}")
     if (
-        set(read["values"]["measurements"]) != {m["id"] for m in measurements}
+        len(measured) != 72
+        or set(read["values"]["measurements"]) != {m["id"] for m in measurements}
         or any(
             m["values"]["reader_file"] != plate["values"]["reader_file"]
-            or m["values"]["channel"] != "Absorbance 484 nm"
+            or m["values"]["activity_percent"] is None
+            or m["values"]["signal"] is not None
             for m in measurements
         )
-        or measured["A9"]["values"]["control"] != "blank"
-        or measured["A10"]["values"]["control"] != "reference"
-    ):
-        fail(f"{read['hrid']} does not match the source file, channel and controls on the plate")
-    results = matching_records(alice, project, prefix + "AssayResult", "read", read["id"])
-    reason = "Simulated dispensing error"
-    if not results:
-        launch(
-            alice,
-            project,
-            prefix + "fit_curve",
-            {"read": read["id"], "sample": sample["id"]},
-            {"endpoint_kind": "IC50", "exclusions": f"A4: {reason}"},
+        or any(
+            measured[c["well"]]["values"]["control"] != c["control"]
+            for c in public_plate.SOURCE["controls"]
         )
-        results = matching_records(alice, project, prefix + "AssayResult", "read", read["id"])
-    [result] = results
-    entity = record(alice, result["id"])
-    values = entity["values"]
-    excluded = [p for p in values["points"] if p.get("exclusion_reason")]
-    if (
-        set(values["measurements"]) != {measured[f"A{i}"]["id"] for i in range(1, 9)}
-        or len(excluded) != 1
-        or excluded[0]["reading"] != measured["A4"]["id"]
-        or excluded[0]["exclusion_reason"] != reason
-        or excluded[0]["excluded_by"] != api_call(alice, "GET", "/me").json()["id"]
-        or values["point_count"] != 7
-        or values["concentration_unit"] != "nM"
-        or values["endpoint_kind"] != "IC50"
-        or values["qualifier"] != "within_range"
-        # Rounded values for the synthetic MARS fixture after excluding A4 (all in nM).
-        or not math.isclose(values["endpoint_value"], 12.34, abs_tol=0.005)
-        or not math.isclose(values["ci_low"], 10.65, abs_tol=0.005)
-        or not math.isclose(values["ci_high"], 14.30, abs_tol=0.005)
     ):
-        fail(f"{entity['hrid']} has unexpected fit evidence: {values}")
-    return entity
+        fail(f"{read['hrid']} has inconsistent source measurements or controls")
+
+    def sample_results(entry: str) -> list[dict[str, Any]]:
+        return [
+            r
+            for r in matching_records(alice, project, prefix + "AssayResult", "read", read["id"])
+            if r["values"]["sample"] == entry
+        ]
+
+    fits = {}
+    for key, series in public_plate.SERIES.items():
+        sample = record(alice, compounds[key])
+        results = sample_results(entry_of(sample))
+        if not results:
+            launch(
+                alice,
+                project,
+                prefix + "fit_curve",
+                {"read": read["id"], "sample": sample["id"]},
+                {"endpoint_kind": "IC50"},
+            )
+            results = sample_results(entry_of(sample))
+        [result] = results
+        entity = record(alice, result["id"])
+        v = entity["values"]
+        reference = sum(series["potencies_uM"]) / len(series["potencies_uM"])
+        if (
+            v["point_count"] != 33
+            or v["concentration_unit"] != "uM"
+            or v["response_unit"] != "percent"
+            or v["qualifier"] != "within_range"
+            or v["endpoint_kind"] != "IC50"
+            or v["procedure"] != public_plate.ASSAY
+            or set(v["measurements"])
+            != {measured[f"{row}{col}"]["id"] for row in series["rows"] for col in range(1, 12)}
+            or not math.isclose(v["endpoint_value"], reference, rel_tol=0.05)
+            or not v["ci_low"] <= reference <= v["ci_high"]
+        ):
+            fail(f"{entity['hrid']} does not match the deposited {series['name']} series: {v}")
+        fits[key] = entity
+    return fits
 
 
 def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> None:
@@ -3937,17 +3944,20 @@ def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> N
     for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
         core = core_project(alice, asking, name)
         example = apply_plate_starter(alice, core, asking, flow, people)
-        receive_starter_tube(alice, example["request"], example["tube"])
+        receive_starter_tubes(
+            alice, example["request"], [example[k] for k in ("tube", *public_plate.SERIES)]
+        )
         plate = record(alice, example["plate"])
-        result = fit_assay_plate(alice, core, plate, record(alice, example["sample"]))
-        if (
-            result["values"]["review_flow"] != flow
-            or result["values"]["request"] != example["request"]
-            or plate["values"]["reader_file"] != example["reader_file"]
-        ):
-            fail(f"{result['hrid']} failed to retain the starter flow, source or request")
-        sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
-        ok(f"{name} returned the signed IC50 {result['hrid']} to {asking['name']}")
+        fits = fit_assay_plate(alice, core, plate, {k: example[k] for k in public_plate.SERIES})
+        for result in fits.values():
+            if (
+                result["values"]["review_flow"] != flow
+                or result["values"]["request"] != example["request"]
+                or plate["values"]["reader_file"] != example["reader_file"]
+            ):
+                fail(f"{result['hrid']} failed to retain the starter flow, source or request")
+            sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
+        ok(f"{name} returned both signed flavonoid IC50s to {asking['name']}")
 
 
 def apply_plate_starter(
@@ -4045,14 +4055,14 @@ def sign_starter_result(
         or not all(p["verification"]["valid"] for p in proofs)
         or len(proofs) != len(steps)
         or {p["change"]["to"]: p["signer"]["id"] for p in proofs} != expected
-        or [(r["entity"], r["released_revision"]) for r in receipts]
+        or [(r["entity"], r["released_revision"]) for r in receipts if r["entity"] == result["id"]]
         != [(result["id"], delivered["revision"])]
     ):
         fail(f"{result['hrid']} did not return the signed fit and its release revision")
 
 
-def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str) -> None:
-    """Scan the labelled tube once, even if the dev check is being run again."""
+def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
+    """Scan all the labelled tubes once, even if the dev check is being run again."""
     path = f"/entities/{request_id}/receipts"
     prior = api_call(alice, "GET", path).json()["receipts"]
     completed = [r for r in prior if r["status"] == "completed"]
@@ -4062,18 +4072,23 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
             fail(f"starting the example receipt answered {started.status_code}: {started.text}")
         receipt = started.json()
         at = f"/receipts/{receipt['id']}"
-        tube = record(alice, tube_id)
-        code = tube["values"].get("barcode") or tube["hrid"]
-        scanned = api_call(alice, "POST", f"{at}/scan", {"code": code})
-        if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
-            fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
+        lines = []
+        revision = receipt["plan_revision"]
+        for tube_id in tube_ids:
+            tube = record(alice, tube_id)
+            code = tube["values"].get("barcode") or tube["hrid"]
+            scanned = api_call(alice, "POST", f"{at}/scan", {"code": code})
+            if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
+                fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
+            lines.append(scanned.json()["line"])
+            revision = scanned.json()["receipt"]["plan_revision"]
         custody = api_call(
             alice,
             "PATCH",
             at,
             {
                 "handed_over_by": "Example courier, training run",
-                "plan_revision": scanned.json()["receipt"]["plan_revision"],
+                "plan_revision": revision,
             },
         )
         if custody.status_code != 200:
@@ -4084,7 +4099,7 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
             f"{at}/complete",
             {
                 "plan_revision": custody.json()["plan_revision"],
-                "keep_in_custody": [scanned.json()["line"]],
+                "keep_in_custody": lines,
             },
         )
         if done.status_code != 200:
@@ -4093,11 +4108,12 @@ def receive_starter_tube(alice: requests.Session, request_id: str, tube_id: str)
     if len(completed) != 1:
         fail(f"the starter request has {len(completed)} completed receipts")
     received = read_completed_receipt(alice, completed[0]["id"])
-    if [
-        (line["entity"], line["outcome"], line["received_unplaced"], line["put_away"])
+    if {
+        line["entity"]
         for line in received["lines"]
-    ] != [(tube_id, "matched", True, None)]:
-        fail(f"the starter tube was not received in unplaced custody: {received['lines']}")
+        if line["outcome"] == "matched" and line["received_unplaced"] and line["put_away"] is None
+    } != set(tube_ids) or len(received["lines"]) != len(tube_ids):
+        fail(f"the starter tubes were not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(
@@ -4106,7 +4122,7 @@ def linked_experiment(
     """Witness an ELN entry revision, its material movement and the signed plate result."""
     prefix = "iki/experiments."
     give_lab_roles(alice, project, prefix + "author", "iki/lots.qa")
-    title = "Synthetic MARS assay in the ELN"
+    title = "Firefly luciferase inhibition in the ELN"
     records = matching_records(alice, project, prefix + "Experiment", "title", title)
     experiment = (
         records[0]
@@ -4117,16 +4133,16 @@ def linked_experiment(
             prefix + "Experiment",
             {
                 "title": title,
-                "eln_id": "SYNTH-MARS-01",
-                "eln_url": "https://eln.example.org/entries/SYNTH-MARS-01",
+                "eln_id": "TOX21-FLUC-01",
+                "eln_url": "https://eln.example.org/entries/TOX21-FLUC-01",
                 "eln_revision": "2",
-                "protocol_id": "SYNTH-MARS-ENDPOINT",
-                "protocol_revision": "3",
+                "protocol_id": public_plate.ASSAY,
+                "protocol_revision": public_plate.SOURCE["procedure_revision"],
                 "samples": [sample],
                 "observations": [
                     {
                         "observed_at": "2025-01-01T00:00:00Z",
-                        "note": "Synthetic series read at 484 nm.",
+                        "note": "Tox21 apigenin activity against firefly luciferase.",
                     }
                 ],
                 "attachments": [raw_file],
@@ -4134,7 +4150,7 @@ def linked_experiment(
         )
     )
     # A bought reagent lot can be released by the person recording its receipt (ADR 0162).
-    lot_number = "SYNTH-MARS-REAGENT-01"
+    lot_number = "EXAMPLE-APIGENIN-01"
     lots = matching_records(alice, project, "iki/lots.GenericLot", "lot_number", lot_number)
     if lots:
         lot = lots[0]
@@ -4143,7 +4159,7 @@ def linked_experiment(
             alice,
             project,
             "synthetic-certificate.csv",
-            b"lot,certificate\nSYNTH-MARS-REAGENT-01,synthetic example\n",
+            b"lot,certificate\nEXAMPLE-APIGENIN-01,synthetic example\n",
             "text/csv",
         )
         lot = created(
@@ -4228,8 +4244,9 @@ def linked_experiment(
         or draw["unit"] != "mg"
         or Decimal(draw["amount"]) != Decimal("1.5")
         or values["eln_revision"] != "2"
-        or values["protocol_revision"] != "3"
-        or values["samples"] != [sample]
+        or values["protocol_id"] != public_plate.ASSAY
+        or values["protocol_revision"] != public_plate.SOURCE["procedure_revision"]
+        or values["samples"] != [entry_of(record(witness, sample))]
         or raw_file not in snapshot["files"]
     ):
         fail(f"{experiment['hrid']} did not witness the ELN, protocol, plate and lot evidence")
@@ -4451,7 +4468,7 @@ def equipment_calibration(
     engineer = api_call(alice, "GET", "/me").json()["id"]
     result = record(alice, measured["id"])
     instrument = created(
-        alice, project, "iki/example_lims.Instrument", {"name": "Synthetic MARS absorbance reader"}
+        alice, project, "iki/example_lims.Instrument", {"name": "Example luminescence plate reader"}
     )
     now = datetime.now(UTC).replace(microsecond=0)
     performed = now - timedelta(days=3)

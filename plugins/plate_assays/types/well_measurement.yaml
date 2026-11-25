@@ -2,9 +2,9 @@ apiVersion: iki/v1
 kind: EntityType
 name: WellMeasurement
 label: Well measurement
-schema_version: 1
+schema_version: 2
 hrid: { prefix: WME }
-description: One raw absorbance reading, joined to the recorded assignment of its well.
+description: One absorbance or normalized activity reading, joined to the recorded assignment of its well.
 fields:
   plate: { type: ref, to: AssayPlate, required: true, immutable: true }
   plate_revision: { type: int, min: 1, computed: true }
@@ -21,6 +21,12 @@ fields:
     computed: true
     label: Absorbance (AU)
     description: Absorbance, the dimensionless decimal logarithm of the incident to transmitted radiant power ratio (IUPAC Gold Book A00028).
+  activity_percent:
+    type: quantity
+    unit: "%"
+    computed: true
+    label: Normalized activity (%)
+    description: The signed percent activity reported by the source, including values outside the reference range.
   reader_file: { type: file, computed: true }
   source_row: { type: int, min: 1, computed: true }
 display: { title: "{{ well }} · {{ channel }}" }

@@ -42,6 +42,7 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
     examples.seed_example.side_effect = lambda *a, **kw: {"plate": str(uuid4())}
     recipe = replace(
         starters.DOSE_RESPONSE,
+        version="1.0.0",
         roles={ANALYST: ProjectRole.EDITOR, REVIEWER: ProjectRole.VIEWER, QA: ProjectRole.VIEWER},
         required_roles={"research": (ANALYST, REVIEWER), "regulated_qc": (ANALYST, REVIEWER, QA)},
         independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
@@ -60,6 +61,27 @@ def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
         QA: [member(user=world.users["viewer"]).pk],
     }
     return Setup(world, requester, roles, examples)
+
+
+def test_an_upgrade_previews_the_new_examples_and_applies_them_once(setup: Setup) -> None:
+    project, admin, requester = setup.world.project, setup.world.users["admin"], setup.requester
+    previous = {"legacy_plate": str(uuid4())}
+    StarterApplication.objects.create(
+        project=project,
+        requester_project=requester,
+        starter="dose-response",
+        version="0.9.0",
+        flow="regulated_qc",
+        examples=previous,
+        applied_by=admin,
+    )
+    args = (project, "dose-response", "1.0.0", "regulated_qc", setup.roles)
+    plan = starters.preview(*args, requester_project=requester, by=admin)
+    assert plan["examples_to_create"] == ["plate"] and plan["examples"] == previous
+    applied = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
+    replay = starters.apply(*args, requester_project=requester, by=admin, plan=plan["plan"])
+    assert applied["examples"] == replay["examples"] and not replay["changed"]
+    setup.examples.seed_example.assert_called_once()
 
 
 def test_preview_apply_replay_and_switch(setup: Setup) -> None:
