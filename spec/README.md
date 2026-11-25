@@ -2290,14 +2290,19 @@ revision by the run, with its origin, setting the values the create gives.
 One that changes nothing is found again, as the project's own record is when
 its identity is registered again. Only the project's own entities match,
 never one linked in from elsewhere; for a field marked `registry`, the
-project's record of the registry entry that has the value. In a creates
-file, a record may come only once.
+project's record of the registry entry that has the value. An external record
+with a supplied `match_on` value may come only once in the run's output,
+across both `creates` and `creates_file`. If two creates identify the same
+record, the run reports both positions and writes nothing. Registrations
+without an external match may still record several origins for one identity
+([ADR 0154](../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md)).
 
 A record with no match yet, of a type with an identity, claims the
 project's own record of that identity's registry entry, if it has no value
 for the field yet: a protein registered before the LIMS knew it takes the record's
 ID. If it's another record's already, the run fails, naming both, since one
-entity can't be two records; so does a file with two records of one entity.
+entity can't be two records. The same rule applies when two external IDs in
+one output resolve to a single registry entry.
 
 ```yaml
 effects:
