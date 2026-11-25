@@ -1,8 +1,10 @@
 # 0185. A transformed strain is its base and its set of plasmids
 
-- Status: Accepted
+- Status: Accepted (stock custody updated by [0221](0221-strain-isolates-and-their-glycerol-stocks.md))
 - Date: 2026-11-22
 - Builds on [registry identities](0115-registries-keep-identities-projects-keep-records.md), [sets of parts](0138-an-identity-reads-sequences-and-sets-of-parts-as-what-they-are.md), [amounts](0139-a-records-amount-is-a-ledger-of-what-moved.md) and [storage](0180-where-material-is-and-how-its-received-moved-and-counted.md).
+
+[ADR 0221](0221-strain-isolates-and-their-glycerol-stocks.md) supersedes the physical stock and box decision below. The base and transformed strain identities still apply.
 
 ## Context
 
