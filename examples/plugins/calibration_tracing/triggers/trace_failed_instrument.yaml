@@ -6,7 +6,7 @@ description: >-
   When the engineer marks an instrument's calibration as failed, trace its signed
   service history, instrument uses and prior impact cases in this project.
 on: entity.state_changed
-type: Instrument
+type: iki/equipment.Instrument
 field: calibration
 states: [failed]
 run: trace_failed_calibrations

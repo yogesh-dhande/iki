@@ -9,8 +9,9 @@ setup. The scheduling action copies that choice onto each new appointment.
 Changing the setting applies to future appointments. The Research engineer
 signs the recorded work. In Regulated QC, the engineer signs submission, an
 independent person with `iki/equipment.reviewer` signs review, and a third
-person with `iki/equipment.qa` signs release. A correction before QA release
-returns the record to Scheduled and starts a new review cycle.
+person with `iki/equipment.qa` signs release. To correct a Submitted or
+Reviewed appointment, sign its return to Scheduled with a reason. Then edit
+the appointment and start its review again.
 
 ## Service and use
 
@@ -42,16 +43,14 @@ if there is a known calibration failure.
    from**, enter the earliest plausible onset, using the most recent
    documented known-good check when the onset is uncertain. Explain the window
    and the immediate response, then finish the required signatures.
-2. If the project administrator enabled **Trace uses when an instrument
-   fails calibration**, setting its Calibration state to Failed after the
-   signed record is available traces the project’s linked history. For
-   a flag set before sign-off, or when evidence arrives later, run **Trace
-   failed calibrations**. Include the signed calibration history, uses and
-   prior impacts for the selected instrument. The action opens one impact
-   case for each use at or after the suspected onset and before the next
-   signed passing calibration. Until a recovery is available, the window
-   remains open. Narrow large manual traces by selecting use records in
-   batches while keeping the complete calibration history for each batch.
+2. Set the Instrument's **Calibration** state to **Failed**. Its Service
+   schedule tab shows this flag and the as-found outcome. From that tab, run
+   **Trace failed calibrations**. Include the signed calibration history,
+   uses and prior impacts for this instrument. The action opens one case for
+   each use at or after the suspected onset and before the next signed
+   passing calibration. Until a recovery is available, the window stays
+   open. Trace late evidence again. For a large history, select uses in
+   batches and include the complete calibration history in each batch.
 3. Open the **Calibration impact** tab to review the results that need a
    disposition. A new case is pending review. Give each case a reasoned
    disposition of Unaffected, Repeat required or Invalidated. Research needs
@@ -62,9 +61,11 @@ if there is a known calibration failure.
    to the recipient through its quality process. The scope of a trace is
    the linked uses that were visible to its launcher in the instrument's
    project. Reconcile untracked measurements and any other projects that
-   used the equipment before closing the investigation. If the automatic
-   trace exceeds its input limit or cannot find signed evidence, the trigger
-   records the failure and the worklist needs a manual trace.
+   used the equipment before closing the investigation.
+
+Facilities that open impact cases automatically when an engineer sets the
+failure flag can adapt the
+[calibration tracing example](../../examples/plugins/calibration_tracing/README.md).
 
 The lab controls its return-to-service decision. Record and sign the passing
 check, then update the instrument's service and calibration states. The
