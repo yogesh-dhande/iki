@@ -36,4 +36,4 @@ steps:
     params: { frame: $params.frame, table: $params.table, complete_cds: $params.complete_cds }
   properties:
     action: compute_properties
-    inputs: { protein: $steps.translate.created.Protein }
+    inputs: { protein: $steps.translate.created.iki/protein.Protein }

@@ -31196,7 +31196,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Qualified, such as `protein.translate_and_characterize`.",
+            "description": "Workflow name in `namespace/plugin.workflow` form.",
             "title": "Name",
             "type": "string"
           },

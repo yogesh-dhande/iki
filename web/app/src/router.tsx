@@ -377,7 +377,7 @@ const projectWorkflowsRoute = createRoute({
 const projectWorkflowNewRoute = createRoute({
   getParentRoute: () => projectAutomationRoute,
   path: "workflows/new",
-  // ?workflow=iki/protein.translate_and_characterize: its form.
+  // ?workflow=examples/protein_translation.translate_and_characterize: its form.
   validateSearch: (search: Record<string, unknown>): { workflow?: string | undefined } =>
     typeof search["workflow"] === "string" && search["workflow"]
       ? { workflow: search["workflow"] }

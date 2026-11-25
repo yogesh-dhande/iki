@@ -6791,7 +6791,7 @@ class WorkflowOut(TypedDict):
     description: str | None
     inputs: list[InputOut]
     label: str
-    #: Qualified, such as `protein.translate_and_characterize`.
+    #: Workflow name in `namespace/plugin.workflow` form.
     name: str
     params: list[ParamOut]
     #: The params as JSON Schema (2020-12).

@@ -19763,7 +19763,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description Qualified, such as `protein.translate_and_characterize`.
+             * @description Workflow name in `namespace/plugin.workflow` form.
              */
             name: string;
             /** Params */

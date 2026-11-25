@@ -311,7 +311,7 @@ class WorkflowRun(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as WF-000123.")
-    #: The workflow's qualified name, such as ``protein.translate_and_characterize``.
+    #: The workflow's qualified name, in ``namespace/plugin.workflow`` form.
     workflow = models.CharField(max_length=200)
     plugin_version = models.CharField(max_length=100)
     plugin_sha = models.CharField(max_length=40, blank=True, default="")

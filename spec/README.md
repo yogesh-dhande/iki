@@ -1380,17 +1380,20 @@ A workflow runs several of its own plugin's actions as one (ADR 0079).
 Each step names an action declared in that plugin. Dependencies can supply
 the types those actions read or write. To run actions belonging to several
 plugins in sequence, call them from a client.
+The [translation workflow example](../examples/plugins/protein_translation)
+declares both actions locally and uses DNA and Protein record types from its dependencies.
 
-A step can read the workflow's input (`$inputs.<name>`), the entities an
-earlier step created of a type (`$steps.<id>.created.<Type>`), or what a step was given
-(`$steps.<id>.inputs.<name>`), once that step has run. A param takes a value,
-or the workflow's param (`$params.<name>`); a value that starts with `$` is
-written `$$`.
+A step can take its inputs from the workflow (`$inputs.<name>`), from records
+an earlier step created (`$steps.<id>.created.<Type>`), or from the inputs an
+earlier step received (`$steps.<id>.inputs.<name>`). For a type supplied by a
+dependency, use its qualified name in the created-output reference. A step
+parameter can take a literal value or a workflow parameter (`$params.<name>`).
+Write an initial `$` as `$$` in a literal string.
 
 ```yaml
 apiVersion: iki/v1
 kind: Workflow
-name: translate_and_characterize # snake_case; qualified as iki/protein.translate_and_characterize
+name: translate_and_characterize # examples/protein_translation.translate_and_characterize
 label: Translate and characterize
 inputs:
   sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs
@@ -1403,7 +1406,7 @@ steps:
     params: { frame: $params.frame }
   properties:
     action: compute_properties
-    inputs: { protein: $steps.translate.created.Protein }
+    inputs: { protein: $steps.translate.created.iki/protein.Protein }
     # needs: [other_step]  # wait for a step it doesn't take from
 ```
 
