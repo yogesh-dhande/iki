@@ -15,7 +15,18 @@ from typing import Any
 
 import psycopg
 import pytest
-from test_plugin_migrations import build, database, django, made, orm, private_database, query, sync
+from test_plugin_migrations import (
+    build,
+    build_to,
+    database,
+    deployed,
+    django,
+    made,
+    orm,
+    private_database,
+    query,
+    sync,
+)
 from test_plugin_migrations import migrate as migrate_only
 
 __all__ = ["database"]  # a fixture, from test_plugin_migrations
@@ -189,6 +200,41 @@ CHANGED = (
 
 HISTORY = "SELECT {} FROM acme__lab_sample__history h JOIN iki_entity e ON e.id = h.entity_id"
 HISTORY += " WHERE h.revision = 1 ORDER BY e.hrid"
+
+
+def test_a_signed_revision_reads_under_the_old_field_name_after_rollback(
+    lab: Path, database: str
+) -> None:
+    manifest = lab / "types" / "sample.yaml"
+    manifest.write_text(SAMPLE)
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    manifest.write_text(SAMPLE.replace("  name: {", "  title: {"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    second = build_to(lab.parent, "v2", "lab")
+    deployed(second, database)
+    orm(
+        second,
+        database,
+        PEOPLE
+        + """
+analyst = person("analyst", project)
+record = entities.create(analyst, "acme/lab.Sample", project, {"title": "S1"}).entity
+sign(analyst, record)
+record.refresh_from_db()
+entities.update(analyst, record, {"title": "S2"}, expected_revision=record.revision)
+result = None
+""",
+    )
+    deployed(first, database)
+    ok, detail = verified(first, database)["SMP-000001"]
+    assert ok, detail
+    assert query(database, "SELECT name FROM acme__lab_sample__history ORDER BY revision") == [
+        ("S1",),
+        ("S1",),
+        ("S2",),
+    ]
 
 
 def test_a_signature_survives_migrations_that_rename_and_convert_what_it_signed(

@@ -76,7 +76,7 @@ from iki_server.graph import edges
 from iki_server.org import holds
 from iki_server.plugins import baseline, preflight, sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
-from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+from iki_server.plugins.operations import AppendOnly, ConvertUnit, RecordRename, RenameEntityType
 from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import naming, releases
 
@@ -96,6 +96,7 @@ LOSSLESS = (
     migrations.AlterModelManagers,
     migrations.AlterModelTableComment,
     ConvertUnit,
+    RecordRename,
     RenameEntityType,
     AppendOnly,
 )
@@ -547,7 +548,24 @@ def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) 
         for migration, _ in plan:
             key = (migration.app_label, migration.name)
             state = executor.loader.project_state(key, at_end=False)
+            renames = {
+                (op.model_name_lower, op.old_name, op.new_name)
+                for op in migration.operations
+                if isinstance(op, migrations.RenameField)
+            }
             for operation in migration.operations:
+                if isinstance(operation, RecordRename):
+                    history = operation.model_name.lower()
+                    live = history.removesuffix("_history")
+                    if live == history or any(
+                        (model, operation.old_name, operation.new_name) not in renames
+                        for model in (live, history)
+                    ):
+                        blockers.append(
+                            f"{_plugin(migration.app_label)} {migration.name}: "
+                            f"{operation.describe()} needs matching RenameField operations "
+                            f"on the live and history models."
+                        )
                 before = state.clone()
                 operation.state_forwards(migration.app_label, state)
                 problem = _lost_by_reversing(cursor, migration.app_label, operation, before, state)

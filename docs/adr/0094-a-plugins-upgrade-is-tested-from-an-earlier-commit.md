@@ -62,6 +62,9 @@ with the deploy's reason. Such an upgrade can't be undone once it's
 deployed, and that should be decided in review, not found in production.
 `--no-rollback` skips step 3 for an upgrade meant to be one-way.
 
+A field rename rolls back when the same migration renames both its live and
+history columns from and to the names recorded by `RecordRename`.
+
 **The template's CI runs it** against the pull request's base commit,
 with a PostgreSQL service.
 

@@ -1775,6 +1775,20 @@ def refused(build: Path, database: str) -> str:
     return result.stderr
 
 
+def test_rollback_requires_matching_live_and_history_renames(lab: Path, database: str) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    write_sample(lab, ("  name: {", "  title: {"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    migration = lab / "migrations" / "0002_rename.py"
+    source, marker = migration.read_text().split("RecordRename(", 1)
+    migration.write_text(source + "RecordRename(" + marker.replace("'title'", "'label'", 1))
+    deployed(build_to(lab.parent, "v2", "lab"), database)
+    assert "needs matching RenameField operations" in refused(first, database)
+    assert "title" in columns(database, "acme__lab_sample__history")
+
+
 def applied(database: str, app: str) -> list[str]:
     rows = query(database, "SELECT name FROM django_migrations WHERE app = %s ORDER BY id", app)
     return [r[0] for r in rows]
@@ -2159,8 +2173,7 @@ def test_an_upgrade_keeps_each_revisions_values_as_its_migrations_say(
 ) -> None:
     """Each sample is made in two revisions, the first with only what it needs, and each
     revision's values are compared after the upgrade: renamed and converted as its
-    migrations say they were (ADR 0148), and otherwise as they were. (A rename's rollback
-    is refused, so this one is one-way; the rollback's comparison is the test above's.)"""
+    migrations say they were (ADR 0148), and otherwise as they were."""
     write_sample(
         versioned,
         ("  name: {", "  title: {"),
@@ -2170,7 +2183,8 @@ def test_an_upgrade_keeps_each_revisions_values_as_its_migrations_say(
     (versioned / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
     (versioned / "tests" / "weighed.yaml").write_text(WEIGHED.replace("name: S1", "title: S1"))
     made("lab", "--name", "changes", cwd=versioned.parent, answers="y\n")
-    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert "rolled back: the samples have their values" in result.stdout
     assert result.returncode == 0, result.stdout + result.stderr
     assert "  ok      upgraded: the samples and their history are intact" in result.stdout
 
