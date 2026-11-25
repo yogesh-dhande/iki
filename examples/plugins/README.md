@@ -5,6 +5,9 @@ start a new plugin, the [plugin template](../../plugin-template/README.md)
 includes a sample storage workflow, action tests and a GitHub Actions build.
 Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
+- [Hosted model adapter](hosted_models/README.md) submits a job to a fictional
+  provider and imports its result when the job finishes. Use it to adapt an
+  asynchronous service your lab has approved.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
 

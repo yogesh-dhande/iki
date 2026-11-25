@@ -52,6 +52,7 @@ RECEIVER = {"url": "http://127.0.0.1:8090"}
 RECEIVER_IN_CLUSTER = "http://webhook-receiver.iki.svc:8080"
 #: The fake LIMS's list of the requests it took (Tilt's port-forward).
 LIMS = {"url": "http://127.0.0.1:8091"}
+FOLDCLOUD_REQUESTS = {"url": "http://127.0.0.1:8092/requests"}
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -3436,9 +3437,9 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     antibodies(alice, project)
 
 
-#: The example models plugin's outside API (plugins/example_models), and where the dev
-#: cluster's settings point it: the fake FoldCloud (manifests/fake-foldcloud.yaml).
-FOLDCLOUD = "iki/example_models.foldcloud"
+#: The example models plugin's outside API (examples/plugins/hosted_models), and where the dev
+#: cluster's settings point it: the fake FoldCloud (fixtures/fake-foldcloud.yaml).
+FOLDCLOUD = "lab/hosted_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
 #: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
@@ -3462,7 +3463,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
-    action = "iki/example_models.predict_structure"
+    action = "lab/hosted_models.predict_structure"
     body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
     refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
     if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":
@@ -3485,6 +3486,23 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
         park = run["park"] or {}
         if park.get("api") != "foldcloud" or park.get("outcome") != "done":
             fail(f"{run['hrid']} didn't park on FoldCloud's job and resume: {park}")
+        # The request log is written once Iki answers the callback.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            callbacks = requests.get(FOLDCLOUD_REQUESTS["url"], timeout=5).json()
+            if any(
+                event["method"] == "CALLBACK"
+                and event["job"] == park["job"]
+                and 200 <= event["status"] < 300
+                for event in callbacks
+            ):
+                break
+            time.sleep(0.5)
+        else:
+            fail(f"FoldCloud did not deliver the signed callback for {park['job']}")
+        attempts = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        if [(a["attempt"], a["state"]) for a in attempts] != [(1, "parked"), (2, "succeeded")]:
+            fail(f"{run['hrid']}'s attempts did not park and resume: {attempts}")
         me = api_call(alice, "GET", "/me").json()
         consent = run["consent"] or {}
         if (
@@ -3542,8 +3560,51 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
             f"({run['hrid']}): parked on {park['job']}, woke on its webhook after "
             f"{park['polls']} poll(s), made by fold-2 2.1.0, costing {cost['apis']} USD"
         )
+        cancel_foldcloud(alice, action, body)
     finally:
         api_call(bob, "DELETE", f"{approvals}/{project['id']}")
+
+
+def cancel_foldcloud(alice: requests.Session, action: str, body: dict[str, Any]) -> None:
+    """Cancel a second job after it parks and check what the provider received."""
+    # The fixture spends five seconds on each recycle. A longer job leaves time to
+    # observe the park and cancel it through the same API the Runs page uses.
+    launched = api_call(
+        alice,
+        "POST",
+        f"/actions/{action}/runs",
+        {**body, "params": {"num_recycles": 20}, "consent": [FOLDCLOUD]},
+    )
+    if launched.status_code != 201:
+        fail(f"launching {action} for cancellation answered {launched.status_code}")
+    path = f"/runs/{launched.json()['id']}"
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        run = api_call(alice, "GET", path).json()
+        if run["status"] == "parked":
+            break
+        if run["finished_at"]:
+            fail(f"{run['hrid']} ended before cancellation: {run['status']}")
+        time.sleep(1)
+    else:
+        fail(f"{path} did not park for cancellation")
+    job = run["park"]["job"]
+    cancelled = api_call(alice, "POST", f"{path}/cancel", {"reason": "Fixture cancellation check"})
+    if cancelled.status_code != 200 or cancelled.json()["status"] != "cancelled":
+        fail(f"cancelling {run['hrid']} answered {cancelled.status_code}: {cancelled.text[:300]}")
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        ended = api_call(alice, "GET", path).json()
+        if ended["park"]["outcome"] == "cancelled":
+            break
+        time.sleep(1)
+    else:
+        fail(f"{run['hrid']}'s park did not record its cancellation")
+    calls = api_call(alice, "GET", f"{path}/api-calls").json()["items"]
+    sent = [(c["method"], c["path"], c["status"]) for c in calls if c["kind"] == "cancel"]
+    if sent != [("POST", f"/v1/predictions/{job}/cancel", 200)] or ended["effects"]:
+        fail(f"{run['hrid']}'s cancellation recorded {sent} and effects {ended['effects']}")
+    ok(f"{action} cancelled {job} at FoldCloud without importing a structure")
 
 
 #: Aspirin, its standard InChIKey, and its sodium salt.
@@ -6909,6 +6970,7 @@ def main() -> None:
     parser.add_argument("--mailpit-port", type=int, default=8025)
     parser.add_argument("--webhook-port", type=int, default=8090)
     parser.add_argument("--lims-port", type=int, default=8091)
+    parser.add_argument("--foldcloud-port", type=int, default=8092)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
@@ -6919,6 +6981,7 @@ def main() -> None:
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
     LIMS["url"] = f"http://127.0.0.1:{args.lims_port}"
+    FOLDCLOUD_REQUESTS["url"] = f"http://127.0.0.1:{args.foldcloud_port}/requests"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:

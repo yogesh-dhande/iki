@@ -1,9 +1,9 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
 kind: Plugin
-name: iki/example_models
+name: lab/hosted_models
 version: 0.2.0
-title: Example hosted models
+title: Hosted model adapter
 description: >-
   Predicts protein structures with a model behind an outside API: each run
   sends a protein's sequence to the API, waits for its job without holding a
@@ -13,7 +13,6 @@ description: >-
   model, such as a structure predictor, a language model or an ADMET
   service.
 license: Apache-2.0
-homepage: https://ikisci.org/plugins/example_models
 dependencies:
   iki/protein:
     types:

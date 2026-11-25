@@ -240,27 +240,34 @@ iki.runs.cancel("RUN-000045", reason="Wrong pH")
 
 An action that sends data to an outside API, such as a hosted model, says
 what it sends and where in its `apis`. Starting it needs your agreement, as
-`consent`, and an Org Admin's approval of the API for the project
-([ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)):
+`consent`, and an Org Admin's approval of the API for the project. [ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)
+
+This example assumes a test deployment with the
+[hosted-model author example](../../examples/plugins/hosted_models/README.md)
+and its fictional FoldCloud service. For a lab-owned provider, use the
+action name from its manifest.
 
 ```python
 try:
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "lab/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
     )
 except iki.ConsentRequired as refused:
     for statement in refused.statements:
-        print(statement["statement"])  # "This sends your data to FoldCloud (...)..."
+        print(statement["statement"])
+    if input("Send the listed data? [y/N] ").strip().lower() != "y":
+        raise SystemExit("Run cancelled")
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "lab/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
         consent=refused.apis,
     )
 except iki.NotApproved as refused:
     print(refused.detail, refused.approvers)  # who can approve it, in Iki's web app
+    raise
 
 for call in iki.runs.api_calls(run):  # the model and version that answered, and hashes
     print(call["model"], call["version"], call["response_sha256"])

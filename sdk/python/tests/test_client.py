@@ -606,24 +606,24 @@ def test_runs_take_inputs_by_hrid_id_or_entity(fake: FakeIki, client: Client) ->
 
 def test_runs_that_send_data_outside_need_consent(fake: FakeIki, client: Client) -> None:
     statement = {
-        "api": "iki/example_models.foldcloud",
+        "api": "lab/hosted_models.foldcloud",
         "statement": "This sends your data to FoldCloud (fold.example.com): each Protein's "
         "sequence.",
     }
-    path = "/api/v1/actions/iki/example_models.predict_structure/runs"
+    path = "/api/v1/actions/lab/hosted_models.predict_structure/runs"
     fake.on(
         "POST", path, problem(409, statement["statement"], "consent_required", consent=[statement])
     )
     with pytest.raises(iki.ConsentRequired) as refused:
-        client.runs.start("iki/example_models.predict_structure", project=PROJECT)
+        client.runs.start("lab/hosted_models.predict_structure", project=PROJECT)
     assert refused.value.statements == [statement]
-    assert refused.value.apis == ["iki/example_models.foldcloud"]
+    assert refused.value.apis == ["lab/hosted_models.foldcloud"]
     assert isinstance(refused.value, iki.Conflict)
     fake.on("POST", path, run())
     client.runs.start(
-        "iki/example_models.predict_structure", project=PROJECT, consent=refused.value.apis
+        "lab/hosted_models.predict_structure", project=PROJECT, consent=refused.value.apis
     )
-    assert fake.body("POST", path)["consent"] == ["iki/example_models.foldcloud"]
+    assert fake.body("POST", path)["consent"] == ["lab/hosted_models.foldcloud"]
 
     fake.on(
         "POST",
@@ -631,7 +631,7 @@ def test_runs_that_send_data_outside_need_consent(fake: FakeIki, client: Client)
         problem(409, "Not approved.", "outside_api_not_approved", approvers=["Ada Lovelace"]),
     )
     with pytest.raises(iki.NotApproved) as unapproved:
-        client.runs.start("iki/example_models.predict_structure", project=PROJECT)
+        client.runs.start("lab/hosted_models.predict_structure", project=PROJECT)
     assert unapproved.value.approvers == ["Ada Lovelace"]
 
 
