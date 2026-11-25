@@ -744,6 +744,32 @@ def test_runs_make_a_dataframe(fake: FakeIki, client: Client) -> None:
 # --- Files -------------------------------------------------------------------------------------
 
 
+def test_a_failed_registration_reports_the_verifiers_reason(fake: FakeIki, client: Client) -> None:
+    checking = {"id": "r1", "name": "run.csv", "state": "checking", "file": None}
+    fake.on("POST", "/api/v1/registrations", checking)
+    fake.on(
+        "GET",
+        "/api/v1/registrations/r1",
+        {**checking, "state": "failed", "error": "The pinned object version was removed."},
+    )
+    with pytest.raises(iki.IkiError, match="The pinned object version was removed"):
+        client.files.register("s3://lab-data/runs/run.csv", project=PROJECT)
+    assert len(fake.sent("POST", "/api/v1/registrations")) == 1
+
+
+def test_registration_timeout_leaves_the_version_being_checked(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on(
+        "POST",
+        "/api/v1/registrations",
+        {"id": "r1", "name": "run.csv", "state": "checking", "file": None},
+    )
+    with pytest.raises(iki.TimedOut, match="/registrations/r1"):
+        client.files.register("s3://lab-data/runs/run.csv", project=PROJECT, timeout=0)
+    assert len(fake.requests) == 1
+
+
 def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_path: Path) -> None:
     path = tmp_path / "empty.txt"
     path.touch()

@@ -268,6 +268,77 @@ for call in iki.runs.api_calls(run):  # the model and version that answered, and
 
 ## Files
 
+### Find a file and see what used it
+
+`iki.files.list` returns a `Results[FileRowOut]` iterable that fetches pages
+as needed. Use `.first()` to read one match. `iki.files.count` takes the same
+filters and returns a `FileCountOut`. Its `total` stops at 1,000 and
+`more_than_total` tells you whether there are further matches.
+
+```python
+from iki.file_types import FileFilters
+
+filters: FileFilters = {
+    "project": "plate-assays",  # your project's slug or UUID
+    "q": "plate",
+    "format": ["text/csv"],
+    "acquired_from": "2026-03-14",
+    "acquired_to": "2026-03-14",
+}
+count = iki.files.count(**filters)
+first = iki.files.list(**filters, sort="name").first()
+if first is not None:
+    file = iki.files.get(first["id"])
+    print(file["name"], file["size"], file["sha256"], file["used_by"])
+    for record in file["records"]["items"]:
+        print(record["hrid"], record["spans"])
+    for run in file["runs"]["items"]:
+        print(run["hrid"], run["roles"])
+```
+
+`q` matches part of the name, ignoring case. `format` accepts a media type,
+a family such as `image/*`, or a list of either. Both acquisition dates are
+inclusive and accept Python dates or ISO date strings. `sample` and `run`
+take an ID or HRID. Use `accepts` and `max_size` (bytes) to match a field
+or action parameter. Omit `project` to include every file you can read.
+`list` accepts `sort` (`newest`, `oldest`, `name`, `name_desc`, `acquired`
+or `acquired_oldest`) and `page_size` (1–100). The default order is newest
+added first. `acquired` puts the latest acquisition first. Both acquisition
+sorts put unknown dates last.
+
+`get` returns an `iki.file_types.FileWithUses` dictionary with file metadata, `origin`,
+readable `samples` and the two **Used by** pages. For a registration,
+`origin["uri"]` and `origin["version"]` identify the object. Each page has
+its own `next_cursor`. Pass these to `get(file_id, records_cursor=...,
+runs_cursor=...)` to continue the corresponding page. Set `page_size` to
+limit each page. An unreadable or unknown file raises `iki.NotFound`.
+
+### Register an object in place
+
+Use `register` with the `write` scope and Editor access to the destination
+project. Use an object under a prefix your administrator approved in
+`IKI_FILES_REGISTER_LOCATIONS`. Its bucket must keep versions and the object
+must have a version. Iki pins the current version by default. Supply
+`version=` to select a particular one. Later writes to the key leave the
+registered file pinned to the selected version.
+
+```python
+registered = iki.files.register(
+    "s3://lab-data/runs/plate-7.csv",
+    project="plate-assays",
+    media_type="text/csv",
+    acquired="2026-03-14",
+)
+print(registered["id"], registered["sha256"])
+```
+
+Registration waits for Iki to verify the pinned bytes and returns a
+`FileOut`. Pass `name=` to override the object's filename, `timeout=` to
+limit the wait in seconds and `poll=` to set the polling interval.
+Unapproved locations and unversioned objects raise `iki.Invalid`.
+
+### Upload and download
+
 Upload a path to a project where you can edit. The SDK computes the file's
 SHA-256, sends each part directly to object storage, and waits for Iki to
 verify the stored bytes. It returns a `FileOut` with the file's ID, name,

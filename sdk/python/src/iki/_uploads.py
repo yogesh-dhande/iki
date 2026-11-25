@@ -1,4 +1,4 @@
-"""Multipart file uploads to the store, followed by Iki's integrity check (ADR 0036)."""
+"""Multipart uploads and verification of newly added files (ADR 0036)."""
 
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ from contextlib import ExitStack, suppress
 from pathlib import Path
 from tempfile import TemporaryFile
 from threading import Lock
-from typing import BinaryIO, cast
+from typing import BinaryIO, Literal, cast
 
 import httpx2
 
 from iki.client import Client, _path, _retry_after
 from iki.errors import Forbidden, IkiError, TimedOut
-from iki.schema import FileOut, PartOut, StartedOut, UploadOut
+from iki.schema import FileOut, PartOut, RegistrationOut, StartedOut, UploadOut
 
 _CHUNK = 1024 * 1024
 
@@ -99,6 +99,22 @@ def upload(
                 raise
             status = cast(UploadOut, client.request("POST", path + "/complete"))
 
+    file = wait_for_file(client, path, status, name, "upload", timeout, poll)
+    if (file["sha256"], file["size"]) != (sha256, size):
+        raise IkiError(f"The stored SHA-256 or size of {name} differs from the file you sent.")
+    return file
+
+
+def wait_for_file(
+    client: Client,
+    path: str,
+    status: UploadOut | RegistrationOut,
+    name: str,
+    operation: Literal["upload", "registration"],
+    timeout: float | None,
+    poll: float,
+) -> FileOut:
+    """Wait until Iki has checked the bytes and issued a file record."""
     deadline = None if timeout is None else time.monotonic() + timeout
     while status["state"] in ("pending", "checking"):
         delay = poll
@@ -108,14 +124,12 @@ def upload(
                 raise TimedOut(f"Iki is still checking {name} after {timeout} s. See {path}.")
             delay = min(delay, remaining)
         client._sleep(delay)
-        status = cast(UploadOut, client.request("GET", path))
+        status = cast(UploadOut | RegistrationOut, client.request("GET", path))
 
     file = status["file"]
     if status["state"] != "ready" or file is None:
         reason = status["error"] or "Iki did not issue a file record."
-        raise IkiError(f"The upload of {name} ended in state {status['state']}. {reason}")
-    if (file["sha256"], file["size"]) != (sha256, size):
-        raise IkiError(f"The stored SHA-256 or size of {name} differs from the file you sent.")
+        raise IkiError(f"The {operation} of {name} ended in state {status['state']}. {reason}")
     return file
 
 
