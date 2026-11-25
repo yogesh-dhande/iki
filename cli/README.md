@@ -6,26 +6,29 @@ The `iki` command-line tool for plugin authors and deployments: the
 
 ## `iki starter`
 
-Use `iki starter list --project "$SERVICE"` to see which starter versions and review
-flows are installed and which one the service project uses. Supply the service and
-requesting project UUIDs, and a membership UUID from the service project for each lab
-role. Repeat `--role` to assign a role to more than one member.
+Use `iki starter list --project "$SERVICE"` to see the installed recipes and the
+service project's current selection. The dose-response starter configures the
+assay review flow and grants the roles needed to run it. Supply the service
+project UUID and a membership UUID from that project for each role. Repeat
+`--role` to assign a role to more than one member.
 
 ```sh
-iki starter preview dose-response --version 1.2.0 --flow regulated_qc \
-  --project "$SERVICE" --requester-project "$REQUESTER" \
-  --role "iki/lab_roles.coordinator=$COORDINATOR" \
+iki starter preview dose-response --version 2.0.0 --flow regulated_qc \
+  --project "$SERVICE" \
   --role "iki/plate_assays.analyst=$ANALYST" \
   --role "iki/plate_assays.reviewer=$REVIEWER" \
   --role "iki/plate_assays.qa=$QA"
 ```
 
-The preview ends with its plan. Run `iki starter apply` with the same arguments and
-`--plan` set to it to apply what you reviewed. If what applying does has changed since,
-because another Admin changed a grant or applied it first, nothing is applied: the
-command prints what applying does now, and its new plan, to review. All three
-commands use the SDK's sign-in, or `IKI_URL` and `IKI_TOKEN`. Use `--url` to select
-a deployment and `--json` to print the complete API response.
+When the preview lists changes, review the result type and proposed grants.
+Run `iki starter apply` with the same arguments and `--plan` set to the printed
+plan ID. If the plan changes, the CLI prints the current plan for review. If
+preview reports `Already applied`, setup is complete.
+
+To run the worked Tox21 experiment, follow the
+[assay tutorial](../docs/guides/first-dose-response-assay.md).
+The starter commands use the SDK's sign-in or `IKI_URL` and `IKI_TOKEN`.
+Use `--url` to select a deployment and `--json` to print the full response.
 
 ## `iki plugin validate`
 

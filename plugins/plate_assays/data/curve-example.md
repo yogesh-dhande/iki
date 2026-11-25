@@ -1,6 +1,6 @@
 # Firefly luciferase inhibition by apigenin and daidzein
 
-Tox21 measured these flavonoids against purified _Photinus pyralis_ luciferase. The starter uses the deposited signed percent activity. The source normalized vehicle to 0% and its inhibition control to −100%. Iki fits the deposited values directly. The target protein record uses sequence version 1 of UniProt P08659. [PubChem BioAssay 1224835, revision 1](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835). [Tox21 analysis and normalization](https://doi.org/10.1038/s41598-020-60747-3). [UniProt P08659](https://www.uniprot.org/uniprotkb/P08659/entry).
+Tox21 measured these flavonoids against purified _Photinus pyralis_ luciferase. The [Tox21 tutorial](../../../examples/dose_response/README.md) uses the deposited signed percent activity. The source normalized vehicle to 0% and its inhibition control to −100%. Iki fits the deposited values directly. The target protein record uses sequence version 1 of UniProt P08659. [PubChem BioAssay 1224835, revision 1](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835). [Tox21 analysis and normalization](https://doi.org/10.1038/s41598-020-60747-3). [UniProt P08659](https://www.uniprot.org/uniprotkb/P08659/entry).
 
 ## The example plate
 

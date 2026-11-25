@@ -209,7 +209,7 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
-uv run --quiet python "$here/sso.py" "${sso_args[@]}" \
+uv run --directory "$here/../.." --quiet python -m deploy.dev.sso "${sso_args[@]}" \
   --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------

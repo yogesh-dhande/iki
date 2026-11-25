@@ -14,17 +14,13 @@ from iki_server.core.ids import uuid7
 
 
 class StarterApplication(models.Model):
-    """The current recipe choice and original example IDs. Changes go to the audit log."""
+    """The current recipe version and review flow. Changes go to the audit log."""
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     starter = models.CharField(max_length=63)
     version = models.CharField(max_length=100)
     flow = models.CharField(max_length=63)
     project = models.ForeignKey("iki_org.Project", on_delete=models.CASCADE, related_name="+")
-    requester_project = models.ForeignKey(
-        "iki_org.Project", on_delete=models.PROTECT, related_name="+"
-    )
-    examples = models.JSONField(default=dict)
     applied_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
     applied_at = models.DateTimeField(auto_now=True)
 

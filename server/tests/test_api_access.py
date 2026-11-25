@@ -84,18 +84,11 @@ def viewer_lab_roles(w: World) -> tuple[str, Any]:
 
 def starter_choice(operation: str) -> Build:
     def build(w: World) -> tuple[str, Any]:
-        from iki_server.org.models import Project, ProjectMembership, ProjectRole
-
-        requester = Project.objects.create(team=w.team, name="Assay requester")
-        ProjectMembership.objects.create(
-            project=requester, user=w.users["admin"], role=ProjectRole.EDITOR
-        )
         # The fixture deployment has no such starter. Only an authorized project Admin
         # reaches the catalog lookup.
         return f"/starters/dose-response/{operation}", {
             "project": str(w.project.pk),
-            "requester_project": str(requester.pk),
-            "version": "1.0.0",
+            "version": "2.0.0",
             "flow": "research",
             "role_assignments": {},
             **({"plan": "0" * 64} if operation == "apply" else {}),

@@ -351,8 +351,6 @@ class AppliedMappingOut(TypedDict):
 
 class AppliedStarterOut(TypedDict):
     flow: Literal['research', 'regulated_qc']
-    #: Original requester for an assay project Admin who may edit that project.
-    requester_project: str | None
     version: str
 
 
@@ -5830,11 +5828,9 @@ class StarterApplyIn(TypedDict):
     flow: Literal['research', 'regulated_qc']
     #: The `plan` its preview returned: what you reviewed. If what applying does has changed since, nothing is applied (409 `starter_plan_changed`, with the `plan` it would apply now).
     plan: str
-    #: The assay service project. Requires its Admin role.
+    #: The assay project. Requires its Admin role.
     project: str
-    #: A different project in which the caller can create the example request.
-    requester_project: str
-    #: Each qualified lab role and the service project membership IDs receiving it.
+    #: Each qualified lab role and the assay project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
@@ -5845,7 +5841,7 @@ class StarterFlowOut(TypedDict):
     label: str
     #: Qualified lab roles needed to run this flow.
     required_roles: list[str]
-    #: Qualified type for a requested result in this flow.
+    #: Qualified result type for new fits in this flow.
     result_type: str
 
 
@@ -5872,11 +5868,9 @@ class StarterRoleOut(TypedDict):
 
 class StarterSetupIn(TypedDict):
     flow: Literal['research', 'regulated_qc']
-    #: The assay service project. Requires its Admin role.
+    #: The assay project. Requires its Admin role.
     project: str
-    #: A different project in which the caller can create the example request.
-    requester_project: str
-    #: Each qualified lab role and the service project membership IDs receiving it.
+    #: Each qualified lab role and the assay project membership IDs receiving it.
     role_assignments: dict[str, list[str]]
     #: Installed starter version shown at setup.
     version: str
@@ -5885,17 +5879,12 @@ class StarterSetupIn(TypedDict):
 class StarterSetupOut(TypedDict):
     #: Whether applying this choice would change anything (preview), or did (apply).
     changed: bool
-    #: IDs of example records already present at preview or available after setup.
-    examples: dict[str, str]
-    #: Names of examples missing when the setup was checked.
-    examples_to_create: list[str]
     flow: Literal['research', 'regulated_qc']
     #: Lab role grants missing when the setup was checked, by membership ID.
     grants_to_add: dict[str, list[str]]
     #: Identifies this plan: what the setup was, and every change applying makes. Send it to apply what was reviewed.
     plan: str
     project: str
-    requester_project: str
     result_type: str
     role_assignments: dict[str, list[str]]
     starter: str
