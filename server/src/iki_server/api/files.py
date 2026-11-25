@@ -18,7 +18,7 @@ SHA-256, then the registration is ``ready``, with its ``file``.
 
 from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Required, TypedDict
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
@@ -37,6 +37,7 @@ from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
 from iki_server.files import acquired, listing, services, storage
+from iki_server.files import metadata as stated
 from iki_server.files.models import (
     File,
     Registration,
@@ -69,6 +70,34 @@ class AcquiredOut(Schema):
     source_label: str = Field(description="Where that came from, as people would say it.")
 
 
+class StatedOut(Schema):
+    value: str = Field(description="As the file gives it.")
+    stated_in: str = Field(
+        description="Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by."
+    )
+
+
+class FileFactsOut(Schema):
+    """What the file says about where its data came from (ADR 0224), read when it was
+    added. Each is null when the file doesn't say, or doesn't say clearly."""
+
+    instrument: StatedOut | None = Field(
+        description="The instrument's model, such as Aurora or Orbitrap Eclipse."
+    )
+    manufacturer: StatedOut | None = Field(description="Who made the instrument.")
+    serial: StatedOut | None = Field(description="The instrument's serial number.")
+    instrument_name: StatedOut | None = Field(
+        description="The name the instrument was given, such as an AB1 trace's MCHN."
+    )
+    operator: StatedOut | None = Field(description="Who operated the instrument.")
+    software: StatedOut | None = Field(
+        description="The software that recorded the data, and its version where given."
+    )
+    protocol: StatedOut | None = Field(
+        description="The instrument's protocol, such as a plate reader's test."
+    )
+
+
 class FileOut(Schema):
     id: UUID
     name: str
@@ -85,6 +114,10 @@ class FileOut(Schema):
     acquired: AcquiredOut | None = Field(
         description="When its data was acquired (ADR 0177): as its format records it, or as "
         "whoever added it said. Null if neither says: never when it was added."
+    )
+    facts: FileFactsOut = Field(
+        description="Its instrument, serial number, operator, software and protocol, where "
+        "its format records them (ADR 0224)."
     )
 
 
@@ -132,7 +165,31 @@ class SampleOut(Schema):
     )
 
 
+class ReadGroupOut(TypedDict, total=False):
+    """A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+    by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit)."""
+
+    ID: Required[str]
+    BC: str
+    CN: str
+    DS: str
+    DT: str
+    FO: str
+    KS: str
+    LB: str
+    PG: str
+    PI: str
+    PL: str
+    PM: str
+    PU: str
+    SM: str
+
+
 class FileDetailOut(FileRowOut):
+    read_groups: list[ReadGroupOut] = Field(
+        description="A SAM or BAM file's read groups, each @RG line as it gives it (ADR "
+        "0224): every one, or none when any can't be read as the specification defines."
+    )
     origin: FileOriginOut
     samples: list[SampleOut] = Field(description="The samples it belongs to that you can read.")
 
@@ -300,9 +357,15 @@ class LocationsOut(Schema):
     locations: list[str] = Field(description="Where files may be registered, such as s3://lab/.")
 
 
+_FILE_QUERY = (
+    "Part of its name, or of what it states (its instrument, serial number, operator, "
+    "software, protocol or read groups), in any case."
+)
+
+
 class FileFilters(PageParams):
     project: UUID | None = Field(None, description="Its files; every one you can read if left out.")
-    q: str = Field("", max_length=255, description="Part of its name, in any case.")
+    q: str = Field("", max_length=255, description=_FILE_QUERY)
     format: list[str] = Field(
         default_factory=list,
         max_length=50,
@@ -334,7 +397,7 @@ class FileFilters(PageParams):
 
 class FacetParams(Schema):
     project: UUID | None = None
-    q: str = Field("", max_length=255)
+    q: str = Field("", max_length=255, description=_FILE_QUERY)
     acquired_from: date | None = None
     acquired_to: date | None = None
     sample: str | None = Field(None, max_length=64)
@@ -370,6 +433,7 @@ def _file_out(user: User, files: list[File]) -> list[dict[str, Any]]:
             "created_at": f.created_at,
             "external": f.blob.registered_external,
             "acquired": _acquired_out(f),
+            "facts": {key: f.facts.get(key) for key in stated.FACTS},
         }
         for f in files
     ]
@@ -700,9 +764,9 @@ def _rows_out(me: User, files: list[File]) -> list[dict[str, Any]]:
 @router.get("/files", response=FilePageOut, summary="Files you can read")
 def list_files(request: HttpRequest, filters: Query[FileFilters]) -> dict[str, Any]:
     """A project's files, or every file you can read: those added to the projects, and
-    those their records hold (ADR 0177). Found by part of the name, format, when acquired,
-    sample and run; newest first unless ``sort`` says otherwise. Each says how many records
-    and runs you can read use it."""
+    those their records hold (ADR 0177). Found by part of the name or of what the file
+    states (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``
+    says otherwise. Each says how many records and runs you can read use it."""
     me = caller(request)
     scope = _scope(me, filters.project)
     try:
@@ -830,6 +894,7 @@ def get_file(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
     titles = _titles([e for e, _ in samples])
     return {
         **_rows_out(me, [found])[0],
+        "read_groups": found.read_groups,
         "origin": _origin(me, found),
         "samples": [
             {

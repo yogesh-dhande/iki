@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: examples/construct_review
+version: 0.1.0
+title: Construct review
+description: An optional Assembly review with an independent verifier and a record lock.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/plasmid:
+    types:
+      Assembly: ">=6"
+roles:
+  cloner:
+    label: Cloning scientist
+    description: Plans a construct, builds it, and records the sequence of what was built.
+  construct_reviewer:
+    label: Construct reviewer
+    description: >-
+      Checks that a construct's sequence is what was planned, and verifies it: someone
+      other than whoever built it.

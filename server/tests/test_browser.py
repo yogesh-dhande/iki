@@ -4755,7 +4755,7 @@ PLATE = "iki/plate_assays."
 def _starter_api(page: Page) -> dict[str, Any]:
     """Answers the starter API as a deployment with plate assays installed would (ADR 0198):
     this one's fixture plugins don't include them. This stubs the API for the screen's sake
-    and is not its coverage: what the endpoints themselves do, grants and examples included,
+    and is not its coverage: what the endpoints themselves do, including role grants,
     is tested against the real server in test_starter_applications, test_starter_api and
     test_dose_response_starter. Members, projects and everything else here are the real
     server's. Like the server, it applies only the plan previewed (ADR 0207): a grant put in
@@ -4766,7 +4766,6 @@ def _starter_api(page: Page) -> dict[str, Any]:
 
     fixtures = json.loads(FLOW_FIXTURES.read_text())
     roles = {
-        "iki/lab_roles.coordinator": ("Coordinator", "editor"),
         PLATE + "analyst": ("Assay analyst", "editor"),
         PLATE + "reviewer": ("Assay reviewer", "viewer"),
         PLATE + "qa": ("Assay QA", "viewer"),
@@ -4779,16 +4778,16 @@ def _starter_api(page: Page) -> dict[str, Any]:
         return [
             {
                 "id": "dose-response",
-                "version": "1.0.0",
+                "version": "2.0.0",
                 "label": "Dose-response plate assay",
-                "description": "Receive an example request, map a reader file to wells, fit a "
-                "curve and return the signed result to the requester.",
+                "description": "Choose the review flow for new dose-response fits and assign "
+                "the assay roles.",
                 "flows": [
                     {
                         "id": flow,
                         "label": "Research" if flow == "research" else "Regulated QC",
-                        "result_type": f"{PLATE}Requested{base}",
-                        "required_roles": required if flow == "regulated_qc" else required[:3],
+                        "result_type": f"{PLATE}{base}",
+                        "required_roles": required if flow == "regulated_qc" else required[:2],
                     }
                     for flow, base in flows.items()
                 ],
@@ -4805,9 +4804,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
         name = urllib.parse.unquote(route.request.url.split("/entity-types/")[1]).removesuffix(
             "/flow"
         )
-        base = PLATE + name.removeprefix(PLATE + "Requested")
-        found = next(t for t in fixtures["types"] if t["type"] == base)
-        route.fulfill(json={**found, "type": name, "label": f"Requested {found['label']}"})
+        route.fulfill(json=next(t for t in fixtures["types"] if t["type"] == name))
 
     def lab_roles(route: Any) -> None:
         served = route.fetch().json()
@@ -4836,17 +4833,17 @@ def _starter_api(page: Page) -> dict[str, Any]:
             for role, members in body["role_assignments"].items()
             if (missing := [m for m in members if (role, m) not in state["held"]])
         }
+        applied = {"version": body["version"], "flow": body["flow"]}
         plan = {
             **body,
             "starter": "dose-response",
-            "result_type": f"{PLATE}Requested{flows[body['flow']]}",
-            "changed": True,
+            "result_type": f"{PLATE}{flows[body['flow']]}",
+            "changed": applied != state["applied"] or bool(grants),
             "grants_to_add": grants,
-            "examples_to_create": ["request", "protein", "sample", "tube", "plate"],
-            "examples": {},
         }
-        plan["plan"] = hashlib.sha256(json.dumps(plan, sort_keys=True).encode()).hexdigest()
-        if applying and reviewed != plan["plan"]:
+        shown = {**plan, "before": state["applied"]}
+        plan["plan"] = hashlib.sha256(json.dumps(shown, sort_keys=True).encode()).hexdigest()
+        if applying and plan["changed"] and reviewed != plan["plan"]:
             route.fulfill(
                 status=409,
                 content_type="application/problem+json",
@@ -4862,16 +4859,12 @@ def _starter_api(page: Page) -> dict[str, Any]:
             )
             return
         if applying:
-            state["applied"] = {
-                "version": "1.0.0",
-                "flow": body["flow"],
-                "requester_project": body["requester_project"],
-            }
-            plan["examples"] = {"request": str(uuid.uuid4())}
+            state["applied"] = applied
+            state["held"].update((role, member) for role, ids in grants.items() for member in ids)
         route.fulfill(json=plan)
 
     page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
-    page.route(re.compile(r"/api/v1/entity-types/.*Requested.*/flow$"), flow_of)
+    page.route(re.compile(r"/api/v1/entity-types/.*(?:Research|QC)AssayResult/flow$"), flow_of)
     page.route(re.compile(r"/api/v1/lab-roles$"), lab_roles)
     page.route(re.compile(r"/api/v1/starters/dose-response/(preview|apply)$"), setup)
     page.reload()
@@ -4882,14 +4875,9 @@ def _starter_api(page: Page) -> dict[str, Any]:
 def test_an_admin_sets_a_project_up_from_a_starter(
     open_as: Any, world: World, color_scheme: str
 ) -> None:
-    """A starter (ADR 0198): its Admin chooses Regulated QC, seeing its flow drawn; the
-    requesting project; and three different people for its three signatures, which the
-    screen checks before asking. Preview says what applying will do, then it applies. At
-    1440px and 390px, in both schemes. By role (Firefox; see above)."""
-    requester = Project.objects.create(team=world.team, name="Assay Requests")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
+    """An Admin previews the Regulated QC flow and assigns three independent signers.
+    The screen validates the grants and previews what applying them will change.
+    At 1440px and 390px, in both schemes (ADR 0198)."""
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     sent = _starter_api(page)
@@ -4900,9 +4888,6 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     states = card.get_by_role("list", name="Review’s states", exact=True)
     states.get_by_role("button", name=re.compile(r"^QA released")).wait_for()
     assert states.get_by_role("button").count() == 4
-    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
-        label="Assay Requests"
-    )
 
     # Who may hold each role: people of their own, active, with a high enough role.
     analysts = card.get_by_role("group", name="Assay analyst")
@@ -4910,7 +4895,6 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     reviewers = card.get_by_role("group", name="Assay reviewer")
     assert reviewers.get_by_role("checkbox").count() == 5  # and Viewer, Mixed
     qa = card.get_by_role("group", name="Assay QA")
-    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
     for group in (analysts, reviewers, qa):
         group.get_by_role("checkbox", name="Editor").check()
     card.get_by_role("button", name="Preview").click()
@@ -4926,7 +4910,7 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     card.get_by_role("button", name="Preview").click()
     plan = card.get_by_role("status", name="What applying will do")
     plan.get_by_text("Viewer becomes Assay reviewer.").wait_for()
-    plan.get_by_text(re.compile("^Kinase Atlas takes no requests yet")).wait_for()
+    plan.get_by_text("New results follow the Regulated QC flow.").wait_for()
     assert_clean(page, axe_in_firefox=False)
 
     page.set_viewport_size({"width": 390, "height": 844})
@@ -4935,8 +4919,10 @@ def test_an_admin_sets_a_project_up_from_a_starter(
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Regulated QC flow.").wait_for()
-    card.get_by_text("Applied: Regulated QC, version 1.0.0").wait_for()
+    card.get_by_text("Applied: Regulated QC, version 2.0.0").wait_for()
     assert [what for what, _ in sent["sent"]] == ["preview", "apply"]
+    assert set(sent["sent"][0][1]) == {"project", "version", "flow", "role_assignments"}
+    assert set(sent["sent"][1][1]) == {*sent["sent"][0][1], "plan"}
     assert sent["sent"][1][1]["role_assignments"][PLATE + "qa"] == [
         str(world.project.memberships.get(user=world.users["admin"]).pk)
     ]
@@ -4952,10 +4938,6 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     reviewer's grant after the preview, so applying would also grant it: nothing is applied,
     the screen says what changed and shows what applying does now, and applying that
     applies it. At 390px, in both schemes."""
-    requester = Project.objects.create(team=world.team, name="Assay Requests")
-    ProjectMembership.objects.create(
-        project=requester, user=world.users["admin"], role=ProjectRole.EDITOR
-    )
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/", color_scheme)
     page.set_viewport_size({"width": 390, "height": 844})
     api = _starter_api(page)
@@ -4964,10 +4946,6 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     card = page.get_by_role("region", name="Dose-response plate assay")
     card.get_by_text("Not applied here").wait_for()
     card.get_by_role("radio", name=re.compile("^Research")).check()
-    card.get_by_role("combobox", name=re.compile("^Requesting project")).select_option(
-        label="Assay Requests"
-    )
-    card.get_by_role("group", name="Coordinator").get_by_role("checkbox", name="Admin").check()
     card.get_by_role("group", name="Assay analyst").get_by_role("checkbox", name="Editor").check()
     card.get_by_role("group", name="Assay reviewer").get_by_role("checkbox", name="Viewer").check()
     card.get_by_role("button", name="Preview").click()
@@ -4992,7 +4970,7 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Research flow.").wait_for()
-    card.get_by_text("Applied: Research, version 1.0.0").wait_for()
+    card.get_by_text("Applied: Research, version 2.0.0").wait_for()
     applies = [body for what, body in api["sent"] if what == "apply"]
     assert len(applies) == 2 and applies[0]["plan"] != applies[1]["plan"]
     assert note.count() == 0
@@ -5019,16 +4997,17 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     page.context.close()
 
 
-def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world: World) -> None:
+def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any) -> None:
     """A page's reads stop once a navigation away begins, not only at pagehide: WebKit
     refuses a fetch the departing document starts in between, and raised an access-control
     error for it. Here the starters arrive just after the Admin heads elsewhere, and the
-    card they draw would ask for every project."""
+    card they draw would ask for the selected result type’s flow."""
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
-    _starter_api(page)
+    result_flow = re.compile(r"/api/v1/entity-types/.*plate_assays\.ResearchAssayResult/flow$")
+    with page.expect_request(result_flow):
+        _starter_api(page)
     card = page.get_by_role("region", name="Dose-response plate assay")
     card.wait_for()
-    every_project = re.compile(r"/api/v1/projects\?limit=100$")
     starters = re.compile(r"/api/v1/starters\?project=")
     elsewhere = re.compile(r"/account/apps/$")
     held: dict[str, Route] = {}
@@ -5042,7 +5021,7 @@ def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any, world
         page.reload()
     assert not card.is_visible()
     asked: list[str] = []
-    page.on("request", lambda r: asked.append(r.url) if every_project.search(r.url) else None)
+    page.on("request", lambda r: asked.append(r.url) if result_flow.search(r.url) else None)
 
     # The next page waits too, so the old one stays while the starters come.
     page.route(elsewhere, hold("elsewhere"))

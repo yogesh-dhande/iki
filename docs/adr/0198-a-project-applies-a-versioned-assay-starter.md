@@ -1,6 +1,6 @@
 # 0198. A project applies a versioned assay starter
 
-- Status: Accepted
+- Status: Accepted. [ADR 0223](0223-applying-an-assay-starter-configures-the-project.md) revises setup for recipe 2.0.0.
 - Date: 2026-11-22
 - Refines: [0188](0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint.md)
 

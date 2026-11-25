@@ -1,14 +1,12 @@
-# A fake FoldCloud for the dev cluster: the hosted structure-prediction API
-# the example models plugin calls (plugins/example_models). POST
-# /v1/predictions takes a sequence and answers with a job, done about 15
-# seconds later; GET /v1/predictions/<id> answers its status, and once it's
-# done a structure; POST /v1/predictions/<id>/cancel cancels it. A sequence
-# with an X fails. It checks the API key the egress proxy adds from
+# The CI fixture for examples/plugins/hosted_models. POST /v1/predictions
+# takes a sequence and answers with a job. Each requested recycle takes five
+# seconds. GET /v1/predictions/<id> returns the job status and any finished
+# structure. An empty POST to /v1/predictions/<id>/cancel cancels the job.
+# A sequence containing X fails. The fixture checks the key the proxy adds from
 # iki-run-secrets, answers at https://fake-foldcloud.iki.svc with a
 # certificate from the dev CA up.sh made, and calls the run's webhook, signed
 # (Standard Webhooks), when a job ends. GET /requests on port 8080 lists the
-# last 200 API requests (without the key), for you and e2e.sh. Development
-# only.
+# last 200 API requests and successful callback responses for the e2e checks.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -31,8 +29,8 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import urlsplit
 
-    KEY = open("/secrets/iki__example_models.FOLDCLOUD_API_KEY").read().strip()
-    HOOK = open("/secrets/iki__example_models.FOLDCLOUD_WEBHOOK_SECRET").read().strip()
+    KEY = open("/secrets/lab__hosted_models.FOLDCLOUD_API_KEY").read().strip()
+    HOOK = open("/secrets/lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET").read().strip()
     # Iki's public URL isn't reachable from inside the cluster: call its web pods.
     CALLBACKS = os.environ["CALLBACK_ORIGIN"]
     VERSION = "2.1.0"
@@ -71,15 +69,15 @@ data:
             "webhook-signature": "v1," + base64.b64encode(signed.digest()).decode(),
         })
         try:
-            urllib.request.urlopen(request, timeout=10).close()
-        except Exception as error:
-            print(f"Calling back {target} failed: {error}", flush=True)
+            with urllib.request.urlopen(request, timeout=10) as response, lock:
+                received.append({"method": "CALLBACK", "job": job["id"], "status": response.status})
+        except OSError as error:
+            print(f"Callback for {job['id']} failed ({type(error).__name__})", flush=True)
 
 
-    def work(job_id):
-        time.sleep(15)
+    def work(job):
+        time.sleep(5 * job["num_recycles"])
         with lock:
-            job = jobs[job_id]
             if job["status"] != "running":
                 return
             if "X" in job["sequence"]:
@@ -127,9 +125,9 @@ data:
         def do_POST(self):
             if not self.checked():
                 return
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
             parts = self.path.strip("/").split("/")
             if parts == ["v1", "predictions"]:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
                 job = {
                     "id": f"pred_{uuid.uuid4().hex[:12]}",
                     "status": "running",
@@ -140,7 +138,7 @@ data:
                 }
                 with lock:
                     jobs[job["id"]] = job
-                threading.Thread(target=work, args=(job["id"],), daemon=True).start()
+                threading.Thread(target=work, args=(job,), daemon=True).start()
                 self.answer(201, public(job))
             elif parts[:2] == ["v1", "predictions"] and parts[-1] == "cancel":
                 with lock:
@@ -242,10 +240,10 @@ spec:
           secret:
             secretName: iki-run-secrets
             items:
-              - key: iki__example_models.FOLDCLOUD_API_KEY
-                path: iki__example_models.FOLDCLOUD_API_KEY
-              - key: iki__example_models.FOLDCLOUD_WEBHOOK_SECRET
-                path: iki__example_models.FOLDCLOUD_WEBHOOK_SECRET
+              - key: lab__hosted_models.FOLDCLOUD_API_KEY
+                path: lab__hosted_models.FOLDCLOUD_API_KEY
+              - key: lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
+                path: lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET
 ---
 apiVersion: v1
 kind: Service

@@ -11,6 +11,9 @@
 - A file may say when its data was **acquired** (ADR 0177): as the file's own
   format records it, such as an AB1 trace's run date, or as whoever added it
   said. Otherwise it's unknown, never the time it was added.
+- A file may also say which **instrument**, who and what recorded it, as its format
+  records them (ADR 0224): its facts, each with where in the file it's stated, and a SAM
+  or BAM file's read groups. Read once, when it's added; nothing else stands in for them.
 - An **upload** sends a file's bytes straight to object storage, in parts,
   and is checked before it becomes a file (ADR 0036).
 - A **registration** makes a file of an object where it already is, in an
@@ -24,8 +27,9 @@ from typing import ClassVar
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F, Func, JSONField, Q, Value
 from django.db.models.functions import Collate, Lower, Now, Upper
+from django.db.models.lookups import Exact
 
 from iki_server.core.ids import uuid7
 from iki_server.org.models import Project
@@ -116,6 +120,26 @@ class File(models.Model):
         db_comment="Where that came from: the file's own format (such as abif or fcs), given "
         "by whoever added it, or empty if unknown.",
     )
+    #: What the file says about where its data came from (ADR 0224): {"instrument":
+    #: {"value": ..., "stated_in": ...}, ...}, as :mod:`iki_server.files.metadata` keeps it.
+    facts = models.JSONField(
+        default=dict,
+        db_default=Value({}, JSONField()),
+        db_comment="What the file states about its instrument, operator, software and "
+        "protocol, each with where it states it (ADR 0224); {} if it states none.",
+    )
+    read_groups = models.JSONField(
+        default=list,
+        db_default=Value([], JSONField()),
+        db_comment="A SAM or BAM file's @RG lines, their standard tags; [] if none.",
+    )
+    #: The facts' values and the read groups' names, one per line, for finding the file.
+    stated_text = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        db_comment="The facts' values and read groups' names the Files list searches.",
+    )
 
     class Meta:
         db_table = "iki_file"
@@ -126,6 +150,10 @@ class File(models.Model):
             # by when acquired, and sorted by name.
             # On the names in upper case: a case-insensitive match compares them so.
             GinIndex(OpClass(Upper("name"), name="gin_trgm_ops"), name="iki_file_name_trgm"),
+            # And by what they state (ADR 0224), as their names are.
+            GinIndex(
+                OpClass(Upper("stated_text"), name="gin_trgm_ops"), name="iki_file_stated_trgm"
+            ),
             models.Index(fields=["project", "media_type", "id"], name="iki_file_by_format"),
             models.Index(fields=["project", "acquired_on", "id"], name="iki_file_by_acquired"),
             # The latest acquired first, those not known last.
@@ -156,6 +184,19 @@ class File(models.Model):
                     acquired_from__regex=r"^[a-z][a-z0-9-]{0,15}$",
                 ),
                 name="iki_file_acquired",
+            ),
+            models.CheckConstraint(
+                condition=Exact(
+                    Func(F("facts"), function="jsonb_typeof", output_field=models.TextField()),
+                    "object",
+                )
+                & Exact(
+                    Func(
+                        F("read_groups"), function="jsonb_typeof", output_field=models.TextField()
+                    ),
+                    "array",
+                ),
+                name="iki_file_stated",
             ),
         ]
 

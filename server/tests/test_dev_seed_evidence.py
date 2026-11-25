@@ -1,4 +1,4 @@
-"""Shared registration actions cannot stand in for a missing product seed scenario."""
+"""Each product seed must leave its own evidence in the seeded project."""
 
 import runpy
 from pathlib import Path
@@ -11,12 +11,19 @@ from iki_server.org.models import Project, Team
 from iki_server.runs.models import ActionRun, EffectKind, RunEffect, RunStatus
 
 
+def missing() -> str:
+    # Each test creates only the records relevant to its scenario.
+    checker = Path(__file__).resolve().parents[2] / "deploy/dev/check_seed.py"
+    with pytest.raises(SystemExit) as error:
+        runpy.run_path(str(checker))
+    return str(error.value)
+
+
 @pytest.mark.django_db
 def test_plasmid_and_oligo_seeds_require_distinct_outcomes(monkeypatch: pytest.MonkeyPatch) -> None:
     atlas = Project.objects.create(team=Team.objects.create(name="Lab"), name="Atlas")
     user = User.objects.create_user("scientist@example.com")
     monkeypatch.setenv("IKI_SEED_PROJECT", str(atlas.pk))
-    checker = Path(__file__).resolve().parents[2] / "deploy/dev/check_seed.py"
 
     def run(number: int, action: str, **params: str) -> ActionRun:
         return ActionRun.objects.create(
@@ -31,12 +38,6 @@ def test_plasmid_and_oligo_seeds_require_distinct_outcomes(monkeypatch: pytest.M
             timeout=600,
             max_attempts=1,
         )
-
-    def missing() -> str:
-        # This database contains only the two scenarios under test.
-        with pytest.raises(SystemExit) as error:
-            runpy.run_path(str(checker))
-        return str(error.value)
 
     run(1, "iki/plasmid.register_plasmid")
     register = "iki/oligo.register_oligonucleotide"
@@ -62,3 +63,19 @@ def test_plasmid_and_oligo_seeds_require_distinct_outcomes(monkeypatch: pytest.M
     present = missing()
     assert "no successful run for iki/plasmid.assemble" not in present
     assert "no reused nusinersen oligonucleotide" not in present
+
+
+@pytest.mark.django_db
+def test_strain_stock_is_required_in_the_seeded_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    team = Team.objects.create(name="Lab")
+    atlas = Project.objects.create(team=team, name="Atlas")
+    previous = Project.objects.create(team=team, name="Previous run")
+    monkeypatch.setenv("IKI_SEED_PROJECT", str(atlas.pk))
+    kind = "iki/lots.GlycerolStock"
+    Entity.objects.create(type=kind, owner_project=previous, hrid="GST-001")
+    Entity.objects.create(type="iki/lots.StrainIsolate", owner_project=atlas, hrid="ISO-001")
+    message = f"{atlas.name}: expected at least 1 {kind}, found 0"
+    assert message in missing()
+
+    Entity.objects.create(type=kind, owner_project=atlas, hrid="GST-002")
+    assert message not in missing()

@@ -562,6 +562,13 @@ def test_duplicates_are_found_in_the_registry_the_project_and_the_sheet(world: W
     mine = Entity.objects.filter(type=PLASMID, owner_project=world.project)
     # T7 was the project's already; lac operator's two rows are one record.
     assert mine.count() == 4
+    # The later row keeps its provenance on the first row's record without renaming it.
+    lac = records(world, PLASMID, key="name")["lac operator"]
+    assert list(
+        ExternalOrigin.objects.filter(entity=lac)
+        .order_by("identifier")
+        .values_list("identifier", "revision")
+    ) == [("Plasmids, row 4", 1), ("Plasmids, row 5", None)]
     entry = Entity.objects.get(pk=registered["id"]).entry_id
     assert mine.filter(entry_id=entry).exists()
 

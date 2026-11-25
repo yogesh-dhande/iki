@@ -1,6 +1,6 @@
 /**
  * Starters (ADR 0198): versioned recipes a project's Admin applies to set an assay service
- * up, choosing its review flow, the project that asks it, and who holds each lab role.
+ * up, choosing its review flow and who holds each lab role.
  * This is their data and the checks a setup screen makes before asking Iki, which makes
  * the same ones.
  */
@@ -86,11 +86,6 @@ export function planChanges(
   for (const grant of before)
     if (!after.has(grant))
       out.push({ key: `-${grant}`, body: `Applying no longer does: ${said(grant)}` });
-  if (shown.examples_to_create.length && !now.examples_to_create.length)
-    out.push({
-      key: "examples",
-      body: "It was applied meanwhile: its example records are there, and none are made",
-    });
   if (!out.length) out.push({ key: "else", body: "What’s set up changed" });
   return out;
 }
@@ -141,20 +136,6 @@ export function independentEnough(
     if (people.size < group.length) return false;
   }
   return true;
-}
-
-/** An example record's name, as people read it. */
-export function exampleLabel(name: string): string {
-  return (
-    {
-      request: "an analysis request",
-      protein: "a protein",
-      sample: "a sample",
-      tube: "a tube for the sample",
-      reader_file: "a plate reader file",
-      plate: "a mapped assay plate",
-    }[name] ?? name.replaceAll("_", " ")
-  );
 }
 
 /** What a flow asks of people, in a sentence, for the flows starters offer. */

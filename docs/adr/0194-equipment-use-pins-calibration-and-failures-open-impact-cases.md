@@ -6,6 +6,10 @@
   [0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md),
   [0179](0179-a-corrected-result-goes-back-for-review.md)
 
+[ADR 0222](0222-facilities-choose-automatic-calibration-tracing.md) moves the
+automatic trigger described below to a facility-owned example. Equipment keeps
+the service history, measurement evidence and explicit impact trace.
+
 ## Context
 
 An engineer needs to know when an instrument is due for calibration and

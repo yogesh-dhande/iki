@@ -1,39 +1,61 @@
-"""Run both dose-response starters against their installed plugin tables and worker commands."""
+"""Configure a minimal plate installation and run the explicit Tox21 tutorial in each flow."""
 
 import csv
 import hashlib
 import importlib
 import json
+import os
+import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import Thread
 from typing import Any
 from unittest.mock import patch
 from uuid import UUID, uuid4
+from wsgiref.simple_server import make_server
 
 import pytest
 from api_client import Api
+from django.conf import settings
+from django.core.wsgi import get_wsgi_application
 from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
+from examples.dose_response import public_plate, tutorial
+from examples.dose_response.__main__ import SdkApi
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
+from test_files import run_tasks
+from test_oauth import signed_in_token
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 
+from iki import Client
 from iki_server.accounts.models import User
 from iki_server.amounts import services as amounts
+from iki_server.amounts.models import Movement
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, requests, services, states
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Intake
 from iki_server.files import storage
 from iki_server.files.models import File
-from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
+from iki_server.org.models import (
+    LabRoleGrant,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    TeamMembership,
+)
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, Job
-from iki_server.setup import dose_response, public_plate, starters
+from iki_server.setup import starters
+from iki_server.setup.models import StarterApplication
 from iki_server.signatures.services import verify
 from iki_server.storage import receipts
 from iki_spec.compute import Binding
@@ -43,12 +65,12 @@ PLUGIN = PLUGINS / "plate_assays"
 PREFIX = "iki/plate_assays."
 
 
-def test_packaged_plate_preserves_the_deposited_activity_values() -> None:
+def test_tutorial_plate_preserves_the_deposited_activity_values() -> None:
     # Independent comparison of all 72 cells with the four deposited SID rows.
-    assert hashlib.sha256(dose_response.READER_FILE.read_bytes()).hexdigest() == (
+    assert hashlib.sha256(public_plate.READER_FILE.read_bytes()).hexdigest() == (
         "83ae1ad7d01ea9b9cc1de1dfaf65c4ccba18f3a9477d60421eb90768dfd9115e"
     )
-    with dose_response.READER_FILE.open() as source:
+    with public_plate.READER_FILE.open() as source:
         title, columns, *rows = csv.reader(source)
     assert title == ["Normalized activity (%)"]
     assert columns == ["", *map(str, range(1, 13))]
@@ -57,21 +79,20 @@ def test_packaged_plate_preserves_the_deposited_activity_values() -> None:
     # AID 1224835, SID 144208740, replicate 1 at 0.017 and 115.2 µM.
     assert (rows[0][1], rows[0][11]) == ("1.5711", "-81.0799")
     assert (
-        dose_response.READER_FILE.read_bytes()
-        == (PLUGIN / "tests/data" / dose_response.READER_FILE.name).read_bytes()
+        public_plate.READER_FILE.read_bytes()
+        == (PLUGIN / "tests/data" / public_plate.READER_FILE.name).read_bytes()
     )
 
 
-def test_both_flows_deliver_a_signed_fit_from_the_starter(tmp_path: Path, database: str) -> None:
+def _installed_test(
+    tmp_path: Path,
+    database: str,
+    scenario: str,
+    *plugins: Path,
+    file_settings: dict[str, str] | None = None,
+) -> None:
     build = tmp_path / "build"
-    built = iki(
-        "plugin",
-        "build",
-        *build_order(PLUGIN, PLUGINS / "samples", PLUGINS / "protein"),
-        "--output",
-        build,
-        cwd=PLUGINS,
-    )
+    built = iki("plugin", "build", *build_order(PLUGIN, *plugins), "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
         '{"review_flow":"research"}'
@@ -83,102 +104,248 @@ def test_both_flows_deliver_a_signed_fit_from_the_starter(tmp_path: Path, databa
         database,
         "-c",
         "import django; django.setup()\n"
-        "from test_dose_response_starter import exercise\nexercise()",
+        "from django.test import override_settings\n"
+        f"from test_dose_response_starter import {scenario}\n"
+        f"with override_settings(**{file_settings or {}!r}): {scenario}()",
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_configure_the_assay_with_only_its_declared_dependencies(
+    tmp_path: Path, database: str
+) -> None:
+    _installed_test(tmp_path, database, "configure_empty_project")
+
+
+def configure_empty_project() -> None:
+    world = build_world()
+    project, admin = world.project, world.users["admin"]
+    project.allow_sharing = False
+    project.save(update_fields=["allow_sharing"])
+    api = Api(world.browser("admin"))
+    listed = api.get("/starters", project=str(project.pk))
+    assert listed.status_code == 200, listed.content
+    [recipe] = [s for s in listed.json() if s["id"] == "dose-response"]
+    assert recipe["version"] == "2.0.0"
+    roles = {
+        PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
+        PREFIX + "reviewer": [project.memberships.get(user=world.users["runner"]).pk],
+    }
+    body = {
+        "version": recipe["version"],
+        "project": str(project.pk),
+        "flow": "research",
+        "role_assignments": {role: list(map(str, members)) for role, members in roles.items()},
+    }
+
+    def empty_assay() -> None:
+        assert not Entity.objects.exists()
+        assert not File.objects.exists()
+        assert not Movement.objects.exists()
+        assert not Intake.objects.exists()
+
+    with override_settings(IKI_FILES_BUCKET=""):
+        preview = api.post("/starters/dose-response/preview", body)
+        assert preview.status_code == 200, preview.content
+        assert preview.json()["changed"]
+        assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
+        empty_assay()
+        # A save failure must undo the grants that the administrator just approved.
+        with (
+            patch.object(StarterApplication, "save", side_effect=RuntimeError("failed to save")),
+            pytest.raises(RuntimeError, match="failed to save"),
+        ):
+            starters.apply(
+                project,
+                "dose-response",
+                recipe["version"],
+                "research",
+                roles,
+                by=admin,
+                plan=preview.json()["plan"],
+            )
+        assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
+        empty_assay()
+
+        body["plan"] = preview.json()["plan"]
+        applied = api.post("/starters/dose-response/apply", body)
+        assert applied.status_code == 200, applied.content
+        assert applied.json()["changed"]
+        assert starters.effective_flow(project, "dose-response") == "research"
+        assert LabRoleGrant.objects.count() == len(roles)
+        empty_assay()
+        replay = api.post("/starters/dose-response/apply", body)
+        assert replay.status_code == 200, replay.content
+        assert not replay.json()["changed"]
+        assert AuditEvent.objects.filter(action="starter.applied", project=project).count() == 1
+        empty_assay()
+
+
+@pytest.mark.usefixtures("s3")
+def test_explicit_tutorial_delivers_both_signed_fits_in_each_flow(
+    tmp_path: Path, database: str
+) -> None:
+    _installed_test(
+        tmp_path,
+        database,
+        "exercise",
+        PLUGINS / "samples",
+        PLUGINS / "protein",
+        file_settings={
+            "IKI_FILES_BUCKET": settings.IKI_FILES_BUCKET,
+            "IKI_FILES_PREFIX": settings.IKI_FILES_PREFIX,
+            "IKI_FILES_ENDPOINT_URL": settings.IKI_FILES_ENDPOINT_URL,
+            "IKI_FILES_PUBLIC_ENDPOINT_URL": settings.IKI_FILES_PUBLIC_ENDPOINT_URL,
+        },
+    )
 
 
 def exercise() -> None:
     sys.path.insert(0, str(PLUGIN / "scripts"))
     env = PREFIX + "assay-tools"
     catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
-    # Store the real bytes under the content hash as the bucket would. The reader
-    # command below reads only what the server stored for the File.
-    with TemporaryDirectory() as tmp, override_settings(IKI_FILES_BUCKET="test"):
-        bucket = Path(tmp)
-
-        def exists(key: str) -> bool:
-            return (bucket / Path(key).name).exists()
-
-        def upload(source: Path, key: str, media_type: str) -> None:
-            (bucket / Path(key).name).write_bytes(source.read_bytes())
-
-        with (
-            patch.object(storage, "exists", side_effect=exists),
-            patch.object(storage, "upload_file", side_effect=upload),
-        ):
-            for flow in ("research", "regulated_qc"):
-                world = build_world(flow)
-                ready(world)
-                _run_example(world, flow, bucket)
+    with TemporaryDirectory() as tmp, _tutorial_server() as url:
+        for flow in ("research", "regulated_qc"):
+            world = build_world(flow)
+            ready(world)
+            TeamMembership.objects.create(team=world.team, user=world.users["admin"])
+            _, tokens = signed_in_token(world, "admin", scope="read write", projects=None)
+            assert set(tokens["scope"].split()) == {"read", "write"}
+            with (
+                patch.dict(
+                    os.environ,
+                    {"IKI_URL": url, "IKI_TOKEN": tokens["access_token"], "IKI_CONFIG_DIR": tmp},
+                ),
+                Client(sleep=_poll_upload) as client,
+            ):
+                assert client.request("GET", f"/teams/{world.team.pk}")["id"] == str(world.team.pk)
+                _run_example(world, flow, Path(tmp), SdkApi(client))
 
 
-def _run_example(world: World, flow: str, bucket: Path) -> None:
-    project = world.project
-    admin = world.users["admin"]
-    # A request reviewer in the service project closes the request once both fits are returned.
-    LabRoleGrant.objects.create(
-        membership=project.memberships.get(user=admin), role="iki/lab_roles.reviewer"
-    )
-    asker = Project.objects.create(team=world.team, name="Requesting group")
-    # The admin sets up the example. A separate member of the requester can read only
-    # what the signed release returns across the project boundary.
-    requester = world.users["outsider"]
-    ProjectMembership.objects.create(project=asker, user=admin, role=ProjectRole.EDITOR)
-    ProjectMembership.objects.create(project=asker, user=requester, role=ProjectRole.VIEWER)
-    roles = {
-        "iki/lab_roles.coordinator": [project.memberships.get(user=admin).pk],
-        PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
-        PREFIX + "reviewer": [project.memberships.get(user=world.users["runner"]).pk],
-    }
-    if flow == "regulated_qc":
-        roles[PREFIX + "qa"] = [project.memberships.get(user=world.users["viewer"]).pk]
-
-    api = Api(world.browser("admin"))
-    listed = api.get("/starters", project=str(project.pk))
-    assert listed.status_code == 200, listed.content
-    [starter] = [s for s in listed.json() if s["id"] == "dose-response"]
-    body = {
-        "version": starter["version"],
-        "project": str(project.pk),
-        "requester_project": str(asker.pk),
-        "flow": flow,
-        "role_assignments": {role: list(map(str, members)) for role, members in roles.items()},
-    }
-    with patch.object(storage, "exists", side_effect=AssertionError("Preview accessed storage")):
-        preview = api.post("/starters/dose-response/preview", body)
-    assert preview.status_code == 200, preview.content
-    assert preview.json()["changed"] and preview.json()["examples_to_create"]
+@contextmanager
+def _tutorial_server() -> Iterator[str]:
+    # The SDK connects to Iki here and PUTs signed multipart bytes to the test object store.
     with (
-        patch.object(storage, "exists", side_effect=OSError("unavailable")),
-        pytest.raises(OSError, match="unavailable"),
+        override_settings(ALLOWED_HOSTS=["testserver", "127.0.0.1"], SECURE_SSL_REDIRECT=False),
+        patch.dict(os.environ, {"OAUTHLIB_INSECURE_TRANSPORT": "1"}),
+        make_server("127.0.0.1", 0, get_wsgi_application()) as server,
     ):
-        starters.apply(
-            project,
-            "dose-response",
-            starter["version"],
-            flow,
-            roles,
-            requester_project=asker,
-            by=admin,
-            plan=preview.json()["plan"],
+        thread = Thread(target=server.serve_forever)
+        thread.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}"
+        finally:
+            server.shutdown()
+            thread.join()
+
+
+def _poll_upload(_seconds: float) -> None:
+    # A deployment's task runner verifies uploaded bytes before the SDK's next poll.
+    assert run_tasks() > 0
+
+
+def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> None:
+    admin = world.users["admin"]
+    state = directory / f"{flow}.sqlite3"
+
+    def prepare(state: Path = state) -> dict[str, str]:
+        return tutorial.prepare(
+            adapter,
+            state=state,
+            team=str(world.team.pk),
+            flow=flow,
+            analyst=str(world.users["editor"].pk),
+            reviewer=str(world.users["runner"].pk),
+            qa=str(world.users["viewer"].pk) if flow == "regulated_qc" else None,
         )
-    assert not Entity.objects.filter(owner_project__in=[project, asker]).exists()
-    assert not requests.accepts(project, asker, dose_response.REQUEST_TYPES[flow])
-    body["plan"] = preview.json()["plan"]
-    applied = api.post("/starters/dose-response/apply", body)
-    assert applied.status_code == 200, applied.content
-    assert applied.json()["changed"]
-    ids = applied.json()["examples"]
-    replay = api.post("/starters/dose-response/apply", body)
-    assert replay.status_code == 200, replay.content
-    assert not replay.json()["changed"] and replay.json()["examples"] == ids
+
+    projects_before = set(Project.objects.values_list("pk", flat=True))
+    with (
+        patch.object(adapter, "upload", side_effect=OSError("bucket unavailable")),
+        pytest.raises(OSError, match="bucket unavailable"),
+    ):
+        prepare()
+    training = set(Project.objects.values_list("pk", flat=True)) - projects_before
+    # The server can commit the draw even if the client loses its response.
+    api_request = adapter.request
+
+    def lose_draw_response(method: str, path: str, **kwargs: Any) -> Any:
+        result = api_request(method, path, **kwargs)
+        if method == "POST" and path.endswith("/amount/draw"):
+            raise OSError("draw response lost")
+        return result
+
+    with (
+        patch.object(adapter, "request", side_effect=lose_draw_response),
+        pytest.raises(OSError, match="draw response lost"),
+    ):
+        prepare()
+    recorded_movements = set(Movement.objects.values_list("pk", flat=True))
+    # Resume the interrupted exercise with the command and credentials documented for a lab.
+    command = subprocess.run(  # noqa: S603 - this interpreter and the checked-in tutorial
+        [
+            sys.executable,
+            "-m",
+            "examples.dose_response",
+            "--team",
+            str(world.team.pk),
+            "--flow",
+            flow,
+            "--analyst",
+            str(world.users["editor"].pk),
+            "--reviewer",
+            str(world.users["runner"].pk),
+            *(["--qa", str(world.users["viewer"].pk)] if flow == "regulated_qc" else []),
+            "--state",
+            str(state),
+        ],
+        cwd=PLUGINS.parent,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert command.returncode == 0, command.stderr
+    ids: dict[str, str] = json.loads(command.stdout)
+    assert set(Movement.objects.values_list("pk", flat=True)) == recorded_movements
+    project = Project.objects.get(pk=ids["project"])
+    asker = Project.objects.get(pk=ids["requester_project"])
+    assert {project.pk, asker.pk} == training
+    assert project.pk != asker.pk
+    assert not Entity.objects.filter(owner_project=world.project).exists()
+    world = replace(world, project=project)
+    assert starters.effective_flow(project, "dose-response") == flow
+    assert AuditEvent.objects.filter(
+        project=project, action="starter.applied", actor=admin, agent__isnull=False
+    ).exists()
+    entity_ids = set(
+        Entity.objects.filter(owner_project__in=[project, asker]).values_list("pk", flat=True)
+    )
+    movements = Movement.objects.count()
+    uploaded = File.objects.count()
+    with pytest.raises(ValueError, match="belongs to a different run"):
+        prepare(directory / f"{flow}-other-run.sqlite3")
+    assert prepare() == ids
+    assert (
+        set(Entity.objects.filter(owner_project__in=[project, asker]).values_list("pk", flat=True))
+        == entity_ids
+    )
+    assert Movement.objects.count() == movements and File.objects.count() == uploaded
+
+    # A requester-only reader sees each returned revision while the service's reagent stays private.
+    requester = world.users["outsider"]
+    ProjectMembership.objects.create(project=asker, user=requester, role=ProjectRole.VIEWER)
+    finisher = world.users["runner" if flow == "research" else "viewer"]
+    api = Api(world.browser("admin"))
     source = File.objects.select_related("blob").get(pk=ids["reader_file"], project=project)
-    csv = bucket / source.blob.sha256
-    assert csv.read_bytes() == (PLUGIN / "tests/data/aid-1224835-activity.csv").read_bytes()
-    assert hashlib.sha256(csv.read_bytes()).hexdigest() == source.blob.sha256
+    reader_path = directory / source.blob.sha256
+    storage.download_file(storage.blob_key(source.blob.sha256), reader_path)
+    assert reader_path.read_bytes() == (PLUGIN / "tests/data/aid-1224835-activity.csv").read_bytes()
+    assert hashlib.sha256(reader_path.read_bytes()).hexdigest() == source.blob.sha256
     request = Entity.objects.get(pk=ids["request"], owner_project=asker)
-    assert request.type == dose_response.REQUEST_TYPES[flow]
+    assert request.type == (
+        "iki/requests.ResearchRequest" if flow == "research" else "iki/requests.QCRequest"
+    )
     assert requests.accepts(project, asker, request.type)
     target_sample = Entity.objects.get(pk=ids["sample"], owner_project=project)
     sample_values = services.current_values_of([target_sample])[target_sample.pk]
@@ -190,8 +357,6 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     assert (draw["record"], draw["amount"], draw["unit"]) == (ids["tube"], "10", "uL")
     other = Project.objects.create(team=world.team, name="Another asking project")
     ProjectMembership.objects.create(project=other, user=admin, role=ProjectRole.EDITOR)
-    with pytest.raises(Refused, match="intake"):
-        dose_response.check_example(project, other, flow, by=admin)
     assert not requests.accepts(project, other, request.type)
     receipt = receipts.start(admin, request)
     tube_ids = [ids[key] for key in public_plate.SERIES]
@@ -239,15 +404,23 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     plate = UUID(ids["plate"])
     plate_values = services.current_values_of([Entity.objects.get(pk=plate)])[plate]
     assert str(plate_values["reagent_tube"]) == ids["tube"]
-    _worker(world, "preview_reader", {"plate": [plate]}, {}, csv)
-    _worker(world, "commit_reader", {"plate": [plate]}, {}, csv)
+    _worker(world, "preview_reader", {"plate": [plate]}, {}, reader_path)
+    _worker(world, "commit_reader", {"plate": [plate]}, {}, reader_path)
     read = Entity.objects.get(owner_project=project, type=PREFIX + "PlateRead")
     measured = list(Entity.objects.filter(owner_project=project, type=PREFIX + "WellMeasurement"))
     assert len(measured) == 72
     rows = services.current_values_of(measured)
     controls = [v for v in rows.values() if v["control"]]
     assert {r["well"] for r in controls} == {"A12", "B12", "C12", "D12", "E12", "F12"}
-    assert all(r["signal"] is None and r["activity_percent"] is not None for r in rows.values())
+    assert all(r["signal"] is None for r in rows.values())
+    with public_plate.READER_FILE.open() as archive:
+        _, _, *matrix = csv.reader(archive)
+    expected_activity = {
+        f"{row[0]}{column}": float(value)
+        for row in matrix
+        for column, value in enumerate(row[1:], start=1)
+    }
+    assert {r["well"]: r["activity_percent"] for r in rows.values()} == expected_activity
     # Source potencies are per replicate. The publication uses their arithmetic mean.
     for key, reported in (
         ("apigenin", (10.1654, 12.7975, 8.0746)),
@@ -259,7 +432,7 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
             "fit_curve",
             {"read": [read.pk], "sample": [sample]},
             {"endpoint_kind": "IC50"},
-            csv,
+            reader_path,
         )
         [tube] = fit_input["inputs"]["sample"]
         assert (tube["type"], tube["id"], tube["values"]["contents"]) == (
@@ -287,12 +460,18 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         if key == "apigenin":
             with pytest.raises(Refused, match="Daidzein has no returned result yet"):
                 states.set_state(
-                    admin, request, "status", "delivered", expected_revision=request.revision
+                    finisher, request, "status", "delivered", expected_revision=request.revision
                 )
-    states.set_state(admin, request, "status", "delivered", expected_revision=request.revision)
+    states.set_state(finisher, request, "status", "delivered", expected_revision=request.revision)
     assert states.values_of(request)["status"] == "delivered"
     assert not access.visible(requester).filter(pk__in=reagent_ids).exists()
-    _check_derivative_results(world, flow, asker, other, requester, ids, csv)
+    _check_derivative_results(world, flow, asker, other, requester, ids, reader_path)
+
+    existing = set(world.team.projects.values_list("pk", flat=True))
+    adapter.request("PATCH", f"/projects/{asker.pk}", json={"name": "Completed training requests"})
+    with pytest.raises(ValueError, match="renamed"):
+        prepare()
+    assert set(world.team.projects.values_list("pk", flat=True)) == existing
 
 
 def _check_derivative_results(
@@ -324,7 +503,7 @@ def _check_derivative_results(
     source_tube = Entity.objects.get(pk=split_source.entity.pk)
     created = services.create(
         admin,
-        dose_response.REQUEST_TYPES[flow],
+        ("iki/requests.ResearchRequest" if flow == "research" else "iki/requests.QCRequest"),
         asker,
         {"title": "Assay the tube derivative", "tubes": [str(source_tube.pk)]},
     )
@@ -412,7 +591,8 @@ def _check_derivative_results(
             assert signed(world, signer, str(made.pk), to, field="review").signature_id
         assert access.visible(requester).filter(pk=made.pk).exists() == (material == nested)
     # The signed fit on the twice-split aliquot now covers its commissioned source tube.
-    states.set_state(admin, request, "status", "delivered", expected_revision=request.revision)
+    finisher = world.users[steps[-1][0]]
+    states.set_state(finisher, request, "status", "delivered", expected_revision=request.revision)
     assert states.values_of(request)["status"] == "delivered"
 
 

@@ -34,6 +34,7 @@ from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of, identity_of
 from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
+from iki_server.files.models import File
 from iki_server.org import permissions
 from iki_server.org.models import registry_of
 from iki_server.org.services import Refused
@@ -107,6 +108,10 @@ class Check:
     #: input name → entity ID → the revision the run read
     inputs: dict[str, dict[UUID, int]]
     errors: list[dict[str, str]] = field(default_factory=list)
+    #: (Unique column, supplied value) → first inline external create.
+    external_keys: dict[tuple[str, str], str] = field(default_factory=dict)
+    #: Project record → first inline create with a supplied external match key (ADR 0082).
+    external_creates: dict[UUID, str] = field(default_factory=dict)
     _files: set[UUID] | None = None
     _inputs_read: bool = False
 
@@ -677,34 +682,42 @@ def _kind(saved: entities.Saved, *, matched: bool) -> str:
     return EffectKind.REUSED if saved.reused else EffectKind.CREATED
 
 
-def matching(
-    run: ActionRun, type_name: str, match_on: str | None, values: Mapping[str, Any]
-) -> Entity | None:
-    """The entity of the run's project whose unique ``match_on`` field has the create's
-    value, locked, if the action matches on one (ADR 0082). Only the project's own: one
-    linked in from elsewhere is another project's to change."""
-    value = values.get(match_on) if match_on is not None else None
-    if match_on is None or value is None or type_name not in registry.types():
+def _external_key(create: _Create) -> tuple[str, str] | None:
+    """The unique column and its value, including when subtypes inherit that column."""
+    field = create.match_on
+    if field is None or create.values.get(field) is None or create.type not in registry.types():
         return None
-    form = shape(type_name)
-    if match_on not in form.fields():
+    form = shape(create.type)
+    if field not in form.fields():
         return None
-    found = unique.owned(run.project, unique.key(form.part_of(match_on).model, match_on), value)
-    return Entity.objects.select_for_update().filter(pk__in=found).first()
+    return unique.key(form.part_of(field).model, field), str(create.values[field])
 
 
 def same_entity(run: ActionRun, type_name: str, values: Mapping[str, Any]) -> Entity | None:
     """The run's project's record of the registry entry a create would register again
     (ADR 0115), locked: a record with no match yet claims it (ADR 0082)."""
     entity_type = registry.types().get(type_name)
-    if entity_type is None or registry.identity_owner(entity_type) is None:
+    if entity_type is None or not (identity := identity_of(entity_type)):
         return None
+    # Match the identity as registration stores it, including resolved refs and file hashes.
+    form = shape(type_name)
+    fields = form.fields()
+    refs = access.refs_for(run.requested_by, run.project)
+    given = {}
     try:
-        digest = hash_of(values, entity_type)
-    except ValueError:  # its identity has a file
-        return None
-    if digest is None:
-        return None
+        for name in identity:
+            f = fields[name]
+            value = values.get(name, f.default)
+            if value is None and f.required:
+                return None
+            given[name] = form.field_value(f, value, refs)
+        digest = hash_of(
+            given,
+            entity_type,
+            lambda pk: File.objects.values_list("blob__sha256", flat=True).get(pk=pk),
+        )
+    except ValueError:
+        return None  # The regular create reports invalid identity fields at their pointers.
     entries = Entity.objects.filter(
         registry_id=registry_of(run.project), identity_hash=digest
     ).values("pk")
@@ -716,25 +729,49 @@ def same_entity(run: ActionRun, type_name: str, values: Mapping[str, Any]) -> En
     )
 
 
-def claim(check: Check, create: _Create, values: Mapping[str, Any]) -> Entity | None:
-    """The entity a create with no match claims: the project's own duplicate of it, if it
-    has no value for ``match_on`` yet. One that's another record's already is an error:
-    the two records would be one entity."""
-    match_on = create.match_on
-    if match_on is None or values.get(match_on) is None:
+def _repeated_target(check: Check, create: _Create, entity_id: UUID) -> bool:
+    first = check.external_creates.get(entity_id)
+    if first is None:
+        return False
+    check.error(
+        f"{create.pointer}/values/{create.match_on}",
+        f"It resolves to the same record as {first}. Each external record may come only once.",
+    )
+    return True
+
+
+def _external_record(
+    check: Check, create: _Create, values: Mapping[str, Any], key: tuple[str, str]
+) -> Entity | None:
+    """Lock the project's own matched record, or claim its registration if still unassigned."""
+    run = check.run
+    found = unique.owned(run.project, *key)
+    match = Entity.objects.select_for_update().filter(pk__in=found).first()
+    target = match if match is not None else same_entity(run, create.type, values)
+    if target is None or _repeated_target(check, create, target.pk):
         return None
-    twin = same_entity(check.run, create.type, values)
-    if twin is None:
-        return None
-    key = unique.key(shape(create.type).part_of(match_on).model, match_on)
-    other = UniqueValue.objects.filter(entity=twin, key=key).values_list("value", flat=True).first()
+    if match is not None:
+        return match
+
+    field = create.match_on
+    assert field is not None  # noqa: S101 - an external key has a match field
+    holder = (
+        target.entry_id
+        if target.entry_id is not None and shape(create.type).part_of(field).entry
+        else target.pk
+    )
+    other = (
+        UniqueValue.objects.filter(entity_id=holder, key=key[0])
+        .values_list("value", flat=True)
+        .first()
+    )
     if other is None:
-        return twin
+        return target
     owner = registry.identity_owner(registry.types()[create.type])
     same = " and ".join(owner.identity) if owner is not None else "identity"
     check.error(
-        f"{create.pointer}/values/{match_on}",
-        f"It has the same {same} as {twin.hrid}, whose {match_on} is {other} already: "
+        f"{create.pointer}/values/{field}",
+        f"It has the same {same} as {target.hrid}, whose {field} is {other} already: "
         "they'd be one entity, which can't be two records.",
     )
     return None
@@ -803,10 +840,19 @@ def _write_creates(
         values = _with_created(check, create, made)
         if values is None:
             continue
-        match = matching(run, create.type, create.match_on, values)
-        if match is None and create.match_on is not None:
+        key = _external_key(create)
+        match = None
+        if key is not None:
+            first = check.external_keys.setdefault(key, create.pointer)
+            if first != create.pointer:
+                check.error(
+                    f"{create.pointer}/values/{create.match_on}",
+                    f"{first} has the same {create.match_on}. "
+                    "Each external record may come only once.",
+                )
+                continue
             errors = len(check.errors)
-            match = claim(check, create, values)
+            match = _external_record(check, create, values, key)
             if len(check.errors) > errors:
                 continue
         if match is not None:
@@ -844,6 +890,11 @@ def _write_creates(
                     check.error(f"{create.pointer}/receipt", " ".join(messages))
                 continue
         entity_id = saved.entity.pk
+        if key is not None:
+            # Registration may have found a record created since our lookup.
+            if match is None and _repeated_target(check, create, entity_id):
+                continue
+            check.external_creates[entity_id] = create.pointer
         if create.key is not None:
             made[create.key] = entity_id
         effect = by_entity.get(entity_id)

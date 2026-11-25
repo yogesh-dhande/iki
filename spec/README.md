@@ -35,6 +35,11 @@ components/          # kind: Component, with each one's JavaScript module
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
+The plugin-root `tests/` and `examples/` directories are for source-checkout tests
+and worked examples. Keep action entry points, environment requirements, setup
+scripts and data an installed action reads outside those directories. The server
+archive and worker image carry the same runtime files. [Distribution details](../docs/adr/0219-plugin-archives-and-worker-images-use-the-same-runtime-files.md)
+
 Every manifest starts with `apiVersion: iki/v1` and a `kind`.
 
 ```yaml
@@ -591,6 +596,11 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+The [construct review example](../examples/plugins/construct_review/README.md)
+adds a state field to an Assembly subtype. Its guards check the current product
+comparison, who recorded the build and who edited it afterward. Its notifications
+tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
 ### Notifications
 
 A type says who is told when its records change, in Iki and by email
@@ -812,13 +822,18 @@ fields:
   split from, and a record transferred into depends on what was moved into
   it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer`, or `used`.
-- `material` names an immutable reference of the type to what its
-  amount is of, such as a lot's molecule (`amount-material`). An empty container can identify its contents when first filled. A positive balance requires an identified material. A transfer
-  into one of its records takes only material of that entity, from a record
-  whose type says so too (a reference to a registry entry and one to a
-  project's record of it are the same entity), and its aliquots are of it
-  too, whatever they're given. Pooling different materials is a mixture: a
-  record of its own.
+- `material` identifies what the ledger measures (`amount-material`). Set it
+  to an immutable reference field for material held by a container, such as
+  a tube's `contents`, or for a lot of a registered molecule. Set `material: id`
+  when the record itself identifies the material. In that case, declare
+  `aliquots` with a destination whose ledger names a reference field as its
+  material. Two physical strain isolates of the same registered strain then
+  have different ledger materials. Splitting
+  an isolate into glycerol stocks fills each stock's contents with that isolate's
+  ID. A positive balance requires an identified material. An empty container can
+  identify its contents when first filled. A transfer must match the destination's
+  material. For registry material, a registry entry and a project's record
+  of that entry match. Record a mixture of different materials as its own record.
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
@@ -1314,7 +1329,8 @@ An API with `jobs` lets a command submit, then park: its output is
 The run waits, holding no worker, while Iki polls the job, or the API calls
 back (`IKI_API_FOLDCLOUD_CALLBACK_URL`, signed). Once the job's done, the
 command runs again with `resume` in its input: the job, its `state` and the
-API's last answer. `plugins/example_models` is a complete example.
+API's last answer. The [hosted-model author example](../examples/plugins/hosted_models/README.md)
+exercises this contract against a fictional provider.
 
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
@@ -1549,6 +1565,12 @@ related:
   aliquots: { direction: downstream }
   results: { direction: downstream, depth: 5, edges: [reference, run] }
 ```
+
+The [calibration tracing example](../examples/plugins/calibration_tracing/README.md)
+uses three downstream reference searches to collect service history, instrument
+uses and existing assessments when an instrument's calibration state changes.
+The equipment types come from its dependency. The trigger's action and worker
+are local to the example.
 
 Each such input takes many (`trigger-related-one`), and isn't the one the
 entity goes to (`trigger-related-is-input`); a scheduled trigger has none.
@@ -2070,7 +2092,7 @@ unit of each usage the API reports, in the same currency.
 ```yaml
 apiVersion: iki/v1
 kind: ApiPrice
-api: iki/example_models.foldcloud
+api: lab/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD
@@ -2293,14 +2315,19 @@ revision by the run, with its origin, setting the values the create gives.
 One that changes nothing is found again, as the project's own record is when
 its identity is registered again. Only the project's own entities match,
 never one linked in from elsewhere; for a field marked `registry`, the
-project's record of the registry entry that has the value. In a creates
-file, a record may come only once.
+project's record of the registry entry that has the value. An external record
+with a supplied `match_on` value may come only once in the run's output,
+across both `creates` and `creates_file`. If two creates identify the same
+record, the run reports both positions and writes nothing. Registrations
+without an external match may still record several origins for one identity
+([ADR 0154](../docs/adr/0154-an-accession-is-the-records-not-the-entrys.md)).
 
 A record with no match yet, of a type with an identity, claims the
 project's own record of that identity's registry entry, if it has no value
 for the field yet: a protein registered before the LIMS knew it takes the record's
 ID. If it's another record's already, the run fails, naming both, since one
-entity can't be two records; so does a file with two records of one entity.
+entity can't be two records. The same rule applies when two external IDs in
+one output resolve to a single registry entry.
 
 ```yaml
 effects:

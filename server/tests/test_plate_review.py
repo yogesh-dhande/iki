@@ -139,9 +139,8 @@ def exercise_reviews() -> None:
     assert fit
     application = StarterApplication.objects.create(
         project=world.project,
-        requester_project=asking,
         starter="dose-response",
-        version="1.2.0",
+        version=starters.DOSE_RESPONSE.version,
         flow="research",
         applied_by=world.users["admin"],
     )

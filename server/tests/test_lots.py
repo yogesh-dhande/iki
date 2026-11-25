@@ -71,10 +71,11 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "PolymerLot": "iki/lots.Lot",
         "ProteinLot": "iki/lots.BiologicLot",
         "ConjugateLot": "iki/lots.BiologicLot",
+        "StrainIsolate": "iki/lots.Lot",
     }
     # Each kind's amount is in the unit it's made and used in: one lot type for any
-    # entity couldn't have one unit for them all. And it's of what the lot is of, so a
-    # transfer into one takes only the same molecule's (ADR 0162).
+    # entity couldn't have one unit for them all. Material identity controls transfers.
+    # Distinct physical isolates of one strain are distinct materials.
     assert all(t.amount is not None for t in concrete.values())
     units = {name: t.amount.unit for name, t in concrete.items() if t.amount is not None}
     assert units == {
@@ -84,6 +85,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "PolymerLot": "mg",
         "ProteinLot": "mg",
         "ConjugateLot": "mg",
+        "StrainIsolate": "uL",
     }
     materials = {n: t.amount.material for n, t in concrete.items() if t.amount is not None}
     assert materials == {
@@ -93,6 +95,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "PolymerLot": "polymer",
         "ProteinLot": "protein",
         "ConjugateLot": "conjugate",
+        "StrainIsolate": "id",
     }
     # Each names what it's a lot of, by its type where one is registered.
     refs = {
@@ -107,6 +110,12 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         # A protein, or a complex of them: an antibody, an Fc fusion, a multispecific.
         "ProteinLot": ["iki/protein.Protein", "iki/core.Complex"],
         "ConjugateLot": ["iki/conjugate.Conjugate"],
+        "StrainIsolate": [
+            "iki/strains.BaseStrain",
+            "iki/strains.TransformedStrain",
+            "iki/core.Entity",
+            "iki/lots.GlycerolStock",
+        ],
     }
     # QA's disposition: quarantined until released, which locks it and is signed for;
     # on hold, rejected and expired hold its amount, whichever kind it is.

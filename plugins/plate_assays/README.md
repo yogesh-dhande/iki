@@ -11,14 +11,13 @@ retain those identifiers for comparison with the approved release criterion.
 ## Set up review
 
 Install `iki/plate_assays` with its declared dependencies and bind
-`iki/plate_assays.assay-tools` to a backend worker. For the dose-response starter, also install
-`iki/samples` with its dependencies to provide the example stock and materials. Apply the
-starter in the assay project to choose Research or Regulated QC, assign lab
-roles and fit apigenin and daidzein against firefly luciferase. The example plate holds three
-replicates at eleven concentrations per compound, plus positive and negative controls. The
-measurements come from the public-domain NIH Tox21 screen.
-[PubChem AID 1224835](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835).
-[NCBI public-domain policy](https://www.ncbi.nlm.nih.gov/home/about/policies/).
+`iki/plate_assays.assay-tools` to a backend worker. Apply the dose-response
+starter in the assay project to choose Research or Regulated QC and grant lab
+roles to its members. The analyst needs Editor access. Reviewers and QA need at
+least Viewer access. The lab can then
+use its own plate layouts, materials and reader files. For a training run
+with published apigenin and daidzein activity measurements, load the
+[Tox21 tutorial](../../examples/dose_response/README.md) in its own projects.
 
 Projects without a starter use
 the plugin's deployment setting `review_flow`, which defaults to `research`.

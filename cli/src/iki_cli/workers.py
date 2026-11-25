@@ -60,6 +60,7 @@ __all__ = [
     "bundle",
     "environments",
     "prepared_source",
+    "stage_runtime",
     "write",
 ]
 
@@ -69,8 +70,27 @@ ENVIRONMENTS = "/opt/iki/envs"
 WORKER_PLUGINS = "plugins.json"
 SCRIPT = "build-environments.sh"
 
-#: Copied from a local plugin directory, for development, without these.
-_IGNORED = shutil.ignore_patterns(".git", "__pycache__", ".venv", "node_modules", ".DS_Store")
+#: Working-copy metadata and caches have no place in source staging or release bundles.
+_IGNORED_NAMES = {
+    ".DS_Store",
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+}
+#: Root directories used by authors and the local test runner.
+_AUTHOR_FILES = {
+    ".agents",
+    ".claude",
+    ".github",
+    ".gitattributes",
+    ".gitignore",
+    "examples",
+    "tests",
+}
 
 _STANDALONE_MODULES = {
     "iki/dna": Path("data/oligo-checks.wasm"),
@@ -234,7 +254,9 @@ def _annotation_resources(directory: Path) -> dict[Path, bytes | None]:
 
 def _stage_resources(directory: Path, output: Path, resources: dict[Path, bytes | None]) -> Path:
     """Replace or remove the build product in a private copy for both worker distributions."""
-    shutil.copytree(directory, output, ignore=_IGNORED, symlinks=True)
+    shutil.copytree(
+        directory, output, ignore=shutil.ignore_patterns(*_IGNORED_NAMES), symlinks=True
+    )
     for relative, data in resources.items():
         asset = output / relative
         # A local build product copied into staging may be read-only.
@@ -356,15 +378,47 @@ def _place_modules(directory: Path, files: Sequence[Path], *, pinned: bool) -> l
     return placed
 
 
-def _files(directory: Path) -> list[Path]:
-    ignored = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
+def _first_party_build_file(path: Path) -> bool:
+    """Source used to publish Iki's component modules, container images and dictionaries."""
+    if path.parts[0] in {"web", "images"}:
+        # Image sources also carry the runtime's redistribution notices and provenance.
+        return path.name not in {"README.md", "SHA256SUMS"} and not re.search(
+            r"(?:^|[-_.])(licen[cs]es?|notices?|attribution|copying)(?:$|[-_.])", path.name, re.I
+        )
+    return path == Path("requirements.in") or (
+        path.parent == Path("data") and path.match("build_*.py")
+    )
+
+
+def _runtime_files(directory: Path, name: str = "") -> list[Path]:
+    """Both worker distributions carry the same regular files, including lab-defined resources."""
     found: list[Path] = []
     for root, dirs, names in os.walk(directory):
-        dirs[:] = sorted(d for d in dirs if d not in ignored)
         here = Path(root)
-        found.extend(here / name for name in names if name not in ignored)
-        found.extend(here / d for d in dirs if (here / d).is_symlink())
+        ignored = _IGNORED_NAMES | _AUTHOR_FILES if here == directory else _IGNORED_NAMES
+        dirs[:] = [d for d in dirs if d not in ignored]
+        children = [here / child for child in names if child not in ignored]
+        children.extend(here / d for d in dirs if (here / d).is_symlink())
+        for file in children:
+            relative = file.relative_to(directory)
+            if name in naming.FIRST_PARTY and _first_party_build_file(relative):
+                continue
+            if file.is_symlink() or not file.is_file():
+                raise ValueError(
+                    f"{relative} is a symbolic link or special file; "
+                    "plugins hold only regular files"
+                )
+            found.append(file)
     return sorted(found)
+
+
+def stage_runtime(name: str, directory: Path, output: Path) -> None:
+    """Copy the files a deployment can use, retaining custom paths and executable scripts."""
+    output.mkdir(parents=True)
+    for file in _runtime_files(directory, name):
+        target = output / file.relative_to(directory)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(file, target)
 
 
 def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, Any]:
@@ -375,17 +429,12 @@ def bundle(directory: Path, output: Path, *, pinned: bool = False) -> dict[str, 
 
     A module `directory` tracks a digest for is put there and checked first, or the
     bundle is refused: see :func:`_place_modules`."""
-    files = _files(directory)
+    files = _runtime_files(directory)
     files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for file in files:
             relative = file.relative_to(directory).as_posix()
-            if file.is_symlink() or not file.is_file():
-                raise ValueError(
-                    f"{relative} is a symbolic link or special file; plugins hold only "
-                    "regular files"
-                )
             info = tarfile.TarInfo(relative)
             info.size = file.stat().st_size
             info.mode = 0o755 if os.access(file, os.X_OK) else 0o644
@@ -448,7 +497,7 @@ def write(
     for item in sorted(plugins, key=lambda p: p.plugin.name):
         name = item.plugin.name
         label = naming.app_label(name)
-        shutil.copytree(item.directory, code / label, ignore=_IGNORED, symlinks=True)
+        stage_runtime(name, item.directory, code / label)
         environments = {}
         for env_name, env in sorted(item.plugin.environments.items()):
             if not _built(env):

@@ -82,17 +82,21 @@ def template(tmp_path: Path) -> Path:
     return shutil.copytree(TEMPLATE, tmp_path / "my lab plugin", symlinks=True)
 
 
-def test_template_packages_the_agent_skills(template: Path, tmp_path: Path) -> None:
+def test_the_template_copy_includes_skills_only_for_authors(template: Path, tmp_path: Path) -> None:
     archive = tmp_path / "plugin.tar.gz"
     bundle(template, archive)
     with tarfile.open(archive, "r:gz") as packaged:
         members = set(packaged.getnames())
     for guide in SKILLS.glob("*/SKILL.md"):
         skill = guide.parent
-        assert guide.relative_to(TEMPLATE).as_posix() in members
-        assert f".claude/skills/{skill.name}/SKILL.md" in members
-        for script in (skill / "scripts").glob("*.sh"):
-            assert script.relative_to(TEMPLATE).as_posix() in members
+        for file in (
+            guide,
+            TEMPLATE / ".claude/skills" / skill.name / "SKILL.md",
+            *(skill / "scripts").glob("*.sh"),
+        ):
+            relative = file.relative_to(TEMPLATE)
+            assert (template / relative).read_bytes() == file.read_bytes()
+            assert relative.as_posix() not in members
 
 
 def run_skill(

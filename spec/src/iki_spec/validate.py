@@ -2475,6 +2475,19 @@ class _Semantics:
                     else "Give the type an `amount`: its records are things in the lab.",
                 )
             return
+        if (entity_type.amount is not None or amount.material == "id") and any(
+            t.identity for t in lineage
+        ):
+            self.add(
+                "amount-on-identity",
+                f"`{entity_type.name}` has an identity, so each project has one record of each "
+                "of its entries: its records aren't things in the lab, with an amount each.",
+                source,
+                ("amount",) if entity_type.amount is not None else ("name",),
+                key=True,
+                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
+                "that refers to the entry.",
+            )
         if entity_type.amount is None:
             return
         parent = next((t for t in lineage[1:] if t.amount is not None), None)
@@ -2486,17 +2499,6 @@ class _Semantics:
                 ("amount",),
                 key=True,
                 hint="A record has one amount: leave this one off.",
-            )
-        if any(t.identity for t in lineage):
-            self.add(
-                "amount-on-identity",
-                f"`{entity_type.name}` has an identity, so each project has one record of each "
-                "of its entries: its records aren't things in the lab, with an amount each.",
-                source,
-                ("amount",),
-                key=True,
-                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
-                "that refers to the entry.",
             )
         try:
             unit = units.parse(amount.unit)
@@ -2519,7 +2521,16 @@ class _Semantics:
             self.concentration(amount.concentration, unit, every, source)
         if amount.aliquots is not None:
             self.aliquots(entity_type, amount, source)
-        if amount.material is not None:
+        if amount.material == "id":
+            if amount.aliquots is None:
+                self.add(
+                    "amount-aliquots",
+                    "A record that is its own material needs a container type for its aliquots.",
+                    source,
+                    ("amount", "material"),
+                    hint="Name a container type and its reference to this record in `aliquots`.",
+                )
+        elif amount.material is not None:
             self.material(amount.material, every, source)
         for index, name in enumerate(amount.follows):
             found = every.get(name)
@@ -2635,6 +2646,13 @@ class _Semantics:
                 (*at, "type"),
                 hint="Give that type an `amount` too.",
             )
+        elif theirs.material == "id":
+            self.add(
+                "amount-aliquots",
+                "An aliquot cannot identify itself as new material.",
+                source,
+                (*at, "type"),
+            )
         elif _measures_as(theirs.unit, amount.unit) is False:
             # What an aliquot holds is what its source lost: in the same kind of unit.
             self.add(
@@ -2650,6 +2668,15 @@ class _Semantics:
             entity_type.qualified_name,
             *(t.qualified_name for t in self.ancestors(entity_type)),
         }
+        if amount.material == "id" and theirs is not None and theirs.material != "id":
+            material = fields.get(theirs.material or "")
+            if material is None or not (mine | {"iki/core.Entity"}).intersection(material.to):
+                self.add(
+                    "amount-aliquots",
+                    f"`{target.name}` needs a material reference to `{entity_type.name}`.",
+                    source,
+                    (*at, "type"),
+                )
         if of is None or of.type != "ref" or not mine & set(of.to):
             self.add(
                 "amount-aliquots",

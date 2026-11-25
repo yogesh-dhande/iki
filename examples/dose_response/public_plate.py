@@ -1,4 +1,4 @@
-"""Offline Tox21 firefly luciferase plate shared by the starter and the dev seed."""
+"""Published Tox21 plate and reader data for the worked assay."""
 
 import json
 from pathlib import Path
