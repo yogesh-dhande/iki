@@ -51,4 +51,4 @@ rules:
     message: Choose either the transformation record or the parent stock as the source of this isolate.
     fields: [transformation, parent_stock]
 display:
-  title: "{{ isolate_label }}"
+  title: "{{ lot_number or isolate_label or hrid }}"
