@@ -2,7 +2,8 @@
 
 Use the **Dose-response** starter to receive a sample, map a plate reader file to its wells,
 review an IC50 and return the signed result to the project that requested it. The example uses
-synthetic absorbance readings. You can follow them from the original CSV to the released result.
+published apigenin and daidzein activity measurements against firefly luciferase. Follow each well
+from the normalized activity CSV to its signed result. [PubChem AID 1224835](https://pubchem.ncbi.nlm.nih.gov/bioassay/1224835).
 In the seeded development deployment, the **Research plate assays** and **QC plate assays**
 projects each contain a completed example.
 
@@ -27,7 +28,7 @@ iki starter list --project "$ASSAY_PROJECT"
 
 FLOW=regulated_qc    # Set to research for one sign-off.
 options=(
-  dose-response --version 1.0.0 --project "$ASSAY_PROJECT"
+  dose-response --version 1.1.0 --project "$ASSAY_PROJECT"
   --requester-project "$REQUESTER_PROJECT" --flow "$FLOW"
   --role "iki/example_lims.coordinator=$COORDINATOR"
   --role "iki/plate_assays.analyst=$ANALYST"
@@ -43,43 +44,38 @@ iki starter apply "${options[@]}" --plan "$PLAN"    # The plan the preview print
 Preview shows the example records to create and roles to grant, and ends with its plan. Apply
 applies that plan: if what applying does changed since the preview, nothing is applied, and it
 prints what applying does now and its new plan, to review. Apply returns the IDs of the
-submitted request, tube, sample, plate and reader file. Repeating the same setup reuses these IDs.
+submitted request, target enzyme sample and tube, two compound tubes, plate and reader file. Repeating the same setup reuses these IDs.
 To change flow, preview and apply again with the original requester. Existing results finish
 under their original flow. A fit still running when the flow changes may need to be run again.
 
-## Receive the tube and read the plate
+## Receive the tubes and read the plate
 
-1. **Coordinator** — In the assay project's **Requests → Sent to us**, open **Example dose-response
-   assay (synthetic)** and select **Receive what it sent**. Enter who handed over the example tube,
-   choose **Start receiving**, and enter the tube's `TUB-…` identifier in **Scan each tube**.
-   Check that the line is matched. Under **Put away**, set where the tube goes to **Keep in my
-   custody**, then select **Complete receiving**. The completed receipt records that the tube was
-   received without a storage position, and **Storage** lists it under **Received, not yet put
-   away** until someone puts it away.
-2. **Analyst** — Open **Example MARS dose-response plate (synthetic)** and its **Plate map** tab.
-   Check the plate's request and the sample assigned to A1–A8. The concentrations double from
-   1 nM at A1 to 128 nM at A8.
-   A9 is the blank and A10 the reference.
-3. Choose **Preview reader file**. The synthetic MARS CSV has ten readings on the 484 nm
-   absorbance channel. Check the well, sample or control, file row and reading for each. Choose
-   **Commit measurements** once all ten match. The resulting plate read links to the source file
-   and ten individual well measurements. [Example reader data](../../plugins/plate_assays/data/reader.md)
-4. Run **Fit a dose-response curve** with the committed plate read and the sample from the
-   request. Choose **IC50** and enter `A4: Simulated dispensing error` as the example exclusion.
-   On the result's **Curve** tab, check that A4's 8 nM reading is still visible with its reason
-   and author. Seven sample wells contribute to the fit. Check the IC50 in nM, its range
-   qualifier and approximate 95% confidence interval. For these synthetic data, the IC50 is
-   **12.34 nM**, within the measured range, with an approximate 95% interval of **10.65–14.30 nM**.
+1. **Coordinator** — In the assay project's **Requests → Sent to us**, open **Tox21 firefly luciferase inhibition** and select **Receive what it sent**. Enter who handed over the shipment,
+   choose **Start receiving**, and scan the three labelled tubes for luciferase, apigenin and daidzein.
+   Check that all three lines are matched. Under **Put away**, set each tube to **Keep in my
+   custody**, then select **Complete receiving**. The completed receipt records that the tubes were
+   received without a storage position, and **Storage** lists them under **Received, not yet put
+   away** until someone puts them away.
+2. **Analyst** — Open **Tox21 firefly luciferase inhibition** and its **Plate map** tab.
+   Rows A–C are apigenin replicates and D–F are daidzein replicates. Columns 1–11 span
+   0.017–115.2 µM. Column 12 contains the active (ataluren) and inactive (caffeine) controls.
+3. Choose **Preview reader file**. Check the 72 signed percent-activity readings and the
+   controls against their file rows. Choose **Commit measurements**. The committed read links
+   to the input CSV and every individual measurement. [Plate layout and source data](../../plugins/plate_assays/data/curve-example.md).
+4. Run **Fit a dose-response curve** once for each compound on that read. Choose **IC50**
+   and leave exclusions empty. The **Curve** tab shows all 33 contributing wells per compound.
+   Apigenin gives **10.21 µM** and daidzein **20.45 µM**. Compare the approximate 95%
+   interval for each with the source replicate potencies in the worked example.
 
 ## Sign and return the result
 
 Signing requires the organization's electronic-signature certification to be recorded in Iki.
 Each person signs in again to sign the revision on screen. [Electronic signatures](../adr/0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)
 
-| Flow         | Who signs and what they check                                                                                                                              |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Research     | The assay reviewer checks the recorded fit and the A4 exclusion, then sets **Signed off**.                                                                 |
-| Regulated QC | The analyst signs **Submitted**. An independent reviewer checks the readings and exclusion and signs **Independently reviewed**. QA signs **QA released**. |
+| Flow         | Who signs and what they check                                                                                                                             |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Research     | The assay reviewer checks the replicate curves and controls, then sets **Signed off**.                                                                    |
+| Regulated QC | The analyst signs **Submitted**. An independent reviewer checks the readings and controls and signs **Independently reviewed**. QA signs **QA released**. |
 
 In Regulated QC, the reviewer and QA must also be independent of anyone who edited the recorded
 values. Correcting the notes on a submitted or reviewed result requires a reason and returns

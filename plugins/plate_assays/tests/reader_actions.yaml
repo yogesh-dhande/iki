@@ -1,6 +1,7 @@
 apiVersion: iki/v1
 kind: ActionTest
 name: preview_an_incomplete_layout
+upgrade: true
 description: The synthetic 96-well file contains ten readings. A layout with one assignment reports the other nine before any measurement is written.
 action: preview_reader
 files: { reader: tests/data/mars-96-series.csv }

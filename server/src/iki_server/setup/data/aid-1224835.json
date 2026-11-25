@@ -1,0 +1,75 @@
+{
+  "aid": 1224835,
+  "procedure_revision": "1",
+  "concentrations_uM": [0.017, 0.038, 0.085, 0.191, 0.435, 1.33, 4.074, 10.46, 23.64, 52.95, 115.2],
+  "series": {
+    "apigenin": {
+      "name": "Apigenin",
+      "cid": 5280443,
+      "sid": 144208740,
+      "smiles": "C1=CC(=CC=C1C2=CC(=O)C3=C(C=C(C=C3O2)O)O)O",
+      "inchikey": "KZNIFHPLKGYRTM-UHFFFAOYSA-N",
+      "rows": "ABC",
+      "potencies_uM": [10.1654, 12.7975, 8.0746]
+    },
+    "daidzein": {
+      "name": "Daidzein",
+      "cid": 5281708,
+      "sid": 144208642,
+      "smiles": "C1=CC(=CC=C1C2=COC3=C(C2=O)C=CC(=C3)O)O",
+      "inchikey": "ZQSIJRDFPHDXIC-UHFFFAOYSA-N",
+      "rows": "DEF",
+      "potencies_uM": [24.9383, 19.8092, 14.0238]
+    }
+  },
+  "controls": [
+    {
+      "well": "A12",
+      "control": "Ataluren (positive)",
+      "sid": 170466862,
+      "replicate": 1,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    },
+    {
+      "well": "B12",
+      "control": "Caffeine (negative)",
+      "sid": 144208883,
+      "replicate": 1,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    },
+    {
+      "well": "C12",
+      "control": "Ataluren (positive)",
+      "sid": 170466862,
+      "replicate": 2,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    },
+    {
+      "well": "D12",
+      "control": "Caffeine (negative)",
+      "sid": 144208883,
+      "replicate": 2,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    },
+    {
+      "well": "E12",
+      "control": "Ataluren (positive)",
+      "sid": 170466862,
+      "replicate": 3,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    },
+    {
+      "well": "F12",
+      "control": "Caffeine (negative)",
+      "sid": 144208883,
+      "replicate": 3,
+      "concentration": 0.435,
+      "concentration_unit": "uM"
+    }
+  ]
+}

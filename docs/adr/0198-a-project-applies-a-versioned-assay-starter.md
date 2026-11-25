@@ -110,6 +110,10 @@ a new service configures a narrow intake for the chosen requester. When a
 service already has an incompatible intake, the preview explains what its
 administrator needs to change before applying.
 
+### Example revision 1.1.0
+
+Version 1.1.0 uses the measured firefly luciferase flavonoid series from PubChem AID 1224835. A preview of the upgrade from 1.0.0 lists the new example records. Applying the reviewed change creates a new request and plate while retaining the old request, files, measurements and signatures in their projects. Later applications of the same version reuse those examples. [Worked example and provenance](../../plugins/plate_assays/data/curve-example.md).
+
 ### Type-flow API
 
 `GET /api/v1/entity-types/{qualified_name}/flow` returns the type name, label
