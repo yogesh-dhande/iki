@@ -15,27 +15,35 @@ out, and a batch of it has no formula weight, since what it adds isn't known.
 
 A compound's identity is its standard InChIKey, from the InChI Trust's library, which
 RDKit's wheels carry, so the same structure drawn another way is the same compound.
+
+Its Molfile is its structure laid out in 2D (`molfile`), which Iki writes its Molfile and
+SDF exports from (ADR 0229). Layouts run in a process of their own (`Layouts`), so one
+that takes too long or too much memory is given up on, and the rest go on.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import multiprocessing
 import os
 import re
 import sys
-from contextlib import contextmanager
+import time
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from rdkit import Chem, rdBase
-from rdkit.Chem import QED, Crippen, Descriptors, rdinchi
+from rdkit.Chem import QED, Crippen, Descriptors, rdDepictor, rdinchi
 from rdkit.Chem import rdMolDescriptors as Calc
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from multiprocessing.connection import Connection
+    from multiprocessing.process import BaseProcess
 
 #: As the fields take them.
 LIMITS = {"name": 255, "description": 10_000, "smiles": 20_000, "inchi": 20_000}
@@ -734,6 +742,145 @@ def descriptors(mol: Chem.Mol) -> dict[str, Any]:
     if qed is not None:
         values["qed"] = qed
     return values
+
+
+# --- Molfiles -----------------------------------------------------------------------------------
+
+#: How long one layout may take, by CoordGen and then by RDKit's own depictor. A drug's
+#: takes a few hundredths of a second; a 200-residue peptide's, several seconds.
+LAYOUT_SECONDS = 60.0
+#: How long the layout process may take to start: to import RDKit.
+STARTING_SECONDS = 60.0
+
+
+def molfile(mol: Chem.Mol, coordgen: bool = True) -> str:
+    """Its structure as an MDL Molfile, as RDKit writes one: laid out in 2D by CoordGen
+    (Schrödinger's, which RDKit carries), or with `coordgen` false by RDKit's own
+    depictor; kekulized; its stereocentres wedged and a double bond whose configuration
+    isn't given drawn crossed, so the Molfile is the compound's stereoisomer. V2000,
+    unless it has more than 999 atoms or bonds, which V2000's counts line can't hold:
+    then RDKit writes V3000. Its title, its first line, is left empty: Iki writes the
+    record's name there when it exports it. The same structure gives the same Molfile,
+    with the same RDKit.
+
+    CoordGen puts every atom at one point for some structures, such as a peptide of 250
+    residues; RDKit's own depictor lays those out instead."""
+    laid = Chem.Mol(mol)
+    laid.SetProp("_Name", "")
+    rdDepictor.SetPreferCoordGen(coordgen)
+    rdDepictor.Compute2DCoords(laid)
+    if coordgen and _collapsed(laid):
+        rdDepictor.SetPreferCoordGen(False)
+        rdDepictor.Compute2DCoords(laid)
+    return str(Chem.MolToMolBlock(laid, kekulize=True))
+
+
+def _collapsed(mol: Chem.Mol) -> bool:
+    """Whether a layout put two of its atoms at one point."""
+    at = {(round(x, 3), round(y, 3)) for x, y, _ in mol.GetConformer().GetPositions()}
+    return len(at) < mol.GetNumAtoms()
+
+
+def read_back(block: str) -> str | None:
+    """The standard InChIKey of the structure a Molfile holds, if it holds one."""
+    with rdkit_messages():
+        mol = Chem.MolFromMolBlock(block)
+    if mol is None:
+        return None
+    try:
+        return identify(mol)[1]
+    except UnreadableError:
+        return None
+
+
+def _lay_out(conn: Connection) -> None:
+    """The layout process: each SMILES it's sent, laid out as `molfile` lays it out."""
+    with suppress(OSError):
+        # On Linux: a layout over the memory a run has stops this process, not the run.
+        Path("/proc/self/oom_score_adj").write_text("1000")
+    conn.send("ready")
+    while True:
+        try:
+            smiles, coordgen = conn.recv()
+        except EOFError:
+            return
+        try:
+            conn.send(molfile(from_smiles(smiles), coordgen))
+        except Exception:  # RDKit raises its own kinds; the run says it has no Molfile
+            conn.send(None)
+
+
+class Layouts:
+    """Compounds' Molfiles (`molfile`), laid out in a process of their own, so a structure
+    CoordGen can't lay out in time, or in the memory a run has, is laid out by RDKit's own
+    depictor instead, and one neither can is given up on while the rest go on. CoordGen
+    hasn't laid out a cycloalkane's ring of 42 carbons after minutes, which RDKit's
+    depictor lays out at once, and takes a gigabyte over a PEG of 1,000 units."""
+
+    def __init__(self, seconds: float = LAYOUT_SECONDS) -> None:
+        self.seconds = seconds
+        self._context = multiprocessing.get_context("spawn")
+        self._process: BaseProcess | None = None
+        self._conn: Connection | None = None
+
+    def __enter__(self) -> Layouts:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._stop()
+
+    def molfile(self, smiles: str, until: float) -> str | None:
+        """Its Molfile, laid out by CoordGen or else by RDKit's own depictor, each in at most
+        `seconds`, and neither once it's `until` (as `time.monotonic` tells it)."""
+        for coordgen in (True, False):
+            left = min(self.seconds, until - time.monotonic())
+            if left <= 0:
+                return None
+            found = self._ask(smiles, coordgen, left)
+            if found is not None:
+                return found
+        return None
+
+    def _ask(self, smiles: str, coordgen: bool, seconds: float) -> str | None:
+        conn = self._conn or self._start()
+        if conn is None:
+            return None
+        try:
+            conn.send((smiles, coordgen))
+        except OSError:  # it was stopped while it waited
+            self._stop()
+            return None
+        if conn.poll(seconds):
+            try:
+                found: str | None = conn.recv()
+            except EOFError:  # it was stopped, over the memory a run has
+                pass
+            else:
+                return found
+        self._stop()
+        return None
+
+    def _start(self) -> Connection | None:
+        ours, theirs = self._context.Pipe()
+        process = self._context.Process(target=_lay_out, args=(theirs,), daemon=True)
+        process.start()
+        theirs.close()
+        self._process, self._conn = process, ours
+        try:
+            if ours.poll(STARTING_SECONDS) and ours.recv() == "ready":
+                return ours
+        except EOFError:
+            pass
+        self._stop()
+        return None
+
+    def _stop(self) -> None:
+        if self._process is not None:
+            self._process.kill()
+            self._process.join()
+        if self._conn is not None:
+            self._conn.close()
+        self._process = self._conn = None
 
 
 # --- Values --------------------------------------------------------------------------------------

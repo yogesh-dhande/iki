@@ -3673,6 +3673,45 @@
         "title": "ComponentPersonOut",
         "type": "object"
       },
+      "CompoundExportOut": {
+        "properties": {
+          "data": {
+            "description": "The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).",
+            "items": {
+              "type": "string"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "export": {
+            "const": "compound",
+            "description": "What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "structure": {
+            "description": "The text field holding its Molfile.",
+            "title": "Structure",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "structure",
+          "data"
+        ],
+        "title": "CompoundExportOut",
+        "type": "object"
+      },
       "Condition": {
         "additionalProperties": false,
         "description": "A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and\n``value``), ``all``, ``any`` or ``not``.",
@@ -5958,6 +5997,8 @@
             "items": {
               "discriminator": {
                 "mapping": {
+                  "compound": "#/components/schemas/CompoundExportOut",
+                  "protein": "#/components/schemas/ProteinExportOut",
                   "sequence": "#/components/schemas/FileExportOut",
                   "signed_report": "#/components/schemas/SignedReportExportOut"
                 },
@@ -5966,6 +6007,12 @@
               "oneOf": [
                 {
                   "$ref": "#/components/schemas/FileExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/ProteinExportOut"
+                },
+                {
+                  "$ref": "#/components/schemas/CompoundExportOut"
                 },
                 {
                   "$ref": "#/components/schemas/SignedReportExportOut"
@@ -6975,11 +7022,30 @@
       },
       "ExportParams": {
         "properties": {
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "title": "Fields"
+          },
           "format": {
             "description": "Which file, as its type's `exports` list them.",
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7017,6 +7083,111 @@
           "format"
         ],
         "title": "ExportParams",
+        "type": "object"
+      },
+      "ExportSearchIn": {
+        "description": "The records a table shows, as ``POST /entities/search`` finds them.",
+        "properties": {
+          "archived": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "exact_type": {
+            "default": false,
+            "description": "Only the type itself, not its subtypes.",
+            "title": "Exact Type",
+            "type": "boolean"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Entities that belong to this project.",
+            "title": "Project"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "This type and its subtypes.",
+            "title": "Type"
+          },
+          "where": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Condition"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ExportSearchIn",
         "type": "object"
       },
       "FacetParams": {
@@ -7882,6 +8053,9 @@
             "enum": [
               "genbank",
               "fasta",
+              "protein-fasta",
+              "sdf",
+              "molfile",
               "signed-report-html",
               "signed-report-json"
             ],
@@ -7891,6 +8065,15 @@
           "label": {
             "description": "Its name, such as GenBank.",
             "title": "Label",
+            "type": "string"
+          },
+          "many": {
+            "description": "`file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.",
+            "enum": [
+              "file",
+              "one"
+            ],
+            "title": "Many",
             "type": "string"
           },
           "media_type": {
@@ -7904,7 +8087,8 @@
           "label",
           "extension",
           "media_type",
-          "description"
+          "description",
+          "many"
         ],
         "title": "FileFormatOut",
         "type": "object"
@@ -14622,6 +14806,35 @@
         "title": "Page[ProjectOut]",
         "type": "object"
       },
+      "Page_RecordExportOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RecordExportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RecordExportOut]",
+        "type": "object"
+      },
       "Page_RegistrationOut_": {
         "properties": {
           "items": {
@@ -17559,6 +17772,36 @@
         "title": "ProjectTriggerOut",
         "type": "object"
       },
+      "ProteinExportOut": {
+        "properties": {
+          "export": {
+            "const": "protein",
+            "description": "What it writes. `protein`: a protein's residues, as FASTA (ADR 0229).",
+            "title": "Export",
+            "type": "string"
+          },
+          "formats": {
+            "description": "The files it's written as.",
+            "items": {
+              "$ref": "#/components/schemas/FileFormatOut"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "sequence": {
+            "description": "The protein sequence field it's written from.",
+            "title": "Sequence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export",
+          "formats",
+          "sequence"
+        ],
+        "title": "ProteinExportOut",
+        "type": "object"
+      },
       "PutAwayIn": {
         "properties": {
           "line": {
@@ -18809,6 +19052,226 @@
           "can_change"
         ],
         "title": "ReconciliationOut",
+        "type": "object"
+      },
+      "RecordExportIn": {
+        "properties": {
+          "entities": {
+            "description": "The records, by UUID or HRID, in the file's order. Or give `search`.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10000,
+            "title": "Entities",
+            "type": "array"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.",
+            "title": "Fields"
+          },
+          "format": {
+            "description": "A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).",
+            "enum": [
+              "genbank",
+              "fasta",
+              "protein-fasta",
+              "sdf"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).",
+            "title": "Project"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportSearchIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every record this search finds, in its order, up to 10,000: a table's whole result."
+          }
+        },
+        "required": [
+          "format"
+        ],
+        "title": "RecordExportIn",
+        "type": "object"
+      },
+      "RecordExportOut": {
+        "properties": {
+          "count": {
+            "description": "How many records it holds.",
+            "title": "Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "description": "How many of them are written so far.",
+            "title": "Done",
+            "type": "integer"
+          },
+          "error": {
+            "description": "Why it failed, if it did.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.",
+            "title": "Expires At"
+          },
+          "fields": {
+            "description": "The fields an SDF carries as data.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.",
+            "title": "Notes",
+            "type": "object"
+          },
+          "refused": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.",
+            "title": "Refused",
+            "type": "object"
+          },
+          "selection": {
+            "description": "What was picked, in words.",
+            "title": "Selection",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The file's SHA-256, once it's ready.",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file's size in bytes, once it's ready.",
+            "title": "Size"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "writing",
+              "ready",
+              "failed",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "writer": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Which code wrote it: `builtin` and `version`.",
+            "title": "Writer",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "format",
+          "selection",
+          "count",
+          "done",
+          "file_name",
+          "size",
+          "sha256",
+          "fields",
+          "notes",
+          "refused",
+          "error",
+          "writer",
+          "created_at",
+          "finished_at",
+          "expires_at"
+        ],
+        "title": "RecordExportOut",
         "type": "object"
       },
       "RefOut": {
@@ -35933,7 +36396,7 @@
     },
     "/api/v1/entities/{ref}/export": {
       "get": {
-        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how\nmany such notes there are.",
+        "description": "The record as one of the files its type exports (ADR 0171), at its latest revision or\nthe one asked for, written from its values then, so a revision is always the same file.\nAnyone who can read it may; each download is in the audit log (``entity.exported``),\nwith the file's SHA-256. What the file can't say, such as a feature across a linear\nmolecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an\nSDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many\nrecords make one file from ``POST /entity-exports`` (ADR 0229).",
         "operationId": "iki_server_api_entities_export_entity",
         "parameters": [
           {
@@ -35955,11 +36418,36 @@
               "enum": [
                 "genbank",
                 "fasta",
+                "protein-fasta",
+                "sdf",
+                "molfile",
                 "signed-report-html",
                 "signed-report-json"
               ],
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 500,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).",
+              "title": "Fields"
             }
           },
           {
@@ -36005,8 +36493,11 @@
           "200": {
             "content": {
               "application/json": {},
+              "chemical/seq-aa-fasta": {},
               "chemical/seq-na-fasta": {},
               "chemical/seq-na-genbank": {},
+              "chemical/x-mdl-molfile": {},
+              "chemical/x-mdl-sdfile": {},
               "text/html": {}
             },
             "description": "The file, as an attachment named for the record."
@@ -37867,6 +38358,238 @@
         "summary": "Watch a record, mute it, or stop",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/api/v1/entity-exports": {
+      "get": {
+        "description": "Newest first: each file of records you asked for, ready to download again until it\nexpires a week after it's written.",
+        "operationId": "iki_server_api_record_exports_list_record_exports",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_RecordExportOut_"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Your exports of records",
+        "tags": [
+          "entities"
+        ]
+      },
+      "post": {
+        "description": "Records you can read as one file of a format each of their types exports (ADR 0229):\nthose picked, in order, or every one a search finds, up to 10,000. Each is written at\nthe revision it has now, read in one snapshot, so editing one afterwards doesn't change\nthe file. Up to 100 are written at once (201, ready to download); more in the\nbackground (202): read the export until it's ready. A record the format can't be\nwritten for fails it, naming each such record, so no file holds fewer than asked for.\nAsking and each download are in the audit log.",
+        "operationId": "iki_server_api_record_exports_start_record_export",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "Accepted"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Export records as one file, such as FASTA or SDF",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}": {
+      "get": {
+        "description": "How far it's got (``done`` of ``count``), and once it's ready, its file.",
+        "operationId": "iki_server_api_record_exports_get_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordExportOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "An export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content": {
+      "get": {
+        "description": "Redirects to the file, for a few minutes, while you can still read every record it\nholds and what they refer to. Each download is in the audit log.",
+        "operationId": "iki_server_api_record_exports_download_record_export",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Download an export of records",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/entity-exports/{export_id}/content-url": {
+      "get": {
+        "description": "The signed URL ``/content`` redirects to, for a client that fetches it without its\nIki token, such as an agent. Each one issued is in the audit log, as a download.",
+        "operationId": "iki_server_api_record_exports_record_export_content_url",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentUrlOut"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A link to an export of records",
+        "tags": [
+          "entities"
         ]
       }
     },

@@ -49,7 +49,9 @@ from iki_spec.model import (
     GRID_ROWS,
     Action,
     Amount,
+    AnyExport,
     Component,
+    CompoundExport,
     DrawTarget,
     EntityType,
     Environment,
@@ -61,6 +63,7 @@ from iki_spec.model import (
     Guard,
     LabRole,
     Plugin,
+    ProteinExport,
     ReportExport,
     RequestSpec,
     ResultSpec,
@@ -971,9 +974,18 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
 VIEWER_LABELS = {"sequence": "Sequence", "structure": "Structure", "alignment": "Alignment"}
 
 
-def _export(body: dict[str, Any]) -> Export | ReportExport:
+def _export(body: dict[str, Any]) -> AnyExport:
     if body["export"] == "signed_report":
         return ReportExport(body["export"], body["report"], body["review"], tuple(body["issued"]))
+    if body["export"] == "protein":
+        return ProteinExport(
+            export="protein",
+            sequence=body["sequence"],
+            description=body.get("description", ""),
+            organism=body.get("organism", ""),
+        )
+    if body["export"] == "compound":
+        return CompoundExport(export="compound", structure=body["structure"])
     return Export(
         export=body["export"],
         sequence=body["sequence"],
@@ -3010,7 +3022,8 @@ class _Semantics:
     def exports(self, entity_type: EntityType, source: Document, fields: dict[str, Field]) -> None:
         """Each export names fields the type has, of the kind it writes, once per type. A
         sequence export's sequence is a DNA or RNA field, or a reference to a type that
-        exports a sequence (ADR 0171)."""
+        exports a sequence (ADR 0171); a protein export's, a protein field; a compound
+        export's structure, a text field holding a Molfile (ADR 0229)."""
         seen: set[str] = set()
         for index, export in enumerate(entity_type.exports):
             path: Path = ("exports", index)
@@ -3026,7 +3039,7 @@ class _Semantics:
             if isinstance(export, ReportExport):
                 self.report_export(export, source, path, fields)
                 continue
-            for role, wanted, kinds in self._export_roles():
+            for role, wanted, kinds in self._export_roles(export.export):
                 name = getattr(export, role)
                 if not name:
                     continue
@@ -3080,7 +3093,29 @@ class _Semantics:
                     (*path, "issued", index),
                 )
 
-    def _export_roles(self) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
+    def _export_roles(self, kind: str) -> tuple[tuple[str, str, Callable[[Field], bool]], ...]:
+        described: tuple[str, str, Callable[[Field], bool]] = (
+            "description",
+            "a string or text field",
+            lambda f: f.type in ("string", "text"),
+        )
+        organism: tuple[str, str, Callable[[Field], bool]] = (
+            "organism",
+            "a reference to iki/core.Organism",
+            lambda f: f.type == "ref" and f.to == ("iki/core.Organism",),
+        )
+        if kind == "protein":
+            return (
+                (
+                    "sequence",
+                    "a protein sequence (format protein_sequence)",
+                    lambda f: f.type == "string" and f.format == "protein_sequence",
+                ),
+                described,
+                organism,
+            )
+        if kind == "compound":
+            return (("structure", "a text field holding a Molfile", lambda f: f.type == "text"),)
         return (
             (
                 "sequence",
@@ -3091,13 +3126,9 @@ class _Semantics:
                 ),
             ),
             ("features", "a json field", lambda f: f.type == "json"),
-            ("description", "a string or text field", lambda f: f.type in ("string", "text")),
+            described,
             ("accession", "a string field", lambda f: f.type == "string"),
-            (
-                "organism",
-                "a reference to iki/core.Organism",
-                lambda f: f.type == "ref" and f.to == ("iki/core.Organism",),
-            ),
+            organism,
         )
 
     def _exports_sequence(self, qualified: str) -> bool:

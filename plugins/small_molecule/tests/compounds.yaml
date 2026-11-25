@@ -33,7 +33,8 @@ kind: ActionTest
 name: aspirin_descriptors
 description: >-
   Aspirin's descriptors, as RDKit computes them: 180.16 g/mol (PubChem's 180.16),
-  TPSA 63.6 Å² (PubChem's 63.6), Crippen logP 1.31, QED 0.55.
+  TPSA 63.6 Å² (PubChem's 63.6), Crippen logP 1.31, QED 0.55; and its Molfile, as
+  CoordGen lays it out in RDKit 2026.09.2: V2000, kekulized, its title line empty.
 action: compute_descriptors
 inputs:
   compound:
@@ -51,4 +52,36 @@ expect:
             hba: 3
             qed: 0.55
             lipinski_violations: 0
+            molfile: |2
+
+                   RDKit          2D
+
+               13 13  0  0  0  0  0  0  0  0999 V2000
+                 -2.6640    0.3130    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                 -1.7990   -0.1888    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                 -1.8012   -1.1888    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+                 -0.9320    0.3096    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+                 -0.0672   -0.1922    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                 -0.0690   -1.1922    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                  0.7960   -1.6940    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                  1.6630   -1.1956    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                  1.6650   -0.1956    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                  0.8000    0.3062    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                  0.8020    1.3060    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+                 -0.0630    1.8078    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+                  1.6690    1.8042    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+                1  2  1  0
+                2  3  2  0
+                2  4  1  0
+                4  5  1  0
+                5  6  2  0
+                6  7  1  0
+                7  8  2  0
+                8  9  1  0
+                9 10  2  0
+               10 11  1  0
+               11 12  2  0
+               11 13  1  0
+               10  5  1  0
+              M  END
   tolerance: 1.0e-3

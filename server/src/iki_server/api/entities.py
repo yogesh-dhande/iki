@@ -104,7 +104,10 @@ from iki_spec import rules as spec_rules
 from iki_spec import titles, units
 from iki_spec.model import (
     SIGNATURE_MEANINGS,
+    AnyExport,
+    CompoundExport,
     EntityType,
+    ProteinExport,
     ReportExport,
     Rule,
     State,
@@ -453,7 +456,15 @@ ViewerOut = Annotated[
 ]
 
 
-ExportFormat = Literal["genbank", "fasta", "signed-report-html", "signed-report-json"]
+ExportFormat = Literal[
+    "genbank",
+    "fasta",
+    "protein-fasta",
+    "sdf",
+    "molfile",
+    "signed-report-html",
+    "signed-report-json",
+]
 
 
 class FileFormatOut(Schema):
@@ -462,6 +473,10 @@ class FileFormatOut(Schema):
     extension: str = Field(description="Its file name's, such as gb.")
     media_type: str = Field(description="Its media type, such as chemical/seq-na-genbank.")
     description: str = Field(description="What of a record it holds.")
+    many: Literal["file", "one"] = Field(
+        description="`file`: many records make one file of it, from `POST /entity-exports` "
+        "(ADR 0229); `one`: it holds one record."
+    )
 
 
 class FileExportOut(Schema):
@@ -476,6 +491,27 @@ class FileExportOut(Schema):
     features: str | None = Field(
         description="A json field of features (type, start, end, name, strand) it adds "
         "along the sequence, or null. A record page draws them as a map."
+    )
+
+
+class ProteinExportOut(Schema):
+    export: Literal["protein"] = Field(
+        description="What it writes. `protein`: a protein's residues, as FASTA (ADR 0229)."
+    )
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    sequence: str = Field(description="The protein sequence field it's written from.")
+
+
+class CompoundExportOut(Schema):
+    export: Literal["compound"] = Field(
+        description="What it writes. `compound`: a compound's structure, as a Molfile, and "
+        "as an SDF with its fields as data (ADR 0229)."
+    )
+    formats: list[FileFormatOut] = Field(description="The files it's written as.")
+    structure: str = Field(description="The text field holding its Molfile.")
+    data: list[str] = Field(
+        description="The fields an SDF can carry as data, in order, which it carries unless "
+        "`fields` names fewer: those of a kind SD holds as text (not files, people or JSON)."
     )
 
 
@@ -623,7 +659,10 @@ class EntityTypeOut(Schema):
         "nearest parent's."
     )
     exports: list[
-        Annotated[FileExportOut | SignedReportExportOut, Field(discriminator="export")]
+        Annotated[
+            FileExportOut | ProteinExportOut | CompoundExportOut | SignedReportExportOut,
+            Field(discriminator="export"),
+        ]
     ] = Field(
         default_factory=list,
         description="The files Iki writes of its records (ADR 0171), from "
@@ -1439,6 +1478,21 @@ def _track_out(form: Shape, track: Track) -> dict[str, Any]:
     }
 
 
+def _export_out(type_name: str, e: AnyExport) -> dict[str, Any]:
+    """An export, as ``EntityTypeOut.exports`` gives it."""
+    out: dict[str, Any] = {
+        "export": e.export,
+        "formats": [asdict(f) for f in exports.FORMATS[e.export]],
+    }
+    if isinstance(e, ReportExport):
+        return {**out, "report": e.report, "review": e.review, "issued": e.issued}
+    if isinstance(e, ProteinExport):
+        return {**out, "sequence": e.sequence}
+    if isinstance(e, CompoundExport):
+        return {**out, "structure": e.structure, "data": exports.data_fields(type_name, e)}
+    return {**out, "sequence": e.sequence, "features": e.features or None}
+
+
 def _type_out(entity_type: EntityType) -> dict[str, Any]:
     form = shape(entity_type.qualified_name)
     owner = registry.identity_owner(entity_type)
@@ -1470,16 +1524,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "values_schema": schema.for_type(name),
         "viewers": [_viewer_out(form, v) for v in registry.viewers(entity_type)],
         "exports": [
-            {
-                "export": e.export,
-                "formats": [asdict(f) for f in exports.FORMATS[e.export]],
-                **(
-                    {"report": e.report, "review": e.review, "issued": e.issued}
-                    if isinstance(e, ReportExport)
-                    else {"sequence": e.sequence, "features": e.features or None}
-                ),
-            }
-            for e in registry.exports(entity_type)
+            _export_out(entity_type.qualified_name, e) for e in registry.exports(entity_type)
         ],
         "due": assignments.due_field_name(name) if assignments.due_field(name) else None,
         "rules": [_rule_out(r) for r in checking.rules_of(name)],
@@ -3343,6 +3388,12 @@ def get_revision(
 
 class ExportParams(Schema):
     format: ExportFormat = Field(description="Which file, as its type's `exports` list them.")
+    fields: list[str] | None = Field(
+        None,
+        max_length=500,
+        description="An SDF's data: the fields it carries, in order. Every one it can, if "
+        "left out (its export's `data`).",
+    )
     revision: int | None = Field(
         None, ge=1, description="Which revision, as it was then. Its latest if left out."
     )
@@ -3362,6 +3413,9 @@ class ExportParams(Schema):
                 "content": {
                     "chemical/seq-na-genbank": {},
                     "chemical/seq-na-fasta": {},
+                    "chemical/seq-aa-fasta": {},
+                    "chemical/x-mdl-sdfile": {},
+                    "chemical/x-mdl-molfile": {},
                     "text/html": {},
                     "application/json": {},
                 },
@@ -3374,12 +3428,13 @@ def export_entity(request: HttpRequest, ref: str, params: Query[ExportParams]) -
     the one asked for, written from its values then, so a revision is always the same file.
     Anyone who can read it may; each download is in the audit log (``entity.exported``),
     with the file's SHA-256. What the file can't say, such as a feature across a linear
-    molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
-    many such notes there are."""
+    molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
+    SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
+    records make one file from ``POST /entity-exports`` (ADR 0229)."""
     me = caller(request)
     entity = _find(me, ref, params.project)
     try:
-        made = exports.export(me, entity, params.format, params.revision)
+        made = exports.export(me, entity, params.format, params.revision, data=params.fields)
     except exports.Unexportable as why:
         raise Problem(404, str(why), code=why.code) from None
     response = HttpResponse(made.content, content_type=made.media_type)

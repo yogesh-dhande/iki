@@ -58,3 +58,5 @@ fields:
 display:
   title: "{{ name or hrid }}"
   viewers: [{ viewer: sequence, sequence: sequence, tracks: [{ field: hydropathy }] }]
+exports:
+  - { export: protein, sequence: sequence, description: description, organism: organism }

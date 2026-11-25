@@ -14,6 +14,8 @@
 - Deletes apps' drafts (ADR 0090) once they expire, a day after they're made.
 - Deletes exported bundles' archives (ADR 0096) a week after they're written, except in
   projects under a legal hold.
+- Deletes the files of many records' exports (ADR 0229) a week after they're written,
+  except those of records in projects under a legal hold.
 - Discards spreadsheet imports (ADR 0178) nobody committed or touched for a fortnight,
   and the rows their previews kept.
 - Notifies project stock managers of catalogue items at or below their reorder threshold.
@@ -28,7 +30,7 @@ from django.utils import timezone
 from iki_server.accounts.models import UserSession
 from iki_server.amounts import stock_alerts
 from iki_server.bundles import exports as bundle_exports
-from iki_server.entities import app_drafts
+from iki_server.entities import app_drafts, record_exports
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
 from iki_server.plugins import purge
@@ -61,6 +63,7 @@ class Command(BaseCommand):
         checkpoints_deleted = checkpoints.delete_stale()
         drafts = app_drafts.prune()
         bundles = bundle_exports.expire()
+        record_files = record_exports.expire()
         detached = queue.end_detached()
         tombstoned = purge.tombstone_due()
         sheets = spreadsheets.expire()
@@ -80,6 +83,7 @@ class Command(BaseCommand):
             deleted_checkpoints=checkpoints_deleted,
             expired_app_drafts=drafts,
             expired_bundles=bundles,
+            expired_record_exports=record_files,
             ended_detached_runs=detached,
             tombstoned_entities=tombstoned,
             abandoned_spreadsheet_imports=sheets,
@@ -94,7 +98,8 @@ class Command(BaseCommand):
             f"{approvals_expired} run approval request(s), deleted {artifacts_deleted} "
             f"run artifact(s) whose retention was over, deleted {checkpoints_deleted} "
             f"run checkpoint(s) nothing will resume from, deleted {drafts} expired app "
-            f"draft(s), deleted {bundles} expired bundle(s), discarded {sheets} abandoned "
+            f"draft(s), deleted {bundles} expired bundle(s) and {record_files} expired record "
+            f"export(s), discarded {sheets} abandoned "
             f"spreadsheet import(s), ended {detached} run(s) of detached plugins, and tombstoned "
             f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins. "
             f"Sent {alerts} low-stock notification(s)."

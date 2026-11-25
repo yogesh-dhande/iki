@@ -146,6 +146,39 @@ def plasmid_export(w: World) -> tuple[Any, ...]:
     return f"/entities/{found.entity.pk}/export?format=genbank", None
 
 
+def record_export_request(w: World) -> tuple[Any, ...]:
+    """Many records as one file (ADR 0229): a plasmid, as FASTA."""
+    path, _ = plasmid_export(w)
+    hrid = path.split("/")[2]
+    return "/entity-exports", {"format": "fasta", "entities": [hrid]}
+
+
+def record_export(suffix: str = "") -> Build:
+    """The viewer's export of a plasmid, written: only they see it."""
+
+    def build(w: World) -> tuple[Any, ...]:
+        from iki_server.entities.models import RecordExport
+
+        found = _entity(w)
+        made = RecordExport.objects.create(
+            requested_by=w.users["viewer"],
+            via="web",
+            format="fasta",
+            selection=found.hrid,
+            records=[[str(found.pk), found.hrid, found.revision]],
+            projects=[w.project.pk],
+            read_in=[w.project.pk],
+            references=[found.pk],
+            name="Kinase Atlas DNA sequences (1).fasta",
+            state="ready",
+            sha256="0" * 64,
+            size=1,
+        )
+        return f"/entity-exports/{made.pk}{suffix}", None
+
+    return build
+
+
 def project_board(w: World) -> tuple[Any, ...]:
     return "/components/acme/protein.board/entities", {"project": str(w.project.pk)}
 
@@ -1512,6 +1545,16 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/entities/{ref}/contributors", entity("/contributors"), readers(200)),
     ("GET", "/entities/{ref}/revisions.csv", entity("/revisions.csv"), readers(200)),
     ("GET", "/entities/{ref}/export", plasmid_export, readers(200)),
+    ("POST", "/entity-exports", record_export_request, readers(201)),
+    ("GET", "/entity-exports", fixed("/entity-exports"), row(200)),
+    ("GET", "/entity-exports/{export_id}", record_export(), row(404, viewer=200)),
+    ("GET", "/entity-exports/{export_id}/content", record_export("/content"), row(404, viewer=302)),
+    (
+        "GET",
+        "/entity-exports/{export_id}/content-url",
+        record_export("/content-url"),
+        row(404, viewer=200),
+    ),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
     ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
@@ -2204,7 +2247,15 @@ def test_operation_matrix(
     request: pytest.FixtureRequest,
 ) -> None:
     if template.startswith(
-        ("/uploads", "/files", "/registrations", "/bundles", "/imports", "/spreadsheet")
+        (
+            "/uploads",
+            "/files",
+            "/registrations",
+            "/bundles",
+            "/imports",
+            "/spreadsheet",
+            "/entity-exports",
+        )
     ) or (template.endswith(("/bundles", "/imports", "/spreadsheet-imports"))):
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")

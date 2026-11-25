@@ -74,6 +74,7 @@ import {
 } from "./entity-filters";
 import { PluginPlace } from "./plugin-place";
 import { ReassignDialog } from "./reassign";
+import { ExportRecords, manyFormats } from "./records-export";
 import { SavedSearches } from "./saved-searches";
 
 /** A row's height, as the stylesheet draws it (`.data-grid-row`). */
@@ -647,7 +648,10 @@ export function EntityGrid({
   const reassignable = Boolean(assignable && editIn?.can.edit && !editIn.archived);
   const actsIn = (p: Project) =>
     (p.can.run.length > 0 || (assignable && p.can.edit)) && !p.archived;
-  const selectable = across ? readable.some(actsIn) : Boolean(project && actsIn(project));
+  const acts = across ? readable.some(actsIn) : Boolean(project && actsIn(project));
+  // Records of a type that exports a file (ADR 0229) are picked to export, by any reader.
+  const shownTypes = type ? [type.name] : [...new Set(rows.map((e) => e.type))];
+  const selectable = acts || manyFormats(shownTypes, types).length > 0;
   const [reassigning, setReassigning] = useState(false);
   const allPicked = rows.length > 0 && rows.every((e) => picked.has(e.hrid));
   const select: Column = {
@@ -904,6 +908,10 @@ export function EntityGrid({
             <ToolIcon name="download" />
             Download CSV
           </a>
+          {/* As one FASTA, GenBank or SDF file, each record pinned (ADR 0229). */}
+          {!shownAs && rows.length ? (
+            <ExportRecords filter={filter} typeNames={shownTypes} types={types} />
+          ) : null}
           {library && project?.can.edit && !project.archived && !search.collection ? (
             <SaveAsCollection project={project} search={search} />
           ) : null}
@@ -1012,11 +1020,13 @@ export function EntityGrid({
             <div className={picked.size ? "selection-bar" : undefined}>
               <p role="status" className={picked.size ? undefined : "visually-hidden"}>
                 {picked.size ? `${String(picked.size)} selected` : ""}
-                {picked.size > MAX_BATCH
-                  ? `: an action runs on at most ${String(MAX_BATCH)} at once`
-                  : picked.size && !runIn && across
-                    ? ": an action runs in one project, and these aren’t all in one you run actions in"
-                    : ""}
+                {!acts
+                  ? ""
+                  : picked.size > MAX_BATCH
+                    ? `: an action runs on at most ${String(MAX_BATCH)} at once`
+                    : picked.size && !runIn && across
+                      ? ": an action runs in one project, and these aren’t all in one you run actions in"
+                      : ""}
               </p>
               {picked.size && reassignable ? (
                 <button
@@ -1038,6 +1048,15 @@ export function EntityGrid({
                 >
                   Run action{across && !project ? ` in ${runIn.name}` : ""}
                 </Link>
+              ) : null}
+              {picked.size ? (
+                <ExportRecords
+                  filter={filter}
+                  typeNames={[...new Set(pickedRows.map((e) => e.type))]}
+                  types={types}
+                  picked={pickedRows.map((e) => e.id)}
+                  label="Export selected"
+                />
               ) : null}
               {picked.size ? (
                 <button

@@ -3,6 +3,7 @@ who can read it, each download in the audit log."""
 
 import hashlib
 import io
+from importlib.metadata import version
 from typing import Any
 
 import pytest
@@ -70,6 +71,7 @@ def test_a_type_says_which_files_it_exports(world: World) -> None:
                     "extension": "gb",
                     "media_type": "chemical/seq-na-genbank",
                     "description": "The bases, topology and features, with their qualifiers.",
+                    "many": "file",
                 },
                 {
                     "format": "fasta",
@@ -78,6 +80,7 @@ def test_a_type_says_which_files_it_exports(world: World) -> None:
                     "media_type": "chemical/seq-na-fasta",
                     "description": "The bases, with the record's ID, name and topology in "
                     "its header. FASTA holds no features.",
+                    "many": "file",
                 },
             ],
             "sequence": "bases",
@@ -123,6 +126,8 @@ def test_a_record_downloads_as_genbank_and_the_download_is_audited(world: World)
         "sha256": hashlib.sha256(content).hexdigest(),
         "size": len(content),
         "left_out": [],
+        # Which code wrote it (ADR 0230): Iki's own GenBank writer, at Iki's version.
+        "writer": {"builtin": "genbank", "version": version("iki-server")},
     }
 
 

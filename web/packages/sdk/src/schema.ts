@@ -1348,8 +1348,9 @@ export interface paths {
          *     the one asked for, written from its values then, so a revision is always the same file.
          *     Anyone who can read it may; each download is in the audit log (``entity.exported``),
          *     with the file's SHA-256. What the file can't say, such as a feature across a linear
-         *     molecule's ends, is listed in it (GenBank's COMMENT), and ``Iki-Left-Out`` says how
-         *     many such notes there are.
+         *     molecule's ends, is listed in it where the format has a place (GenBank's COMMENT, an
+         *     SDF's ``IKI_NOTES``), and ``Iki-Left-Out`` says how many such notes there are. Many
+         *     records make one file from ``POST /entity-exports`` (ADR 0229).
          */
         get: operations["iki_server_api_entities_export_entity"];
         put?: never;
@@ -1862,6 +1863,99 @@ export interface paths {
          *     is audited, and needs you to be able to read it.
          */
         put: operations["iki_server_api_notifications_choose_watch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your exports of records
+         * @description Newest first: each file of records you asked for, ready to download again until it
+         *     expires a week after it's written.
+         */
+        get: operations["iki_server_api_record_exports_list_record_exports"];
+        put?: never;
+        /**
+         * Export records as one file, such as FASTA or SDF
+         * @description Records you can read as one file of a format each of their types exports (ADR 0229):
+         *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
+         *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
+         *     the file. Up to 100 are written at once (201, ready to download); more in the
+         *     background (202): read the export until it's ready. A record the format can't be
+         *     written for fails it, naming each such record, so no file holds fewer than asked for.
+         *     Asking and each download are in the audit log.
+         */
+        post: operations["iki_server_api_record_exports_start_record_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An export of records
+         * @description How far it's got (``done`` of ``count``), and once it's ready, its file.
+         */
+        get: operations["iki_server_api_record_exports_get_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download an export of records
+         * @description Redirects to the file, for a few minutes, while you can still read every record it
+         *     holds and what they refer to. Each download is in the audit log.
+         */
+        get: operations["iki_server_api_record_exports_download_record_export"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/entity-exports/{export_id}/content-url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A link to an export of records
+         * @description The signed URL ``/content`` redirects to, for a client that fetches it without its
+         *     Iki token, such as an agent. Each one issued is in the audit log, as a download.
+         */
+        get: operations["iki_server_api_record_exports_record_export_content_url"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -7319,6 +7413,29 @@ export interface components {
              */
             name: string;
         };
+        /** CompoundExportOut */
+        CompoundExportOut: {
+            /**
+             * Data
+             * @description The fields an SDF can carry as data, in order, which it carries unless `fields` names fewer: those of a kind SD holds as text (not files, people or JSON).
+             */
+            data: string[];
+            /**
+             * @description What it writes. `compound`: a compound's structure, as a Molfile, and as an SDF with its fields as data (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "compound";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Structure
+             * @description The text field holding its Molfile.
+             */
+            structure: string;
+        };
         /**
          * Condition
          * @description A condition on a field, or a group of them: exactly one of ``field`` (with ``op`` and
@@ -8411,7 +8528,7 @@ export interface components {
              * Exports
              * @description The files Iki writes of its records (ADR 0171), from `/entities/{ref}/export`: its own, or its nearest parent's.
              */
-            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["SignedReportExportOut"])[];
+            exports?: (components["schemas"]["FileExportOut"] | components["schemas"]["ProteinExportOut"] | components["schemas"]["CompoundExportOut"] | components["schemas"]["SignedReportExportOut"])[];
             /** Extends */
             extends: string | null;
             /** Fields */
@@ -8872,11 +8989,16 @@ export interface components {
         /** ExportParams */
         ExportParams: {
             /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`).
+             */
+            fields?: string[] | null;
+            /**
              * Format
              * @description Which file, as its type's `exports` list them.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Project
              * @description Whose record of a registry entry, as for reading it (ADR 0115).
@@ -8887,6 +9009,38 @@ export interface components {
              * @description Which revision, as it was then. Its latest if left out.
              */
             revision?: number | null;
+        };
+        /**
+         * ExportSearchIn
+         * @description The records a table shows, as ``POST /entities/search`` finds them.
+         */
+        ExportSearchIn: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Collection */
+            collection?: string | null;
+            /**
+             * Exact Type
+             * @description Only the type itself, not its subtypes.
+             * @default false
+             */
+            exact_type: boolean;
+            /**
+             * Project
+             * @description Entities that belong to this project.
+             */
+            project?: string | null;
+            /** Q */
+            q?: string | null;
+            /** Run */
+            run?: string | null;
+            sort?: components["schemas"]["SortIn"] | null;
+            /**
+             * Type
+             * @description This type and its subtypes.
+             */
+            type?: string | null;
+            where?: components["schemas"]["Condition"] | null;
         };
         /** FacetParams */
         FacetParams: {
@@ -9253,12 +9407,18 @@ export interface components {
              * @description What `/entities/{ref}/export` takes.
              * @enum {string}
              */
-            format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
             /**
              * Label
              * @description Its name, such as GenBank.
              */
             label: string;
+            /**
+             * Many
+             * @description `file`: many records make one file of it, from `POST /entity-exports` (ADR 0229); `one`: it holds one record.
+             * @enum {string}
+             */
+            many: "file" | "one";
             /**
              * Media Type
              * @description Its media type, such as chemical/seq-na-genbank.
@@ -12339,6 +12499,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RecordExportOut] */
+        Page_RecordExportOut_: {
+            /** Items */
+            items: components["schemas"]["RecordExportOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page_RegistrationOut_ */
         Page_RegistrationOut_: {
             /** Items */
@@ -13550,6 +13720,24 @@ export interface components {
              */
             why_not_enable: string | null;
         };
+        /** ProteinExportOut */
+        ProteinExportOut: {
+            /**
+             * @description What it writes. `protein`: a protein's residues, as FASTA (ADR 0229). (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            export: "protein";
+            /**
+             * Formats
+             * @description The files it's written as.
+             */
+            formats: components["schemas"]["FileFormatOut"][];
+            /**
+             * Sequence
+             * @description The protein sequence field it's written from.
+             */
+            sequence: string;
+        };
         /** PutAwayIn */
         PutAwayIn: {
             /**
@@ -14018,6 +14206,117 @@ export interface components {
              * @enum {string}
              */
             status: "open" | "completed" | "cancelled";
+        };
+        /** RecordExportIn */
+        RecordExportIn: {
+            /**
+             * Entities
+             * @description The records, by UUID or HRID, in the file's order. Or give `search`.
+             */
+            entities?: string[];
+            /**
+             * Fields
+             * @description An SDF's data: the fields it carries, in order. Every one all its records' types can carry, if left out.
+             */
+            fields?: string[] | null;
+            /**
+             * Format
+             * @description A format every record's type exports, as its `exports` list them, of which many records make one file (`many: file`).
+             * @enum {string}
+             */
+            format: "genbank" | "fasta" | "protein-fasta" | "sdf";
+            /**
+             * Project
+             * @description For an HRID naming a registry entry's record in several projects: this project's (ADR 0115).
+             */
+            project?: string | null;
+            /** @description Every record this search finds, in its order, up to 10,000: a table's whole result. */
+            search?: components["schemas"]["ExportSearchIn"] | null;
+        };
+        /** RecordExportOut */
+        RecordExportOut: {
+            /**
+             * Count
+             * @description How many records it holds.
+             */
+            count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Done
+             * @description How many of them are written so far.
+             */
+            done: number;
+            /**
+             * Error
+             * @description Why it failed, if it did.
+             */
+            error: string;
+            /**
+             * Expires At
+             * @description When its file is deleted. Files of records in a project under a legal hold are kept until the hold is released.
+             */
+            expires_at: string | null;
+            /**
+             * Fields
+             * @description The fields an SDF carries as data.
+             */
+            fields: string[];
+            /** File Name */
+            file_name: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Format */
+            format: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Notes
+             * @description What the file couldn't hold of each record, by HRID, as the file says it where the format has a place: GenBank's COMMENT, an SDF's IKI_NOTES. FASTA has none, so its notes are only here.
+             */
+            notes: {
+                [key: string]: string[];
+            };
+            /**
+             * Refused
+             * @description Records that couldn't be written, by HRID, and why: the export failed, so no file holds fewer records than were asked for.
+             */
+            refused: {
+                [key: string]: string;
+            };
+            /**
+             * Selection
+             * @description What was picked, in words.
+             */
+            selection: string;
+            /**
+             * Sha256
+             * @description The file's SHA-256, once it's ready.
+             */
+            sha256: string;
+            /**
+             * Size
+             * @description The file's size in bytes, once it's ready.
+             */
+            size: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "writing" | "ready" | "failed" | "expired";
+            /**
+             * Writer
+             * @description Which code wrote it: `builtin` and `version`.
+             */
+            writer: {
+                [key: string]: string;
+            };
         };
         /** RefOut */
         RefOut: {
@@ -21772,7 +22071,9 @@ export interface operations {
         parameters: {
             query: {
                 /** @description Which file, as its type's `exports` list them. */
-                format: "genbank" | "fasta" | "signed-report-html" | "signed-report-json";
+                format: "genbank" | "fasta" | "protein-fasta" | "sdf" | "molfile" | "signed-report-html" | "signed-report-json";
+                /** @description An SDF's data: the fields it carries, in order. Every one it can, if left out (its export's `data`). */
+                fields?: string[] | null;
                 /** @description Which revision, as it was then. Its latest if left out. */
                 revision?: number | null;
                 /** @description Whose record of a registry entry, as for reading it (ADR 0115). */
@@ -21793,8 +22094,11 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    "chemical/seq-aa-fasta": unknown;
                     "chemical/seq-na-fasta": unknown;
                     "chemical/seq-na-genbank": unknown;
+                    "chemical/x-mdl-molfile": unknown;
+                    "chemical/x-mdl-sdfile": unknown;
                     "text/html": unknown;
                 };
             };
@@ -22492,6 +22796,128 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WatchOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_list_record_exports: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RecordExportOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_start_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordExportIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_get_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordExportOut"];
+                };
+            };
+        };
+    };
+    iki_server_api_record_exports_download_record_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Found */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    iki_server_api_record_exports_record_export_content_url: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                export_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContentUrlOut"];
                 };
             };
         };

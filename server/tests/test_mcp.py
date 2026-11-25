@@ -154,6 +154,9 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "describe_entity_type",
         "search_entities",
         "lookup_entities",
+        "export_entities",
+        "get_entity_export",
+        "get_entity_export_download_link",
         "get_entity",
         "get_registry_entry",
         "get_entity_history",
@@ -220,6 +223,8 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "run_workflow",
         "cancel_workflow_run",
         "rerun_workflow_run",
+        # It makes a file, kept a week (ADR 0229), though it changes no record.
+        "export_entities",
     }
     for t in listed:
         assert t["annotations"]["readOnlyHint"] is (t["name"] not in writes), t["name"]

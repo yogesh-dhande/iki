@@ -168,6 +168,24 @@ file ID both return 404.
 
 For a worked example, see [Find and read a project's files](../docs/guides/find-and-read-project-files.md).
 
+#### Export tools
+
+An agent exports records the person can read as one FASTA, GenBank or SDF
+file (ADR 0229), with the `read` scope.
+
+- `export_entities(format, ...)` takes `entities` (IDs or HRIDs, in the
+  file's order) or a search (`type`, `project`, `q`, `where`, `sort`,
+  `archived`, `collection`), up to 10,000 records, and for SDF the `fields`
+  to carry as data. Each record is written at the revision it has when
+  asked. Up to 100 are written at once; more in the background.
+- `get_entity_export(export_id)` returns its `state`, `done` of `count`,
+  and once ready its file's name, size, SHA-256 and `notes`, what it
+  couldn't hold of each record. A failed export's `refused` says which
+  records couldn't be written, and why.
+- `get_entity_export_download_link(export_id)` returns `url`, `expires_at`
+  and `sha256`, as `get_file_download_link` does. Each link is in the audit
+  log as a download.
+
 ### Database roles
 
 Iki connects to Postgres as two roles (ADR 0025):
