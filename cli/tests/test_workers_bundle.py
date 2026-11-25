@@ -30,6 +30,32 @@ def _protein(tmp_path: Path, requirements: str) -> workers.WorkerPlugin:
     return workers.WorkerPlugin(loaded.plugin, directory, None)
 
 
+def test_iki_keeps_runtime_provenance_and_compiled_components(tmp_path: Path) -> None:
+    products = Path(__file__).parents[2] / "plugins"
+    antibody = tmp_path / "antibody"
+    workers.stage_runtime("iki/antibody", products / "antibody", antibody)
+    weights = Path("images/structure-tools")
+    for filename in ("WEIGHTS-NOTICE.txt", "SHA256SUMS"):
+        weight_file = weights / filename
+        assert (antibody / weight_file).read_bytes() == (
+            products / "antibody" / weight_file
+        ).read_bytes()
+    assert not (antibody / weights / "Dockerfile").exists()
+    assert not (antibody / weights / "prepare-weights.sh").exists()
+
+    oligo = tmp_path / "oligo"
+    workers.stage_runtime("iki/oligo", products / "oligo", oligo)
+    for path in (
+        "data/README.md",
+        "data/monomers.json",
+        "requirements.txt",
+        "components/duplex.js",
+    ):
+        assert (oligo / path).read_bytes() == (products / "oligo" / path).read_bytes()
+    for path in ("web", "data/build_monomers.py", "requirements.in", "tests"):
+        assert not (oligo / path).exists()
+
+
 def test_pinned_packages_are_installed_by_hash_and_nothing_else(tmp_path: Path) -> None:
     item = _protein(tmp_path, f"biopython==1.84 \\\n    --hash={HASH}\n")
     workers.write([item], tmp_path / "bundle", "/envs")

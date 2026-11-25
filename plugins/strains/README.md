@@ -7,7 +7,7 @@ map, amount ledger and lineage graph.
 
 ## Register base strains
 
-Run **Import a strain catalogue** with the [example CSV](data/atcc.csv) to
+Run **Import a strain catalogue** with the [example CSV](tests/data/atcc.csv) to
 register two base strains and their species. The examples are the bacterial
 strain MG1655 and the yeast strain BY4741. Their designations and genotypes
 come from [ATCC 700926](https://www.atcc.org/products/700926) and

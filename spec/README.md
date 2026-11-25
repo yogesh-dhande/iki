@@ -35,6 +35,11 @@ components/          # kind: Component, with each one's JavaScript module
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
+The plugin-root `tests/` and `examples/` directories are for source-checkout tests
+and worked examples. Keep action entry points, environment requirements, setup
+scripts and data an installed action reads outside those directories. The server
+archive and worker image carry the same runtime files. [Distribution details](../docs/adr/0219-plugin-archives-and-worker-images-use-the-same-runtime-files.md)
+
 Every manifest starts with `apiVersion: iki/v1` and a `kind`.
 
 ```yaml

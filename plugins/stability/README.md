@@ -56,7 +56,7 @@ permissions of study material when planning the windows.
 
 ## Published design example
 
-[Study design](data/study-design.yaml) includes the ICH Q1A(R2) general-case
+[Study design](../../examples/stability-study/study-design.yaml) includes the ICH Q1A(R2) general-case
 long-term condition of 25 °C ± 2 °C and 60% RH ± 5% RH and the accelerated condition
 of 40 °C ± 2 °C and 75% RH ± 5% RH. Its partial time-point sequence illustrates
 the frequency in §§2.1.6–2.1.7.1. The example windows are synthetic. A lab supplies
