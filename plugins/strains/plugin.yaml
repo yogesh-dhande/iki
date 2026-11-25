@@ -1,12 +1,11 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/strains
-version: 0.2.0
+version: 0.3.0
 title: Bacterial and yeast strains
 description: >-
   Register base strains by their source's accession and transformed strains by the
-  base and its set of plasmids. Track individual glycerol stocks in storage and
-  trace draws into the records that use the material.
+  base and its set of plasmids. The Lots plugin records isolates and their stock vials.
 license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/strains
@@ -14,7 +13,3 @@ dependencies:
   iki/plasmid:
     types:
       Plasmid: ">=1"
-  iki/inventory:
-    types:
-      Box: ">=1"
-      Tube: ">=1"

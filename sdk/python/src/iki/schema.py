@@ -6216,7 +6216,7 @@ class TypeAmountOut(TypedDict):
     follows: NotRequired[list[str]]
     #: What it's called, such as Volume.
     label: str
-    #: Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+    #: The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.
     material: str | None
     #: The UCUM unit it's kept in, such as uL, mg or {vial}.
     unit: str

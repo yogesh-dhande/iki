@@ -2472,7 +2472,16 @@ class _Semantics:
             self.concentration(amount.concentration, unit, every, source)
         if amount.aliquots is not None:
             self.aliquots(entity_type, amount, source)
-        if amount.material is not None:
+        if amount.material == "id":
+            if amount.aliquots is None:
+                self.add(
+                    "amount-aliquots",
+                    "A record that is its own material needs a container type for its aliquots.",
+                    source,
+                    ("amount", "material"),
+                    hint="Name a container type and its reference to this record in `aliquots`.",
+                )
+        elif amount.material is not None:
             self.material(amount.material, every, source)
         for index, name in enumerate(amount.follows):
             found = every.get(name)
@@ -2588,6 +2597,13 @@ class _Semantics:
                 (*at, "type"),
                 hint="Give that type an `amount` too.",
             )
+        elif theirs.material == "id":
+            self.add(
+                "amount-aliquots",
+                "An aliquot cannot identify itself as new material.",
+                source,
+                (*at, "type"),
+            )
         elif _measures_as(theirs.unit, amount.unit) is False:
             # What an aliquot holds is what its source lost: in the same kind of unit.
             self.add(
@@ -2603,6 +2619,15 @@ class _Semantics:
             entity_type.qualified_name,
             *(t.qualified_name for t in self.ancestors(entity_type)),
         }
+        if amount.material == "id" and theirs is not None and theirs.material != "id":
+            material = fields.get(theirs.material or "")
+            if material is None or not (mine | {"iki/core.Entity"}).intersection(material.to):
+                self.add(
+                    "amount-aliquots",
+                    f"`{target.name}` needs a material reference to `{entity_type.name}`.",
+                    source,
+                    (*at, "type"),
+                )
         if of is None or of.type != "ref" or not mine & set(of.to):
             self.add(
                 "amount-aliquots",

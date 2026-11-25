@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: StrainIsolate
+label: Strain isolate lot
+label_plural: Strain isolate lots
+extends: Lot
+schema_version: 1
+description: A physical isolate of one registered strain, with its source and verification evidence.
+hrid: { prefix: ISO }
+amount:
+  unit: uL
+  label: Unvialed volume
+  description: Volume held in bulk. Splitting it into stocks transfers this volume to the vials.
+  material: id
+  aliquots: { type: GlycerolStock, of: isolate }
+fields:
+  strain:
+    type: ref
+    to: [iki/strains.BaseStrain, iki/strains.TransformedStrain]
+    required: true
+    immutable: true
+    description: The strain design shared by all stocks of this isolate.
+  isolate_label:
+    type: string
+    label: Isolate label
+    required: true
+    indexed: true
+    max_length: 100
+    description: The lab's label for the clone, or its lot label when tracking one isolate per strain.
+  transformation:
+    type: ref
+    to: iki/core.Entity
+    immutable: true
+    label: Transformation record
+    description: The experiment or other lab record documenting the transformation that produced this isolate.
+  parent_stock:
+    type: ref
+    to: GlycerolStock
+    immutable: true
+    description: The physical stock this isolate was taken from, if recorded from an existing stock.
+  verification_evidence:
+    type: list
+    label: Verification evidence
+    items: { type: file }
+    max_items: 20
+    description: Reports or other original files documenting checks performed on this isolate.
+rules:
+  one_isolation_source:
+    check: record.transformation == null || record.parent_stock == null
+    message: Choose either the transformation record or the parent stock as the source of this isolate.
+    fields: [transformation, parent_stock]
+display:
+  title: "{{ isolate_label }}"

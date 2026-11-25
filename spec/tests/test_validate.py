@@ -3078,6 +3078,17 @@ def test_a_type_can_have_an_amount_with_its_aliquots(tmp_path: Path) -> None:
         "parent: { type: ref, to: Assay }",
         "parent: { type: ref, to: Assay, required: true, immutable: true }",
     )
+    self_material = ("unit: uL\n  label", "unit: uL\n  material: id\n  label")
+    assert problems(self_material, of_its_parent, fixed) == []
+    assert problems(self_material) == ["amount-aliquots"]
+    assert problems(
+        self_material,
+        ("amount: { unit: uL }\n", "amount: { unit: uL, material: sibling }\n"),
+        ("  parent: {", "  sibling: { type: ref, to: Aliquot, immutable: true }\n  parent: {"),
+    ) == ["amount-aliquots"]
+    # A new aliquot cannot inherit a source material by setting its own intrinsic ID.
+    self_aliquot = ("amount: { unit: uL }\n", "amount: { unit: uL, material: id }\n")
+    assert problems(self_aliquot) == ["amount-aliquots", "amount-aliquots"]
     assert problems(of_its_parent, fixed) == []
     assert problems(of_its_parent) == ["amount-material"]
     assert problems(of_its_parent, fixed, ("material: parent", "material: nothing")) == [

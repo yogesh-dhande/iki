@@ -756,13 +756,18 @@ fields:
   split from, and a record transferred into depends on what was moved into
   it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer`, or `used`.
-- `material` names an immutable reference of the type to what its
-  amount is of, such as a lot's molecule (`amount-material`). An empty container can identify its contents when first filled. A positive balance requires an identified material. A transfer
-  into one of its records takes only material of that entity, from a record
-  whose type says so too (a reference to a registry entry and one to a
-  project's record of it are the same entity), and its aliquots are of it
-  too, whatever they're given. Pooling different materials is a mixture: a
-  record of its own.
+- `material` identifies what the ledger measures (`amount-material`). Set it
+  to an immutable reference field for material held by a container, such as
+  a tube's `contents`, or for a lot of a registered molecule. Set `material: id`
+  when the record itself identifies the material. In that case, declare
+  `aliquots` with a destination whose ledger names a reference field as its
+  material. Two physical strain isolates of the same registered strain then
+  have different ledger materials. Splitting
+  an isolate into glycerol stocks fills each stock's contents with that isolate's
+  ID. A positive balance requires an identified material. An empty container can
+  identify its contents when first filled. A transfer must match the destination's
+  material. For registry material, a registry entry and a project's record
+  of that entry match. Record a mixture of different materials as its own record.
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.

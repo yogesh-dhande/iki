@@ -676,10 +676,12 @@ def split(
 
 def _material_of(entity: Entity, values: Mapping[str, Any] | None = None) -> Any:  # noqa: ANN401 - an ID
     """What ``entity``'s amount is of, by its type's ``material``: the entity its reference
-    names, or None if its type doesn't say."""
+    names, the record itself for ``material: id``, or None if its type doesn't say."""
     wanted = spec(entity.type)
     if wanted is None or wanted.material is None:
         return None
+    if wanted.material == "id":
+        return entity.pk
     if values is None:
         from iki_server.entities import services
 
@@ -712,7 +714,7 @@ def _what_it_takes(source: Entity, target: Entity) -> bool:
     assert wanted is not None  # noqa: S101 - only records with an amount get here
     direct_fill = False
     if wanted.material is not None:
-        of = mine.get(wanted.material)
+        of = _material_of(target, mine)
         # A tube can take stock directly from the lot on its label, or from a tube of
         # the same material. Two different lots of one molecule remain separate.
         direct_fill = wanted.material in wanted.follows and str(of) == str(source.pk)

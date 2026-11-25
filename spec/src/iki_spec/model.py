@@ -787,7 +787,8 @@ class Amount:
     aliquots: str | None = None
     aliquots_of: str | None = None
     #: A required, immutable reference of the type naming what its amount is of, such as
-    #: a lot's molecule: a transfer into one of its records takes only the same entity's,
+    #: a lot's molecule, or ``id`` when the record itself is the material. A transfer
+    #: into one of its records takes only the same entity's,
     #: and its aliquots are that entity's too (ADR 0162).
     material: str | None = None
     #: References whose records' eligibility a draw from it also meets, such as a tube's
