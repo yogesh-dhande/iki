@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Plugin
+name: acme/oligo_design
+version: 0.1.0
+title: Oligonucleotide design
+description: Register oligonucleotides from bases and a lab's standard modification patterns.
+license: Apache-2.0
+iki: ">=0.1"
+dependencies:
+  iki/oligo:
+    types:
+      Monomer: ">=1"
+      Oligonucleotide: ">=2"

@@ -65,13 +65,6 @@ BSD-3-Clause), the small_molecule plugin's release, which asks for 512 MiB.
   fact. A symbol in another case (`[moe]`) fails it, saying which it may mean:
   HELM 2.04 says its notation is case-insensitive, but the HELM monomer
   libraries and toolkits compare symbols exactly, and so does Iki.
-- **`design_oligonucleotide`**: registers one from its bases and a pattern of
-  chemistry: its sugar (DNA, RNA, 2′-MOE, LNA, (S)-cEt, 2′-OMe, 2′-F), a
-  gapmer's wings (`5-10-5`) and their sugar, its backbone (phosphorothioate,
-  undefined or all Rp or all Sp, or phosphodiester), 5-methylcytosine for
-  every C, and a 5′ or 3′ group on a phosphate (6-FAM, Cy3, Cy5, biotin-TEG,
-  amino C6, cholesterol-TEG; BHQ-1, BHQ-2, GalNAc as L96, a C3 spacer). Its HELM
-  is written from them.
 - **`import_oligonucleotides`**: registers each row of a CSV file (a `helm`
   column, and `name` and `description` if it has them) or each record of an
   SDF file (a `HELM` data item, and its `Name` item or title), up to 2,000.
@@ -92,6 +85,10 @@ BSD-3-Clause), the small_molecule plugin's release, which asks for 512 MiB.
 - **`register_duplex`**, **`analyse_duplex`**: a duplex of two strands, with its
   pairing. The trigger finds a duplex registered from its form's strands
   through the graph (`related`, upstream).
+
+For labs that register strands from a standard pattern of modifications, the
+[oligo design example](../../examples/plugins/oligo_design/README.md) provides a
+copyable action and two worked fixtures.
 
 ### What's computed
 
@@ -150,7 +147,7 @@ bond, keeping every atom's stereochemistry.
   mismatches are counted apart.
 
 They're checked against published molecules in `tests/` (`iki plugin test
-plugins/oligo`), each cited: nusinersen, mipomersen, fomivirsen, both strands
+plugins/oligo`), each cited: nusinersen, fomivirsen, both strands
 of patisiran and of inclisiran (with its GalNAc), and patisiran and inclisiran
 as duplexes, against PubChem, ChEMBL and EMA's assessment reports; and
 Sigma-Aldrich's and ATDBio's worked extinction coefficients.

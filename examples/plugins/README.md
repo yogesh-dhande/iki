@@ -5,6 +5,9 @@ start a new plugin, the [plugin template](../../plugin-template/README.md)
 includes a sample storage workflow, action tests and a GitHub Actions build.
 Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
+- [Oligonucleotide design](oligo_design/README.md) registers a strand from its
+  known bases and a lab’s standard pattern of modifications.
+
 ## Copy and name a plugin
 
 Choose a directory containing `plugin.yaml`. Its README describes the lab
