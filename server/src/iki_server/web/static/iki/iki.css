@@ -6109,8 +6109,32 @@ button.scan-choice:disabled {
   border-color: var(--warning);
 }
 
-.button.outcome[aria-pressed="true"]::before {
+/* The tick's place is kept while it isn't pressed, so pressing one never widens it and
+   moves the outcomes beside it; as much again after the label keeps the label centred. */
+.button.outcome[aria-pressed]::before,
+.button.outcome[aria-pressed]::after {
   content: "✓";
+  visibility: hidden;
+}
+
+.button.outcome[aria-pressed]::after {
+  content: "✓" / "";
+}
+
+.button.outcome[aria-pressed="true"]::before {
+  visibility: visible;
+}
+
+/* Clear's place, kept while there's nothing to clear. */
+.button.outcome-spare {
+  visibility: hidden;
+}
+
+/* Who checked it: one line, there from the start, however long their name. */
+.receive-checked {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .receive-note {
@@ -6126,7 +6150,10 @@ button.scan-choice:disabled {
   margin-bottom: 0;
 }
 
+/* As wide as its widest label (Mark rejected), so a choice never moves it to a line of its
+   own. */
 .receive-note .button {
+  min-width: 9.5em;
   min-height: var(--slot-size);
 }
 

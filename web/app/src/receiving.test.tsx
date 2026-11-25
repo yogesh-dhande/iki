@@ -1,5 +1,5 @@
 import type { Schemas } from "@ikisci/sdk";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { expect, it } from "vitest";
 
@@ -1444,4 +1444,80 @@ it("reads the receipt again before completing, and sends nothing if it changed s
     expect(calls("POST", `${api}/complete`)).toHaveLength(1);
   });
   expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({ plan_revision: 6 });
+});
+
+it("keeps each line's note editor and Clear's place from the start, so nothing moves as it's checked", async () => {
+  const first = tube(1);
+  const { user } = await openReceipt(receipt(1, [first]));
+  const before = line("TUB-000001");
+  // Unchecked: its note can be written first, and Clear holds its place, unpressable.
+  expect(before.getByRole("textbox", { name: /^Note on TUB-000001/ })).toBeVisible();
+  expect(before.getByText("Not checked yet")).toBeVisible();
+  expect(before.queryByRole("button", { name: "Clear" })).toBeNull();
+  const spare = before.getByText("Clear");
+  expect(spare).toBeDisabled();
+  expect(spare).toHaveClass("outcome-spare");
+  // Damaged with a note written first is recorded in one step, with that note.
+  answer(`PATCH ${api}/lines/${first.id}`, {
+    found: "recorded",
+    line: first.id,
+    receipt: receipt(2, [
+      {
+        ...first,
+        outcome: "damaged",
+        note: "Cap cracked",
+        checked_by: ME,
+        checked_at: "2026-01-12T09:10:00Z",
+      },
+    ]),
+  });
+  await user.type(before.getByRole("textbox", { name: /^Note on/ }), "Cap cracked");
+  await user.click(before.getByRole("button", { name: "Damaged" }));
+  const clear = await line("TUB-000001").findByRole("button", { name: "Clear" });
+  // The same button, now pressable: nothing was added beside the outcomes.
+  expect(clear).toBe(spare);
+  expect(clear).toBeEnabled();
+  expect(clear).not.toHaveClass("outcome-spare");
+  expect(line("TUB-000001").getByText(/^Checked by Rosalind/)).toBeVisible();
+  expect(calls("PATCH", `${api}/lines/${first.id}`).map((c) => c.body)).toEqual([
+    { outcome: "damaged", note: "Cap cracked" },
+  ]);
+});
+
+it("draws the checklist as it was while a press is on it, and the answer that came meanwhile once it's let go", async () => {
+  const [first, second] = [tube(1), tube(2)];
+  const { user } = await openReceipt(receipt(1, [first, second]));
+  let release = (): void => undefined;
+  const held = new Promise<void>((done) => {
+    release = done;
+  });
+  answer(`POST ${api}/scan`, async () => {
+    await held;
+    return {
+      found: "matched",
+      line: first.id,
+      receipt: receipt(2, [{ ...first, outcome: "matched", checked_by: ME }, second]),
+    };
+  });
+  await user.type(scanBox(), "RC000001{Enter}");
+  // A finger on the second line's Missing while the scan is answered.
+  fireEvent.pointerDown(line("TUB-000002").getByRole("button", { name: "Missing" }));
+  await act(async () => {
+    release();
+    await held;
+  });
+  await waitFor(() => {
+    expect(calls("GET", `/api/v1/entities/${ask}/receipts`).length).toBeGreaterThan(1);
+  });
+  expect(line("TUB-000001").getByRole("button", { name: "Matched" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(screen.queryByText("TUB-000001: matched.")).toBeNull();
+  fireEvent.pointerUp(window);
+  expect(await screen.findByText("TUB-000001: matched.")).toBeVisible();
+  expect(line("TUB-000001").getByRole("button", { name: "Matched" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });
