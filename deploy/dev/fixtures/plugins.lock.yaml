@@ -12,5 +12,5 @@ plugins:
     local: ../../../examples/plugins/hosted_models
     state: active
     settings: settings/hosted_models.yaml
-  # The plugin template, for its container-tier action (ADR 0061).
-  - { name: acme/example, local: ../../../plugin-template, state: active }
+  # Exercise fresh and warm workers and the three reference-volume strategies.
+  - { name: fixtures/worker_execution, local: plugins/worker_execution, state: active }

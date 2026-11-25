@@ -93,14 +93,14 @@ See the [author examples](../examples/plugins/README.md).
 Declare a file format once under `formats` in `plugin.yaml`. A format's ID
 is the plugin's full name, a dot, and the local format name. Local names
 start with a lowercase letter and use lowercase letters, digits and hyphens.
-The [plugin template](../plugin-template/plugin.yaml) declares
-`acme/example.tube-scan` for the tabular files its rack scanner writes.
+The [storage labels example](../examples/plugins/storage_labels/plugin.yaml) declares
+`acme/storage_labels.tube-scan` for the tabular files a rack scanner writes.
 
 ```yaml
 formats:
   tube-scan:
     label: Tube scanner export
-    media_types: [application/x-acme-tube-scan]
+    media_types: [application/x-tube-scan]
     extensions: [.tubescan]
     signatures: [{ hex: "545542455343414e09" }]
 ```
@@ -130,7 +130,7 @@ parameter sets its own size limit.
 
 ```yaml
 fields:
-  scan: { type: file, media_types: [acme/example.tube-scan], max_size: 20MiB }
+  scan: { type: file, media_types: [acme/storage_labels.tube-scan], max_size: 20MiB }
 ```
 
 Exact media types and wildcards such as `image/*` also work. Iki derives the
@@ -1398,6 +1398,8 @@ the types those actions read or write. To run actions belonging to several
 plugins in sequence, call them from a client.
 The [translation workflow example](../examples/plugins/protein_translation)
 declares both actions locally and uses DNA and Protein record types from its dependencies.
+The [storage labels workflow](../examples/plugins/storage_labels/workflows/store_sample.yaml)
+runs two local actions on the same sample.
 
 A step can take its inputs from the workflow (`$inputs.<name>`), from records
 an earlier step created (`$steps.<id>.created.<Type>`), or from the inputs an

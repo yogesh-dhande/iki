@@ -12,7 +12,7 @@ description: The sample's label, as it's printed for its tube.
 # One file, with everything it needs bundled in: the frame loads nothing else.
 module: ./components/sample-label.js
 # The custom element the module defines: lower case, with a hyphen.
-element: example-sample-label
+element: storage-sample-label
 # The many samples it can show at once, and only the fields it reads of each.
 entities: { type: Sample, fields: [name, kind, storage], limit: 200 }
 slots:

@@ -159,6 +159,23 @@ def test_the_run_input_is_the_servers(
     assert [p["hrid"] for p in packed["pack"]] == ["RUN-000001", "RUN-000002"]
 
 
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [({}, "global"), ({"mode": None}, "global"), ({"mode": "local"}, "local")],
+)
+def test_run_input_applies_the_action_parameter_default(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+    params: dict[str, str | None],
+    expected: str,
+) -> None:
+    directory, plugin, types = protein
+    test = action_tests.ActionTest(
+        name="align", file="tests/align.yaml", action=plugin.actions["align_pair"], params=params
+    )
+    made = action_tests.run_input(test, plugin, types, directory, {}, directory)
+    assert made["params"] == {"mode": expected}
+
+
 def test_an_input_gives_what_its_references_name(
     protein: tuple[Path, Plugin, dict[str, EntityType]], tmp_path: Path
 ) -> None:

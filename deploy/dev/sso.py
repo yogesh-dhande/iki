@@ -6484,7 +6484,7 @@ def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[
     )
 
 
-#: The plugin template's image (plugin-template/environments/tools.yaml): Python on Alpine,
+#: The execution fixture's image (environments/tools.yaml): Python on Alpine,
 #: so iki-worker, copied in, must be static.
 TOOLS_IMAGE = (
     "docker.io/library/python:3.13-alpine"
@@ -6528,20 +6528,7 @@ def _labelled_run_pod(version: str, worker: str, run: str, project: str) -> dict
 
 
 def _sample(alice: requests.Session, project: dict[str, Any], **values: str) -> dict[str, Any]:
-    made = api_call(
-        alice,
-        "POST",
-        "/entities",
-        {
-            "type": "acme/example.Sample",
-            "project": project["id"],
-            "values": {"name": f"e2e-{secrets.token_hex(4)}", "kind": "dna", **values},
-        },
-    )
-    if made.status_code not in (200, 201):
-        fail(f"registering a sample answered HTTP {made.status_code}: {made.text[:300]}")
-    sample: dict[str, Any] = made.json()
-    return sample
+    return created(alice, project, "fixtures/worker_execution.ExecutionSample", values)
 
 
 def _contained(
@@ -6570,14 +6557,17 @@ def _contained(
 
 
 def containers(alice: requests.Session, project: dict[str, Any]) -> None:
-    """The plugin template's actions on the container tier (ADR 0061, 0062): the provisioner
+    """The execution fixture's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
     listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
-    for action in ("acme/example.assign_storage", "acme/example.tidy_storage"):
+    for action in (
+        "fixtures/worker_execution.assign_storage",
+        "fixtures/worker_execution.tidy_storage",
+    ):
         if not listed.get(action, {}).get("available"):
             fail(f"{action} isn't available to run: {listed.get(action)}")
-    action = "acme/example.assign_storage"
+    action = "fixtures/worker_execution.assign_storage"
     sample = _sample(alice, project)
     # A short run can finish and its pod disappear before followed() returns.
     version = json.loads(kubectl("get", "--raw", f"{RUN_PODS}?limit=1"))["metadata"][
@@ -6585,7 +6575,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     ]
     run, attempt, storage = _contained(alice, project, action, sample)
     if storage != "-80 °C freezer":
-        fail(f"{run['hrid']} wrote {storage!r}, not the plugin's default storage")
+        fail(f"{run['hrid']} wrote {storage!r}, not the fixture's default storage")
     if attempt["template"] != "container-small":
         fail(f"{run['hrid']} didn't run on a pod of its own: {attempt}")
     pod = _labelled_run_pod(version, attempt["worker"], run["id"], project["id"])
@@ -6598,7 +6588,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
-    action = "acme/example.tidy_storage"
+    action = "fixtures/worker_execution.tidy_storage"
     # container-warm keeps one pod and allows no more (fixtures/compute.yaml), so both runs share
     # it only if it ran one after the other; what runs where doesn't depend on which of
     # two free pods won a lease.
@@ -6704,7 +6694,7 @@ def _until_ended(session: requests.Session, ref: str) -> dict[str, Any]:
 
 def setup_builds(project: dict[str, Any]) -> None:
     """An environment's reference data (ADRs 0075, 0077, 0078): bob, a Compute admin, asks
-    for a setup build of the plugin template's `reference` environment, which runs in three
+    for a setup build of the execution fixture's `reference` environment, which runs in three
     places; alice, another, approves each. In iki-runs its script fills a disk, which is
     snapshotted; in iki-runs-shared, its own directory on a shared file system; in
     iki-runs-bucket, a disk that's then copied into its own directory in a bucket. A run of
@@ -6722,7 +6712,7 @@ def setup_builds(project: dict[str, Any]) -> None:
         if granted.status_code != 200:
             fail(f"{me['email']} couldn't be made a Compute Admin")
     try:
-        environment = "acme/example.reference"
+        environment = "fixtures/worker_execution.reference"
         (listed,) = [
             e
             for e in api_call(bob, "GET", "/compute/volumes").json()
@@ -6752,10 +6742,7 @@ def setup_builds(project: dict[str, Any]) -> None:
             log = api_call(bob, "GET", f"{ref}/log").json()["text"]
             if build["state"] != "succeeded":
                 fail(f"{build['hrid']} {build['state']}: {build['error']}\n{log[-2000:]}")
-            if (
-                build["data_version"] != "Storage codes 2026-11"
-                or "bytes of storage codes" not in log
-            ):
+            if build["data_version"] != build["hrid"] or "bytes of storage codes" not in log:
                 said = build["data_version"]
                 fail(f"{build['hrid']} didn't say what it wrote: {said!r}, {log!r}")
         snapshots, shared = builds["iki-runs"], builds["iki-runs-shared"]
@@ -6787,9 +6774,14 @@ def setup_builds(project: dict[str, Any]) -> None:
         ok(f"{bucket['hrid']} filled a disk, which a Job copied into the bucket, {prefix}")
 
         sample = _sample(alice, project, storage="-80")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "-80 °C freezer" or read.get("hrid") != snapshots["hrid"]:
+        if (
+            storage != f"-80 °C freezer ({snapshots['hrid']})"
+            or read.get("hrid") != snapshots["hrid"]
+        ):
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(
             f"{run['hrid']} read a copy of version {read['version']} ({read['data_version']}) "
@@ -6807,9 +6799,14 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # With no version in iki-runs, runs go where one is ready, and mount it read-only.
         sample = _sample(alice, project, storage="ln2")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "Liquid nitrogen dewar" or read.get("hrid") != shared["hrid"]:
+        if (
+            storage != f"Liquid nitrogen dewar ({shared['hrid']})"
+            or read.get("hrid") != shared["hrid"]
+        ):
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(f"{run['hrid']} read {shared['hrid']}'s directory on the shared file system")
 
@@ -6827,9 +6824,11 @@ def setup_builds(project: dict[str, Any]) -> None:
 
         # And then to the bucket.
         sample = _sample(alice, project, storage="4")
-        run, attempt, storage = _contained(alice, project, "acme/example.decode_storage", sample)
+        run, attempt, storage = _contained(
+            alice, project, "fixtures/worker_execution.decode_storage", sample
+        )
         read = (attempt.get("volumes") or {}).get("storage-codes") or {}
-        if storage != "4 °C fridge" or read.get("hrid") != bucket["hrid"]:
+        if storage != f"4 °C fridge ({bucket['hrid']})" or read.get("hrid") != bucket["hrid"]:
             fail(f"{run['hrid']} wrote {storage!r} from {attempt.get('volumes')}")
         ok(f"{run['hrid']} read {bucket['hrid']}'s directory in the bucket")
         ref = f"/compute/setups/{bucket['hrid']}"

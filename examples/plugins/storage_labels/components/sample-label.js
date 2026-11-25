@@ -77,4 +77,4 @@ class SampleLabel extends HTMLElement {
   }
 }
 
-customElements.define("example-sample-label", SampleLabel);
+customElements.define("storage-sample-label", SampleLabel);

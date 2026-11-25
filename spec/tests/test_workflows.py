@@ -174,9 +174,9 @@ GOOD = flow("""\
 def test_the_example_workflows_are_valid() -> None:
     root = Path(__file__).resolve().parents[2]
     protein_dir = root / "plugins" / "protein"
-    template_dir = root / "plugin-template"
+    storage_dir = root / "examples" / "plugins" / "storage_labels"
     lesson_dir = root / "examples" / "plugins" / "protein_translation"
-    dependencies = dependency_closures(root / "plugins", protein_dir, template_dir, lesson_dir)
+    dependencies = dependency_closures(root / "plugins", protein_dir, storage_dir, lesson_dir)
     protein = load_plugin(protein_dir, dependencies=dependencies[protein_dir])
     assert protein.problems == []
     assert protein.plugin is not None
@@ -193,10 +193,12 @@ def test_the_example_workflows_are_valid() -> None:
     created = "$steps.translate.created.iki/protein.Protein"
     assert flow_.steps["properties"].inputs == {"protein": created}
 
-    template = load_plugin(template_dir, dependencies=dependencies[template_dir])
-    assert template.problems == []
-    assert template.plugin is not None
-    assert template.plugin.workflows["store_sample"].order() == ["assign", "decode"]
+    storage = load_plugin(storage_dir, dependencies=dependencies[storage_dir])
+    assert storage.problems == []
+    assert storage.plugin is not None
+    workflow = storage.plugin.workflows["store_sample"]
+    assert workflow.order() == ["assign", "decode"]
+    assert workflow.steps["decode"].inputs == {"sample": "$steps.assign.inputs.sample"}
 
 
 # --- What a valid workflow reads as ------------------------------------------------------------

@@ -1,0 +1,27 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: default_storage
+description: A sample with no storage gets the fixture's default; one with storage keeps it.
+action: assign_storage
+inputs:
+  sample:
+    - values: {}
+    - values: { storage: "4C fridge" }
+expect:
+  output:
+    updates:
+      sample:
+        - values: { storage: "-80 °C freezer" }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: tidied
+action: tidy_storage
+inputs:
+  sample:
+    - values: { storage: "  -80C   freezer " }
+expect:
+  output:
+    updates:
+      sample:
+        - values: { storage: "-80 °C freezer" }

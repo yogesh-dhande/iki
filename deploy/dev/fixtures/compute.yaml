@@ -40,10 +40,10 @@ price: { per_hour: 0.05, currency: USD }
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: acme/example.tools
+environment: fixtures/worker_execution.tools
 templates: [{ template: container-small }, { template: container-warm }]
 ---
-# The plugin template's reference data (ADR 0075): a setup build fills a disk
+# The execution fixture's reference data (ADR 0075): a setup build fills a disk
 # from the CSI host-path driver, which is snapshotted; each run pod gets a
 # read-only copy of the newest snapshot.
 apiVersion: iki/v1
@@ -94,7 +94,7 @@ volumes:
 ---
 apiVersion: iki/v1
 kind: EnvironmentBinding
-environment: acme/example.reference
+environment: fixtures/worker_execution.reference
 templates:
   - { template: container-reference }
   - { template: container-reference-shared }

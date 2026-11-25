@@ -15,6 +15,7 @@ from first_party_dependencies import (
     FIRST_PARTY,
     PLUGINS,
     ROOT,
+    STORAGE_LABELS,
     TEMPLATE,
     TEMPLATE_DEPENDENCIES,
     build_order,
@@ -73,7 +74,7 @@ def test_lab_stock_lot_inherits_its_material_declaration() -> None:
 
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:
     out = tmp_path / "build"
-    plugins = build_order(PLUGINS / "lots", PLUGINS / "complex", TEMPLATE)
+    plugins = build_order(PLUGINS / "lots", PLUGINS / "complex", TEMPLATE, STORAGE_LABELS)
     built = iki("plugin", "build", *plugins, "--output", out, cwd=ROOT)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(out, database)
@@ -82,7 +83,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         out,
         database,
         """
-        from iki_plugin_acme__example.models import Ext_iki_dna_DNASequence
+        from iki_plugin_acme__storage_labels.models import Ext_iki_dna_DNASequence
         from iki_server.accounts.models import User
         from iki_server.entities import services
         from iki_server.entities.models import Entity
@@ -104,7 +105,10 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         )
         primer = make("iki/dna.Primer", bases="ACG", target=str(puc.pk))
         assert Ext_iki_dna_DNASequence.objects.get(entity_id=puc.pk).construct_id == "PUC-19"
-        sample = make("acme/example.Sample", name="S1", kind="dna", construct=str(puc.pk))
+        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("SMP-")
+        sample = make(
+            "acme/storage_labels.Sample", name="S1", kind="dna", construct=str(puc.pk),
+        )
         bla = make(
             "iki/protein.Protein", sequence="MSIQHFRVAL", name="bla (+1)",
             encoded_by=str(puc.pk), uniprot_accession="P62593",
@@ -234,7 +238,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert result["types"] == [
         "iki/dna.DNASequence",
         "iki/dna.Primer",
-        "acme/example.Sample",
+        "acme/storage_labels.Sample",
         "iki/protein.Protein",
         "iki/antibody.Antibody",
         "iki/small_molecule.Compound",
@@ -243,7 +247,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
     assert [h.split("-")[0] for h in result["hrids"]] == [
         "DNA",
         "PRM",
-        "SMP",
+        "LSL",
         "PRT",
         "ABY",
         "CPD",

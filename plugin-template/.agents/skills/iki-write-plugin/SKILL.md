@@ -12,10 +12,12 @@ Put one lab workflow through the plugin, from the initial record or input file t
 Use the [Iki plugin template](https://github.com/yogesh-dhande/iki/tree/main/plugin-template) at the revision your deployment uses. If the project already started from the template, work in that copy. Otherwise, copy the whole template, including its CI and skills. Use the deployment's Iki CLI version. For development in the Iki monorepo, run `uv sync --locked` and put its `.venv/bin` on `PATH`. Build the [shared Wasm module](https://github.com/yogesh-dhande/iki/blob/main/scripts/build-wasm.sh) to validate CEL rules or guards in a source checkout.
 
 1. Choose the permanent `namespace/name` in `plugin.yaml`. Declare just the plugins and schema versions your references need. Use the versions pinned by the deployment, including transitive dependencies when building or generating migrations.
-2. Replace the template's example types, actions, tests, and settings as needed. Remove the copied initial migration when this is a new plugin with no deployed data. That migration belongs to the example schema. Generate your own after the edit.
-3. Fill in the template workflow's Iki version and dependency commit. Update its dependency checkout and `--with` arguments to match your manifest. For a plugin with no external dependencies, remove the dependency checkout and its `--with` arguments.
+2. Adapt the template’s Sample type, storage action and smoke test. When you copy and rename the plugin for a new lab, generate its initial migration under the new name. The template README walks through creating a record and running the action.
+3. Pin the Iki version your deployment uses in the template’s CI workflow. If you add a dependency, check it out at the deployment’s pinned commit and pass its directory to each CLI command with `--with`.
 
 Use the [manifest spec](https://github.com/yogesh-dhande/iki/blob/main/spec/README.md) and the template's schema hints when editing YAML. The CLI validates the manifests and generates the Django models and migrations.
+
+The [storage labels lesson](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins/storage_labels) shows a deployment setting, a DNA extension, two local actions in a workflow, a creation trigger and a label component. Copy it when your lab uses its own storage codes. Workflow steps and triggers resolve actions in the plugin that declares them.
 
 ## Model the workflow
 
@@ -27,10 +29,10 @@ Use the [manifest spec](https://github.com/yogesh-dhande/iki/blob/main/spec/READ
 
 ## Validate and generate
 
-Set `SKILL_DIR` to the directory containing this file, `PLUGIN` to the plugin directory and `DNA` to a dependency directory for a plugin that still uses the template's `iki/dna` types. Drop that argument if unused and repeat `--with` for other dependencies.
+Set `SKILL_DIR` to the directory containing this file and `PLUGIN` to the plugin directory. The template needs only Iki core. Add one `--with` argument per dependency directory if your lab uses other plugins.
 
 ```sh
-sh "$SKILL_DIR/scripts/validate-and-migrate.sh" "$PLUGIN" --with "$DNA"
+sh "$SKILL_DIR/scripts/validate-and-migrate.sh" "$PLUGIN"
 ```
 
 Review the generated migration. Use the [test skill](../iki-test-plugin/SKILL.md) to exercise an `ActionTest` and any service and browser paths. For edits to an installed plugin, use the [upgrade skill](../iki-upgrade-plugin/SKILL.md).

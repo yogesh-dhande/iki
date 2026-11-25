@@ -17,7 +17,7 @@ plugin_deps = [
 ]
 chart_values = ['deploy/dev/values-dev.yaml']
 if fixtures == '1':
-    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'plugin-template']
+    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models']
     chart_values.append('deploy/dev/fixtures/values.yaml')
 
 # --- Dependencies -------------------------------------------------------------

@@ -55,7 +55,7 @@ CI runs `make dev-product-ci` and `make dev-ci` on separate, fresh clusters.
 The latter adds the [fixture plugin pins](fixtures/plugins.lock.yaml),
 [compute bindings](fixtures/compute.yaml) and [Helm values](fixtures/values.yaml).
 The server and worker builds both pass `--test-only` for this overlay.
-It includes the template's container and storage checks, the LIMS import and
+It includes the [execution fixture's](fixtures/plugins/worker_execution) container and storage checks, the LIMS import and
 write-back, and the [hosted-model recipe](../../examples/plugins/hosted_models).
 The [FoldCloud fixture](fixtures/fake-foldcloud.yaml) accepts a cancelled job
 and delivers a signed callback for a completed one. The seed checks the resumed

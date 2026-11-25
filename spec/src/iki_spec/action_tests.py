@@ -204,7 +204,7 @@ class _Check:
                     hint=_known("Its params", action.params),
                 )
         for param, f in action.params.items():
-            if param not in params and f.required and not f.has_default:
+            if params.get(param) is None and f.required and not f.has_default:
                 self.add("missing-param", f"Give {action.name}'s {param}.", ("params",))
         self._files_named(params, files, ("params",))
         inputs = {k: list(v) for k, v in (data.get("inputs") or {}).items()}
@@ -448,6 +448,8 @@ def run_input(
     every = {**types, **{t.qualified_name: t for t in plugin.types.values()}}
     file_ids = {key: _id(4, n) for n, key in enumerate(sorted(test.files), start=1)}
     action = test.action
+    params = {name: field.default for name, field in action.params.items() if field.has_default}
+    params.update({name: value for name, value in test.params.items() if value is not None})
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in action.inputs}
     n = 0
 
@@ -525,7 +527,7 @@ def run_input(
         },
         "command": list(action.command),
         "environment": f"{plugin.name}.{action.environment}",
-        "params": _with_ids(test.params, file_ids),
+        "params": _with_ids(params, file_ids),
         "settings": {**settings, **test.settings},
         "inputs": inputs,
         "files": _fixture_files(test, file_ids, directory, relative_to, formats),

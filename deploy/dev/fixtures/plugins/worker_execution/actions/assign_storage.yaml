@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: Action
+name: assign_storage
+label: Assign default storage
+description: Records where a sample is stored as the fixture's default, if nobody said.
+inputs:
+  sample: { type: ExecutionSample, schema: ">=1" }
+effects:
+  updates: [{ input: sample, fields: [storage] }]
+runs_on: { tier: container, environment: tools }
+command: [python, ./scripts/storage.py]
+deterministic: true
+batchable: 50
+timeout: 5m
