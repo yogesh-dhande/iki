@@ -34,6 +34,7 @@ from iki_server.audit import log
 from iki_server.core.sizes import human_size
 from iki_server.entities import access, registry
 from iki_server.files import acquired, storage
+from iki_server.files import metadata as stated
 from iki_server.files.models import (
     ACQUIRED,
     MEDIA_TYPE,
@@ -171,6 +172,17 @@ def _acquisition(metadata: acquired.FileMetadata, given: str) -> tuple[dt.date |
     if given:
         return dt.date.fromisoformat(given[:10]), given, GIVEN
     return None, "", ""
+
+
+def _stated(metadata: acquired.FileMetadata) -> dict[str, Any]:
+    """What the file says about where its data came from (ADR 0224), as a file keeps it."""
+    facts = stated.stored(metadata.facts)
+    groups = [dict(group) for group in metadata.read_groups]
+    return {
+        "facts": facts,
+        "read_groups": groups,
+        "stated_text": stated.search_text(facts, groups),
+    }
 
 
 def _inspect_upload(upload: Upload) -> _Inspection:
@@ -389,6 +401,7 @@ def _finish(
             acquired_on=acquired_on,
             acquired_at=acquired_at,
             acquired_from=acquired_from,
+            **_stated(inspection.metadata),
         )
         locked.file = file
         _end(locked, UploadState.READY)
@@ -671,6 +684,7 @@ def _registered(registration: Registration, blob: Blob, inspection: _Inspection)
         acquired_on=acquired_on,
         acquired_at=acquired_at,
         acquired_from=acquired_from,
+        **_stated(inspection.metadata),
     )
     registration.file = file
     _end_registration(registration, RegistrationState.READY)

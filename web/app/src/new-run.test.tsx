@@ -6,7 +6,15 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { entity, field, KINASE, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
+import {
+  entity,
+  field,
+  KINASE,
+  NO_FACTS,
+  PROTEIN_ID,
+  renderApp,
+  withTypes,
+} from "./entity-fixtures";
 import { ACTION, batch, run } from "./run-fixtures";
 import { answer, calls, page, problem, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
@@ -430,6 +438,7 @@ describe("starting a run", () => {
       external: false,
       agent: null,
       acquired: null,
+      facts: NO_FACTS,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([fasta]));

@@ -4209,7 +4209,7 @@
             "offset": 0
           }
         ],
-        "reader": null,
+        "reader": "czi",
         "viewer": null,
         "order": 22
       },
@@ -4296,7 +4296,7 @@
           ".csv"
         ],
         "signatures": [],
-        "reader": null,
+        "reader": "csv",
         "viewer": null,
         "order": 26
       },

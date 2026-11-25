@@ -239,6 +239,11 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
     trace = add(project, "Plate-A.pdb", size=95, acquired="2026-03-14")
     notes = add(project, "Plate-B.txt", "text/plain", size=30, acquired="2026-03-15")
     add(project, "instrument.json", "application/json", size=19)
+    aurora = {
+        "instrument": {"value": "Aurora", "stated_in": "FCS keyword $CYT"},
+        "operator": {"value": "Admin", "stated_in": "FCS keyword $OP"},
+    }
+    tube = add(project, "Tube_001.fcs", "application/vnd.isac.fcs", size=40, facts=aurora)
     hidden = add(other, "Plate-Z.pdb", acquired="2026-03-14")
     holders = [structure(world, trace), structure(world, trace)]
     specimen = sample(world, "S-1")
@@ -272,6 +277,7 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
         {"run": runs[0]["hrid"]},
         {"accepts": "text/*"},
         {"max_size": 31},
+        {"q": "AURORA"},
     ]
     for query in filters:
         web = browser.get("/files", project=str(project.pk), sort="name_desc", **query).json()
@@ -293,6 +299,12 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
     with pytest.raises(iki.NotFound) as denied:
         client.files.get(str(hidden.pk))
     assert denied.value.status == 404
+
+    # What a file states (ADR 0224) reads as the browser reads it.
+    stating = client.files.get(str(tube.pk))
+    assert stating["facts"] == browser.get(f"/files/{tube.pk}").json()["facts"]
+    assert stating["facts"]["operator"] == aurora["operator"]
+    assert stating["facts"]["serial"] is None and stating["read_groups"] == []
 
     first = client.files.get(str(trace.pk), page_size=1)
     assert first["used_by"] == {"records": 2, "runs": 2}

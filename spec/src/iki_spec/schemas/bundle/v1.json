@@ -447,7 +447,57 @@
               "type": "null"
             }
           ]
+        },
+        "facts": {
+          "description": "What the file states about its instrument, operator, software and protocol (ADR 0224), each with where in the file it's stated. Left out or empty when it states none.",
+          "type": "object",
+          "properties": {
+            "instrument": { "$ref": "#/$defs/stated_fact" },
+            "manufacturer": { "$ref": "#/$defs/stated_fact" },
+            "serial": { "$ref": "#/$defs/stated_fact" },
+            "instrument_name": { "$ref": "#/$defs/stated_fact" },
+            "operator": { "$ref": "#/$defs/stated_fact" },
+            "software": { "$ref": "#/$defs/stated_fact" },
+            "protocol": { "$ref": "#/$defs/stated_fact" }
+          },
+          "additionalProperties": false
+        },
+        "read_groups": {
+          "description": "A SAM or BAM file's read groups (ADR 0224): each @RG line's standard tags. Left out or empty when it has none.",
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "required": ["ID"],
+            "properties": {
+              "ID": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "BC": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "CN": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "DS": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "DT": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "FO": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "KS": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "LB": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "PG": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "PI": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "PL": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "PM": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "PU": { "type": "string", "minLength": 1, "maxLength": 1024 },
+              "SM": { "type": "string", "minLength": 1, "maxLength": 1024 }
+            },
+            "additionalProperties": false
+          }
         }
+      },
+      "additionalProperties": false
+    },
+    "stated_fact": {
+      "description": "A value a file states, and where in the file it's stated, such as `FCS keyword $CYT`.",
+      "type": "object",
+      "required": ["value", "stated_in"],
+      "properties": {
+        "value": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "stated_in": { "type": "string", "minLength": 1, "maxLength": 200 }
       },
       "additionalProperties": false
     },

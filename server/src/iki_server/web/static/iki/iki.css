@@ -5483,8 +5483,13 @@ input[type="file"]::file-selector-button {
   list-style: none;
 }
 
-.file-used-by {
+.file-used-by,
+.file-read-groups {
   margin-top: 1.5rem;
+}
+
+.file-read-groups > p {
+  margin: 0 0 0.5rem;
 }
 
 .file-used-heading {

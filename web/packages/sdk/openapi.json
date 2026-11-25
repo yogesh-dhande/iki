@@ -7073,6 +7073,7 @@
           },
           "q": {
             "default": "",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -7598,6 +7599,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -7624,6 +7629,14 @@
               }
             ],
             "description": "Where it was added. Null if you can't see it."
+          },
+          "read_groups": {
+            "description": "A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.",
+            "items": {
+              "$ref": "#/components/schemas/ReadGroupOut"
+            },
+            "title": "Read Groups",
+            "type": "array"
           },
           "samples": {
             "description": "The samples it belongs to that you can read.",
@@ -7658,7 +7671,9 @@
           "created_at",
           "external",
           "acquired",
+          "facts",
           "used_by",
+          "read_groups",
           "origin",
           "samples"
         ],
@@ -7706,6 +7721,99 @@
           "features"
         ],
         "title": "FileExportOut",
+        "type": "object"
+      },
+      "FileFactsOut": {
+        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded. Each is null when the file doesn't say, or doesn't say clearly.",
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's model, such as Aurora or Orbitrap Eclipse."
+          },
+          "instrument_name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name the instrument was given, such as an AB1 trace's MCHN."
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made the instrument."
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who operated the instrument."
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's protocol, such as a plate reader's test."
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's serial number."
+          },
+          "software": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The software that recorded the data, and its version where given."
+          }
+        },
+        "required": [
+          "instrument",
+          "manufacturer",
+          "serial",
+          "instrument_name",
+          "operator",
+          "software",
+          "protocol"
+        ],
+        "title": "FileFactsOut",
         "type": "object"
       },
       "FileFilters": {
@@ -7802,7 +7910,7 @@
           },
           "q": {
             "default": "",
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -7997,6 +8105,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8042,7 +8154,8 @@
           "agent",
           "created_at",
           "external",
-          "acquired"
+          "acquired",
+          "facts"
         ],
         "title": "FileOut",
         "type": "object"
@@ -8144,6 +8257,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8193,6 +8310,7 @@
           "created_at",
           "external",
           "acquired",
+          "facts",
           "used_by"
         ],
         "title": "FileRowOut",
@@ -17982,6 +18100,72 @@
         "title": "QuotaScopeOut",
         "type": "object"
       },
+      "ReadGroupOut": {
+        "description": "A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),\nby their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).",
+        "properties": {
+          "BC": {
+            "title": "Bc",
+            "type": "string"
+          },
+          "CN": {
+            "title": "Cn",
+            "type": "string"
+          },
+          "DS": {
+            "title": "Ds",
+            "type": "string"
+          },
+          "DT": {
+            "title": "Dt",
+            "type": "string"
+          },
+          "FO": {
+            "title": "Fo",
+            "type": "string"
+          },
+          "ID": {
+            "title": "Id",
+            "type": "string"
+          },
+          "KS": {
+            "title": "Ks",
+            "type": "string"
+          },
+          "LB": {
+            "title": "Lb",
+            "type": "string"
+          },
+          "PG": {
+            "title": "Pg",
+            "type": "string"
+          },
+          "PI": {
+            "title": "Pi",
+            "type": "string"
+          },
+          "PL": {
+            "title": "Pl",
+            "type": "string"
+          },
+          "PM": {
+            "title": "Pm",
+            "type": "string"
+          },
+          "PU": {
+            "title": "Pu",
+            "type": "string"
+          },
+          "SM": {
+            "title": "Sm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ID"
+        ],
+        "title": "ReadGroupOut",
+        "type": "object"
+      },
       "ReadIn": {
         "properties": {
           "read": {
@@ -27363,6 +27547,26 @@
           "signatures"
         ],
         "title": "StateOut",
+        "type": "object"
+      },
+      "StatedOut": {
+        "properties": {
+          "stated_in": {
+            "description": "Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.",
+            "title": "Stated In",
+            "type": "string"
+          },
+          "value": {
+            "description": "As the file gives it.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "stated_in"
+        ],
+        "title": "StatedOut",
         "type": "object"
       },
       "StepBatchOut": {
@@ -38314,7 +38518,7 @@
     },
     "/api/v1/files": {
       "get": {
-        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name, format, when acquired,\nsample and run; newest first unless ``sort`` says otherwise. Each says how many records\nand runs you can read use it.",
+        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name or of what the file\nstates (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``\nsays otherwise. Each says how many records and runs you can read use it.",
         "operationId": "iki_server_api_files_list_files",
         "parameters": [
           {
@@ -38369,13 +38573,13 @@
             }
           },
           {
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
-              "description": "Part of its name, in any case.",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38576,11 +38780,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38747,11 +38953,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
