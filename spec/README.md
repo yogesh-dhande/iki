@@ -2429,6 +2429,10 @@ expect:
   created in the earlier build. The probe prefers marked fixtures from
   the earlier commit. A plugin can supply current marked fixtures for
   commits whose worker fixtures describe partial input snapshots (ADR 0094).
+- On a marked fixture, `after` gives the values a migrated sample must hold.
+  For example, `after: { sample: [{ notes: S1 }] }` checks the first and only
+  record of the `sample` input. Give one field map per record of each input
+  named in `after`. Values are compared exactly.
 - `files` names files in the plugin. A value or param uses one as
   `{"$file": "name"}`.
 - `expect.output` is compared by what it gives: every key in a mapping,

@@ -872,6 +872,12 @@ def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, databa
 
 
 def test_changes_keep_history(lab: Path, database: str) -> None:
+    readings = (
+        "  mass: { type: quantity, unit: g, min: 0 }",
+        "  mass: { type: quantity, unit: g, min: 0 }\n"
+        "  readings: { type: list, items: { type: quantity, unit: g, min: 0 } }",
+    )
+    write_sample(lab, readings)
     made("lab", "--no-input", cwd=lab.parent)
     out = build(lab.parent, "lab")
     migrate(out, database)
@@ -882,11 +888,11 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
         from iki_plugin_acme__lab.models import Sample, Sample_History
         sample = Sample.objects.create(
             type="acme/lab.Sample", hrid="SMP-000001", owner_project=project,
-            name="S1", mass=1.5, count=3, old="x", temperature=20.0,
+            name="S1", mass=1.5, count=3, old="x", temperature=20.0, readings=[1.5, 0.25],
         )
         Sample_History.objects.create(
             entity_id=sample.pk, revision=1, name="S1", mass=1.5, count=3, old="x",
-            temperature=20.0,
+            temperature=20.0, readings=[1.5, 0.25],
         )
         result = None
         """,
@@ -894,6 +900,7 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
 
     write_sample(
         lab,
+        readings,
         ("  name: {", "  title: {"),
         ("unit: g,", "unit: mg,"),
         ("count: { type: int }", "count: { type: float }"),
@@ -913,6 +920,7 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
         database, "SELECT title, mass, count, old, temperature FROM acme__lab_sample__history"
     )
     assert history == [("S1", 1500.0, 3.0, "x", 293.15)]
+    assert query(database, "SELECT readings FROM acme__lab_sample__history") == [([1500.0, 250.0],)]
     columns = {
         r[0]
         for r in query(
@@ -924,6 +932,7 @@ def test_changes_keep_history(lab: Path, database: str) -> None:
     assert "old" not in columns
 
     migrate(out, database, "acme__lab", "0001")
+    assert query(database, "SELECT readings FROM acme__lab_sample__history") == [([1.5, 0.25],)]
     assert query(database, "SELECT name, mass, count, temperature FROM acme__lab_sample") == [
         ("S1", 1.5, 3, pytest.approx(20.0))
     ]
@@ -2228,16 +2237,14 @@ def test_a_rollback_that_loses_a_value_fails(versioned: Path, _postgres_url: str
         '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [\n"
         "        migrations.RunSQL(\n"
-        "            \"UPDATE acme__lab_sample SET name = 'renamed'\", migrations.RunSQL.noop\n"
+        "            migrations.RunSQL.noop, \"UPDATE acme__lab_sample SET name = 'renamed'\"\n"
         "        )\n"
         "    ]\n"
     )
     result = upgrade(versioned, _postgres_url, "-k", "none")
     assert result.returncode == 1
-    assert (
-        "After the rollback, SMP-000001 (weighed's sample 1) doesn't have the name it had."
-        in result.stdout
-    )
+    assert "FAILED  rolled back" in result.stdout
+    assert 'SMP-000001\'s name is "renamed", but its revision 2 holds "S1".' in result.stdout
 
 
 def test_an_upgrade_keeps_each_revisions_values_as_its_migrations_say(
@@ -2281,9 +2288,265 @@ def test_an_upgrade_that_loses_a_revisions_values_fails(
     result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
     assert result.returncode == 1, result.stdout + result.stderr
     assert "  FAILED  upgraded: the samples and their history are intact" in result.stdout
-    assert "SMP-000001's revision 2 (weighed's sample 1) held count 3, and holds null." in (
-        result.stdout
+    assert "SMP-000001's revision 2 in acme__lab_sample__history was rewritten" in result.stdout
+
+
+def backfill_migration(lab: Path, operations: str, functions: str = "") -> None:
+    write_sample(lab, ADD_NOTES, ("schema_version: 1", "schema_version: 2"))
+    (lab / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
+    made("lab", "--name", "notes", "--no-input", cwd=lab.parent)
+    (lab / "migrations" / "0003_fill.py").write_text(
+        "from django.db import migrations\n"
+        "from iki_server.plugins.operations import MigrateValues\n"
+        + functions
+        + "\nclass Migration(migrations.Migration):\n"
+        '    dependencies = [("acme__lab", "0002_notes"), '
+        '("iki_entities", "0027_migrated_revisions")]\n'
+        f"    operations = [{operations}]\n"
     )
+
+
+FILL = """MigrateValues("Sample", fill, version="1.1.0", migration="0003_fill",
+                        reason="Copy the sample label into the notes.")"""
+FILL_FN = 'def fill(row):\n    return {"notes": row.name}\n'
+
+
+def test_after_cannot_explain_an_unrecorded_fill(versioned: Path, _postgres_url: str) -> None:
+    backfill_migration(
+        versioned,
+        'migrations.RunSQL("UPDATE acme__lab_sample SET notes = name", migrations.RunSQL.noop)',
+    )
+    (versioned / "tests" / "weighed.yaml").write_text(
+        WEIGHED + "upgrade: true\nafter: { sample: [{ notes: S1 }] }\n"
+    )
+    result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert 'SMP-000001\'s notes is "S1", but its revision 2 holds null.' in result.stdout
+
+
+def test_an_empty_history_table_keeps_its_guard_throughout_a_migration(
+    lab: Path, database: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    backfill_migration(
+        lab,
+        "migrations.RunPython(change_guard, migrations.RunPython.noop)",
+        "def change_guard(apps, editor):\n"
+        "    for action in ('DISABLE', 'ENABLE'):\n"
+        "        editor.execute(f'ALTER TABLE acme__lab_sample__history {action} "
+        "TRIGGER iki_history_no_truncate')\n",
+    )
+    second = build_to(lab.parent, "v2", "lab")
+    assert "append-only guard iki_history_no_truncate" in refused(second, database)
+    assert applied(database, "acme__lab") == ["0001_initial"]
+
+
+def test_upgrade_checks_the_value_of_a_recorded_fill(versioned: Path, _postgres_url: str) -> None:
+    backfill_migration(versioned, FILL, FILL_FN)
+    fixture = versioned / "tests" / "weighed.yaml"
+    for expected, message in [
+        ("", "expected notes in after"),
+        ("after: { sample: [{ notes: mistake }] }", "after expects notes"),
+        (
+            "after: { sample: [{ notes: S1 }] }",
+            "upgraded: the samples and their history are intact",
+        ),
+    ]:
+        fixture.write_text(WEIGHED + "upgrade: true\n" + expected + "\n")
+        result = upgrade(versioned, _postgres_url, "-k", "none", "--no-rollback")
+        assert message in result.stdout, result.stdout + result.stderr
+        assert result.returncode == (0 if "S1" in expected else 1)
+
+
+def test_a_manifest_default_is_enough_for_a_new_field(versioned: Path, _postgres_url: str) -> None:
+    write_sample(
+        versioned,
+        ("  count: { type: int }", "  count: { type: int }\n  priority: { type: int, default: 3 }"),
+        ("schema_version: 1", "schema_version: 2"),
+    )
+    made("lab", "--name", "priority", "--no-input", cwd=versioned.parent)
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_deploy_preserves_the_history_table_of_an_inherited_field(lab: Path, database: str) -> None:
+    child = lab / "types" / "aliquot.yaml"
+    original = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Aliquot
+extends: Sample
+schema_version: 1
+hrid: { prefix: ALQ }
+fields:
+  label: { type: string }
+"""
+    child.write_text(original)
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    orm(
+        first,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import ProjectMembership, ProjectRole
+        user = User.objects.create_user("a@example.com", "A")
+        ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.ADMIN)
+        record = services.create(user, "acme/lab.Aliquot", project, {"name": "S1"}).entity
+        services.update(user, record, {"label": "original"}, expected_revision=1)
+        result = None
+    """,
+    )
+    child.write_text(original.replace("  label:", "  annotation:"))
+    made("lab", "--name", "rename_label", cwd=lab.parent, answers="y\n")
+    write_sample(
+        lab, ("  count: { type: int }", "  count: { type: int }\n  label: { type: string }")
+    )
+    made("lab", "--name", "sample_label", "--no-input", cwd=lab.parent)
+    second = build_to(lab.parent, "v2", "lab")
+    problem = refused(second, database)
+    assert "acme/lab.Aliquot.label and its parent acme/lab.Sample.label" in problem, problem
+    assert "different history tables" in problem
+    assert applied(database, "acme__lab") == ["0001_initial"]
+    assert query(database, "SELECT label FROM acme__lab_aliquot__history WHERE revision=2") == [
+        ("original",)
+    ]
+
+
+def test_a_reverse_backfill_records_the_value_it_restores(
+    versioned: Path, _postgres_url: str
+) -> None:
+    backfill_migration(
+        versioned,
+        'MigrateValues("Sample", increase, backwards=decrease, version="1.1.0", '
+        'migration="0003_fill", reason="Adjust the tube count.")',
+        'def increase(row):\n    return {"count": row.count + 1}\n'
+        'def decrease(row):\n    return {"count": row.count - 1}\n',
+    )
+    (versioned / "tests" / "weighed.yaml").write_text(
+        WEIGHED + "upgrade: true\nafter: { sample: [{ count: 4 }] }\n"
+    )
+    result = upgrade(versioned, _postgres_url, "-k", "none")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rolled back: the samples have their values" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "rewrite", ["existing", "new", "history", "both", "append", "recorded", "reverse"]
+)
+def test_deploy_preserves_and_attributes_migrated_values(
+    lab: Path, database: str, rewrite: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    orm(
+        first,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import ProjectMembership, ProjectRole
+        user = User.objects.create_user("a@example.com", "A")
+        ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.ADMIN)
+        record = services.create(user, "acme/lab.Sample", project, {"name": "S1"}).entity
+        services.update(user, record, {"count": 3}, expected_revision=1)
+        result = None
+    """,
+    )
+    snippets = {
+        "existing": "UPDATE acme__lab_sample SET count = 99",
+        "new": "UPDATE acme__lab_sample SET notes = 'undeclared'",
+        "both": "ALTER TABLE acme__lab_sample__history DISABLE TRIGGER iki_history_no_change; "
+        "UPDATE acme__lab_sample SET count = 99; "
+        "UPDATE acme__lab_sample__history SET count = 99; "
+        "ALTER TABLE acme__lab_sample__history ENABLE TRIGGER iki_history_no_change",
+        "history": "UPDATE acme__lab_sample SET count = 99; "
+        "UPDATE acme__lab_sample__history SET count = 99",
+    }
+    if rewrite == "recorded":
+        backfill_migration(lab, FILL, FILL_FN)
+    elif rewrite == "append":
+        backfill_migration(
+            lab,
+            "migrations.RunPython(copy_snapshot, migrations.RunPython.noop)",
+            "from django.db import transaction\n"
+            "def copy_snapshot(apps, editor):\n"
+            "    with transaction.atomic():\n"
+            "        history = apps.get_model('acme__lab', 'Sample_History').objects\n"
+            "        latest = history.order_by('-revision').values().first()\n"
+            "        history.create(**(latest | {'revision': 3}))\n",
+        )
+    elif rewrite == "reverse":
+        backfill_migration(
+            lab,
+            'migrations.RunSQL(migrations.RunSQL.noop, "UPDATE acme__lab_sample SET count = 99")',
+        )
+    else:
+        backfill_migration(lab, f"migrations.RunSQL({snippets[rewrite]!r}, migrations.RunSQL.noop)")
+    second = build_to(lab.parent, "v2", "lab")
+    if rewrite == "recorded":
+        deployed(second, database)
+        [(reason,)] = query(
+            database,
+            "SELECT reason FROM iki_revision WHERE kind='migrated' "
+            "AND number=3 AND via='system' AND user_id IS NULL "
+            "AND changed_fields=ARRAY['notes']::varchar[] AND history_seen=iki_history_seen()",
+        )
+        assert all(word in reason for word in ("acme/lab", "1.1.0", "0003_fill", "Copy the sample"))
+        assert query(database, "SELECT notes FROM acme__lab_sample__history ORDER BY revision") == [
+            (None,),
+            (None,),
+            ("S1",),
+        ]
+        assert query(
+            database,
+            "SELECT data->>'reason' FROM iki_audit_event "
+            "WHERE action='entity.migrated' AND via='system' AND target_label='SMP-000001'",
+        ) == [(reason,)]
+        assert run(
+            second,
+            database,
+            """
+            from django.test import Client
+            from iki_server.accounts.models import User
+            client = Client()
+            client.force_login(User.objects.get(email="a@example.com"))
+            base = "/api/v1/entities/SMP-000001/"
+            revision = client.get(base + "revisions/3", secure=True).json()
+            provenance = client.get(base + "provenance", secure=True).json()
+            result = [revision["kind"], revision["changes"], provenance["notes"]["number"]]
+        """,
+        ) == ["migrated", {"notes": {"before": None, "after": "S1"}}, 3]
+        deployed(second, database)
+        assert query(database, "SELECT count(*) FROM iki_revision") == [(3,)]
+    else:
+        if rewrite == "reverse":
+            deployed(second, database)
+        problem = refused(first if rewrite == "reverse" else second, database)
+        if rewrite == "history":
+            assert "append-only" in problem, problem
+        elif rewrite == "both":
+            assert "changed acme__lab_sample__history's append-only guard" in problem, problem
+        elif rewrite == "append":
+            assert (
+                "revision 3 in acme__lab_sample__history was appended by a raw migration" in problem
+            )
+        else:
+            field = "notes" if rewrite == "new" else "count"
+            assert f"SMP-000001's {field} is" in problem and "its revision 2 holds" in problem, (
+                problem
+            )
+        assert query(database, "SELECT count FROM acme__lab_sample") == [(3,)]
+        assert applied(database, "acme__lab") == (
+            ["0001_initial", "0002_notes", "0003_fill"]
+            if rewrite == "reverse"
+            else ["0001_initial"]
+        )
 
 
 def test_an_upgrade_needs_a_commit_and_a_database(versioned: Path, _postgres_url: str) -> None:

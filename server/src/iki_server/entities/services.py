@@ -1512,6 +1512,7 @@ def changes(entity: Entity, revision: Revision) -> dict[str, tuple[Any, Any]]:
 SETTING = (
     RevisionKind.CREATED,
     RevisionKind.EDITED,
+    RevisionKind.MIGRATED,
     RevisionKind.CURATED,
     RevisionKind.STATE_CHANGED,
 )
@@ -1543,7 +1544,7 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
     """Whether a reader of ``projects`` is told who made a revision and when. A registry
     entry's revisions are told in full only to the project they were made through, and a
     registrar's to every holder (ADR 0115): others learn only that a value was set."""
-    if revision.kind in (RevisionKind.CURATED, RevisionKind.SUPERSEDED):
+    if revision.kind in (RevisionKind.CURATED, RevisionKind.SUPERSEDED, RevisionKind.MIGRATED):
         return True
     entity = Entity.objects.filter(pk=revision.entity_id).values_list("registry_id", flat=True)
     if entity.first() is None:
@@ -1554,7 +1555,7 @@ def discloses(revision: Revision, projects: Iterable[Any]) -> bool:
 def disclosing(projects: Iterable[Any]) -> Q:
     """Which of a registry entry's revisions a reader of ``projects`` is told who made, as
     :func:`discloses` says of one: for filtering by who made them."""
-    return Q(kind__in=(RevisionKind.CURATED, RevisionKind.SUPERSEDED)) | Q(
+    return Q(kind__in=(RevisionKind.CURATED, RevisionKind.SUPERSEDED, RevisionKind.MIGRATED)) | Q(
         project_id__in=list(projects)
     )
 

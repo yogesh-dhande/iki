@@ -1153,6 +1153,7 @@ class RevisionOut(Schema):
     kind: Literal[
         "created",
         "edited",
+        "migrated",
         "archived",
         "restored",
         "curated",

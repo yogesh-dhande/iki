@@ -17,6 +17,8 @@ iki plugin makemigrations "$PLUGIN" --with "$DNA"
 iki plugin test "$PLUGIN" --with "$DNA" --upgrade-from "$BASE"
 ```
 
+Use `MigrateValues` for a backfill, with a reason, plugin version and migration name. The callback returns the columns to set on each historical model instance. Add `after` to a current `upgrade: true` fixture to check the exact values on each sample, for example `after: { sample: [{ notes: S1 }] }`. A newly added field taking its manifest default needs no `after`. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test)
+
 Read the upgrade output and confirm that it created representative samples, moved them forward with history intact and rolled them back with their previous values. Add an explicit migration test when the base action fixtures don't cover important existing values or a signed revision. [Upgrade test contract](https://github.com/yogesh-dhande/iki/blob/main/docs/adr/0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)
 
 ## Preflight the candidate and release

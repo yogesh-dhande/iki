@@ -4,6 +4,7 @@
 - Date: 2026-11-19
 - Refines: [0094](0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md),
   [0148](0148-a-signature-reads-its-record-through-what-migrations-did-since.md)
+- Refined by [0212](0212-migrations-attribute-and-check-record-values.md), which checks added fields and attributed backfills.
 
 ## Context
 

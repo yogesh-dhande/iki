@@ -16465,6 +16465,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",
@@ -19955,6 +19956,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",
@@ -20127,6 +20129,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",

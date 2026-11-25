@@ -154,6 +154,7 @@ ACTIONS: dict[str, str] = {
     "entity.unlinked": "Took an entity out of a project",
     "entity.moved": "Moved a project's record to the entry that superseded its own",
     "entity.assigned": "Assigned a record to someone, or took them off it",
+    "entity.migrated": "Migrated a record’s values",
     "entity.state_changed": "Set a record's state",
     "request.submitted": "Sent a request to another project's service",
     "request.received": "A request came from another project",

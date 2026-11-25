@@ -7,6 +7,7 @@
   [0034](0034-deployment-lockfile-and-plugin-builds.md)
 - Refined by: [0181](0181-check-a-proposed-plugin-against-existing-records.md),
   on the read-only preflight before migrations and the baseline kept at sync.
+- [0212](0212-migrations-attribute-and-check-record-values.md) adds the transactional check that migrated values agree with their history.
 
 ## Context
 

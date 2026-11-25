@@ -13075,7 +13075,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /** Reason */
@@ -14577,7 +14577,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /**
@@ -14656,7 +14656,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /** Reason */

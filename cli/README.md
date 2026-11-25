@@ -182,6 +182,42 @@ is still there with its history. Last, it deploys the earlier commit again,
 as a rollback, and checks the samples' values came back. The database is
 dropped at the end.
 
+For a backfill, define a function in the migration file that reads one row
+and returns a mapping of field names to new column values. An empty mapping skips
+the row. Foreign-key columns take IDs. Keep state transitions in the generated
+state operations. Add the dependency on `("iki_entities", "0027_migrated_revisions")`.
+
+```python
+from django.db import migrations
+from iki_server.plugins.operations import MigrateValues
+
+
+def fill_notes(row):
+    return {"notes": row.name} if row.notes is None else {}
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("acme__lab", "0002_notes"),
+        ("iki_entities", "0027_migrated_revisions"),
+    ]
+    operations = [
+        MigrateValues(
+            "Sample",
+            fill_notes,
+            version="1.1.0",
+            migration="0003_fill",
+            reason="Copy the sample label into the notes.",
+        ),
+    ]
+```
+
+Save this example as `0003_fill.py`. Its changes appear in provenance with
+their system revision and reason. A `backwards` callback can supply values to
+restore. This example is one-way. In a marked upgrade fixture with one
+`sample` input whose name was S1, write `after: { sample: [{ notes: S1 }] }`.
+A newly added field taking its manifest default needs no expectation.
+
 Before it migrates anything, it compares each type then and now
 ([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
 If what a type's entities may hold changed, such as a field added or a

@@ -73,6 +73,7 @@ class ActionTest:
     error: str | None = None
     tolerance: float = TOLERANCE
     upgrade: bool = False
+    after: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass
@@ -207,6 +208,14 @@ class _Check:
         self._files_named(params, files, ("params",))
         inputs = {k: list(v) for k, v in (data.get("inputs") or {}).items()}
         self._inputs(action, inputs, files)
+        after = data.get("after", {})
+        for input_name, expected in after.items():
+            if input_name not in inputs or len(expected) != len(inputs[input_name]):
+                self.add(
+                    "upgrade-after",
+                    f"Give one expected value map per {input_name} sample.",
+                    ("after", input_name),
+                )
         settings = dict(data.get("settings") or {})
         for setting in settings:
             if setting not in self.plugin.settings:
@@ -231,6 +240,7 @@ class _Check:
             error=expect.get("error"),
             tolerance=float(expect.get("tolerance", TOLERANCE)),
             upgrade=data.get("upgrade", False),
+            after=after,
         )
 
     def _inputs(

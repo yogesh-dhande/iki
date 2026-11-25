@@ -470,6 +470,7 @@ class UniqueValue(models.Model):
 class RevisionKind(models.TextChoices):
     CREATED = "created", "Created"
     EDITED = "edited", "Edited"
+    MIGRATED = "migrated", "Migrated"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
     #: One of its state fields set to another state (ADR 0125).
@@ -549,6 +550,10 @@ class Revision(models.Model):
             models.CheckConstraint(condition=Q(number__gte=1), name="iki_revision_number_min"),
             models.CheckConstraint(
                 condition=Q(kind__in=RevisionKind.values), name="iki_revision_kind"
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="migrated") | Q(via="system", user__isnull=True, reason__gt=""),
+                name="iki_revision_migration_reason",
             ),
             # A state change names its field and states; nothing else does.
             models.CheckConstraint(

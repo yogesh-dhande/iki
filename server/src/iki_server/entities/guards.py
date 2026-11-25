@@ -94,7 +94,7 @@ def _history(
     starts: dict[tuple[str, str], int] = {}
     kinds = [RevisionKind.CREATED, RevisionKind.STATE_CHANGED]
     if with_edits:
-        kinds.append(RevisionKind.EDITED)
+        kinds.extend([RevisionKind.EDITED, RevisionKind.MIGRATED])
     revisions = Revision.objects.filter(entity_id=entity.pk, kind__in=kinds).select_related("agent")
     created = None
     for revision in revisions.order_by("number"):

@@ -51,6 +51,7 @@ export function Via({ revision }: { revision: Revision }) {
 export const KIND: Record<string, string> = {
   created: "Created",
   edited: "Edited",
+  migrated: "Migrated",
   archived: "Archived",
   restored: "Restored",
   curated: "Facts changed",

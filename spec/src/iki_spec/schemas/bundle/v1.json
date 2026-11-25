@@ -547,7 +547,15 @@
           "minimum": 1
         },
         "kind": {
-          "enum": ["created", "edited", "archived", "restored", "moved", "state_changed"]
+          "enum": [
+            "created",
+            "edited",
+            "migrated",
+            "archived",
+            "restored",
+            "moved",
+            "state_changed"
+          ]
         },
         "changed_fields": {
           "type": "array",

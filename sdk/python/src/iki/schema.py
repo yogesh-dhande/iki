@@ -3680,7 +3680,7 @@ class ProjectChangeOut(TypedDict):
     entry: NotRequired[bool]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.
@@ -4395,7 +4395,7 @@ class RevisionDetailOut(TypedDict):
     files: dict[str, FileRef]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     #: The people its values and changes name, by ID (ADR 0122).
     people: NotRequired[dict[str, PersonOut]]
@@ -4429,7 +4429,7 @@ class RevisionOut(TypedDict):
     entry: NotRequired[bool]
     #: The holds this revision opened (ADR 0127), by breaking a rule that holds, each with its review once it's reviewed. Kept after the review.
     holds: NotRequired[list[HeldOut]]
-    kind: Literal['created', 'edited', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
+    kind: Literal['created', 'edited', 'migrated', 'archived', 'restored', 'curated', 'superseded', 'moved', 'state_changed']
     number: int
     reason: str
     #: The run that made it, when `via` is `run` and you can read the run's project. For a registry entry's revision, the run that made it through a record.

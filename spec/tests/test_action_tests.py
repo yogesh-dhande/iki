@@ -35,6 +35,33 @@ def write(directory: Path, name: str, text: str) -> None:
 HEADER = "apiVersion: iki/v1\nkind: ActionTest\n"
 
 
+def test_after_names_one_expected_value_map_per_upgrade_sample(
+    protein: tuple[Path, Plugin, dict[str, EntityType]],
+) -> None:
+    directory, plugin, types = protein
+    fixture = (
+        HEADER + "action: compute_properties\ninputs: { protein: [{values: {sequence: MKV}}] }\n"
+    )
+    write(directory, "backfill.yaml", fixture + "after: { protein: [{}] }\n")
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert any(p.code == "schema" for p in loaded.problems)
+    write(
+        directory,
+        "backfill.yaml",
+        fixture + "upgrade: true\nafter: { protein: [], missing: [{}] }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert [p.code for p in loaded.problems] == ["upgrade-after", "upgrade-after"]
+    write(
+        directory,
+        "backfill.yaml",
+        fixture + "upgrade: true\nafter: { protein: [{ molecular_weight: 0 }] }\n",
+    )
+    loaded = action_tests.load_tests(directory, plugin, types)
+    assert loaded.ok, loaded.problems
+    assert loaded.tests[0].after == {"protein": [{"molecular_weight": 0}]}
+
+
 def test_fixtures_are_checked_against_the_plugin(
     protein: tuple[Path, Plugin, dict[str, EntityType]],
 ) -> None:

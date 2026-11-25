@@ -95,6 +95,9 @@ directory intact so the agent can run its scripts.
    `--upgrade-from main --database postgres://…`, it also upgrades the
    entities of `main`'s tests with your new migrations, and rolls them
    back, as CI does on each pull request.
+   For a backfill on existing records, use `MigrateValues` and give the
+   expected fields in `after` on an `upgrade: true` fixture. Each record then
+   carries the migration's reason. See the [backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test).
 5. Commit the manifests, the new migration and the tests together, in one
    pull request.
 

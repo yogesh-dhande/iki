@@ -1,11 +1,12 @@
 """Invalidate inherited evidence on editable plans changed since their recorded check."""
 
 from django.db import migrations
-from django.db.models import F, Max, Q
-from django.db.models.functions import Now
+from django.db.models import Max, Q
+
+from iki_server.plugins.operations import MigrateValues
 
 
-def invalidate(apps, schema_editor):
+def restore_default_trigger(apps, schema_editor):
     alias = schema_editor.connection.alias
     # Legacy trigger settings could be switched off automatically or without a reason.
     # Only a reasoned project Admin opt-out applies to the new default-on recheck.
@@ -15,55 +16,40 @@ def invalidate(apps, schema_editor):
         trigger="iki/plasmid.check_stated_product",
         enabled=False,
     ).update(enabled=True, disabled_at=None, disabled_by_id=None, disabled_reason="")
-    assembly = apps.get_model("iki__plasmid", "Assembly")
-    history = apps.get_model("iki__plasmid", "Assembly_History")
-    revision = apps.get_model("iki_entities", "Revision")
-    entity = apps.get_model("iki_entities", "Entity")
-    plans = assembly.objects.using(alias).filter(locked_by=[])
+
+
+def invalidate(plan):
     inputs = ["product", "method", "enzymes", "backbone", "inserts"]
     outputs = ["matches_product", "simulated_length", "simulated_topology", "junctions"]
-    for plan in plans.exclude(**{f"{field}__isnull": True for field in outputs}).iterator():
-        changes = (
-            revision.objects.using(alias)
-            .filter(entity_id=plan.pk)
-            .aggregate(
-                edited=Max("number", filter=Q(changed_fields__overlap=inputs)),
-                checked=Max("number", filter=Q(changed_fields__contains=["matches_product"])),
-            )
-        )
-        if (changes["edited"] or 0) <= (changes["checked"] or 0):
-            continue
-        prior = (
-            history.objects.using(alias)
-            .filter(entity_id=plan.pk)
-            .order_by("-revision")
-            .values()
-            .first()
-        )
-        if prior is None:
-            continue
-        prior.pop("pk", None)
-        cleared = {field: None for field in outputs}
-        cleared["verification_note"] = "Needs re-verification"
-        number = plan.revision + 1
-        revision.objects.using(alias).create(
-            entity_id=plan.pk,
-            number=number,
-            kind="edited",
-            via="system",
-            changed_fields=list(cleared),
-            reason="The assembly plan changed after its recorded check.",
-        )
-        assembly.objects.using(alias).filter(pk=plan.pk).update(**cleared)
-        entity.objects.using(alias).filter(pk=plan.pk).update(
-            revision=F("revision") + 1, updated_at=Now()
-        )
-        history.objects.using(alias).create(**(prior | cleared | {"revision": number}))
+    if plan.locked_by or all(getattr(plan, field) is None for field in outputs):
+        return {}
+    changes = plan.revisions.using(plan._state.db).aggregate(
+        edited=Max("number", filter=Q(changed_fields__overlap=inputs)),
+        checked=Max("number", filter=Q(changed_fields__contains=["matches_product"])),
+    )
+    if (changes["edited"] or 0) <= (changes["checked"] or 0):
+        return {}
+    return dict.fromkeys(outputs) | {"verification_note": "Needs re-verification"}
+
+
+def keep_invalidated(plan):
+    return {}
 
 
 class Migration(migrations.Migration):
     dependencies = [
         ("iki__plasmid", "0007_assembly_verification_note_and_more"),
         ("iki_runs", "0051_editor_recheck"),
+        ("iki_entities", "0027_migrated_revisions"),
     ]
-    operations = [migrations.RunPython(invalidate, migrations.RunPython.noop)]
+    operations = [
+        migrations.RunPython(restore_default_trigger, migrations.RunPython.noop),
+        MigrateValues(
+            "Assembly",
+            invalidate,
+            backwards=keep_invalidated,
+            version="0.5.0",
+            migration="0008_invalidate_edited_plans",
+            reason="The assembly plan changed after its recorded check.",
+        ),
+    ]

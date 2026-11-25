@@ -29,6 +29,12 @@
       "type": "boolean",
       "default": false
     },
+    "after": {
+      "description": "Expected values after the upgrade, by input name and sample position. Each object names the fields to check on that sample.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "array", "items": { "type": "object" } }
+    },
     "params": {
       "description": "Its params' values, as a person would give them. A file param names one of `files` as `{\"$file\": \"name\"}`.",
       "type": "object"
@@ -106,6 +112,8 @@
       }
     }
   },
+  "if": { "required": ["after"] },
+  "then": { "required": ["upgrade"], "properties": { "upgrade": { "const": true } } },
   "$defs": {
     "hrid": {
       "description": "Its HRID, if the command reads it. Made from the type's prefix unless given.",
