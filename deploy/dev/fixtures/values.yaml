@@ -1,0 +1,35 @@
+# The example plugins' endpoints, credentials and storage in the fixture cluster.
+backendWorkers:
+  caSecret: { name: iki-dev-ca, key: bundle.pem }
+containerTier:
+  extraNamespaces: [iki-runs-shared, iki-runs-bucket]
+egressProxy:
+  allowedNetworks: ["10.96.0.0/16"]
+  caSecret: { name: iki-dev-ca, key: bundle.pem }
+runSecrets:
+  existingSecret: iki-run-secrets
+networkPolicy:
+  # Helm replaces lists, so retain the worker alongside the callback sender.
+  ingressFrom:
+    - podSelector:
+        matchLabels: { app.kubernetes.io/component: worker }
+    - podSelector:
+        matchLabels: { app.kubernetes.io/name: fake-foldcloud }
+  egress:
+    # Runs still reach public HTTPS endpoints as well as the two fake services.
+    egressProxy:
+      ports: [443]
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: fake-lims }
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: fake-foldcloud }

@@ -153,6 +153,7 @@ files = [
   "deploy/aws/tests/test_aws_inventory.py",
   "deploy/aws/tests/test_aws_live.py",
   "deploy/aws/tests/test_aws_live_helpers.py",
+  "deploy/dev/check_seed.py",
   "deploy/dev/sso.py",
   "deploy/dev/tests",
   "scripts/ci",

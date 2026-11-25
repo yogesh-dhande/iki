@@ -14,19 +14,19 @@ deployed with the same Helm chart as production (`deploy/helm/iki`).
 ## Usage
 
 ```console
-make dev-up      # create the cluster (once) and start Tilt; UI at http://localhost:10350
-make dev-creds   # print the generated passwords and keys
-make dev-sso     # set up sign-in through Keycloak (bob becomes the admin)
-make dev-e2e     # run the end-to-end checks against the running cluster
-make dev-ci      # headless: bring everything up, run the checks, exit (what CI runs)
-make dev-down    # delete the cluster
+make dev-up          # start the product cluster and Tilt UI at http://localhost:10350
+make dev-creds       # print the generated passwords and keys
+make dev-sso         # set up sign-in through Keycloak (bob becomes the admin)
+make dev-e2e         # seed and check the running product cluster
+make dev-product-ci  # headless product cluster, science seed and restore check
+make dev-ci          # headless fixture cluster, science and integration checks, then restore
+make dev-down        # delete the cluster
 ```
 
 Tilt rebuilds the server image and redeploys whenever code under `server/`
 changes. It builds the image as a deployment does: the server image, then
 the plugins in [`plugins.lock.yaml`](plugins.lock.yaml), built with
-`iki deploy build --allow-local --test-only` to include the local plugin template,
-and added by
+`iki deploy build --allow-local` and added by
 [`deploy/plugins.Dockerfile`](../plugins.Dockerfile). To try a plugin you
 are writing, add it there with `local:`. `iki deploy build` checks the
 plugins' rules and guards with iki-wasm
@@ -43,6 +43,27 @@ it in the `iki-worker-registration` Secret. Delete that Secret to make a new
 one. [`compute.yaml`](compute.yaml) binds the plugins' environments to the
 worker pod, so their backend actions run there.
 
+## Which cluster to run
+
+For ordinary development, `make dev-up` builds the product plugins in
+[`plugins.lock.yaml`](plugins.lock.yaml). Run `make dev-e2e` to populate
+and verify the four worked cases for a dose-response plate, a verified
+plasmid prep, a lot release certificate and a core facility request.
+Both the product and fixture clusters read the same source datasets.
+
+CI runs `make dev-product-ci` and `make dev-ci` on separate, fresh clusters.
+The latter adds the [fixture plugin pins](fixtures/plugins.lock.yaml),
+[compute bindings](fixtures/compute.yaml) and [Helm values](fixtures/values.yaml).
+The server and worker builds both pass `--test-only` for this overlay.
+It includes the template's container and storage checks, the LIMS import and
+write-back, and FoldCloud jobs and callbacks. Each run backs up the seeded
+database and checks the restored records and files.
+
+To work on those integrations interactively, run `IKI_DEV_FIXTURES=1 make dev-up`,
+then `IKI_DEV_FIXTURES=1 make dev-e2e`. Use a fresh cluster when returning
+to the product profile. `make dev-down` deletes the current dev cluster and
+its data.
+
 ## What runs
 
 | Component                        | Local URL                            | Notes                                                                                     |
@@ -56,13 +77,13 @@ worker pod, so their backend actions run there.
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` includes `alice`, `bob` and `carol`, OIDC client `iki-web` and a SAML client  |
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |
 | Webhook receiver                 | <http://localhost:8090/requests>     | Lists what Iki sent to `http://webhook-receiver.iki.svc:8080/…` webhooks                  |
-| Fake LIMS                        | <http://localhost:8091/requests>     | `https://fake-lims.iki.svc`, for the example LIMS connector; lists the requests runs made |
-| Fake FoldCloud                   | <http://localhost:8092/requests>     | `https://fake-foldcloud.iki.svc`, for the example models plugin; lists the requests made  |
 | Grafana, Tempo, Loki, Prometheus | <http://localhost:3300>              | `grafana/otel-lgtm`; Iki sends OTLP traces and metrics. Dashboards → Iki → Iki (ADR 0098) |
 
-The example LIMS connector (`plugins/lims_connector_example`) imports from the fake LIMS
+The fixture cluster also exposes the requests received by
+[the fake LIMS](http://localhost:8091/requests) and [FoldCloud](http://localhost:8092/requests).
+The example LIMS connector imports from the fake LIMS
 as it would from a lab's: over HTTPS, through the egress proxy, to the host
-its `lims_host` setting gives (`settings/lims_connector_example.yaml`). The LIMS's
+its `lims_host` setting gives ([`fixtures/settings/lims_connector_example.yaml`](fixtures/settings/lims_connector_example.yaml)). The LIMS's
 certificate comes from a dev CA that `up.sh` makes; the backend worker
 trusts it, with the public CAs, through `backendWorkers.caSecret`, as a
 deployment would trust its internal CA. Its token is in `iki-run-secrets`
