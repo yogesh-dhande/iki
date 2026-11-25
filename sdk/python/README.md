@@ -96,12 +96,16 @@ iki.entities.archive("PRT-000123", revision=2, reason="Duplicate of PRT-000099")
 # sample["values"]["status"], and sample["can"]["states"]["status"] with why not.
 sample = iki.entities.get("SAM-000012")
 iki.entities.set_state(
-    "SAM-000012", "status", "in_testing", revision=sample["revision"], reason="Rerun"
+    "SAM-000012",
+    "status",
+    "in_testing",
+    revision=sample["revision"],
+    reason="Begin testing the received portion",
 )
 
 # A locked result may allow a correction. The same update returns it for review,
 # and history records the reason alongside the state change and the edited values.
-result = iki.entities.get("ANR-000012")
+result = iki.entities.get("QCD-000012")
 if result["can"]["correct"]:
     iki.entities.update(
         result["id"],
@@ -111,7 +115,7 @@ if result["can"]["correct"]:
     )
 
 # Read the measured values at the revision QA signed for a request.
-for release in iki.entities.request("REQ-000007")["result_releases"]:
+for release in iki.entities.request("QCR-000007")["result_releases"]:
     if release["signed_revision"] is not None:
         values = iki.entities.revision(release["entity"], release["signed_revision"])["values"]
 
@@ -132,7 +136,7 @@ mine = {"field": "assigned", "op": "eq", "value": "{{ me }}"}  # whoever searche
 
 # Its electronic signatures (21 CFR Part 11), each as people read it, checked again.
 # They're read and checked here; only a person signing in again in the web app signs.
-for signature in iki.signatures.list("SMP-000012", verify=True)["items"]:
+for signature in iki.signatures.list("SAM-000012", verify=True)["items"]:
     print(signature["manifestation"], signature["verification"]["valid"])
 # What you were told (ADR 0129), how you're told of each kind, and what you watch.
 for n in client.notifications.list(unread=True):
@@ -156,23 +160,23 @@ iki.entities.origins("DNA-000042")  # the database record or file it was importe
 
 # Across the graph (ADR 0123): what it was derived from, and what was derived from it,
 # through references, runs and files, nearest first, each with the path that reached it.
-for item in iki.entities.upstream("RES-000004"):
+for item in iki.entities.upstream("SAM-000004"):
     print(item["depth"], item["entity"]["hrid"], [s["kind"] for s in item["path"]])
 impact = iki.entities.downstream("TUB-000001", type="iki/inventory.Tube")
 impact.to_pandas()  # hrid, title, type, project, depth, archived, path
 impact.summary()["total"]  # in every page; "hidden" counts trails you can't read
 iki.entities.downstream_csv("TUB-000001")  # everything at once, as the CSV has it
 iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
-# In a search, with any other condition: every sample from the donor not yet released.
-from_donor = {"field": "downstream", "op": "of", "value": "TUB-000001"}
-unreleased = {"not": {"field": "state", "op": "eq", "value": "released"}}
-iki.entities.search("iki/samples.Sample", where={"all": [from_donor, unreleased]})
+# In a search, with any other condition: every sample drawn from a tube whose results are still pending.
+from_tube = {"field": "downstream", "op": "of", "value": "TUB-000001"}
+open_results = {"not": {"field": "state", "op": "eq", "value": "results_recorded"}}
+iki.entities.search("iki/samples.Sample", where={"all": [from_tube, open_results]})
 
 # What plugins' rules caught (ADR 0127): what a rule holds for review, and what breaks a
 # rule it was saved before, by the rule's name, or by any with is_set. Each says why.
-held = {"field": "held", "op": "eq", "value": "purity_in_specification"}
+held = {"field": "held", "op": "eq", "value": "mass_within_tolerance"}
 breaking = {"field": "breaks", "op": "is_set", "value": True}
-caught = iki.entities.search("iki/samples.Sample", where={"any": [held, breaking]})
+caught = iki.entities.search("iki/lots.OligoLot", where={"any": [held, breaking]})
 caught.to_pandas()[["held", "breaks"]]  # the rules, by name
 for record in caught:
     print(record["hrid"], [(h["label"], h["reason"]) for h in record["holds"]])

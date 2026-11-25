@@ -526,7 +526,7 @@ describe("a project's entities", () => {
       updated_at: "2026-03-14T09:00:00Z",
       can: { change: true, delete: true },
     });
-    answer("GET /api/v1/saved-searches", [saved("From the donor", lineage)]);
+    answer("GET /api/v1/saved-searches", [saved("From the tube", lineage)]);
     answer("POST /api/v1/saved-searches", respond(201, saved("Kinases", lineage)));
     const filters = encodeURIComponent(
       JSON.stringify([{ field: "name", op: "contains", value: "kinase" }]),
@@ -548,9 +548,7 @@ describe("a project's entities", () => {
     const ran = calls("POST", "/api/v1/entities/search").at(-1)?.body;
     expect(ran).toEqual({ ...lineage, sort: newest, limit: 100, project: KINASE.id });
 
-    await user.click(
-      within(screen.getByRole("main")).getByRole("link", { name: "From the donor" }),
-    );
+    await user.click(within(screen.getByRole("main")).getByRole("link", { name: "From the tube" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",
@@ -637,7 +635,7 @@ describe("a project's entities", () => {
       value: `part${String(i + 1)}`,
     }));
     answer("GET /api/v1/saved-searches", [
-      made("Kinases from the donor", stored),
+      made("Kinases from the tube", stored),
       made("Twenty-one names", { exact_type: false, where: { all: many } }),
       made("Long text", { exact_type: false, q: "kinase ".repeat(40).trim() }),
     ]);
@@ -651,7 +649,7 @@ describe("a project's entities", () => {
       "Made with the API: the grid can’t show its conditions.",
     );
     expect(within(saved).queryByRole("link", { name: "Long text" })).toBeNull();
-    await user.click(within(saved).getByRole("link", { name: "Kinases from the donor" }));
+    await user.click(within(saved).getByRole("link", { name: "Kinases from the tube" }));
     await waitFor(() => {
       expect(router.state.location.search).toEqual({
         type: "iki/protein.Protein",

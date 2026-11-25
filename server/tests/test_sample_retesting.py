@@ -1,19 +1,22 @@
 """A reasoned return to sample testing keeps the signed release and revision history."""
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 from typing import Any
 
 import pytest
 from api_client import Api, problem
 from django.core.exceptions import PermissionDenied
+from django.db import connection
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
 from iki_server.amounts import services as amounts
-from iki_server.amounts.models import Amount, DrawPurpose
+from iki_server.amounts.models import Amount, DrawPurpose, Movement
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import services
 from iki_server.entities.models import Entity
@@ -93,9 +96,20 @@ def exercise_retesting() -> None:
         amounts.draw(editor, other, given, used_in=sample, confirm=other.hrid)
     with pytest.raises(amounts.Wrong, match="Scan"):
         amounts.draw(editor, tube, given, used_in=sample)
-    moved = amounts.draw(editor, tube, given, used_in=sample, confirm=tube.hrid)
-    with pytest.raises(amounts.Wrong, match="already recorded"):
-        amounts.draw(editor, tube, given, used_in=sample, confirm=tube.hrid)
+    start = Barrier(2, timeout=10)
+
+    def take(_: int) -> Movement | None:
+        try:
+            start.wait()
+            return amounts.draw(editor, tube, given, used_in=sample, confirm=tube.hrid)
+        except amounts.Wrong as error:
+            assert "already recorded" in str(error)
+            return None
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        (moved,) = [receipt for receipt in pool.map(take, range(2)) if receipt is not None]
     assert Amount.objects.get(entity=tube).value == 95
     [receipt] = analyst.get(path).json()["values"]["receipt"]
     assert receipt["movement"] == str(moved.pk) and receipt["record"] == str(tube.pk)

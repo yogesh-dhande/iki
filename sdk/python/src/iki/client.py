@@ -739,7 +739,10 @@ class Entities(_Part):
         for all or a list, one each::
 
             iki.entities.split(
-                "SMP-000003", 3, (20, "uL"), values=[{"label": f"S-1.{n}"} for n in (1, 2, 3)]
+                "TUB-000003",
+                3,
+                (20, "uL"),
+                values=[{"name": f"Stock portion {n}"} for n in (1, 2, 3)],
             )
         """
         body: dict[str, Any] = {"count": count, "each": _quantity(each), "reason": reason}
@@ -806,7 +809,7 @@ class Entities(_Part):
         Each item's ``path`` says how it was reached; ``summary()["hidden"]`` counts trails
         into entities you can't read::
 
-            for item in iki.entities.upstream("RES-000004"):
+            for item in iki.entities.upstream("SAM-000004"):
                 print(item["depth"], item["entity"]["hrid"])
         """
         return self._walk("upstream", ref, depth, edges, type, archived, project, page_size)
@@ -823,8 +826,7 @@ class Entities(_Part):
         page_size: int = 100,
     ) -> Walk:
         """Everything derived from it that you can read (ADR 0123), nearest first: what
-        refers to it, what runs made from it, and on: what a recall or a donor's consent
-        withdrawal affects::
+        refers to it, what runs made from it, and on: what a stock withdrawal affects::
 
             iki.entities.downstream("TUB-000001", type="iki/inventory.Tube").to_pandas()
         """

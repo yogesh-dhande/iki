@@ -1,11 +1,19 @@
 """Inventory hold flags keep the reason for a second session's edit."""
 
+import json
+import os
+import runpy
 from collections.abc import Mapping
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
+from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from api_client import Api, problem
+from django.db import transaction
+from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
@@ -14,6 +22,9 @@ from iki_server.amounts import services as amounts
 from iki_server.amounts.models import Amount
 from iki_server.entities import services
 from iki_server.entities.models import Entity
+from iki_server.runs import catalog, queue, results, triggers
+from iki_server.runs.models import ActionRun, FiringState, Job, TriggerFiring
+from iki_spec.compute import Binding
 
 __all__ = ["database"]
 
@@ -119,3 +130,66 @@ def exercise_hold_reasons() -> None:
         assert correction["reason"] == clear_reason
         assert correction["changes"]["on_hold"] == {"before": True, "after": cleared}
         assert correction["changes"]["hold_reason"] == {"before": original_reason, "after": None}
+
+    # A split and a transfer give the trigger two descendants. A sibling holding
+    # the very same material has no physical derivation edge from this source.
+    source = make("iki/inventory.Tube", fields)
+    amounts.record(editor, source, amounts.Given.of({"value": 10, "unit": "uL"}))
+    (child,) = amounts.split(editor, source, 1, portion).aliquots
+    amounts.transfer(editor, source, destination, portion)
+    sibling = make("iki/inventory.Tube", fields)
+    env = "iki/inventory.stock-tools"
+    catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
+    trigger = triggers.enable(admin, world.project, "iki/inventory.hold_derived_tubes")
+
+    def hold_stock() -> tuple[ActionRun, dict[str, Any]]:
+        source.refresh_from_db()
+        services.update(
+            editor,
+            source,
+            {"on_hold": True, "hold_reason": original_reason},
+            expected_revision=source.revision,
+        )
+        source.refresh_from_db()
+        firing = TriggerFiring.objects.get(trigger=trigger, entity=source, revision=source.revision)
+        triggers.fire(str(firing.pk))
+        firing.refresh_from_db()
+        assert firing.state == FiringState.LAUNCHED, firing.error
+        run = firing.run
+        assert run is not None
+        assert {(i.name, i.entity_id) for i in run.inputs.all()} == {
+            ("source", source.pk),
+            ("tubes", child.pk),
+            ("tubes", destination.pk),
+        }
+        job = Job.objects.get(run=run)
+        job.lease_token, job.lease_expires_at = uuid4(), timezone.now() + queue.LEASE_TTL
+        with TemporaryDirectory() as tmp:
+            input_file, output_file = Path(tmp) / "input.json", Path(tmp) / "output.json"
+            input_file.write_text(json.dumps(queue.payload(job, run)))
+            with patch.dict(os.environ, IKI_INPUT=str(input_file), IKI_OUTPUT=str(output_file)):
+                runpy.run_path(str(PLUGIN / "scripts" / "hold.py"), run_name="__main__")
+            return run, json.loads(output_file.read_text())
+
+    def commit(run: ActionRun, output: dict[str, Any]) -> None:
+        with transaction.atomic():
+            results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
+
+    stale, output = hold_stock()
+    services.update(
+        admin, source, {"on_hold": False}, reason=clear_reason, expected_revision=source.revision
+    )
+    with pytest.raises(results.Rejected, match="changed after"):
+        commit(stale, output)
+    children = services.current_values_of([child, destination])
+    assert not any(v["on_hold"] for v in children.values())
+
+    fresh, output = hold_stock()
+    commit(fresh, output)
+    values = services.current_values_of([child, destination, sibling])
+    assert not values[sibling.pk]["on_hold"]
+    for record in [child, destination]:
+        assert values[record.pk]["on_hold"]
+        assert (
+            values[record.pk]["hold_reason"] == f"Withdrawn stock {source.hrid}: {original_reason}"
+        )

@@ -1103,7 +1103,7 @@ def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, 
                 "id": entity(h)["id"],
                 "hrid": h,
                 "title": h,
-                "type": "iki/inventory.Tube",
+                "type": "iki/samples.Sample" if h.startswith("SAM-") else "iki/inventory.Tube",
                 "archived": False,
                 "entry": None,
                 "project": {"id": "p", "name": "Kinase Atlas", "slug": "k"},
@@ -1112,7 +1112,7 @@ def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, 
             "path": [
                 {
                     "kind": "reference",
-                    "field": "donor",
+                    "field": "source",
                     "run": None,
                     "hidden_run": False,
                     "file": None,
@@ -1154,12 +1154,12 @@ def test_downstream_walks_a_page_at_a_time_and_sums_up(fake: FakeIki, client: Cl
 
 
 def test_upstream_as_a_frame_and_as_csv(fake: FakeIki, client: Client) -> None:
-    fake.on("GET", "/api/v1/entities/RES-000004/upstream", _walk_page(["ALQ-000001"], None))
-    frame = client.entities.upstream("RES-000004", edges=["reference"]).to_pandas()
-    assert list(frame.index) == ["ALQ-000001"]
-    assert frame.loc["ALQ-000001", "path"] == "donor ALQ-000001"
-    assert frame.loc["ALQ-000001", "project"] == "Kinase Atlas"
-    (sent,) = fake.sent("GET", "/api/v1/entities/RES-000004/upstream")
+    fake.on("GET", "/api/v1/entities/SAM-000004/upstream", _walk_page(["TUB-000001"], None))
+    frame = client.entities.upstream("SAM-000004", edges=["reference"]).to_pandas()
+    assert list(frame.index) == ["TUB-000001"]
+    assert frame.loc["TUB-000001", "path"] == "source TUB-000001"
+    assert frame.loc["TUB-000001", "project"] == "Kinase Atlas"
+    (sent,) = fake.sent("GET", "/api/v1/entities/SAM-000004/upstream")
     assert sent.url.params.get_list("edges") == ["reference"]
     fake.on(
         "GET",

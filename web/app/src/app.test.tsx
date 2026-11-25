@@ -645,12 +645,12 @@ describe("members", () => {
   const QA = {
     name: "iki/lab_roles.qa",
     label: "QA",
-    description: "Releases reviewed samples.",
-    plugin: "iki/samples",
+    description: "Releases reviewed deliverables.",
+    plugin: "iki/lab_roles",
     uses: [
       {
         kind: "approval",
-        owner: "iki/samples.release",
+        owner: "acme/qms.release",
         name: "release",
         description: "approve “Release” in Release a batch",
       },
@@ -660,7 +660,7 @@ describe("members", () => {
     name: "iki/lab_roles.reviewer",
     label: "Reviewer",
     description: "Checks another analyst’s results.",
-    plugin: "iki/samples",
+    plugin: "iki/lab_roles",
     uses: [],
   };
   const granted = (role: { name: string; label: string }, declared = true) => ({
@@ -717,7 +717,7 @@ describe("members", () => {
     expect(screen.getByRole("heading", { name: "Lab roles" })).toBeVisible();
     expect(
       screen.getByText(
-        "Releases reviewed samples. Needed to approve “Release” in Release a batch.",
+        "Releases reviewed deliverables. Needed to approve “Release” in Release a batch.",
       ),
     ).toBeVisible();
     expect(screen.queryByRole("button", { name: /^Lab roles/ })).toBeNull();
