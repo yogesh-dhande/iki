@@ -1,10 +1,12 @@
 # Splitting the example LIMS before M1
 
-This is the phase 1 inventory for `a794df0f` and the implementation plan for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). Start phase 2 after the WorkItem/plain Deliverable change merges and the coordinator gives the go-ahead. Rebase on its merged revision and repeat the inventory before moving any files.
+Phase 1 mapped the `a794df0f` tree for [ADR 0211](adr/0211-lots-inventory-samples-and-requests.md). The split carries forward example LIMS **0.10.0** from `231cd950`, including the private WorkItem and plain deliverable introduced in 0.9.0.
+
+The request family marks a request delivered only after every recorded result is returned and every expected material has a returned result. A deliverable’s immutable `material` identifies the sample, tube or recorded aliquot it covers. The dose-response starter commissions the two compound tubes. Its luciferase stock and ledger-backed sample belong to the service project. The split retains the run-import request checks and the reviewed put-away plan from main.
 
 ## What moves
 
-Paths in the first column are relative to `plugins/example_lims/`. The current manifest is version `0.8.1`.
+Paths in the first column are relative to `plugins/example_lims/`. The phase 1 manifest was version `0.8.1`.
 
 | Current part                                                                                                               | Destination and change                                                                                                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
