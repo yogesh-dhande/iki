@@ -5,6 +5,7 @@ results back. Each side reads only what the request gives it, and writes only it
 import hashlib
 import json
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -13,6 +14,7 @@ from api_client import Api, problem
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from org_world import World, build_world
 from test_api_entities import create, patch
+from test_audit import as_app_role
 from test_signatures import begin, evidence, past_the_triggers, ready, signed
 
 from iki_server.accounts.models import User
@@ -30,9 +32,12 @@ from iki_server.org.models import (
     Registry,
 )
 from iki_server.org.services import Refused
+from iki_server.plugins.operations import unlocked
 from iki_server.signatures import services as signatures
 from iki_server.signatures.models import Status
 from iki_spec.model import Signature
+
+__all__ = ["as_app_role"]  # imported fixture
 
 pytestmark = pytest.mark.django_db
 
@@ -633,6 +638,18 @@ def raw(statement: str, params: list[Any], *sides: str) -> None:
     """Runs SQL as a write of ``sides`` (none: the asking project's), as Iki's own would."""
     with transaction.atomic(), requests.writing(frozenset(sides)), connection.cursor() as cursor:
         cursor.execute(statement, params)
+
+
+def test_only_the_migrator_can_rewrite_request_values_across_sides(
+    lab: Lab, as_app_role: Callable[[str], None]
+) -> None:
+    sent(lab, sample(lab, "S-1"))
+    table = next(g.table for g in requests.guarded_tables() if "core_notes" in g.service_columns)
+    rewrite = f"UPDATE {table} SET core_notes = 'Migration notes'"  # noqa: S608 - fixture table
+    with connection.schema_editor() as editor, unlocked(editor):
+        with pytest.raises(DatabaseError, match="the service writes its fields"):
+            as_app_role(rewrite)
+        editor.execute(rewrite)
 
 
 def test_the_database_holds_each_side_to_its_own_columns(lab: Lab) -> None:

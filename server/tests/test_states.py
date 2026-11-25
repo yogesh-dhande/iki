@@ -2,6 +2,7 @@
 state set by the lab roles (ADR 0116) it names, from any other, some needing a reason, and
 states that lock a record against every change but its state fields'."""
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from org_world import PRINCIPALS, World, build_world
 from test_api_entities import api_as, create, patch
+from test_audit import as_app_role
 from test_bulk_imports import finished, lines, upload
 from test_lab_roles import give, membership
 from test_run_imports import SHA
@@ -28,13 +30,14 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_server.plugins.operations import unlocked
 from iki_server.runs.models import TriggerFiring
 from iki_server.webhooks import services as webhooks
 from iki_server.webhooks.models import Delivery
 
 pytestmark = pytest.mark.django_db
 
-__all__ = ["keep_connection", "world"]  # fixtures, from test_workers and test_runs
+__all__ = ["as_app_role", "keep_connection", "world"]  # imported fixtures
 
 SAMPLE = "acme/protein.Sample"
 ANALYST, REVIEWER, QA = "acme/protein.analyst", "acme/protein.reviewer", "acme/protein.qa"
@@ -350,6 +353,18 @@ def test_an_archived_record_keeps_its_states(world: World) -> None:
 
 
 # --- Locked ---------------------------------------------------------------------------------------
+
+
+def test_only_the_migrator_can_rewrite_locked_values(
+    world: World, as_app_role: Callable[[str], None]
+) -> None:
+    reviewed(world)
+    table = registry.model(SAMPLE)._meta.db_table
+    rewrite = f"UPDATE {table} SET notes = notes"  # noqa: S608 - fixture table
+    with connection.schema_editor() as editor, unlocked(editor):
+        with pytest.raises(IntegrityError, match="is locked by its status"):
+            as_app_role(rewrite)
+        editor.execute(rewrite)
 
 
 def test_a_locked_record_refuses_every_change_but_its_states(world: World) -> None:
