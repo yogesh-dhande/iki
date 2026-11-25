@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any
+from typing import Any, BinaryIO
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -103,9 +103,16 @@ def exercise() -> None:
         def upload(source: Path, key: str, media_type: str) -> None:
             (bucket / Path(key).name).write_bytes(source.read_bytes())
 
+        def open_object(uri: str, version: str = "", offset: int = 0) -> BinaryIO:
+            # What the malware scan reads before the file can be used (ADR 0216).
+            stored = (bucket / Path(uri).name).open("rb")
+            stored.seek(offset)
+            return stored
+
         with (
             patch.object(storage, "exists", side_effect=exists),
             patch.object(storage, "upload_file", side_effect=upload),
+            patch.object(storage, "open_object", side_effect=open_object),
         ):
             for flow in ("research", "regulated_qc"):
                 world = build_world(flow)
