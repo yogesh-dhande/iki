@@ -408,9 +408,8 @@ and A260/280. Launching the action on the revised report matches each create to 
   edit it. A value that differs in an `immutable` field, such as a sample moved to another order,
   fails the run, as does a record that's locked, such as one that's been signed; the run names
   the record.
-- **A record may come only once.** In a creates file, a second line with the same core ID fails the
-  run. In `creates`, a later create would match the record an earlier one made, and change it. So
-  the command checks for repeats itself, and names both rows.
+- **A record may come only once.** The command checks the report for repeated core IDs itself
+  and names both rows, so whoever fixes the report sees where.
 
 For a type that's registered by its identity, such as a sequence, a create with no match yet takes
 the project's own record of that identity if that record has no value for the field yet, so a
