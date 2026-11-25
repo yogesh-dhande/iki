@@ -45,8 +45,8 @@ def _documents(file: Path) -> list[Document]:
 
 
 def _qualified(plugin: str, name: str) -> str:
-    """A type as the manifests name it, in full: ``Sample`` in iki/example_lims is
-    ``iki/example_lims.Sample``; another plugin's is already in full."""
+    """A type as the manifests name it, in full: ``Sample`` in iki/samples is
+    ``iki/samples.Sample``; another plugin's is already in full."""
     return name if "." in name else f"{plugin}.{name}"
 
 

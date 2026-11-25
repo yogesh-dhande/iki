@@ -7,16 +7,19 @@ category: collaboration
 order: 10
 prerequisites:
   plugins:
-    - { name: iki/example_lims }
+    - { name: iki/requests }
+    - { name: iki/inventory }
+    - { name: iki/lab_roles }
   roles:
-    - { role: Requesters, needs: "Project Editor in their own project" }
-    - { role: Coordinator, needs: "Lab role Coordinator in the core's project" }
-    - { role: Analyst, needs: "Lab role Analyst in the core's project" }
-    - { role: Reviewer, needs: "Lab role Reviewer in the core's project" }
+    - { role: Requesters, needs: "Project Editor in their own project; a Coordinator there can withdraw a request" }
+    - { role: Coordinator, needs: "In the core's project: accepts or declines requests and receives tubes" }
+    - { role: Analyst, needs: "In the core's project: does the work and keeps its work items" }
+    - { role: Reviewer, needs: "In the core's project: delivers each result and completes the request" }
   compute: none
 reference:
-  - { label: iki/example_lims.CoreFacilityRequest, href: /reference/plugins/example-lims/#CoreFacilityRequest }
-  - { label: iki/example_lims.CoreDeliverable, href: /reference/plugins/example-lims/#CoreDeliverable }
+  - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
+  - { label: iki/requests.WorkItem, href: /reference/plugins/requests/#WorkItem }
+  - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
   - { label: "EntityType: request", href: /reference/plugin-spec/entity-type/#request }
   - { label: "EntityType: result", href: /reference/plugin-spec/entity-type/#result }
 ---
@@ -32,25 +35,27 @@ A sequencing core serves three research projects. With this setup:
 - Requests arrive at the core in one queue, each with the tubes and the sequencing its project
   asked for, and the core's coordinators hear of each one as it arrives.
 - The core sees exactly what was sent with a request, and nothing else of the project's.
-- Each project sees only its own requests.
-- Results come back attached to the request, one for each tube, and every change to either is
-  kept in its history.
+- Each project sees only its own requests, and none of the core's own records of the work.
+- Results come back attached to the request, one for each tube, and the request can't be closed
+  until every tube has one. Every change to any of these records is kept in its history.
+
+The same request types serve any team asking another for work: a lot sent for testing, a protein
+to be produced, data to be analysed.
 
 <RequestFlow />
 
 <ExampleUses
   prerequisites={frontmatter.prerequisites}
-  intro="A lab installs the example LIMS plugin and a small plugin of its own that declares its request and deliverable types, then gives people the example plugin's lab roles in the core's project. Nothing in this flow runs code, so it needs no compute."
+  intro="A lab installs three of Iki's plugins and writes none of its own: Requests, with Inventory for the tubes and Lab roles for the roles. The core's project takes Plain requests from the three research projects, and people get the lab roles below. Nothing in this flow runs code, so it needs no compute."
 >
 
-This lab's request type extends the example plugin's Core facility request and adds nothing: its
-fields, states and rule are the plugin's. The project that asked writes it and sends it to the core.
-The fields the core sets are the core's: the project can read them but not change them.
+The project that asks writes a **request** and sends it to the core. The core sets its own fields
+on it, which the project can read but not change.
 
 <RecordCard
-  label="Core facility request"
-  name="iki/example_lims.CoreFacilityRequest"
-  href="/reference/plugins/example-lims/#CoreFacilityRequest"
+  label="Plain request"
+  name="iki/requests.PlainRequest"
+  href="/reference/plugins/requests/#PlainRequest"
   fields={[
     { name: "Title", type: "text", value: "Clones 3-8 insert check" },
     { name: "Service requested", type: "choice", value: "Sequencing" },
@@ -66,28 +71,53 @@ The fields the core sets are the core's: the project can read them but not chang
       name: "Status",
       type: "state",
       value: "In progress",
-      note: "Set by the core, with the plugin's states: Submitted, Accepted, In progress, Delivered and Declined, each set by a lab role.",
+      note: "Set by the core: Submitted, Accepted, In progress, Delivered, or Declined with a reason.",
     },
     { name: "Analyst", type: "person", value: "Maya Okafor" },
   ]}
   rules={[
     "A sequencing request names its method and the tubes the core will receive, or it can't be saved.",
+    "It can be set to Delivered only once every tube on it has a delivered result, for the tube or for an aliquot the core split from it, and no recorded result is still waiting.",
   ]}
 />
 
-The core records one deliverable for each tube. This lab's deliverable type extends the example
-plugin's Core deliverable, which holds the outcome, the report, the tube and the sequencing files and
-declares no states. The lab adds a Request field and a Status with two states, Recorded and
-Delivered. When a Reviewer sets a deliverable to Delivered, it goes back to the requesting project
-as a result of the request; a Reviewer then sets the request to Delivered.
+The core plans and tracks its work in a **work item** in its own project. The project that asked
+never sees it, and no other project can link to it.
 
 <RecordCard
-  label="Core deliverable"
-  name="iki/example_lims.CoreDeliverable"
-  href="/reference/plugins/example-lims/#CoreDeliverable"
+  label="Work item"
+  name="iki/requests.WorkItem"
+  href="/reference/plugins/requests/#WorkItem"
   fields={[
-    { name: "Request", type: "request", value: "SEQ-000031", note: "Added by this lab." },
-    { name: "Tube", type: "tube", value: "TUB-000412" },
+    { name: "Request", type: "request", value: "REQ-000031" },
+    { name: "Priority", type: "choice", value: "High" },
+    { name: "Scheduled date", type: "date", value: "2026-12-03" },
+    { name: "Instrument", type: "text", value: "3730xl capillary sequencer" },
+    { name: "Internal notes", type: "text", value: "Rerun the TUB-000413 reverse read" },
+    {
+      name: "Status",
+      type: "state",
+      value: "Running",
+      note: "Queued, then Scheduled, Running and Done in that order, or Cancelled with a reason, each set by an Analyst.",
+    },
+  ]}
+/>
+
+For each tube the core records a **deliverable**: the outcome, a report and the sequencing files.
+The requesting project sees it once a Reviewer sets it to Delivered.
+
+<RecordCard
+  label="Plain deliverable"
+  name="iki/requests.PlainDeliverable"
+  href="/reference/plugins/requests/#PlainDeliverable"
+  fields={[
+    { name: "Request", type: "request", value: "REQ-000031" },
+    {
+      name: "Material",
+      type: "record",
+      value: "TUB-000412",
+      note: "A tube on the request, or an aliquot the core split from it.",
+    },
     { name: "Outcome", type: "choice", value: "Fulfilled" },
     { name: "Report", type: "file", value: "TUB-000412-report.pdf" },
     { name: "Sequencing files", type: "list of files", value: "TUB-000412_F.ab1, TUB-000412_R.ab1" },
@@ -95,7 +125,7 @@ as a result of the request; a Reviewer then sets the request to Delivered.
       name: "Status",
       type: "state",
       value: "Delivered",
-      note: "Added by this lab: Recorded, then Delivered, which a Reviewer sets without a signature.",
+      note: "Recorded, then Delivered, which a Reviewer sets without a signature while the request is open and in progress.",
     },
   ]}
 />
@@ -104,24 +134,25 @@ as a result of the request; a Reviewer then sets the request to Delivered.
 
 ## What Iki records along the way
 
-- Every change to a request or a result is a revision: who made it, through what, when, and which
-  values changed. Earlier values stay in the record's history.
-- A declined or withdrawn request keeps the reason it was given.
+- Every change to a request, work item or deliverable is a revision: who made it, through what,
+  when, and which values changed. Earlier values stay in the record's history.
+- A declined, withdrawn or cancelled record keeps the reason it was given.
 - Each record's audit trail can be exported as CSV.
 
 ## Variations of the workflow
 
-- Require a signed review before a result goes back: add a signature to the deliverable's Delivered
-  state, as the example plugin's
-  [ResearchCoreDeliverable](/reference/plugins/example-lims/#ResearchCoreDeliverable) does with
-  its Signed off state.
-- Require signatures by the analyst, a reviewer and QA in turn: follow the plugin's
-  [QCCoreDeliverable](/reference/plugins/example-lims/#QCCoreDeliverable), whose result goes back
-  when QA sets it to Released.
-- Let analysts start work without acceptance: give the lab's request type its own Status without
-  Accepted, in place of extending Core facility request, whose states a type that extends it can't
-  change.
+- Require a signed review before a result goes back: use the
+  [Research request](/reference/plugins/requests/#ResearchRequest) and
+  [Research deliverable](/reference/plugins/requests/#ResearchDeliverable), where a Reviewer signs
+  each deliverable Signed off.
+- Require signatures by the analyst, a reviewer and QA in turn: use the
+  [QC request](/reference/plugins/requests/#QCRequest) and
+  [QC deliverable](/reference/plugins/requests/#QCDeliverable), whose result goes back when QA
+  signs it Released.
 - Take requests from a LIMS the lab already has: add an action that reads them through its API and
-  a trigger that runs it on a schedule, as the plugin's
-  [import_from_lims](/reference/plugins/example-lims/#import_from_lims) does for proteins.
-- Charge each request to a cost centre: add a required cost centre field to the lab's request type.
+  a trigger that runs it on a schedule, as the example LIMS connector's
+  [import_from_lims](/reference/plugins/lims-connector-example/#import_from_lims) does for proteins.
+- Charge each request to a cost centre: write a request type of the lab's own that extends Plain
+  request and adds a required cost centre field.
+- Let analysts start work without acceptance: write a request type of the lab's own with states
+  that leave out Accepted. A type that extends Plain request keeps its states.

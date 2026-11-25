@@ -8,7 +8,9 @@ order: 10
 prerequisites:
   plugins:
     - { name: iki/plate_assays, version: ">=0.2" }
-    - { name: iki/example_lims, version: ">=0.8" }
+    - { name: iki/requests, version: ">=0.1" }
+    - { name: iki/samples, version: ">=0.1" }
+    - { name: iki/lab_roles, version: ">=0.1" }
   starter: iki/plate_assays.dose-response
   roles:
     - { role: Admin, needs: "Project Admin of the assay service, and Editor of the requesting project" }
@@ -57,7 +59,7 @@ hold this assay, completed.
 Use two active projects in the same registry with sharing enabled: the assay service, and the
 project that asks for the assay. Sign in as an admin of the service project with edit access to
 the requesting project. If the service already takes requests, its intake settings must allow
-**Analysis request** from this requester; on a new service, the starter configures that intake.
+**Research request** or **QC request**, for the chosen flow, from this requester; on a new service, the starter configures that intake.
 The deployment needs the `iki/plate_assays` plugin, its dependencies and a worker bound to
 `iki/plate_assays.assay-tools` ([deploy a plugin](/guides/keep-configuration-in-a-repository/#how-a-change-reaches-a-deployment)).
 
@@ -75,7 +77,7 @@ FLOW=regulated_qc    # Set to research for one sign-off.
 options=(
   dose-response --version 1.0.0 --project "$ASSAY_PROJECT"
   --requester-project "$REQUESTER_PROJECT" --flow "$FLOW"
-  --role "iki/example_lims.coordinator=$COORDINATOR"
+  --role "iki/lab_roles.coordinator=$COORDINATOR"
   --role "iki/plate_assays.analyst=$ANALYST"
   --role "iki/plate_assays.reviewer=$REVIEWER"
 )

@@ -1,16 +1,19 @@
 ---
 // The core facility example's flow: the requesting project's lane and the core's, with the
-// request's states and the lab roles that set them. Drawn in the page's colours, in both themes.
+// request's states and the lab roles that set them, the core's private work item, and its
+// deliverables. Drawn in the page's colours, in both themes.
 ---
 
 <figure class="flow">
-  <svg viewBox="0 0 360 470" role="img" aria-labelledby="request-flow-title request-flow-desc">
+  <svg viewBox="0 0 360 566" role="img" aria-labelledby="request-flow-title request-flow-desc">
     <title id="request-flow-title">This lab's request flow</title>
     <desc id="request-flow-desc">
       The requesting project writes a request and sends its tubes. At the core the request is
-      Submitted, then Accepted or Declined by a coordinator, In progress with an analyst, a reviewer
-      delivers a result for each tube, and then sets the request to Delivered. The requesting
-      project can withdraw the request while it's open, and sees each result as it's delivered.
+      Submitted, then Accepted or Declined by a coordinator, and In progress with an analyst. The
+      core tracks its own work in a work item only its project sees: Queued, Scheduled, Running,
+      Done. A reviewer delivers a deliverable for each tube, which the requesting project then sees.
+      A reviewer or QA sets the request to Delivered once once every tube has a result. The
+      requesting project can withdraw the request while it's open.
     </desc>
     <text class="lane" x="66" y="20">
       Requesting project
@@ -18,8 +21,7 @@
     <text class="lane" x="256" y="20">
       Sequencing core
     </text>
-    <line class="divider" x1="140" y1="32" x2="140" y2="436"></line>
-
+    <line class="divider" x1="140" y1="32" x2="140" y2="520"></line>
     <rect class="box" x="6" y="44" width="124" height="48" rx="6"></rect>
     <text class="label" x="68" y="64">
       Writes a request
@@ -27,23 +29,20 @@
     <text class="note" x="68" y="81">
       and sends its tubes
     </text>
-
-    <rect class="box" x="6" y="164" width="124" height="48" rx="6"></rect>
-    <text class="label" x="68" y="184">
+    <rect class="box" x="6" y="124" width="124" height="48" rx="6"></rect>
+    <text class="label" x="68" y="144">
       Can withdraw it
     </text>
-    <text class="note" x="68" y="201">
+    <text class="note" x="68" y="161">
       while it's open
     </text>
-
-    <rect class="box" x="6" y="284" width="124" height="48" rx="6"></rect>
-    <text class="label" x="68" y="304">
+    <rect class="box" x="6" y="364" width="124" height="48" rx="6"></rect>
+    <text class="label" x="68" y="384">
       Sees each result
     </text>
-    <text class="note" x="68" y="321">
+    <text class="note" x="68" y="401">
       as it's delivered
     </text>
-
     <rect class="state" x="158" y="44" width="196" height="48" rx="6"></rect>
     <text class="label" x="256" y="64">
       Submitted
@@ -51,7 +50,6 @@
     <text class="note" x="256" y="81">
       sent, waiting for the core
     </text>
-
     <rect class="state" x="158" y="124" width="196" height="48" rx="6"></rect>
     <text class="label" x="256" y="144">
       Accepted, or Declined
@@ -59,7 +57,6 @@
     <text class="note" x="256" y="161">
       set by a Coordinator
     </text>
-
     <rect class="state" x="158" y="204" width="196" height="48" rx="6"></rect>
     <text class="label" x="256" y="224">
       In progress
@@ -67,21 +64,29 @@
     <text class="note" x="256" y="241">
       set by the Analyst
     </text>
-
-    <rect class="box" x="158" y="284" width="196" height="48" rx="6"></rect>
+    <rect class="private" x="158" y="284" width="196" height="48" rx="6"></rect>
     <text class="label" x="256" y="304">
-      A result for each tube
+      A work item
     </text>
     <text class="note" x="256" y="321">
-      delivered by a Reviewer
+      Queued, Scheduled, Running, Done
     </text>
-
-    <rect class="state" x="158" y="364" width="196" height="48" rx="6"></rect>
+    <rect class="box" x="158" y="364" width="196" height="48" rx="6"></rect>
     <text class="label" x="256" y="384">
-      Delivered
+      A deliverable for each tube
     </text>
     <text class="note" x="256" y="401">
-      set by a Reviewer
+      delivered by a Reviewer
+    </text>
+    <rect class="state" x="158" y="444" width="196" height="62" rx="6"></rect>
+    <text class="label" x="256" y="464">
+      Delivered
+    </text>
+    <text class="note" x="256" y="481">
+      set by a Reviewer or QA
+    </text>
+    <text class="note" x="256" y="497">
+      once every tube has a result
     </text>
 
     <path class="arrow" d="M130 68 H152"></path>
@@ -94,12 +99,18 @@
     <path class="head" d="M256 284 l-4 -7 h8 z"></path>
     <path class="arrow" d="M256 332 V358"></path>
     <path class="head" d="M256 364 l-4 -7 h8 z"></path>
-    <path class="arrow" d="M158 308 H136"></path>
-    <path class="head" d="M130 308 l7 -4 v8 z"></path>
+    <path class="arrow" d="M256 412 V438"></path>
+    <path class="head" d="M256 444 l-4 -7 h8 z"></path>
+    <path class="arrow" d="M158 388 H136"></path>
+    <path class="head" d="M130 388 l7 -4 v8 z"></path>
 
-    <rect class="key-state" x="6" y="446" width="14" height="12" rx="3"></rect>
-    <text class="key" x="26" y="456">
+    <rect class="key-state" x="6" y="528" width="14" height="12" rx="3"></rect>
+    <text class="key" x="26" y="538">
       A state of the request, and the lab role that sets it
+    </text>
+    <rect class="key-private" x="6" y="548" width="14" height="12" rx="3"></rect>
+    <text class="key" x="26" y="558">
+      Seen only in the core's project
     </text>
   </svg>
 </figure>
@@ -147,6 +158,12 @@
   .key-state {
     fill: var(--accent-soft);
     stroke: var(--accent);
+  }
+  .private,
+  .key-private {
+    fill: none;
+    stroke: var(--border-strong);
+    stroke-dasharray: 5 4;
   }
   .arrow {
     fill: none;

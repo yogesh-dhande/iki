@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { anchors, extensionId, fieldRows, prepared, typeHref, type Plugin } from "./plugins.ts";
 
 const lims: Plugin = {
-  name: "iki/example_lims",
-  short: "example_lims",
-  slug: "example-lims",
-  title: "Example LIMS",
+  name: "acme/lims",
+  short: "lims",
+  slug: "acme-lims",
+  title: "Acme LIMS",
   description: "Tracks samples (ADR 0125).",
   version: "0.8.0",
-  path: "plugins/example_lims/plugin.yaml",
+  path: "plugins/lims/plugin.yaml",
   roles: [{ name: "qa", label: "QA", description: "Releases samples." }],
   dependencies: ["iki/protein"],
   types: [
@@ -19,7 +19,7 @@ const lims: Plugin = {
       description: "A sample.",
       abstract: false,
       extends: [],
-      path: "plugins/example_lims/types/sample.yaml",
+      path: "plugins/lims/types/sample.yaml",
       fields: [
         { key: "status", type: "state", label: "Status", description: "", flags: [] },
         {
@@ -37,7 +37,7 @@ const lims: Plugin = {
   extensions: [
     {
       extends: "iki/protein.Protein",
-      path: "plugins/example_lims/types/protein.yaml",
+      path: "plugins/lims/types/protein.yaml",
       fields: [{ key: "lims_id", type: "string", label: "LIMS ID", description: "", flags: [] }],
     },
   ],
@@ -46,7 +46,7 @@ const lims: Plugin = {
       name: "import_from_lims",
       label: "Import",
       description: "",
-      path: "plugins/example_lims/actions/import_from_lims.yaml",
+      path: "plugins/lims/actions/import_from_lims.yaml",
       inputs: [],
       params: [],
       creates: [],
@@ -79,16 +79,14 @@ describe("the Plugins reference", () => {
   });
 
   it("links a type named in full to its plugin's page, when a first-party plugin has it", () => {
-    expect(typeHref([lims], "iki/example_lims.Sample")).toBe(
-      "/reference/plugins/example-lims/#Sample",
-    );
-    expect(typeHref([lims], "iki/example_lims.Nothing")).toBeNull();
+    expect(typeHref([lims], "acme/lims.Sample")).toBe("/reference/plugins/acme-lims/#Sample");
+    expect(typeHref([lims], "acme/lims.Nothing")).toBeNull();
     expect(typeHref([lims], "acme/assays.Plate")).toBeNull();
   });
 
   it("drops design-record citations, and refuses an anchor twice", () => {
     expect(prepared([lims])[0]?.description).toBe("Tracks samples.");
     const twice: Plugin = { ...lims, actions: [...lims.actions, ...lims.actions] };
-    expect(() => prepared([twice])).toThrow("iki/example_lims's page has #import_from_lims twice");
+    expect(() => prepared([twice])).toThrow("acme/lims's page has #import_from_lims twice");
   });
 });

@@ -1,6 +1,6 @@
 // The first-party plugins' record types, extensions and actions, as `python -m sitegen
 // generate` read them from their manifests (src/generated/plugins.json), and where each is
-// on the Plugins reference: `/reference/plugins/example-lims/#Sample`,
+// on the Plugins reference: `/reference/plugins/samples/#Sample`,
 // `#Sample.status` for one of its fields, `#import_from_lims` for an action.
 import { withoutCitations } from "./markdown.ts";
 
