@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import F
@@ -67,6 +68,7 @@ from iki_server.entities.services import (
 )
 from iki_server.entities.values import Shape, shape
 from iki_server.entities.values import is_list_table as _is_list
+from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
 from iki_server.org.models import registry_of
@@ -156,6 +158,7 @@ def apply_import(import_id: str, planned_at: str | None = None) -> str:
                     f"This deployment no longer trusts {bundle.source}'s key, so nothing was "
                     "imported."
                 )
+            _verify_registered_files(made, bundle)
             return _apply(made, bundle, Path(tmp))
         except (reading.BundleError, IntegrityError, DatabaseError) as error:
             logger.warning("bundle_import_failed", import_id=import_id, error=str(error))
@@ -166,6 +169,63 @@ def apply_import(import_id: str, planned_at: str | None = None) -> str:
             logger.exception("bundle_import_crashed", import_id=import_id)
             _failed(made, UNEXPECTED)
             raise
+
+
+def _verify_registered_files(made: BundleImport, bundle: reading.Bundle) -> None:
+    """Read each external version once, before taking the project's write locks.
+
+    Check both the source the bundle declares and any external blob the reviewed plan
+    will actually use. The locked replan requires confirmation if that choice changes.
+    """
+    decisions = made.plan.get("members", {}).get("files", {})
+    reused = {
+        str(blob.pk): blob
+        for blob in Blob.objects.filter(
+            pk__in={d["blob"] for d in decisions.values() if "blob" in d},
+            registered_external=True,
+        )
+    }
+    checked: dict[tuple[str, str], tuple[str, int]] = {}
+
+    def verify(uri: str, version: str, sha: str, size: int, label: str) -> None:
+        if version.strip() in ("", "null"):
+            raise reading.BundleError(f"{label} requires an immutable object version.")
+        source = (uri, version)
+        if source not in checked:
+            try:
+                found = files.registration_object(uri, version)
+                if found["size"] != size:
+                    raise reading.BundleError(
+                        f"{label}: the registered version has a different size."
+                    )
+                bucket, key = storage.split_uri(uri)
+                checked[source] = storage.digest_object(bucket, key, version)
+            except (Refused, BotoCoreError, ClientError, storage.StorageError, OSError) as error:
+                # A local copy may belong to a different project. Keep its location and
+                # the storage provider's response out of the caller's import record.
+                raise reading.BundleError(
+                    f"{label}: Iki could not read the pinned version at an approved location. "
+                    "Check the object's version, availability and registration settings."
+                ) from error
+        if checked[source] != (sha, size):
+            raise reading.BundleError(
+                f"{label}: the registered bytes differ from the recorded SHA-256 or size."
+            )
+
+    for item in bundle.lines("files.ndjson"):
+        if registered := item["registered"]:
+            verify(
+                registered["uri"], registered["version"], item["sha256"], item["size"], item["name"]
+            )
+        target = reused.get(decisions.get(item["id"], {}).get("blob", ""))
+        if target is not None:
+            if (target.sha256, target.size) != (item["sha256"], item["size"]):
+                raise reading.BundleError(
+                    f"{item['name']}: the local file has a different SHA-256 or size."
+                )
+            verify(
+                target.storage_uri, target.object_version, target.sha256, target.size, item["name"]
+            )
 
 
 def _said(error: Exception) -> str:

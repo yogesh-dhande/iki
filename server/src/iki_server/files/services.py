@@ -458,6 +458,49 @@ def locations() -> list[str]:
     return list(settings.IKI_FILES_REGISTER_LOCATIONS)
 
 
+def registration_location(uri: str) -> tuple[str, str]:
+    """The bucket and key of an object the deployment allows registering."""
+    bucket_name, key = storage.split_uri(uri)
+    scheme = storage.scheme()
+    if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
+        raise Refused(f"Name an object, such as {scheme}://lab-data/runs/plate-7.csv.", field="uri")
+    if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
+        places = ", ".join(locations()) or "none are set up"
+        raise Refused(
+            f"Files can be registered only from the locations your administrators approved "
+            f"({places}). Upload this file instead, or ask them to add its location.",
+            field="uri",
+        )
+    return bucket_name, key
+
+
+def registration_object(uri: str, version: str) -> dict[str, Any]:
+    """Resolve an approved object to an immutable version and its storage metadata."""
+    bucket_name, key = registration_location(uri)
+    if not storage.versioned(bucket_name):
+        raise Refused(
+            f"Bucket {bucket_name} doesn't keep versions, so this file could change after "
+            "it's registered. Turn on versioning for the bucket, or upload the file instead.",
+            field="uri",
+        )
+    found = storage.head(bucket_name, key, version)
+    if found is None:
+        what = f"version {version} of {uri}" if version else uri
+        raise Refused(f"There's no object at {what}.", field="version" if version else "uri")
+    pinned = found["version"]
+    if pinned in ("", "null"):
+        raise Refused(
+            "This object was stored before the bucket kept versions, so it could still be "
+            "overwritten. Copy it onto itself to give it a version, then register it.",
+            field="uri",
+        )
+    if version and pinned != version:
+        raise Refused(
+            "The object store returned a different version from the one requested.", field="version"
+        )
+    return found
+
+
 def register(
     user: User,
     project: Project,
@@ -474,34 +517,9 @@ def register(
     """
     uri = uri.strip()
     acquired_at = clean_acquired(acquired_at)
-    bucket_name, key = storage.split_uri(uri)
-    scheme = storage.scheme()
-    if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
-        raise Refused(f"Name an object, such as {scheme}://lab-data/runs/plate-7.csv.", field="uri")
-    if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
-        places = ", ".join(locations()) or "none are set up"
-        raise Refused(
-            f"Files can be registered only from the locations your administrators approved "
-            f"({places}). Upload this file instead, or ask them to add its location.",
-            field="uri",
-        )
-    if not storage.versioned(bucket_name):
-        raise Refused(
-            f"Bucket {bucket_name} doesn't keep versions, so this file could change after "
-            "it's registered. Turn on versioning for the bucket, or upload the file instead.",
-            field="uri",
-        )
-    found = storage.head(bucket_name, key, version.strip())
-    if found is None:
-        what = f"version {version.strip()} of {uri}" if version.strip() else uri
-        raise Refused(f"There's no object at {what}.", field="version" if version else "uri")
+    found = registration_object(uri, version.strip())
     pinned = found["version"]
-    if pinned in ("", "null"):
-        raise Refused(
-            "This object was stored before the bucket kept versions, so it could still be "
-            "overwritten. Copy it onto itself to give it a version, then register it.",
-            field="uri",
-        )
+    _, key = storage.split_uri(uri)
     name = clean_name(name or key.rsplit("/", 1)[-1])
     if media_type:
         media_type = clean_media_type(media_type)
