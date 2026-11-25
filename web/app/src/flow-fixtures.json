@@ -62,7 +62,7 @@
                 {
                   "name": "has_sample",
                   "description": null,
-                  "check": "record.material != null && record.material.id in record.request.materials",
+                  "check": "record.material != null",
                   "when": "record.analysis != null",
                   "message": "Name the sample that was measured."
                 },
@@ -111,14 +111,14 @@
                 {
                   "name": "measured_scope",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
                   "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
                   "message": "The measurement must still answer this request for the material it sent."
                 },
                 {
                   "name": "scope_still_matches",
                   "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
                   "when": null,
                   "message": "The protein or tube must still be on the request."
                 }
@@ -168,14 +168,14 @@
                 {
                   "name": "measured_scope",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
                   "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
                   "message": "The measurement must still answer this request for the material it sent."
                 },
                 {
                   "name": "scope_still_matches",
                   "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
                   "when": null,
                   "message": "The protein or tube must still be on the request."
                 }
@@ -225,14 +225,14 @@
                 {
                   "name": "measured_scope",
                   "description": null,
-                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && size(covered_subjects) > 0",
                   "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
                   "message": "The measurement must still answer this request for the material it sent."
                 },
                 {
                   "name": "scope_still_matches",
                   "description": null,
-                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n covered_subjects.exists(id, id in record.request.tubes))",
                   "when": null,
                   "message": "The protein or tube must still be on the request."
                 }
