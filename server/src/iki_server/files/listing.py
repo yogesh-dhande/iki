@@ -1,6 +1,6 @@
 """A project's Files (ADR 0177): the files in a project, or in every project their reader
-can read, found by name, format, when they were acquired, the sample they belong to and
-the run that read or made them; and, for each, what uses it.
+can read, found by name or what they state (ADR 0224), format, when they were acquired, the
+sample they belong to and the run that read or made them; and, for each, what uses it.
 
 **Which files.** A project's files are those added to it, and those its records hold in
 a file field, at any revision (:func:`iki_server.entities.access.project_files`). Across
@@ -14,11 +14,12 @@ neither set's size slows the other down, and no `OR` hides an index from Postgre
 **Pages** are keyset pages: a cursor holds the last row's sort values and ID, so a page
 starts where the one before ended, however many files there are.
 
-**Searching by name** first asks the trigram index which files' names hold the text, up
-to :data:`NAMED_MAX`. A rare name, as most searched for are, is then a page of those few;
-a common one is found by reading the page's order until a page matches, which is quick
-because so many do. Postgres can't tell which it is from the text: it would read a
-million files in order for a name that only one has.
+**Searching** first asks the trigram indexes which files' names, or what they state
+(their instrument, operator, read groups and so on), hold the text, up to :data:`NAMED_MAX`.
+A rare text, as most searched for are, is then a page of those few; a common one is found
+by reading the page's order until a page matches, which is quick because so many do.
+Postgres can't tell which it is from the text: it would read a million files in order for
+a name that only one has.
 
 **Samples.** A file belongs to a sample when a record of a sample type (one whose type
 says ``sample: true``, or extends one) holds it in a file field, or a run that read the
@@ -55,7 +56,7 @@ Sort = Literal["newest", "oldest", "name", "name_desc", "acquired", "acquired_ol
 SORTS: tuple[Sort, ...] = ("newest", "oldest", "name", "name_desc", "acquired", "acquired_oldest")
 #: Counts stop here, as search everything's do (ADR 0176): past it, "1,000+".
 COUNT_CAP = 1000
-#: A name search that the trigram index finds no more than this many files for lists them
+#: A search that the trigram indexes find no more than this many files for lists them
 #: from those; one that finds more reads the list's order.
 NAMED_MAX = 5000
 #: The shortest text the trigram index finds: shorter is read in the list's order.
@@ -81,23 +82,29 @@ class Filters:
     #: Only files of these media types or families a field or param takes, and this small.
     accepts: tuple[str, ...] = ()
     max_size: int | None = None
-    #: The files whose names hold ``q``, where the trigram index found few enough
-    #: (:func:`named`); None to read the list's order instead.
+    #: The files whose names or stated text hold ``q``, where the trigram indexes found few
+    #: enough (:func:`named`); None to read the list's order instead.
     named: tuple[uuid.UUID, ...] | None = None
 
 
 _PLANNED = ("enable_seqscan", "enable_indexscan", "enable_indexonlyscan")
 
 
+def _text_match(q: str) -> Q:
+    """Its name, or what it states, holds ``q``."""
+    return Q(name__icontains=q) | Q(stated_text__icontains=q)
+
+
 def named(filters: Filters) -> Filters:
-    """``filters``, with the files whose names hold its text if the trigram index finds no
-    more than :data:`NAMED_MAX` of them in all. The index is read on its own (a bitmap),
-    never in another index's order, so a rare name costs what its few files do."""
+    """``filters``, with the files whose names or stated text hold its text if the trigram
+    indexes find no more than :data:`NAMED_MAX` of them in all. The indexes are read on
+    their own (bitmaps, or'd), never in another index's order, so a rare text costs what its
+    few files do."""
     q = filters.q.strip()
     if len(q) < TRIGRAM or filters.named is not None:
         return filters
     statement, params = (
-        File.objects.filter(name__icontains=q).values_list("pk", flat=True)[: NAMED_MAX + 1]
+        File.objects.filter(_text_match(q)).values_list("pk", flat=True)[: NAMED_MAX + 1]
     ).query.sql_with_params()
     with transaction.atomic(), connection.cursor() as cursor:
         cursor.execute("SELECT " + ", ".join(f"current_setting('{n}')" for n in _PLANNED))
@@ -143,7 +150,7 @@ def filtered(user: User, files: QuerySet[File], filters: Filters) -> QuerySet[Fi
     from iki_server.runs.services import visible_runs
 
     if filters.q.strip():
-        files = files.filter(name__icontains=filters.q.strip())
+        files = files.filter(_text_match(filters.q.strip()))
         if filters.named is not None:
             files = files.filter(pk__in=filters.named)
     if filters.formats:
@@ -288,9 +295,11 @@ def page(
         files = filtered(user, files, filters).annotate(lname=_NAME)
         if after is not None:
             files = files.filter(_after(sort, after))
-        found += files.select_related("blob", "created_by", "agent").order_by(*_order(sort))[
-            : limit + 1
-        ]
+        found += (
+            files.defer("read_groups", "stated_text")
+            .select_related("blob", "created_by", "agent")
+            .order_by(*_order(sort))[: limit + 1]
+        )
     found.sort(key=lambda f: _merge_key(sort, _key(f, sort)), reverse=sort in _DESCENDING)
     more = len(found) > limit
     found = found[:limit]

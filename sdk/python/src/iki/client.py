@@ -1627,7 +1627,9 @@ class Files(_Part):
         page_size: int = 100,
         **filters: Unpack[FileFilters],
     ) -> Results[FileRowOut]:
-        """Files you can read, a page at a time. ``q`` matches part of the name in any case.
+        """Files you can read, a page at a time. ``q`` matches part of the name, or of what
+        the file states (its instrument, serial number, operator, software, protocol or read
+        groups), in any case.
 
         Filter by ``project``, ``format`` (a format ID, media type, family or sequence of these),
         inclusive days ``acquired_from`` and ``acquired_to``, ``sample`` or ``run`` (ID or
@@ -1658,6 +1660,8 @@ class Files(_Part):
         page_size: int = 100,
     ) -> FileWithUses:
         """Metadata, origin and samples, with the records and runs that use this file.
+        ``facts`` gives what the file states of its instrument, serial number, operator,
+        software and protocol, and ``read_groups`` a SAM or BAM file's read groups.
 
         Both ``records`` and ``runs`` contain ``items`` and a ``next_cursor``. Pass either
         cursor back to continue that list. Each record gives the revision spans and fields

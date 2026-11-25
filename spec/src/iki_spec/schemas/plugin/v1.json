@@ -130,7 +130,7 @@
             "additionalProperties": false
           }
         },
-        "reader": { "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam"] },
+        "reader": { "enum": ["abif", "fcs", "mzml", "jcamp-dx", "image", "sam", "czi", "csv"] },
         "viewer": { "enum": ["structure-pdb", "structure-mmcif", "alignment"] }
       },
       "additionalProperties": false

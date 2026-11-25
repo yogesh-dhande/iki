@@ -59,6 +59,15 @@ END
 #: Traces, runs and images know when their data was acquired; certificates don't. Any
 #: day of six years from 2020.
 ACQUIRED_ON = "CASE WHEN n %% 4 = 3 THEN NULL ELSE date '2020-01-01' + n %% 2190 END"
+#: Each cytometer run says which cytometer and which of 800 people ran it (ADR 0224).
+OPERATOR = "'user' || lpad(((n / 4) %% 800)::text, 4, '0')"
+FACTS = f"""
+CASE WHEN n %% 4 = 1 THEN jsonb_build_object(
+  'instrument', jsonb_build_object('value', 'LSRFortessa X-20', 'stated_in', 'FCS keyword $CYT'),
+  'operator', jsonb_build_object('value', {OPERATOR}, 'stated_in', 'FCS keyword $OP'))
+ELSE '{{}}'::jsonb END
+"""
+STATED_TEXT = f"CASE WHEN n %% 4 = 1 THEN 'LSRFortessa X-20' || chr(10) || {OPERATOR} ELSE '' END"
 
 
 def _sql(statement: str, params: list[Any] | None = None) -> list[tuple[Any, ...]]:
@@ -81,7 +90,7 @@ def fill(project: Project, files: int) -> None:
     )
     _sql(
         "INSERT INTO iki_file (id, blob_id, name, media_type, project_id, created_at, "  # noqa: S608 - its own SQL
-        "acquired_on, acquired_at, acquired_from) "
+        "acquired_on, acquired_at, acquired_from, facts, stated_text) "
         "SELECT (lpad(to_hex(1577836800000 + n), 12, '0') || '70018000' "
         "  || lpad(to_hex(n), 12, '0'))::uuid, "
         "(lpad(to_hex(1577836800000 + n), 12, '0') || '70008000' "
@@ -89,7 +98,8 @@ def fill(project: Project, files: int) -> None:
         f"{NAME}, {MEDIA_TYPE}, %s, "
         "timestamptz '2020-01-01 00:00:00+00' + n * interval '1 second', "
         f"{ACQUIRED_ON}, coalesce(({ACQUIRED_ON})::text, ''), "
-        "CASE WHEN n %% 4 = 3 THEN '' ELSE 'abif' END "
+        "CASE WHEN n %% 4 = 3 THEN '' ELSE 'abif' END, "
+        f"{FACTS}, {STATED_TEXT} "
         "FROM generate_series(1, %s) AS n",
         [project.pk, files],
     )
@@ -189,6 +199,10 @@ def test_a_projects_files_stay_quick(files: int) -> None:
         "a clone, by part of its name": base | {"q": f"clone-{files // 2 // 4 * 4}-"},
         "a lot's certificate": base | {"q": f"LOT-{files // 3 // 4 * 4 + 3}."},
         "two letters": base | {"q": "ab"},
+        # What a run states (ADR 0224): a person who ran a few hundred, and the cytometer
+        # that ran a quarter of them.
+        "who ran it": base | {"q": f"user{files // 2 // 4 % 800:04d}"},
+        "the cytometer": base | {"q": "fortessa"},
     }
     for name, query in pages.items():
         took[name], answer = _timed(client, query)
@@ -207,6 +221,8 @@ def test_a_projects_files_stay_quick(files: int) -> None:
     # Part of a name, through the trigram index, not by reading every name.
     plans = _plans(client, base | {"q": f"clone-{files // 2 // 4 * 4}-"})
     used = {n.get("Index Name") for p in plans for n in _nodes(p)}
+    stated = _plans(client, base | {"q": f"user{files // 2 // 4 % 800:04d}"})
+    stated_used = {n.get("Index Name") for p in stated for n in _nodes(p)}
     # The newest first page of the files added to the project: read in ID order by its
     # index, not sorted. (The files held from elsewhere come from the records' uses; with
     # every other file in this one project, Postgres finds those few by reading the rest,
@@ -220,6 +236,8 @@ def test_a_projects_files_stay_quick(files: int) -> None:
     if files > SMALL:
         # At a handful, reading them all is as good, and Postgres knows it.
         assert "iki_file_name_trgm" in used, plans
+        # And what they state through its own, beside the names'.
+        assert {"iki_file_name_trgm", "iki_file_stated_trgm"} <= stated_used, stated
         # Then the page is of those few, not of every file read in order.
         assert not any(
             n["Node Type"] == "Seq Scan" and n.get("Relation Name") == "iki_file"

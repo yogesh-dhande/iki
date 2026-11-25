@@ -14,6 +14,7 @@ import { FieldInput } from "./entity-inputs";
 import { formatSize, typesQuery, type FieldDef } from "./entities";
 import {
   acquiredText,
+  factsLine,
   fileCountQuery,
   fileFormatsQuery,
   filesQuery,
@@ -144,7 +145,7 @@ export function FileTable({
       <div className="list-toolbar">
         <SearchBox
           value={filter.q}
-          placeholder="Search files by name"
+          placeholder="Search by name, instrument or operator"
           onSearch={(q) => {
             set({ q });
           }}
@@ -278,7 +279,7 @@ export function FileTable({
       {files.isSuccess && items.length === 0 ? (
         <p className="muted empty">
           {searched
-            ? "No files match. Try another part of the name, or fewer filters."
+            ? "No files match. Try another part of the name or instrument, or fewer filters."
             : takes?.accepts.length
               ? `No ${media?.either(takes.accepts) ?? takes.accepts.join(", ")} files here yet. Upload one instead.`
               : projectId
@@ -363,6 +364,7 @@ function FileRowView({
   const chosen = held || (pick?.chosen.has(file.id) ?? false);
   const full = Boolean(pick?.multiple && pick.room !== undefined && pick.chosen.size >= pick.room);
   const locked = held || (!chosen && full);
+  const stated = factsLine(file.facts);
   return (
     <tr
       className={chosen ? "file-row-chosen" : undefined}
@@ -391,7 +393,7 @@ function FileRowView({
           />
         </td>
       ) : null}
-      <td className="list-fill" title={file.name}>
+      <td className="list-fill" title={stated ? `${file.name}\n${stated}` : file.name}>
         <span className="list-fill-text">
           {pick ? (
             <label htmlFor={id} className="list-name file-name">
@@ -403,6 +405,7 @@ function FileRowView({
               {file.name}
             </Link>
           )}
+          {stated ? <span className="cell-meta">{stated}</span> : null}
         </span>
       </td>
       {projectName !== undefined ? <td className="muted">{projectName}</td> : null}

@@ -3,6 +3,7 @@ what uses each, and nothing from a project the reader can't read."""
 
 import datetime as dt
 import uuid
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -17,6 +18,7 @@ from iki_server.accounts.models import User
 from iki_server.entities import services
 from iki_server.entities.models import Entity
 from iki_server.files import listing
+from iki_server.files import metadata as stated
 from iki_server.files import services as files
 from iki_server.files.models import Blob, File, Upload
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
@@ -45,6 +47,8 @@ def add(
     acquired: str = "",
     source: str = "",
     by: User | None = None,
+    facts: dict[str, dict[str, str]] | None = None,
+    read_groups: list[dict[str, str]] | None = None,
 ) -> File:
     """A file, as an upload or an import leaves one (its bytes aren't needed here)."""
     n = next(_blobs)
@@ -58,6 +62,9 @@ def add(
         acquired_on=dt.date.fromisoformat(acquired[:10]) if acquired else None,
         acquired_at=acquired,
         acquired_from=source or ("given" if acquired else ""),
+        facts=facts or {},
+        read_groups=read_groups or [],
+        stated_text=stated.search_text(facts or {}, read_groups or []),
     )
 
 
@@ -187,6 +194,41 @@ def test_files_are_found_by_any_part_of_their_name_in_any_case(world: World) -> 
     # Wildcards are text.
     assert every(viewer, q="%_") == ["100%_done.txt"]
     assert every(viewer, q="  ab1  ", sort="oldest")[0] == "Plate7_A01.ab1"
+
+
+def test_files_are_found_by_what_they_state_as_by_their_name(world: World) -> None:
+    """The instrument, serial and operator a file states (ADR 0224) are found as a name
+    is: by any part, in any case, through the trigram index and without it."""
+    fortessa = {
+        "instrument": {"value": "LSRFortessa X-20", "stated_in": "FCS keyword $CYT"},
+        "serial": {"value": "R658222R1012", "stated_in": "FCS keyword $CYTSN"},
+        "operator": {"value": "Priya Raman", "stated_in": "FCS keyword $OP"},
+    }
+    canto = {"instrument": {"value": "FACSCanto II", "stated_in": "FCS keyword $CYT"}}
+    add(world.project, "Tube_003.fcs", "application/vnd.isac.fcs", facts=fortessa)
+    add(world.project, "Tube_004.fcs", "application/vnd.isac.fcs", facts=canto)
+    add(world.project, "fortessa-qc-beads.txt", "text/plain")
+    viewer = api_as(world, "viewer")
+    assert every(viewer, q="fortessa", sort="name") == ["fortessa-qc-beads.txt", "Tube_003.fcs"]
+    assert every(viewer, q="r658222") == ["Tube_003.fcs"]
+    assert every(viewer, q="PRIYA") == ["Tube_003.fcs"]
+    # Shorter than a trigram: read in the list's order, and still found.
+    assert every(viewer, q="II") == ["Tube_004.fcs"]
+    # Where a value is stated isn't what the file states.
+    assert every(viewer, q="$CYT") == []
+    assert viewer.get("/files/count", q="fortessa").json()["total"] == 2
+    formats = viewer.get("/files/formats", q="canto").json()
+    assert [(f["media_type"], f["count"]) for f in formats] == [("application/vnd.isac.fcs", 1)]
+    (row,) = viewer.get("/files", q="r658222").json()["items"]
+    assert row["facts"] == {
+        "instrument": fortessa["instrument"],
+        "manufacturer": None,
+        "serial": fortessa["serial"],
+        "instrument_name": None,
+        "operator": fortessa["operator"],
+        "software": None,
+        "protocol": None,
+    }
 
 
 def test_files_are_found_by_format_and_by_a_family_of_formats(world: World) -> None:
@@ -587,6 +629,71 @@ def test_a_files_own_format_says_when_its_data_was_acquired(world: World, s3: An
         .json()["items"][0]["name"]
         == "A01_sample-12.ab1"
     )
+
+
+def test_a_files_own_format_says_which_instrument_and_who(world: World, s3: Any) -> None:
+    """A Cytek Aurora's FCS file, uploaded through the API: what it states is read from its
+    bytes in the store, kept with it, shown on its page and in the list, and found by."""
+    from test_files import add as upload
+
+    data = (Path(__file__).parent / "data/fcs/cytek-aurora-header.fcs").read_bytes()
+    added = upload(
+        api_as(world),
+        world,
+        data,
+        name="Jeremy 20200720-input.fcs",
+        media_type="application/vnd.isac.fcs",
+    )
+    file = File.objects.get(pk=added["file"]["id"])
+    assert file.facts == {
+        "instrument": {"value": "Aurora", "stated_in": "FCS keyword $CYT"},
+        "serial": {"value": "N0354", "stated_in": "FCS keyword $CYTSN"},
+        "operator": {"value": "Admin", "stated_in": "FCS keyword $OP"},
+    }
+    assert file.read_groups == [] and file.stated_text == "Aurora\nN0354\nAdmin"
+    viewer = api_as(world, "viewer")
+    page = viewer.get(f"/files/{file.pk}").json()
+    assert page["facts"]["instrument"] == {"value": "Aurora", "stated_in": "FCS keyword $CYT"}
+    assert page["facts"]["manufacturer"] is None
+    assert page["read_groups"] == []
+    assert every(viewer, q="n0354") == ["Jeremy 20200720-input.fcs"]
+    with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute("UPDATE iki_file SET facts = '{}' WHERE id = %s", [file.pk])
+
+
+def test_an_alignments_read_groups_are_kept_whole(world: World, s3: Any) -> None:
+    from test_file_acquired import make_sam
+    from test_files import add as upload
+
+    data = make_sam([None, "2026-03-14"])
+    added = upload(api_as(world), world, data, name="NA12878.sam", media_type="text/x-sam")
+    viewer = api_as(world, "viewer")
+    page = viewer.get(f"/files/{added['file']['id']}").json()
+    assert [g["ID"] for g in page["read_groups"]] == ["HV7KCDSX5.1", "HV7KCDSX5.2"]
+    assert page["read_groups"][1] == {
+        "ID": "HV7KCDSX5.2",
+        "DT": "2026-03-14",
+        "LB": "lib1",
+        "PL": "ILLUMINA",
+        "PU": "HV7KCDSX5.1.ACGTACGT",
+        "SM": "NA12878",
+    }
+    assert all(value is None for value in page["facts"].values())
+    assert every(viewer, q="hv7kcdsx5.1.acgt") == ["NA12878.sam"]
+    # The list's rows give the facts, not the read groups.
+    assert "read_groups" not in viewer.get("/files").json()["items"][0]
+
+
+def test_what_a_file_states_is_an_object_and_its_read_groups_a_list(world: World) -> None:
+    add(world.project, "Tube_001.fcs", "application/vnd.isac.fcs")
+    for column, value in (("facts", "[]"), ("read_groups", "{}")):
+        with pytest.raises(DatabaseError), transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO iki_file (id, blob_id, name, media_type, project_id, {column}) "  # noqa: S608 - two fixed names
+                "SELECT gen_random_uuid(), blob_id, 'x.fcs', media_type, project_id, %s::jsonb "
+                "FROM iki_file LIMIT 1",
+                [value],
+            )
 
 
 def test_unknown_stays_unknown_never_the_time_it_was_added(world: World, s3: Any) -> None:

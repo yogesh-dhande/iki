@@ -241,3 +241,59 @@ def test_applying_rechecks_the_archive_hash_even_when_its_signed_contents_match(
     assert not AuditEvent.objects.filter(action="bundle.imported", data__import=done["id"]).exists()
     failed = AuditEvent.objects.get(action="bundle.import_failed", data__import=done["id"])
     assert failed.data["sha256"] == original.sha256
+
+
+def test_a_file_arrives_with_what_it_states(world: World, tmp_path: Path) -> None:
+    """A lot's intact-mass run, with the instrument its mzML named where it was read (ADR
+    0224): the facts and read groups come in the bundle, and the Files list here finds it
+    by them. Its bytes aren't read again."""
+    from test_file_metadata import GROUP, configuration, mzml
+
+    data = mzml(configuration("IC1", GROUP))
+    facts = {
+        "instrument": {
+            "value": "Orbitrap Eclipse",
+            "stated_in": "mzML instrument configuration “IC1”, MS:1003029",
+        },
+        "serial": {
+            "value": "FSN40152",
+            "stated_in": "mzML instrument configuration “IC1”, MS:1000529",
+        },
+    }
+
+    def elsewhere() -> list[Model]:
+        sha = hashlib.sha256(data).hexdigest()
+        storage.client().put_object(Bucket=storage.bucket(), Key=storage.blob_key(sha), Body=data)
+        blob = Blob.objects.create(
+            sha256=sha, size=len(data), storage_uri=storage.uri(storage.blob_key(sha))
+        )
+        run = File.objects.create(
+            project=world.project,
+            blob=blob,
+            name="LOT-0042_intact.mzML",
+            media_type="application/x-mzml",
+            facts=facts,
+            stated_text="Orbitrap Eclipse\nFSN40152",
+        )
+        return [
+            services.create(
+                world.users["admin"],
+                "acme/protein.Lot",
+                world.project,
+                {"label": "LOT-0042", "report": str(run.pk)},
+            ).entity
+        ]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    archive = reading.read(path, TRUSTED, limit=LIMIT)
+    (line,) = archive.lines("files.ndjson")
+    assert line["facts"] == facts and line["read_groups"] == []
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "applied", done
+    arrived = File.objects.get(pk=line["id"])
+    assert (arrived.facts, arrived.read_groups) == (facts, [])
+    assert arrived.stated_text == "Orbitrap Eclipse\nFSN40152"
+    found = api.get("/files", q="fsn4015").json()["items"]
+    assert [f["name"] for f in found] == ["LOT-0042_intact.mzML"]
+    assert found[0]["facts"]["serial"]["value"] == "FSN40152"
