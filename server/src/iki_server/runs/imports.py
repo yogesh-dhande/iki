@@ -881,10 +881,21 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
     done = results.checked(run, document)
     try:
         with transaction.atomic():
-            made = results.write(done)
+            with connection.cursor() as cursor:
+                # Inline and matched effects come first. File lines can still fill their
+                # entries. Only effects made before the file's set-based insert, and
+                # records with later fills, need staging.
+                cursor.execute(
+                    "CREATE TEMP TABLE iki_import_effects (entity_id uuid PRIMARY KEY,"
+                    " position bigint GENERATED ALWAYS AS IDENTITY, kind text, revision integer,"
+                    " entry_id uuid, entry_revisions integer[] NOT NULL) ON COMMIT DROP"
+                )
+            made = results.write(done, save_effects=_stage_effects)
             _replace_stand_ins(imported, made)
             unchanged = _update_matches(imported, done.check)
-            imported.updated = RunEffect.objects.filter(run=run).count() - unchanged
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT count(*) FROM iki_import_effects")
+                imported.updated = cursor.fetchone()[0] - unchanged
             created, reused, registered = _insert(imported, run)
             # Lines were checked as they were staged; those that break rules that hold
             # are held now they're records (ADR 0127).
@@ -923,6 +934,26 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
         "agent": audit.agent_data(run.agent),
     }
     emit("entity.imported", data, project=run.project)
+
+
+def _stage_effects(effects: list[RunEffect]) -> None:
+    with (
+        connection.cursor() as cursor,
+        cursor.copy(
+            "COPY iki_import_effects (entity_id, kind, revision, entry_id, entry_revisions)"
+            " FROM STDIN"
+        ) as copy,
+    ):
+        for effect in effects:
+            copy.write_row(
+                (
+                    effect.entity_id,
+                    effect.kind,
+                    effect.revision,
+                    effect.entry_id,
+                    effect.entry_revisions,
+                )
+            )
 
 
 def _replace_stand_ins(imported: RunImport, made: dict[str, uuid.UUID]) -> None:
@@ -1033,6 +1064,7 @@ def _update_matches_of(
             return 0
     unchanged = 0
     done: list[int] = []
+    effects = []
     with entities.quietly():
         for line, parts_text, origin_text, parents_text, made_text, entity_id in matched:
             # Django reads jsonb as text.
@@ -1048,13 +1080,18 @@ def _update_matches_of(
                 continue
             revision = saved.revision.number if saved.revision is not None else None
             unchanged += revision is None
-            RunEffect.objects.create(
-                run=run,
-                entity_id=entity.pk,
-                kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
-                revision=revision,
-                **results.entry_made(saved),
+            effects.append(
+                RunEffect(
+                    run=run,
+                    entity_id=entity.pk,
+                    kind=EffectKind.UPDATED if revision is not None else EffectKind.REUSED,
+                    revision=revision,
+                    **results.entry_made(saved),
+                )
             )
+            if len(effects) == CHUNK_LINES:
+                _stage_effects(effects)
+                effects.clear()
             kept = None
             if origin is not None:
                 # As staged: ExternalOrigin's fields.
@@ -1074,6 +1111,8 @@ def _update_matches_of(
                 for parent, name, parent_revision in parents or []
             )
             done.append(line)
+    if effects:
+        _stage_effects(effects)
     if done:
         with connection.cursor() as cursor:
             cursor.execute(
@@ -1274,8 +1313,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         # An entity the run already changed (one of its inputs, updated) keeps that effect.
         cursor.execute(
             "UPDATE iki_import_resolved r SET first = false WHERE first AND EXISTS ("
-            " SELECT 1 FROM iki_run_effect e WHERE e.run_id = %(run)s AND e.entity_id = r.target)",
-            params,
+            " SELECT 1 FROM iki_import_effects e WHERE e.entity_id = r.target)"
         )
         cursor.execute("ANALYZE iki_import_resolved")
         _place_along_entries(cursor, imported, table, identified)
@@ -1339,21 +1377,6 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             params,
         )
         created = cursor.rowcount
-        # A record whose line registered its entry names the entry's first revision too,
-        # as a create's does (ADR 0115).
-        cursor.execute(
-            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
-            " entry_revisions)"
-            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN 'reused' ELSE 'created' END,"
-            "  CASE WHEN r.reused THEN NULL ELSE 1 END, m.entry_id,"
-            "  CASE WHEN m.entry_id IS NOT NULL THEN ARRAY[1] ELSE '{}' END"
-            " FROM iki_import_resolved r"
-            " LEFT JOIN (SELECT target, entry_id FROM iki_import_resolved WHERE makes_entry) m"
-            "  ON m.target = r.target"
-            " WHERE r.first ORDER BY r.line",
-            params,
-        )
-        reused = cursor.rowcount - created
         # Every line's origin, the first of a record and each that found it again: one
         # molecule is in several databases' records (ADR 0154).
         cursor.execute(
@@ -1401,7 +1424,32 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             " WHERE r.first AND s.parents IS NOT NULL",
             params,
         )
-    _fill_entries(run, table, identified)
+        _fill_entries(run, table, identified)
+        # Each effect is inserted once, with every entry revision the run made. Preserve
+        # the order of the inline and matched effects, followed by the file's lines.
+        cursor.execute(
+            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
+            " entry_revisions)"
+            " SELECT %(run)s, entity_id, kind, revision, entry_id, entry_revisions"
+            " FROM iki_import_effects WHERE kind IS NOT NULL ORDER BY position",
+            params,
+        )
+        cursor.execute(
+            "INSERT INTO iki_run_effect (run_id, entity_id, kind, revision, entry_id,"
+            " entry_revisions)"
+            " SELECT %(run)s, r.target, CASE WHEN r.reused THEN 'reused' ELSE 'created' END,"
+            "  CASE WHEN r.reused THEN NULL ELSE 1 END, COALESCE(m.entry_id, f.entry_id),"
+            "  (CASE WHEN m.entry_id IS NOT NULL THEN ARRAY[1] ELSE '{}' END)"
+            "    || COALESCE(f.entry_revisions, '{}')"
+            " FROM iki_import_resolved r"
+            " LEFT JOIN (SELECT target, entry_id FROM iki_import_resolved WHERE makes_entry) m"
+            "  ON m.target = r.target"
+            " LEFT JOIN iki_import_effects f ON f.entity_id = r.target"
+            " WHERE r.first ORDER BY r.line",
+            params,
+        )
+        reused = cursor.rowcount - created
+        cursor.execute("DROP TABLE iki_import_effects")
     return created, reused, registered
 
 
@@ -1758,11 +1806,19 @@ class _Filling:
                         self.error(line, name, f"It {' '.join(messages)}")
                     continue
                 if filled is not None:
-                    # The project's record of the entry has this run's effect already.
-                    record = Entity.objects.filter(
-                        owner_project=self.run.project, entry_id=entry_id
-                    ).values_list("pk", flat=True)
-                    results.add_entry_revision(self.run, record.first(), filled)
+                    # Any line that contributed to this fill names the same record.
+                    # A file-only record has no earlier staged effect (its kind is NULL).
+                    line = self.set_by[(entry_id, next(iter(values)))]
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "INSERT INTO iki_import_effects (entity_id, entry_id, entry_revisions)"
+                            " SELECT target, entry_id, ARRAY[%s]::integer[]"
+                            " FROM iki_import_resolved WHERE line = %s"
+                            " ON CONFLICT (entity_id) DO UPDATE SET entry_id = EXCLUDED.entry_id,"
+                            " entry_revisions = iki_import_effects.entry_revisions"
+                            " || EXCLUDED.entry_revisions",
+                            [filled.number, line],
+                        )
 
     def _given(
         self, line: int, form: Shape, parts: dict[str, Any], identity: frozenset[str]

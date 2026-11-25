@@ -367,6 +367,28 @@ def test_every_line_of_an_identity_fills_what_its_entry_hasnt_got(world: World) 
         assert [by[n] for n in numbers] == [run["hrid"]] * len(numbers)
 
 
+def test_inline_and_file_creates_share_one_effect_with_each_entry_revision(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(imports, "FILL_BATCH", 1)
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, ec_number="2.7.10.2"),
+            protein(KINASES[0], "A", f, hazard="none"),
+            protein(KINASES[1], "B", f),
+        ),
+        creates=[{"type": "acme/protein.Protein", "values": {"sequence": KINASES[0]}}],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    effects = ActionRun.objects.get(pk=run["id"]).effects.order_by("id")
+    assert list(effects.values_list("entry_id", "entry_revisions")) == [
+        (entry_of(KINASES[0]).pk, [1, 2, 3]),
+        (entry_of(KINASES[1]).pk, [1]),
+    ]
+
+
 def test_lines_of_an_identity_that_give_a_fact_two_values_fail_the_import(
     world: World,
 ) -> None:

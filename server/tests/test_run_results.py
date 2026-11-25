@@ -18,7 +18,7 @@ from test_files import run_tasks
 from test_runs import TEMPLATE, _capacity, launch, protein
 from test_workers import LOCAL, WorkerClient, keep_connection, queued, registration, worker
 
-from iki_server.entities import registry
+from iki_server.entities import registry, services
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.files import services as files
 from iki_server.files import storage
@@ -532,7 +532,14 @@ def test_a_value_set_by_a_run_says_whether_the_run_is_hidden_or_unrecorded(
     assert hidden["molecular_weight"]["run_withheld"] is True
     # A run's revision with no run recorded, as one imported from elsewhere can be, says
     # neither.
-    RunEffect.objects.filter(run_id=run["id"]).delete()
+    entity = Entity.objects.get(pk=entity_id)
+    services.update(
+        world.users["editor"],
+        entity,
+        {"molecular_weight": 1000.0},
+        expected_revision=entity.revision,
+        by_run=True,
+    )
     unrecorded = api_as(world, "editor").get(f"/entities/{entity_id}/provenance").json()
     assert unrecorded["molecular_weight"]["run"] is None
     assert unrecorded["molecular_weight"]["run_withheld"] is False

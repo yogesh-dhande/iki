@@ -21,19 +21,18 @@ The launcher's access is checked again: a run doesn't outlive the role that star
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, Func, Value
 
 from iki_server.amounts import services as amounts
 from iki_server.entities import access, assignments, holds, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of, identity_of
-from iki_server.entities.models import Entity, Revision, UniqueValue
+from iki_server.entities.models import Entity, UniqueValue
 from iki_server.entities.values import Invalid, shape, subtypes
 from iki_server.org import permissions
 from iki_server.org.models import registry_of
@@ -173,10 +172,15 @@ def commit(run: ActionRun, document: Mapping[str, Any]) -> None:
     write(checked(run, document))
 
 
-def write(done: Checked) -> dict[str, UUID]:
+def write(
+    done: Checked,
+    *,
+    save_effects: Callable[[list[RunEffect]], object] = RunEffect.objects.bulk_create,
+) -> dict[str, UUID]:
     """Writes what :func:`checked` checked. Raises :class:`InvalidOutput` (writing nothing)
     for values that don't fit the entities' types as installed now. Returns what each
-    keyed create made or found, by its key, for a creates file's lines (ADR 0140)."""
+    keyed create made or found, by its key, for a creates file's lines (ADR 0140).
+    A bulk import stages the effects until it has seen what the file's lines filled."""
     from iki_server.runs import triggers
 
     check = done.check
@@ -187,10 +191,12 @@ def write(done: Checked) -> dict[str, UUID]:
         assignments.batch(check.run.requested_by),
     ):
         verified = _current_calculation_inputs(check)
-        _write_updates(check, done.updates)
-        made = _write_creates(check, done.creates)
+        effects = _write_updates(check, done.updates)
+        made = _write_creates(check, done.creates, effects)
         if check.errors:
             raise InvalidOutput(check.errors)  # rolls back what was written
+        if effects:
+            save_effects(effects)
         if verified:
             Recalculation.objects.filter(
                 entity_id__in=verified, action=check.action.qualified_name
@@ -565,17 +571,6 @@ def entry_made(saved: entities.Saved) -> dict[str, Any]:
     return {"entry_id": made.entity_id, "entry_revisions": [made.number]}
 
 
-def add_entry_revision(run: ActionRun, record: Any, made: Revision | None) -> None:  # noqa: ANN401 - a UUID
-    """Adds an entry's revision the run made to its effect on the record, which it has
-    already: the same identity given again filled in its entry (ADR 0115)."""
-    if made is None:
-        return
-    RunEffect.objects.filter(run=run, entity_id=record).update(
-        entry_id=made.entity_id,
-        entry_revisions=Func(F("entry_revisions"), Value(made.number), function="array_append"),
-    )
-
-
 def _current_calculation_inputs(check: Check) -> set[UUID]:
     """Lock calculation inputs and their evidence through commit. This also protects
     results from older worker versions that did not request a revision check."""
@@ -607,7 +602,8 @@ def _current_calculation_inputs(check: Check) -> set[UUID]:
     return direct
 
 
-def _write_updates(check: Check, updates: list[_Update]) -> None:
+def _write_updates(check: Check, updates: list[_Update]) -> list[RunEffect]:
+    effects = []
     user = check.run.requested_by
     for update in updates:
         entity = Entity.objects.select_for_update().get(pk=update.entity)
@@ -641,13 +637,16 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
             ) from None
         except Refused as error:
             raise Rejected("conflict", f"{entity.hrid}: {error}") from None
-        RunEffect.objects.create(
-            run=check.run,
-            entity_id=entity.pk,
-            kind=EffectKind.UPDATED,
-            revision=saved.revision.number if saved.revision is not None else None,
-            **entry_made(saved),
+        effects.append(
+            RunEffect(
+                run=check.run,
+                entity_id=entity.pk,
+                kind=EffectKind.UPDATED,
+                revision=saved.revision.number if saved.revision is not None else None,
+                **entry_made(saved),
+            )
         )
+    return effects
 
 
 def _with_created(check: Check, create: _Create, made: dict[str, UUID]) -> dict[str, Any] | None:
@@ -793,8 +792,11 @@ def _place_received(
     )
 
 
-def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
+def _write_creates(
+    check: Check, creates: list[_Create], effects: list[RunEffect]
+) -> dict[str, UUID]:
     run = check.run
+    by_entity = {effect.entity_id: effect for effect in effects}
     #: key → the entity its create made or reused
     made: dict[str, UUID] = {}
     for create in creates:
@@ -844,12 +846,15 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
         entity_id = saved.entity.pk
         if create.key is not None:
             made[create.key] = entity_id
-        if RunEffect.objects.filter(run=run, entity_id=entity_id).exists():
+        effect = by_entity.get(entity_id)
+        if effect is not None:
             # The same record, made twice: the same identity, registered again. Where this
             # one came from is kept too: one molecule is in several databases' records,
             # each the source of what's known of it (ADR 0154). What it filled in of its
             # entry was this run's too.
-            add_entry_revision(run, entity_id, saved.entry_revision)
+            if saved.entry_revision is not None:
+                effect.entry_id = saved.entry_revision.entity_id
+                effect.entry_revisions.append(saved.entry_revision.number)
             if create.origin is not None:
                 again = ExternalOrigin.objects.create(
                     run=run, entity_id=entity_id, revision=None, **create.origin
@@ -857,13 +862,15 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
                 makings.record(run.pk, entity_id, (), again)
             continue
         revision = saved.revision.number if saved.revision is not None else None
-        RunEffect.objects.create(
+        effect = RunEffect(
             run=run,
             entity_id=entity_id,
             kind=_kind(saved, matched=match is not None),
             revision=revision,
             **entry_made(saved),
         )
+        effects.append(effect)
+        by_entity[entity_id] = effect
         origin = None
         if create.origin is not None:
             # Kept for reused entities too: the run found the same record again.
