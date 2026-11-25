@@ -289,7 +289,7 @@ def _built(
     loaded = []
     for d in [directory, *dependencies]:
         others = [o for o in [directory, *dependencies] if o != d]
-        result = _load(d, others, err, require_setting_policy=not historical)
+        result = _load(d, others, err, historical=historical)
         if result is None or result.plugin is None:
             return None
         loaded.append((result.plugin, d))

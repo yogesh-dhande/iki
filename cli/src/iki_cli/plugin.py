@@ -181,12 +181,10 @@ def _load(
     dependencies: Sequence[Path],
     out: TextIO,
     *,
-    require_setting_policy: bool = True,
+    historical: bool = False,
 ) -> Result | None:
     """The plugin, or None after printing why it can't be built."""
-    result = load_plugin(
-        directory, dependencies=dependencies, require_setting_policy=require_setting_policy
-    )
+    result = load_plugin(directory, dependencies=dependencies, historical=historical)
     if result.plugin is not None:
         return result
     problems = list(result.problems)

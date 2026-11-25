@@ -1830,6 +1830,14 @@ def test_a_state_returns_to_another_on_edit(tmp_path: Path) -> None:
     assert plugin_from_dict(plugin_to_dict(result.plugin)) == result.plugin
 
 
+def test_only_an_upgrade_probe_accepts_on_edit_on_a_signed_lock(tmp_path: Path) -> None:
+    body = STATUS.replace("reason: required", "signatures: [{ meaning: review }], on_edit: testing")
+    current = make(tmp_path, states(body), ROLES)
+    assert "requires an explicit signed return" in only(current, "state-on-edit")
+    assert current.problems[0].path == ("fields", "status", "states", "released", "on_edit")
+    assert load_plugin(tmp_path / "acme", historical=True).problems == []
+
+
 @pytest.mark.parametrize(
     ("body", "code", "message"),
     [

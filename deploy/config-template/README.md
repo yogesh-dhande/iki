@@ -144,6 +144,11 @@ and your compute admins to review changes, with `CODEOWNERS` if you use it.
   `containerTier.imagePolicy` in the chart admits only those in the runs'
   namespace, with policy-controller
   ([ADR 0063](../../docs/adr/0063-the-cluster-admits-only-images-iki-signed-or-the-deployment-approved.md)).
+- On the reference GKE deployment, include the reviewed `image.yaml` in
+  OpenTofu's `config_image_files` before deploying. The build signs the GHCR
+  images and pins both digests in that file. For a rolling update, admit
+  both the current and incoming pins until the rollout finishes.
+  [GCP deployment guide](../gcp/production/README.md#3-the-clusters-controllers)
 - Point Argo CD or Flux at each deployment: the Iki chart at the version in
   `iki.yaml`, with `values.yaml` and `image.yaml` as value files.
 - Once Iki is up, a Compute admin makes a backend-tier registration token

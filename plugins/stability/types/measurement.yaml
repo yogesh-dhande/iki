@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Measurement
 label: Stability measurement
-schema_version: 1
+schema_version: 2
 hrid: { prefix: STM }
 description: One test on a completed stability pull, with the protocol's method, unit and review.
 fields:
@@ -50,7 +50,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures:
           [{ meaning: authorship, statement: I recorded the stability measurement as observed. }]
         guards:
@@ -61,7 +60,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:

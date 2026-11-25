@@ -67,10 +67,7 @@ def _check_inherited_flows(world: World) -> None:
         ("submitted", "reviewed", True),
         ("reviewed", "released", True),
     }
-    assert {s["name"]: s["on_edit"] for s in field["states"] if s["on_edit"]} == {
-        "submitted": "recorded",
-        "reviewed": "recorded",
-    }
+    assert all(state["on_edit"] is None for state in field["states"])
 
 
 def _requests(world: World) -> tuple[Entity, Entity, Entity]:

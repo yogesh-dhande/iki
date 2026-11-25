@@ -48,7 +48,7 @@
               "description": null,
               "set_by": ["iki/lab_roles.analyst"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -140,7 +140,7 @@
               "description": null,
               "set_by": ["iki/lab_roles.reviewer"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -1037,7 +1037,7 @@
               "description": null,
               "set_by": ["iki/plate_assays.analyst"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -1066,7 +1066,7 @@
               "description": null,
               "set_by": ["iki/plate_assays.reviewer"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [

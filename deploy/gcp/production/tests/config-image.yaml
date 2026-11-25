@@ -1,0 +1,8 @@
+# The two references CI pins in a deployment's image.yaml.
+image:
+  repository: ghcr.io/acme/iki-production
+  digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+backendWorkers:
+  image:
+    repository: ghcr.io/acme/iki-production-worker
+    digest: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

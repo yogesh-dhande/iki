@@ -29,6 +29,10 @@ public_host = "iki.example.com"
 # Your CI's service account, which pushes the server, worker and plugins' images:
 # image_writers = ["serviceAccount:ci@acme-iki-production.iam.gserviceaccount.com"]
 
+# When your config repository publishes to GHCR, point at its reviewed build output.
+# During a rollout, list the current and incoming image.yaml files from their checkouts.
+# config_image_files = ["/path/to/iki-config/deployments/production/image.yaml"]
+
 # Images the cluster may run besides this deployment's repositories, Iki's and External
 # Secrets' (Binary Authorization refuses the rest). Plugins' from elsewhere, and any tool
 # you install, such as kube-prometheus-stack's:

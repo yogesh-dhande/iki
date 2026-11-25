@@ -60,7 +60,7 @@ Every artifact comes with:
   and workflow built it, stored as a GitHub artifact attestation (and, for
   images and charts, in the registry next to the artifact).
 - **A CycloneDX SBOM** (software bill of materials) attestation listing its
-  dependencies. Images and binaries only.
+  contents. The chart inventory includes its packaged files and their SHA-256 digests.
 
 Publishing fails if any image has a high or critical vulnerability that has a
 fix available. Each workflow verifies its own signatures and attestations
@@ -119,11 +119,16 @@ before updating themselves to a release
 
 ### Helm chart
 
+Each release includes `iki-chart-<version>.cdx.json` alongside the packaged chart.
+Verify the SBOM against the archive you downloaded or the chart in the registry.
+
 ```console
 OWNER=yogesh-dhande
 cosign verify ghcr.io/$OWNER/charts/iki:1.0.0 \
   --certificate-identity-regexp "^https://github.com/$OWNER/iki/.github/workflows/release.yml@refs/tags/v.*$" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+gh attestation verify iki-1.0.0.tgz --repo "$OWNER/iki" --predicate-type https://cyclonedx.org/bom
+gh attestation verify "oci://ghcr.io/$OWNER/charts/iki:1.0.0" --repo "$OWNER/iki" --predicate-type https://cyclonedx.org/bom
 ```
 
 ## Admitting only signed images

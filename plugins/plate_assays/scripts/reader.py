@@ -16,7 +16,7 @@ from uuid import UUID
 
 # ANSI/SLAS 4-2004 (R2012), sections 4.1 and 4.2, well positions in microplates.
 DIMENSIONS = {96: (8, 12), 384: (16, 24)}
-MAX_BYTES = 5 * 1024 * 1024  # AssayPlate.reader_file's upload limit.
+MAX_MIB = 1  # AssayPlate.reader_file's upload limit.
 WELL = re.compile(r"([A-P])0?([1-9][0-9]?)", re.ASCII)
 RAW = re.compile(r"Raw Data\s*\((\d{1,4})\)", re.ASCII | re.IGNORECASE)
 NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", re.ASCII)
@@ -82,8 +82,8 @@ def _layout(
 
 
 def _csv_rows(content: bytes) -> list[tuple[int, list[str]]]:
-    if len(content) > MAX_BYTES:
-        raise ValueError("The endpoint CSV exceeds 5 MiB.")
+    if len(content) > MAX_MIB * 1024**2:
+        raise ValueError(f"The endpoint CSV exceeds {MAX_MIB} MiB.")
     try:
         text = content.decode("utf-8-sig")
     except UnicodeDecodeError:

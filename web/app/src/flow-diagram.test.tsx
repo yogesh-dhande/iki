@@ -111,7 +111,6 @@ describe("a type's page", () => {
       "Locks the record",
       "Set by an electronic signature, with its meaning",
       "Someone moves it",
-      "Correcting a value returns it",
     ]);
   });
 

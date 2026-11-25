@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: QCOOSInvestigation
 label: Regulated OOS investigation
-schema_version: 1
+schema_version: 2
 extends: OOSInvestigation
 hrid: { prefix: QOI }
 fields:
@@ -22,7 +22,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: I submit the original observation, investigation findings and conclusion.
@@ -37,7 +36,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
             statement: I independently reviewed the original observation, evidence and findings.

@@ -4,7 +4,7 @@ name: Release
 #   - iki-worker binaries for Linux (static, musl) and macOS, amd64 and arm64,
 #     each with a cosign keyless signature bundle, SLSA build provenance and a
 #     CycloneDX SBOM attestation, plus a SHA256SUMS file;
-#   - the Helm chart, pushed to ghcr.io as an OCI artifact, signed and attested;
+#   - the Helm chart, with a CycloneDX SBOM, also signed and attested in ghcr.io;
 #   - @ikisci/science and @ikisci/ui on npm, at the release version;
 #   - a GitHub release with the worker and chart artifacts.
 # Container images are published by publish.yml on the same tag.
@@ -255,6 +255,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      id-token: write # sign the packaged chart's SBOM attestation
+      attestations: write # store the chart archive's attestation on GitHub
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -262,16 +264,42 @@ jobs:
       - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: v4.3.1
-      - name: Package
+      - name: Install Syft (pinned, checksum verified)
+        run: scripts/ci/install-tools.sh syft
+      - name: Package and inventory the chart
         env:
           VERSION: ${{ needs.version.outputs.version }}
+          SYFT_FILE_METADATA_SELECTION: all
+          SYFT_FILE_METADATA_DIGESTS: sha256
         run: |
           mkdir -p dist
           helm package deploy/helm/iki --version "$VERSION" --app-version "$VERSION" -d dist
+          chart_dir=$(mktemp -d)
+          tar -xzf "dist/iki-$VERSION.tgz" -C "$chart_dir"
+          syft scan "dir:$chart_dir" --source-name iki --source-version "$VERSION" \
+            -o "cyclonedx-json=dist/iki-chart-$VERSION.cdx.json"
+          # Check every archived file, including the versioned Chart.yaml, against the SBOM.
+          (cd "$chart_dir" && find iki -type f -exec sha256sum {} + | sort) > "$RUNNER_TEMP/chart-files"
+          jq -r '.components[] | select(.type == "file") as $f | $f.hashes[] |
+            select(.alg == "SHA-256") | "\(.content)  \($f.name | ltrimstr("/"))"' \
+            "dist/iki-chart-$VERSION.cdx.json" | sort | diff -u "$RUNNER_TEMP/chart-files" -
+      - name: Attest the packaged chart's SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/iki-${{ needs.version.outputs.version }}.tgz
+          sbom-path: dist/iki-chart-${{ needs.version.outputs.version }}.cdx.json
+      - name: Verify the packaged chart's SBOM attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: gh attestation verify "dist/iki-$VERSION.tgz" --repo "$REPO" --predicate-type https://cyclonedx.org/bom
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: chart
-          path: dist/*.tgz
+          path: |
+            dist/*.tgz
+            dist/*.cdx.json
           retention-days: 7
 
   publish-chart:
@@ -284,7 +312,7 @@ jobs:
       contents: read
       packages: write # push the chart to ghcr.io
       id-token: write # keyless signing
-      attestations: write # provenance attestation
+      attestations: write # provenance and SBOM attestations
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -296,16 +324,19 @@ jobs:
         with:
           name: chart
           path: dist
+      # Helm, cosign and the OCI attestation action share this registry login.
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Push
         id: push
         env:
           OWNER: ${{ github.repository_owner }}
-          ACTOR: ${{ github.actor }}
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           repo="ghcr.io/${OWNER,,}/charts"
-          echo "$TOKEN" | helm registry login ghcr.io -u "$ACTOR" --password-stdin
-          out=$(helm push dist/*.tgz "oci://$repo" 2>&1)
+          out=$(helm push dist/*.tgz "oci://$repo" --registry-config "${DOCKER_CONFIG:-$HOME/.docker}/config.json" 2>&1)
           echo "$out"
           digest=$(sed -n 's/^Digest: //p' <<< "$out")
           echo "ref=$repo/iki" >> "$GITHUB_OUTPUT"
@@ -321,14 +352,24 @@ jobs:
           subject-name: ${{ steps.push.outputs.ref }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+      - name: Attest the OCI chart's SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.ref }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: dist/iki-chart-${{ needs.version.outputs.version }}.cdx.json
+          push-to-registry: true
       - name: Verify
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           REF: ${{ steps.push.outputs.ref }}@${{ steps.push.outputs.digest }}
           IDENTITY: ${{ github.server_url }}/${{ github.workflow_ref }}
         run: |
           cosign verify "$REF" --certificate-identity "$IDENTITY" \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
-          echo "chart signature verified"
+          gh attestation verify "oci://$REF" --repo "$REPO" --predicate-type https://slsa.dev/provenance/v1
+          gh attestation verify "oci://$REF" --repo "$REPO" --predicate-type https://cyclonedx.org/bom
 
   npm:
     name: Package and publish ${{ matrix.package }} to npm

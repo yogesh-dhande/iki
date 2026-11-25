@@ -208,6 +208,27 @@ run "the_cluster_runs_only_the_images_the_chart_and_runbook_use" {
   }
 }
 
+run "the_cluster_runs_the_config_builds_two_pinned_images" {
+  variables {
+    config_image_files = ["tests/config-image.yaml"]
+  }
+  assert {
+    condition = toset(output.allowed_images) == setunion(toset(jsondecode(file("tests/allowed-images.json"))), toset([
+      "ghcr.io/acme/iki-production@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "ghcr.io/acme/iki-production-worker@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    ]))
+    error_message = "Only the two exact references from the reviewed config build should be added."
+  }
+}
+
+run "the_config_build_must_have_pinned_both_images" {
+  command = plan
+  variables {
+    config_image_files = ["../../config-template/deployments/production/image.yaml"]
+  }
+  expect_failures = [var.config_image_files]
+}
+
 run "the_vm_tier_when_asked" {
   variables {
     vm_tier = {}

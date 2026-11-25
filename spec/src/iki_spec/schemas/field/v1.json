@@ -1024,7 +1024,7 @@
           "type": "boolean"
         },
         "on_edit": {
-          "description": "For a locking state, the state to return to when a person corrects a record value. The editor must be able to set the destination and give a reason (ADR 0179).",
+          "description": "For an unsigned locking state, the state to return to when a person corrects a record value. The editor must be able to set the destination and give a reason (ADR 0179).",
           "$ref": "#/$defs/fieldName"
         },
         "reason": {

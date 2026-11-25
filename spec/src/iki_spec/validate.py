@@ -274,12 +274,14 @@ def load_plugin(
     dependencies: Sequence[FilePath | str] = (),
     core: bool = False,
     require_setting_policy: bool = True,
+    historical: bool = False,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
-    Only an upgrade probe loading old manifests can relax the explicit setting policy.
+    An upgrade probe uses ``historical`` to build the earlier commit under the manifest
+    rules it shipped with. Current builds enforce the setting and signed-state policies.
     """
     root = FilePath(directory)
     loaded = _read(root)
@@ -309,7 +311,9 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core).run(require_setting_policy=require_setting_policy)
+    _Semantics(loaded, others, core=core, historical=historical).run(
+        require_setting_policy=require_setting_policy and not historical
+    )
     return loaded.result()
 
 
@@ -992,7 +996,14 @@ def _fields(data: dict[str, Any], plugin: str) -> dict[str, Field]:
 
 
 class _Semantics:
-    def __init__(self, loaded: _Loaded, others: dict[str, _Loaded], *, core: bool = False) -> None:
+    def __init__(
+        self,
+        loaded: _Loaded,
+        others: dict[str, _Loaded],
+        *,
+        core: bool = False,
+        historical: bool = False,
+    ) -> None:
         assert loaded.plugin is not None and loaded.plugin_source is not None  # noqa: S101 - an invariant, not a check
         self.loaded = loaded
         self.plugin: Plugin = loaded.plugin
@@ -1001,6 +1012,7 @@ class _Semantics:
         self.checker = loaded.checker
         self.add = loaded.checker.add
         self.core = core
+        self.historical = historical
         self.types: dict[str, EntityType] = {} if core else dict(BUILTIN_TYPES)
         for other in others.values():
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
@@ -2150,6 +2162,11 @@ class _Semantics:
             message = f"`{state.name}` belongs to a removed field or state, so no one edits it."
         elif not state.locks:
             message = f"`{state.name}` must lock the record to require a return on edit."
+        elif state.signatures and not self.historical:
+            message = (
+                f"Leaving the signed lock `{state.name}` for a correction requires an explicit "
+                "signed return. Remove `on_edit` from this state."
+            )
         elif target is None or target.removed:
             self.state_ref(name, set(f.live_states), source, (*at, "on_edit"))
             return

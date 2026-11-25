@@ -10,7 +10,10 @@ Terraform checks a provider from a mirror against its lockfile's hashes.
 The list travels in this package, so it reaches an air-gapped site the way
 the rest of Iki does. ``make first-party`` adds each plugin's current tree,
 and a test fails while one is missing, so every commit of Iki's repository
-lists the trees its plugins have. Trees are only ever added.
+lists the trees its plugins have. Keep every earlier tree for a supported
+plugin so mirrors can serve older pins, including when its directory moves
+into examples. The pre-M1 example LIMS cutover explicitly retired its name
+and history on a fresh database with no deployed pins to support (ADR 0211).
 """
 
 from __future__ import annotations

@@ -8,7 +8,7 @@ Views, the API, MCP tools and the event stream ask :func:`can` or
   settings; Compute Admins manage compute; Auditors read the audit log.
 - **Project roles** cover a project's data. Someone's role is the highest of
   their direct grant and their teams' grants. Each role includes the ones
-  below it: Viewer reads, Editor edits and runs on the backend and client
+  below it: Viewer reads, Editor edits and runs on the backend and self-hosted
   tiers, Runner also runs on the container and VM tiers, Admin manages the
   project and its members.
 - **Org Admins see every project's name and members, but not its data.** They
