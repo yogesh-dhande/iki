@@ -1,5 +1,4 @@
 # The worker reads progress, errors and log messages from stdout.
-# ruff: noqa: T201
 # Biopython declares several of these calculation APIs without annotations.
 # mypy: untyped_calls_exclude=Bio
 """The protein plugin's sequence calculations: `properties` for proteins, `translate` for
