@@ -229,6 +229,15 @@ def in_unit(entity: Entity, given: Given, values: Mapping[str, Any] | None = Non
     )
 
 
+def _stocked_quantity(entity: Entity, given: Given) -> Decimal:
+    """A positive opening balance or recount must identify a declared material."""
+    value = in_unit(entity, given)
+    wanted = spec(entity.type)
+    if value and wanted and wanted.material and _material_of(entity) is None:
+        raise Wrong({"amount": [f"Set {wanted.material} before recording stock on {entity.hrid}."]})
+    return value
+
+
 def record(
     user: User | None,
     entity: Entity,
@@ -243,7 +252,7 @@ def record(
     with transaction.atomic():
         # Its values as just saved: a mass given for a record kept by volume converts
         # through the concentration it was created with.
-        value = in_unit(entity, given)
+        value = _stocked_quantity(entity, given)
         wanted = spec(entity.type)
         assert wanted is not None  # noqa: S101
         Amount.objects.create(entity=entity, unit=wanted.unit, value=value)
@@ -410,32 +419,38 @@ def _check_draw_target(
     values: Mapping[str, Any],
     container: Entity,
     source: Entity | None,
-) -> Given:
-    """Match a draw against the prepared target with both records locked."""
+) -> Given | None:
+    """Match one draw against the assigned record, under the source and target locks."""
     from iki_server.storage.models import Place
 
-    refusal = states.refusal(user, target, policy.by, "awaiting material", field=policy.state_field)
-    if refusal is not None:
-        why, forbidden = refusal
-        if forbidden:
-            raise PermissionDenied(why)
-        raise Wrong({"used_in": [why]})
-    if not values.get(policy.ready) or values[policy.state_field] != policy.state:
+    if policy.by:
+        refusal = states.refusal(
+            user, target, policy.by, "awaiting material", field=policy.state_field
+        )
+        if refusal is not None:
+            why, forbidden = refusal
+            if forbidden:
+                raise PermissionDenied(why)
+            raise Wrong({"used_in": [why]})
+    if values[policy.state_field] != policy.state or (
+        policy.ready and not values.get(policy.ready)
+    ):
         raise Wrong({"used_in": [f"{target.hrid} is not awaiting a draw."]})
     if Movement.objects.filter(used_in_id=target.pk, kind=MovementKind.DRAWN).exists():
         raise Wrong({"used_in": [f"A draw is already recorded for {target.hrid}."]})
-    if (
-        values[policy.from_field] != container.pk
-        or source is None
-        or values[policy.source] != source.pk
+    if values[policy.from_field] != container.pk or (
+        policy.source is not None and (source is None or values[policy.source] != source.pk)
     ):
         raise Wrong({"used_in": [f"Draw from the container and source assigned to {target.hrid}."]})
-    _usable(source)
+    if source is not None and policy.source is not None:
+        _usable(source)
     if (
         policy.stored
         and not Place.objects.filter(entity_id=container.pk, container_id__isnull=False).exists()
     ):
         raise Wrong({"used_in": [f"Put {container.hrid} in its storage position before drawing."]})
+    if policy.amount is None:
+        return None
     unit = _fields(registry.types()[target.type])[policy.amount].unit
     return Given.of({"value": values[policy.amount], "unit": unit})
 
@@ -547,7 +562,7 @@ def adjust(
             raise StaleBalanceError
         if amount is None:
             return record(user, entity, given, reason=reason)
-        value = in_unit(entity, given)
+        value = _stocked_quantity(entity, given)
         change = _EXACT.subtract(value, amount.value)
         return _change(user, entity, amount, MovementKind.ADJUSTED, change, given, reason)
 

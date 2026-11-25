@@ -879,12 +879,12 @@ class DrawTarget:
     """A record intended to receive one matched draw while it awaits material."""
 
     from_field: str
-    source: str
+    source: str | None
     state_field: str
     state: str
     by: tuple[str, ...]
-    ready: str
-    amount: str
+    ready: str | None
+    amount: str | None
     stored: bool = False
 
 

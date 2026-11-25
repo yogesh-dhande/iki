@@ -146,10 +146,15 @@
       }
     },
     "draw_target": {
-      "description": "Accept one draw into this record, from an assigned material record and its source, when prepared and in the designated state.",
+      "description": "Accept one ledger draw from the assigned record while in the designated state. A prepared draw also fixes the upstream source, quantity and authorized roles.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["from", "source", "state", "by", "ready", "amount"],
+      "required": ["from", "state"],
+      "dependentRequired": {
+        "source": ["by", "ready", "amount"],
+        "ready": ["by", "source", "amount"],
+        "amount": ["by", "source", "ready"]
+      },
       "properties": {
         "from": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
         "source": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
@@ -497,7 +502,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "material": {
-          "description": "A required, immutable reference of the type naming what its amount is of, such as a lot's molecule. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
+          "description": "An immutable reference naming what the amount is of. A positive stock balance requires a value. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "follows": {
