@@ -10,7 +10,7 @@ import { answer, ME, signedIn } from "./test-server";
 
 const NONE = ME.can;
 const EVERYTHING = {
-  manage_quarantine: false,
+  manage_quarantine: true,
   manage_org: true,
   read_audit: true,
   create_projects: true,
@@ -45,7 +45,7 @@ function sidebar(): [string, [string, string | null][]][] {
 }
 
 describe("the admin area", () => {
-  it("offers someone who may open everything each page, in the ADR's four groups", async () => {
+  it("offers someone who may open everything each page, in its groups", async () => {
     signedIn({ can: EVERYTHING });
     onCompute();
     await renderApp("/admin/compute/");
@@ -75,6 +75,7 @@ describe("the admin area", () => {
           ["Costs and budgets", "/admin/costs/"],
         ],
       ],
+      ["Security", [["Quarantine", "/admin/quarantine/"]]],
       [
         "Compliance",
         [

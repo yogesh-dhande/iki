@@ -725,10 +725,17 @@ Poll a scanning upload or registration at its original URL. Its status and
 history include `file.scan` only while the caller can read the resulting file.
 
 An Org Admin assigns the **Quarantine Admin** organization role to the
-person responsible for investigating detections. That person can page
-through `GET /api/v1/quarantine`. To release a false positive, send
+person responsible for investigating detections. They review held files in
+**Admin → Security → Quarantine**, or page through `GET /api/v1/quarantine`:
+what's held, or with `status=released` what was released, narrowed by
+`state` (`infected` or `not_scanned`) and `q` (part of a file name, or the
+start of a SHA-256). Each entry lists the files that share the bytes, their
+projects and who added them; `GET /api/v1/quarantine/{decision_id}` lists
+every one. To release a false positive, send
 `POST /api/v1/quarantine/{decision_id}/release` with a JSON body such as
 `{"reason":"Vendor confirmed a false detection in review LAB-274."}`.
+Only an entry with `releasable` can be: an incomplete inspection found
+nothing to call false, and stays held.
 A bearer token for this action needs the admin scope as well as the role.
 The finding and the release are retained separately. The release applies
 to every file that shares this blob. Ordinary project access still governs

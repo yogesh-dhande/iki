@@ -388,6 +388,7 @@ def test_an_inline_import_matches_a_sample_label_only_once(world: World) -> None
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     csv.refresh_from_db()
     run = launch(
         api_as(world),

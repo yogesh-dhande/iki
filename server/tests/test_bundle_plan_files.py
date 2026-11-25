@@ -293,6 +293,7 @@ def test_a_file_arrives_with_what_it_states(world: World, tmp_path: Path) -> Non
         blob = Blob.objects.create(
             sha256=sha, size=len(data), storage_uri=storage.uri(storage.blob_key(sha))
         )
+        scan_state.record_result(blob, state="clean", scanner="fixture", signature_version="1")
         run = File.objects.create(
             project=world.project,
             blob=blob,

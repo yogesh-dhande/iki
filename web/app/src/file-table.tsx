@@ -26,6 +26,7 @@ import {
   type Takes,
 } from "./files";
 import { formatsQuery } from "./media";
+import { scanFlag } from "./quarantine";
 import { SearchBox, ToolbarSelect } from "./pages/entity-filters";
 import { Button, Loading, ProblemAlert, RelativeTime } from "./ui";
 
@@ -363,7 +364,10 @@ function FileRowView({
   const held = pick?.held.has(file.id) ?? false;
   const chosen = held || (pick?.chosen.has(file.id) ?? false);
   const full = Boolean(pick?.multiple && pick.room !== undefined && pick.chosen.size >= pick.room);
-  const locked = held || (!chosen && full);
+  // Nothing can use a file its malware scan holds, or hasn't finished (ADR 0216).
+  const flag = scanFlag(file.scan);
+  const unusable = !file.scan.usable && !chosen;
+  const locked = held || unusable || (!chosen && full);
   const stated = factsLine(file.facts);
   return (
     <tr
@@ -394,18 +398,21 @@ function FileRowView({
         </td>
       ) : null}
       <td className="list-fill" title={stated ? `${file.name}\n${stated}` : file.name}>
-        <span className="list-fill-text">
-          {pick ? (
-            <label htmlFor={id} className="list-name file-name">
-              {file.name}
-              {held ? <span className="muted"> (chosen)</span> : null}
-            </label>
-          ) : (
-            <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
-              {file.name}
-            </Link>
-          )}
-          {stated ? <span className="cell-meta">{stated}</span> : null}
+        <span className={flag ? "list-fill-flagged" : undefined}>
+          <span className="list-fill-text">
+            {pick ? (
+              <label htmlFor={id} className="list-name file-name">
+                {file.name}
+                {held ? <span className="muted"> (chosen)</span> : null}
+              </label>
+            ) : (
+              <Link className="list-name file-name" to="/files/$id/" params={{ id: file.id }}>
+                {file.name}
+              </Link>
+            )}
+            {stated ? <span className="cell-meta">{stated}</span> : null}
+          </span>
+          {flag ? <span className={`badge ${flag.tone}`}>{flag.text}</span> : null}
         </span>
       </td>
       {projectName !== undefined ? <td className="muted">{projectName}</td> : null}

@@ -12,7 +12,7 @@ from iki_server.plugins.operations import AppendOnly
 class Migration(migrations.Migration):
     dependencies = [
         ("iki_audit", "0005_via_trigger"),
-        ("iki_files", "0009_project_files"),
+        ("iki_files", "0010_file_facts"),
         ("iki_org", "0007_quarantine_admin"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

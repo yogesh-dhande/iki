@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-25
-- Refines: [0216](0216-files-wait-for-a-scan.md)
+- Refines: [0216](0216-files-wait-for-a-scan.md), [0176](0176-the-app-is-laid-out-around-a-sidebar-and-what-you-can-read.md)
 
 ## Context
 
@@ -25,6 +25,14 @@ immutable record and audit event with the actor, time, reason and decision.
 The file keeps its infected result and exposes the release as its basis
 for use. A pending inspection or incomplete scan cannot be released as a
 false positive.
+
+Quarantine Admins review in Admin → Security → Quarantine, a group of the
+admin area's own beside Compliance, as GitHub and Slack keep security apart.
+It lists what's held, or what was released, with each source's files, their
+projects and who added them. Its decision page shows the finding, the
+release and its reason. A file's page names its hold and links Quarantine
+Admins to that page; file lists and pickers mark a held file, and a picker
+can't choose one.
 
 A release is a security operator's exception, with the authenticated
 identity and a reason. It does not sign or approve a scientific record.

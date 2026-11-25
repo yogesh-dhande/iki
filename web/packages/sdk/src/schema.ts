@@ -3354,11 +3354,34 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List held file scan decisions
-         * @description For Quarantine Admins. Newest first, across the deployment. Each entry identifies the
-         *     held bytes and the finding. A source can have several project files that share its scan.
+         * List quarantined files
+         * @description For Quarantine Admins. Newest first, across the deployment: what's held now, or with
+         *     ``status=released``, the infected findings released as false positives. Each entry
+         *     identifies the held bytes, the finding, and where the bytes are: several project files
+         *     can share one source, and so its scan.
          */
         get: operations["iki_server_api_files_list_quarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quarantine/{decision_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a quarantined file
+         * @description For Quarantine Admins: a held decision, or a released one, with every place its
+         *     bytes are.
+         */
+        get: operations["iki_server_api_files_read_quarantine"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3378,8 +3401,9 @@ export interface paths {
         put?: never;
         /**
          * Release an infected file after reviewing its finding
-         * @description For Quarantine Admins. The given reason and the reviewer are recorded in the audit log.
-         *     All files covered by this decision become usable and keep their original finding.
+         * @description For Quarantine Admins. The given reason and the reviewer are recorded with the
+         *     release and in the audit log. Every file covered by this decision becomes usable and
+         *     keeps its original finding. An incomplete inspection can't be released.
          */
         post: operations["iki_server_api_files_release_quarantine"];
         delete?: never;
@@ -9220,7 +9244,8 @@ export interface components {
         /**
          * FileFactsOut
          * @description What the file says about where its data came from (ADR 0224), read when it was
-         *     added. Each is null when the file doesn't say, or doesn't say clearly.
+         *     added once its scan let it be used: a held file's bytes aren't parsed. Each is null when
+         *     the file doesn't say, or doesn't say clearly.
          */
         FileFactsOut: {
             /** @description The instrument's model, such as Aurora or Orbitrap Eclipse. */
@@ -9910,6 +9935,42 @@ export interface components {
             to: string;
         };
         /**
+         * HeldCopyOut
+         * @description Where held bytes are: a project's file, or a run's or a bundle's own upload.
+         */
+        HeldCopyOut: {
+            /** @description The agent that added it for them, if one did. */
+            agent: components["schemas"]["AgentOut"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** @description Who added it. */
+            created_by: components["schemas"]["UserOut"] | null;
+            /**
+             * File
+             * @description The project file, for a ``file``, if you can read it: its page opens.
+             */
+            file: string | null;
+            /**
+             * Kind
+             * @description A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a ``bundle`` to import, each kept apart from the project's files.
+             * @enum {string}
+             */
+            kind: "file" | "artifact" | "checkpoint" | "bundle";
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            project: components["schemas"]["ProjectRef"];
+            /**
+             * Run
+             * @description The run's ID, for an artifact or a checkpoint.
+             */
+            run: string | null;
+        };
+        /**
          * HeldOut
          * @description Evidence of a rule that a revision broke (ADR 0127), with the hold's review.
          */
@@ -9982,41 +10043,6 @@ export interface components {
             revision: number;
             /** Rule */
             rule: string;
-        };
-        /** HeldScanOut */
-        HeldScanOut: {
-            /**
-             * Id
-             * Format: uuid
-             * @description The decision ID for releasing a confirmed false positive.
-             */
-            id: string;
-            /**
-             * Reason
-             * @description What was found or why an inspection could not finish.
-             */
-            reason: string;
-            /**
-             * Scanned At
-             * Format: date-time
-             */
-            scanned_at: string;
-            /** Scanner */
-            scanner: string;
-            /** Sha256 */
-            sha256: string;
-            /** Signature Version */
-            signature_version: string;
-            /**
-             * Size
-             * @description Bytes.
-             */
-            size: number;
-            /**
-             * State
-             * @enum {string}
-             */
-            state: "infected" | "not_scanned";
         };
         /** HelmGroupMemberOut */
         HelmGroupMemberOut: {
@@ -12399,16 +12425,6 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[HeldScanOut] */
-        Page_HeldScanOut_: {
-            /** Items */
-            items: components["schemas"]["HeldScanOut"][];
-            /**
-             * Next Cursor
-             * @description Pass as cursor for the next page; null at the end.
-             */
-            next_cursor: string | null;
-        };
         /** Page[HoldingRecordOut] */
         Page_HoldingRecordOut_: {
             /** Items */
@@ -12503,6 +12519,16 @@ export interface components {
         Page_ProjectOut_: {
             /** Items */
             items: components["schemas"]["ProjectOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[QuarantineOut] */
+        Page_QuarantineOut_: {
+            /** Items */
+            items: components["schemas"]["QuarantineOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13740,6 +13766,105 @@ export interface components {
             /** To Choice */
             to_choice?: string | null;
             to_mode?: components["schemas"]["ScanMode"];
+        };
+        /** QuarantineFilters */
+        QuarantineFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Q
+             * @description Part of a file's name, or the start of its SHA-256.
+             * @default
+             */
+            q: string;
+            /**
+             * State
+             * @description Only malware findings, or only inspections that couldn't finish.
+             */
+            state?: ("infected" | "not_scanned") | null;
+            /**
+             * Status
+             * @description Held now, or infected findings released as false positives.
+             * @default held
+             * @enum {string}
+             */
+            status: "held" | "released";
+        };
+        /** QuarantineOut */
+        QuarantineOut: {
+            /**
+             * File Count
+             * @description How many places the bytes are, listed or not.
+             */
+            file_count: number;
+            /**
+             * Files
+             * @description Where the bytes are, oldest first: the first few in a list, every one in a decision's own.
+             */
+            files: components["schemas"]["HeldCopyOut"][];
+            /**
+             * Id
+             * Format: uuid
+             * @description The decision ID for releasing a confirmed false positive.
+             */
+            id: string;
+            /**
+             * Reason
+             * @description What was found (the signature's name), or why an inspection could not finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the scanner's own reason, such as ``Heuristics.Encrypted.Zip``.
+             */
+            reason: string;
+            /**
+             * Releasable
+             * @description An infected finding not yet released. An incomplete inspection never is: it found nothing to call false (ADR 0217).
+             */
+            releasable: boolean;
+            /** @description Its release, once released. */
+            release: components["schemas"]["QuarantineReleaseOut"] | null;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** Scanner */
+            scanner: string;
+            /** Sha256 */
+            sha256: string;
+            /** Signature Version */
+            signature_version: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "infected" | "not_scanned";
+        };
+        /** QuarantineReleaseOut */
+        QuarantineReleaseOut: {
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /** @description The Quarantine Admin who released it. */
+            by: components["schemas"]["UserOut"];
+            /**
+             * Reason
+             * @description Why they found the finding false, as they gave it.
+             */
+            reason: string;
         };
         /**
          * QueryIn
@@ -24784,6 +24909,12 @@ export interface operations {
                 cursor?: string | null;
                 /** @description Items per page. */
                 limit?: number;
+                /** @description Held now, or infected findings released as false positives. */
+                status?: "held" | "released";
+                /** @description Only malware findings, or only inspections that couldn't finish. */
+                state?: ("infected" | "not_scanned") | null;
+                /** @description Part of a file's name, or the start of its SHA-256. */
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -24797,7 +24928,29 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Page_HeldScanOut_"];
+                    "application/json": components["schemas"]["Page_QuarantineOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_read_quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
         };
@@ -24823,7 +24976,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["FileScanOut"];
+                    "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
         };

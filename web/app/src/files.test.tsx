@@ -18,7 +18,7 @@ import {
   statedFacts,
   usedByText,
 } from "./files";
-import { answer, calls, CLEAN_SCAN, page, project, signedIn } from "./test-server";
+import { answer, calls, CLEAN_SCAN, ME, page, project, signedIn } from "./test-server";
 
 type Row = Schemas["FileRowOut"];
 
@@ -362,12 +362,111 @@ describe("a project's Files", () => {
       scan: { state: "pending", usable: false },
       origin: { kind: "upload" },
       samples: [],
+      read_groups: [],
     });
     answer(`GET /api/v1/files/${A.id}/records`, page([]));
     answer(`GET /api/v1/files/${A.id}/runs`, page([]));
     await renderApp(`/files/${A.id}/`);
-    expect(await screen.findByText("Scanning…")).toBeVisible();
+    expect(
+      await screen.findByText("Scanning… It can be used once the scanner finds it clean."),
+    ).toBeVisible();
     expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+  });
+
+  const MACRO: Schemas["FileScanOut"] = {
+    state: "infected",
+    usable: false,
+    decision_id: "00000000-0000-7000-8000-0000000d0007",
+    scanner: "ClamAV 1.4.3",
+    signature_version: "27453",
+    scanned_at: "2026-11-24T08:12:00Z",
+    reason: "Xls.Downloader.Agent-7372345-0",
+    released: false,
+  };
+
+  function onHeldFile(scan: Schemas["FileScanOut"]) {
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/files/${A.id}`, {
+      ...A,
+      name: "EnVision_plate-07.xlsm",
+      scan,
+      origin: { kind: "upload", run: null, uri: null, version: null },
+      samples: [],
+      read_groups: [],
+    });
+    answer(`GET /api/v1/files/${A.id}/records`, page([]));
+    answer(`GET /api/v1/files/${A.id}/runs`, page([]));
+  }
+
+  it("says a quarantined file is held and why, and sends Quarantine Admins to review it", async () => {
+    signedIn({ can: { ...ME.can, manage_quarantine: true } });
+    onHeldFile(MACRO);
+    await renderApp(`/files/${A.id}/`);
+    const scan = (await screen.findByText("Malware scan", { selector: "dt" }))
+      .nextElementSibling as HTMLElement;
+    expect(scan).toHaveTextContent(
+      "Quarantined: the scanner found Xls.Downloader.Agent-7372345-0. It can’t be downloaded or used unless a Quarantine Admin finds it a false positive.",
+    );
+    expect(
+      within(scan).getByRole("link", { name: "Review it in Admin → Quarantine" }),
+    ).toHaveAttribute("href", `/admin/quarantine/${MACRO.decision_id ?? ""}/`);
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
+  });
+
+  it("gives everyone else the hold, with no link they couldn’t open", async () => {
+    signedIn();
+    onHeldFile({ ...MACRO, state: "not_scanned", reason: "Heuristics.Encrypted.Zip" });
+    await renderApp(`/files/${A.id}/`);
+    const scan = (await screen.findByText("Malware scan", { selector: "dt" }))
+      .nextElementSibling as HTMLElement;
+    expect(scan).toHaveTextContent(
+      "Held: Encrypted (Heuristics.Encrypted.Zip). It can’t be downloaded or used: the scanner couldn’t inspect all of it.",
+    );
+    expect(within(scan).queryByRole("link")).toBeNull();
+  });
+
+  it("says a released file’s finding stays with it", async () => {
+    signedIn({ can: { ...ME.can, manage_quarantine: true } });
+    onHeldFile({ ...MACRO, usable: true, released: true });
+    await renderApp(`/files/${A.id}/`);
+    const scan = (await screen.findByText("Malware scan", { selector: "dt" }))
+      .nextElementSibling as HTMLElement;
+    expect(scan).toHaveTextContent(
+      "Released from quarantine: the scanner found Xls.Downloader.Agent-7372345-0, and a Quarantine Admin found it a false positive.",
+    );
+    expect(
+      within(scan).getByRole("link", { name: "See its release in Admin → Quarantine" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Download" })).toBeVisible();
+  });
+
+  it("marks held and scanning files in a picker, which can’t choose them", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer("GET /api/v1/entities", page([]));
+    answerFiles([
+      A,
+      file("5", "5held.pdb", { scan: MACRO }),
+      file("6", "6new.pdb", { scan: { ...CLEAN_SCAN, state: "pending", usable: false } }),
+    ]);
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure",
+    );
+    const structure = screen.getByRole("group", { name: "Structure" });
+    await user.click(within(structure).getByRole("button", { name: "Or choose one already here" }));
+    const picker = await screen.findByRole("dialog", { name: "Choose a file for Structure" });
+    expect(await within(picker).findByRole("radio", { name: "1abc.pdb" })).toBeEnabled();
+    expect(within(picker).getByRole("radio", { name: "5held.pdb" })).toBeDisabled();
+    expect(within(picker).getByRole("radio", { name: "6new.pdb" })).toBeDisabled();
+    expect(within(picker).getByRole("row", { name: /5held\.pdb/ })).toHaveTextContent(
+      "Quarantined",
+    );
+    expect(within(picker).getByRole("row", { name: /6new\.pdb/ })).toHaveTextContent("Scanning");
+    // A click on its row doesn't choose it either.
+    await user.click(within(picker).getByRole("row", { name: /5held\.pdb/ }));
+    expect(within(picker).getByRole("radio", { name: "5held.pdb" })).not.toBeChecked();
   });
 
   it("shows a file: what it is, when its data was acquired, and what uses it", async () => {

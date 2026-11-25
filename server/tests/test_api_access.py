@@ -1818,6 +1818,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/uploads", fixed("/uploads"), row(200)),
     ("GET", "/quarantine", fixed("/quarantine"), row(403, quarantine_admin=200)),
     (
+        "GET",
+        "/quarantine/{decision_id}",
+        fixed("/quarantine/00000000-0000-0000-0000-000000000001"),
+        row(403, quarantine_admin=404),
+    ),
+    (
         "POST",
         "/quarantine/{decision_id}/release",
         fixed(

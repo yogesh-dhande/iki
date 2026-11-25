@@ -23,6 +23,8 @@ from datetime import date, datetime, timedelta
 from typing import Any, Literal, Required, TypedDict
 from uuid import UUID
 
+from django.db.models import Count, F, Window
+from django.db.models.functions import RowNumber
 from django.http import HttpRequest, HttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
@@ -41,6 +43,7 @@ from iki_server.entities.values import shape, to_json
 from iki_server.files import acquired, listing, scan_state, services, storage
 from iki_server.files import metadata as stated
 from iki_server.files.models import (
+    BlobScan,
     File,
     Registration,
     RegistrationState,
@@ -102,7 +105,32 @@ class FileFactsOut(Schema):
     )
 
 
-class HeldScanOut(Schema):
+class HeldCopyOut(Schema):
+    """Where held bytes are: a project's file, or a run's or a bundle's own upload."""
+
+    kind: Literal["file", "artifact", "checkpoint", "bundle"] = Field(
+        description="A project's ``file``; or a run's ``artifact`` or ``checkpoint``, or a "
+        "``bundle`` to import, each kept apart from the project's files."
+    )
+    file: UUID | None = Field(
+        description="The project file, for a ``file``, if you can read it: its page opens."
+    )
+    name: str
+    media_type: str
+    project: ProjectRef
+    run: str | None = Field(description="The run's ID, for an artifact or a checkpoint.")
+    created_by: UserOut | None = Field(description="Who added it.")
+    agent: AgentOut | None = Field(description="The agent that added it for them, if one did.")
+    created_at: datetime
+
+
+class QuarantineReleaseOut(Schema):
+    by: UserOut = Field(description="The Quarantine Admin who released it.")
+    at: datetime
+    reason: str = Field(description="Why they found the finding false, as they gave it.")
+
+
+class QuarantineOut(Schema):
     id: UUID = Field(description="The decision ID for releasing a confirmed false positive.")
     sha256: str
     size: int = Field(description="Bytes.")
@@ -110,7 +138,33 @@ class HeldScanOut(Schema):
     scanner: str
     signature_version: str
     scanned_at: datetime
-    reason: str = Field(description="What was found or why an inspection could not finish.")
+    reason: str = Field(
+        description="What was found (the signature's name), or why an inspection could not "
+        "finish: ``too_large``, ``unsupported_source``, ``clamd_stream_limit``, or the "
+        "scanner's own reason, such as ``Heuristics.Encrypted.Zip``."
+    )
+    releasable: bool = Field(
+        description="An infected finding not yet released. An incomplete inspection never is: "
+        "it found nothing to call false (ADR 0217)."
+    )
+    release: QuarantineReleaseOut | None = Field(description="Its release, once released.")
+    files: list[HeldCopyOut] = Field(
+        description="Where the bytes are, oldest first: the first few in a list, every one in "
+        "a decision's own."
+    )
+    file_count: int = Field(description="How many places the bytes are, listed or not.")
+
+
+class QuarantineFilters(PageParams):
+    status: Literal["held", "released"] = Field(
+        "held", description="Held now, or infected findings released as false positives."
+    )
+    state: Literal["infected", "not_scanned"] | None = Field(
+        None, description="Only malware findings, or only inspections that couldn't finish."
+    )
+    q: str = Field(
+        "", max_length=255, description="Part of a file's name, or the start of its SHA-256."
+    )
 
 
 class ReleaseQuarantineIn(Schema):
@@ -562,15 +616,90 @@ def _file(user: User, file_id: UUID) -> File:
 # --- Quarantine ----------------------------------------------------------------------------------
 
 
-@router.get("/quarantine", response=Page[HeldScanOut], summary="List held file scan decisions")
-def list_quarantine(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
-    """For Quarantine Admins. Newest first, across the deployment. Each entry identifies the
-    held bytes and the finding. A source can have several project files that share its scan."""
-    require(caller(request), Action.QUARANTINE_MANAGE)
-    result = page(scan_state.held(), params, newest_first=True)
+#: Places a list shows for each decision; its own page shows every one.
+_LISTED_COPIES = 3
+
+_COPY_KINDS = {
+    UploadKind.FILE: "file",
+    UploadKind.ARTIFACT: "artifact",
+    UploadKind.CHECKPOINT: "checkpoint",
+    UploadKind.BUNDLE: "bundle",
+}
+
+
+def _quarantine_out(
+    user: User, decisions: Sequence[BlobScan], *, every: bool
+) -> list[dict[str, Any]]:
+    """Each decision with where its bytes are: the files sharing a blob, or the run's or
+    bundle's own upload. A Quarantine Admin needn't read the projects (ADR 0217): a file's
+    ``file`` is given only to someone who can."""
+    blobs = [d.blob_id for d in decisions if d.blob_id is not None]
+    counts = dict(
+        File.objects.filter(blob_id__in=blobs)
+        .order_by()
+        .values("blob_id")
+        .annotate(n=Count("pk"))
+        .values_list("blob_id", "n")
+    )
+    shown = File.objects.filter(blob_id__in=blobs).select_related("project", "created_by", "agent")
+    if not every:
+        first = Window(RowNumber(), partition_by=[F("blob_id")], order_by=F("pk").asc())
+        shown = shown.annotate(nth=first).filter(nth__lte=_LISTED_COPIES)
+    files = list(shown.order_by("pk"))
+    readable = set(
+        services.readable(user).filter(pk__in=[f.pk for f in files]).values_list("pk", flat=True)
+    )
+    by_blob: dict[UUID, list[dict[str, Any]]] = {}
+    for f in files:
+        by_blob.setdefault(f.blob_id, []).append(
+            {
+                "kind": "file",
+                "file": f.pk if f.pk in readable else None,
+                "name": f.name,
+                "media_type": f.media_type,
+                "project": f.project,
+                "run": None,
+                "created_by": f.created_by,
+                "agent": agent_out(f.agent),
+                "created_at": f.created_at,
+            }
+        )
+    uploads = {
+        u.pk: u
+        for u in Upload.objects.filter(
+            pk__in=[d.upload_id for d in decisions if d.upload_id is not None]
+        ).select_related(
+            "project", "created_by", "agent", "run_artifact__run", "run_checkpoint__run"
+        )
+    }
     rows = []
-    for decision in result["items"]:
-        source = decision.blob if decision.blob_id is not None else decision.upload
+    for decision in decisions:
+        if decision.blob_id is not None:
+            copies = by_blob.get(decision.blob_id, [])
+            count = counts.get(decision.blob_id, 0)
+            source: Any = decision.blob
+        elif decision.upload_id is not None:
+            upload = uploads[decision.upload_id]
+            kept = getattr(upload, "run_artifact", None) or getattr(upload, "run_checkpoint", None)
+            copies = [
+                {
+                    "kind": _COPY_KINDS[UploadKind(upload.kind)],
+                    "file": None,
+                    "name": upload.name,
+                    "media_type": upload.media_type,
+                    "project": upload.project,
+                    "run": kept.run.hrid if kept is not None else None,
+                    "created_by": upload.created_by,
+                    "agent": agent_out(upload.agent),
+                    "created_at": upload.created_at,
+                }
+            ]
+            count = 1
+            source = upload
+        else:
+            # iki_scan_one_source: every decision names its blob or its upload.
+            raise ValueError(f"Scan decision {decision.pk} has no source.")
+        release = getattr(decision, "release", None)
         rows.append(
             {
                 "id": decision.pk,
@@ -581,24 +710,66 @@ def list_quarantine(request: HttpRequest, params: Query[PageParams]) -> dict[str
                 "signature_version": decision.signature_version,
                 "scanned_at": decision.scanned_at,
                 "reason": decision.reason,
+                "releasable": decision.state == "infected" and release is None,
+                "release": (
+                    {"by": release.actor, "at": release.released_at, "reason": release.reason}
+                    if release is not None
+                    else None
+                ),
+                "files": copies,
+                "file_count": count,
             }
         )
-    return {"items": rows, "next_cursor": result["next_cursor"]}
+    return rows
+
+
+@router.get("/quarantine", response=Page[QuarantineOut], summary="List quarantined files")
+def list_quarantine(request: HttpRequest, filters: Query[QuarantineFilters]) -> dict[str, Any]:
+    """For Quarantine Admins. Newest first, across the deployment: what's held now, or with
+    ``status=released``, the infected findings released as false positives. Each entry
+    identifies the held bytes, the finding, and where the bytes are: several project files
+    can share one source, and so its scan."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    found = scan_state.quarantine(
+        released=filters.status == "released", state=filters.state or "", q=filters.q
+    )
+    result = page(found, filters, newest_first=True)
+    items = _quarantine_out(me, result["items"], every=False)
+    return {"items": items, "next_cursor": result["next_cursor"]}
+
+
+@router.get("/quarantine/{decision_id}", response=QuarantineOut, summary="Read a quarantined file")
+def read_quarantine(request: HttpRequest, decision_id: UUID) -> dict[str, Any]:
+    """For Quarantine Admins: a held decision, or a released one, with every place its
+    bytes are."""
+    me = caller(request)
+    require(me, Action.QUARANTINE_MANAGE)
+    return _quarantine_out(me, [_reviewed(decision_id)], every=True)[0]
+
+
+def _reviewed(decision_id: UUID) -> BlobScan:
+    decision = scan_state.reviewed(decision_id)
+    if decision is None:
+        raise Problem(404, "No such quarantined file.")
+    return decision
 
 
 @router.post(
     "/quarantine/{decision_id}/release",
-    response=FileScanOut,
+    response=QuarantineOut,
     summary="Release an infected file after reviewing its finding",
 )
 def release_quarantine(
     request: HttpRequest, decision_id: UUID, payload: ReleaseQuarantineIn
-) -> scan_state.ScanStatus:
-    """For Quarantine Admins. The given reason and the reviewer are recorded in the audit log.
-    All files covered by this decision become usable and keep their original finding."""
+) -> dict[str, Any]:
+    """For Quarantine Admins. The given reason and the reviewer are recorded with the
+    release and in the audit log. Every file covered by this decision becomes usable and
+    keeps its original finding. An incomplete inspection can't be released."""
     me = caller(request)
     require(me, Action.QUARANTINE_MANAGE)
-    return scan_state.release(decision_id, actor=me, reason=payload.reason)
+    scan_state.release(decision_id, actor=me, reason=payload.reason)
+    return _quarantine_out(me, [_reviewed(decision_id)], every=True)[0]
 
 
 # --- Uploads -------------------------------------------------------------------------------------

@@ -939,7 +939,8 @@ def test_the_admin_area_has_a_frame_of_its_own(
     from iki_server.org.models import OrgRole, OrgRoleAssignment
     from iki_server.web import admin_area
 
-    OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=OrgRole.COMPUTE_ADMIN)
+    for role in (OrgRole.COMPUTE_ADMIN, OrgRole.QUARANTINE_ADMIN):
+        OrgRoleAssignment.objects.create(user=world.users["org_admin"], role=role)
     page = open_as("org_admin", "/admin/compute/", color_scheme)
     page.set_viewport_size({"width": 1440, "height": 900})
     page.get_by_role("heading", name="Compute", level=1).wait_for()

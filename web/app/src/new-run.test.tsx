@@ -16,7 +16,7 @@ import {
   withTypes,
 } from "./entity-fixtures";
 import { ACTION, batch, run } from "./run-fixtures";
-import { answer, calls, page, problem, project } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, problem, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
 const SECOND_ID = "00000000-0000-7000-8000-00000000e002";
@@ -439,6 +439,7 @@ describe("starting a run", () => {
       agent: null,
       acquired: null,
       facts: NO_FACTS,
+      scan: CLEAN_SCAN,
       used_by: { records: 0, runs: 0 },
     };
     answer("GET /api/v1/files", page([fasta]));

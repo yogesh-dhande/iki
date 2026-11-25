@@ -61,6 +61,9 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("admin/compute/volumes/", web.app, name="compute_volumes"),
     path("admin/compute/images/", web.app, name="compute_images"),
     path("admin/webhooks/<uuid:webhook_id>/", web.app, name="webhook_setting"),
+    # The files the malware scan holds, for Quarantine Admins (ADR 0217).
+    path("admin/quarantine/", web.app, name="quarantine"),
+    path("admin/quarantine/<uuid:decision_id>/", web.app, name="quarantined"),
     # One of the reader's saved searches, by its own address: the sidebar's saved views.
     path("saved-searches/<uuid:saved_id>/", web.app, name="saved_search"),
     # Entities and their types (a project's entities are in org.urls).

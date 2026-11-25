@@ -1,5 +1,6 @@
 """Scan evidence and the decision every consumer checks after authorizing its caller."""
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -131,6 +132,38 @@ def held() -> QuerySet[BlobScan]:
         )
         .select_related("blob", "upload")
         .order_by("-id")
+    )
+
+
+#: What a Quarantine Admin can search held bytes by besides a name: a SHA-256 or its start.
+_SHA256_PREFIX = re.compile(r"[0-9a-f]{6,64}")
+
+
+def quarantine(*, released: bool = False, state: str = "", q: str = "") -> QuerySet[BlobScan]:
+    """What Admin → Quarantine lists: current holds, or the infected findings a Quarantine
+    Admin released (ADR 0217). ``state`` narrows to ``infected`` or ``not_scanned``, and
+    ``q`` to the bytes a file or upload of that name holds, or whose SHA-256 starts so."""
+    found = BlobScan.objects.filter(state="infected", release__isnull=False) if released else held()
+    if state:
+        found = found.filter(state=state)
+    if q := q.strip():
+        named = Q(blob__in=Blob.objects.filter(files__name__icontains=q)) | Q(
+            upload__name__icontains=q
+        )
+        if _SHA256_PREFIX.fullmatch(q.lower()):
+            named |= Q(blob__sha256__startswith=q.lower()) | Q(upload__sha256__startswith=q.lower())
+        found = found.filter(named)
+    return found.select_related("blob", "upload", "release__actor")
+
+
+def reviewed(decision_id: UUID) -> BlobScan | None:
+    """One decision Admin → Quarantine shows: held, or a released finding. A clean one, or
+    an oversized file the deployment's policy lets be used, was never quarantined."""
+    return (
+        BlobScan.objects.filter(pk=decision_id)
+        .filter(Q(state="infected") | Q(state="not_scanned", allow_unscanned=False))
+        .select_related("blob", "upload", "release__actor")
+        .first()
     )
 
 
