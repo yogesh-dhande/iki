@@ -10,7 +10,7 @@ name: booking_calendar
 label: Calendar
 description: Bookings by day, a month at a time.
 module: ./components/booking-calendar.js
-element: iki-booking-calendar
+element: equipment-booking-calendar
 entities: { type: Booking, fields: [purpose, instrument, starts_at, ends_at], limit: 1000 }
 slots:
   # An instrument's bookings, on its page.

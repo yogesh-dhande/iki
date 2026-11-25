@@ -51,4 +51,4 @@ class InstrumentBookings extends BookingCalendar {
   }
 }
 
-customElements.define("iki-booking-calendar", InstrumentBookings);
+customElements.define("equipment-booking-calendar", InstrumentBookings);

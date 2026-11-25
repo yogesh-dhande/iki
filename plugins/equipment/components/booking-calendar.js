@@ -264,4 +264,4 @@ var InstrumentBookings = class extends BookingCalendar {
 		if (hasMore && !loading) more(this);
 	}
 };
-customElements.define("iki-booking-calendar", InstrumentBookings);
+customElements.define("equipment-booking-calendar", InstrumentBookings);

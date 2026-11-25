@@ -55,8 +55,8 @@ document.addEventListener("securitypolicyviolation", (e) => {
   window.refused.push(`${e.violatedDirective} ${e.blockedURI}`);
 });
 window.sent = [];
-await customElements.whenDefined("iki-booking-calendar");
-const element = document.createElement("iki-booking-calendar");
+await customElements.whenDefined("equipment-booking-calendar");
+const element = document.createElement("equipment-booking-calendar");
 for (const name of ["iki-refine", "iki-more", "iki-open", "iki-select"]) {
   element.addEventListener(name, (e) => window.sent.push({ type: name, detail: e.detail }));
 }
