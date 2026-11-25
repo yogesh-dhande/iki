@@ -175,7 +175,7 @@ def test_each_cell_is_read_as_its_field_reads_a_spreadsheets_and_nothing_is_writ
         locale={"dates": "day_first"},
     )
     assert again["kind"] == "edited", again["problems"]
-    assert again["shown"] == {"due_on": "2027-04-03", "tags": "kinase, crystallography"}
+    assert again["shown"] == {"due_on": "2027-04-03", "tags": "kinase; crystallography"}
     # 1,234 reads as a thousand and more, or one and a bit, until the sheet says which.
     [comma] = checked(world, [edit(kd1, purity="1,234")])
     assert comma["problems"][0]["kind"] == "ambiguous"

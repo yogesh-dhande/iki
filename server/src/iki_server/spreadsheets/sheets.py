@@ -143,9 +143,11 @@ class Stale(Exception):  # noqa: N818 - reads as "the sheet was stale"
 
     def __init__(self, rows: list[tuple[str, Entity]]) -> None:
         self.rows = rows
+        names = ", ".join(e.hrid for _, e in rows[:5]) + (", …" if len(rows) > 5 else "")
+        one = len(rows) == 1
         super().__init__(
-            f"{len(rows)} {'record' if len(rows) == 1 else 'records'} changed since you read "
-            "them: review their latest values, then save again."
+            f"{names} changed since you read {'it' if one else 'them'}: nothing was saved. "
+            f"Review {'its' if one else 'their'} latest values, then save again."
         )
 
 

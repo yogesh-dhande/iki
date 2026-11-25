@@ -6799,3 +6799,228 @@ button.scan-choice:disabled {
   margin: 0;
   padding-left: 1.25rem;
 }
+
+/* A type's records edited as a sheet (ADR 0228): a spreadsheet's grid of cells, each
+   changed one marked, each with a problem in red (amber when it reads two ways), and the
+   active cell outlined. */
+.record-sheet-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8rem / 13);
+  margin: 0 0 calc(8rem / 13);
+}
+
+.record-sheet-title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.record-sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6rem / 13);
+}
+
+.record-sheet-locale {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: calc(4rem / 13) calc(16rem / 13);
+  margin: 0 0 calc(4rem / 13);
+}
+
+.record-sheet-locale .field {
+  margin: 0;
+}
+
+.record-sheet-help {
+  max-width: 60rem;
+  margin: 0 0 calc(8rem / 13);
+  font-size: var(--text-sm);
+}
+
+.record-sheet-status {
+  min-height: 1.4em;
+  margin: 0 0 calc(6rem / 13);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.record-sheet-scroll {
+  position: relative;
+  max-height: min(70vh, 48rem);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.record-sheet-grid {
+  font-size: 1rem;
+}
+
+.record-sheet-grid:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
+.record-sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.record-sheet-body {
+  position: relative;
+}
+
+.record-sheet-row {
+  display: grid;
+  /* The sheet's ROW_HEIGHT (record-sheet.tsx), which draws rows as they scroll in. */
+  height: 34px;
+}
+
+.record-sheet-head .record-sheet-row {
+  height: 32px;
+}
+
+.record-sheet-body .record-sheet-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.record-sheet-row.is-new {
+  background: var(--accent-soft);
+}
+
+.record-sheet-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 calc(8rem / 13);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: cell;
+  user-select: none;
+}
+
+.record-sheet-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-sheet-cell.is-id {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+
+.record-sheet-head .record-sheet-cell.is-id {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.record-sheet-cell.is-readonly {
+  color: var(--muted);
+  cursor: default;
+}
+
+.record-sheet-cell.is-changed {
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+
+.record-sheet-cell.is-selected {
+  background: var(--focus-ring);
+}
+
+.record-sheet-cell.is-invalid {
+  background: var(--error-bg);
+  box-shadow: inset 0 -2px 0 var(--error);
+  color: var(--error);
+}
+
+.record-sheet-cell.is-ambiguous {
+  background: var(--warning-bg);
+  box-shadow: inset 0 -2px 0 var(--warning);
+  color: var(--warning);
+}
+
+.record-sheet-cell:focus {
+  outline: none;
+}
+
+.record-sheet-cell.is-active,
+.record-sheet-cell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.record-sheet-input {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  margin: 0 calc(-8rem / 13);
+  padding: 0 calc(7rem / 13);
+  border: 2px solid var(--focus);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.record-sheet-problems {
+  margin-top: calc(12rem / 13);
+}
+
+.record-sheet-problems ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.record-sheet-problems li {
+  margin: 0 0 calc(4rem / 13);
+}
+
+.record-sheet-jump {
+  padding: calc(4rem / 13) 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.dialog:has(.record-sheet-review) {
+  max-width: min(48rem, calc(100vw - 2rem));
+}
+
+.record-sheet-review {
+  max-height: 40vh;
+  margin: 0 0 calc(12rem / 13);
+  overflow: auto;
+}
+
+.record-sheet-review ins {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.record-sheet-review del {
+  color: var(--muted);
+}

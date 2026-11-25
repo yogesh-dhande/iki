@@ -18,6 +18,7 @@ fields, each heading with its unit, for a collaborator or vendor to fill in and 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
@@ -39,7 +40,7 @@ from iki_server.api.entities import (
 from iki_server.api.problems import Problem
 from iki_server.entities import access, registry, search_exports
 from iki_server.entities.values import Invalid
-from iki_server.spreadsheets import mapping, sheets
+from iki_server.spreadsheets import cells, mapping, sheets
 from iki_server.spreadsheets.cells import Locale, is_time_zone
 
 router = Router(tags=["sheets"])
@@ -236,6 +237,21 @@ def _problem_out(p: sheets.Problem) -> dict[str, Any]:
     return {"at": p.at, "detail": p.detail, "kind": p.kind}
 
 
+def cell_text(f: Mapping[str, Any], value: Any, row: Mapping[str, Any]) -> str:  # noqa: ANN401
+    """A value as a sheet's cell has it, to be typed back and read the same: as the grid's
+    CSV writes it (ADR 0175), but a list's items apart by ``;``, as a cell's list is read,
+    and a person by their email, or their ID when it can't be seen."""
+    if value is None:
+        return ""
+    if isinstance(value, list) and f.get("items") != "row":
+        item = {**f, "type": f.get("items") or "string"}
+        return f"{cells.SEPARATOR} ".join(cell_text(item, v, row) for v in value)
+    if f["type"] == "person":
+        found = row["people"].get(str(value))
+        return str(found["email"] or value) if found else str(value)
+    return search_exports.text(f, value, row)
+
+
 def _describe(me: User, type_name: str, rows: list[sheets.Row]) -> Any:  # noqa: ANN401
     """Reads each outcome, while its changes are there: each cell it read, as the grid's
     CSV says it (ADR 0175), and where a new record goes and how much it starts with."""
@@ -257,7 +273,7 @@ def _describe(me: User, type_name: str, rows: list[sheets.Row]) -> Any:  # noqa:
                 continue
             table = read[entity.pk]
             outcome.shown["values"] = {
-                name: search_exports.text(fields[name], table["values"].get(name), table)
+                name: cell_text(fields[name], table["values"].get(name), table)
                 for name in row.values
                 if name in fields
             }
