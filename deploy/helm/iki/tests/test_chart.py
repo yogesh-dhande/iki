@@ -1978,6 +1978,26 @@ DEV = CHART.parents[1] / "dev" / "values-dev.yaml"
 AWS_SERVER = egress(server={"to": [{"ipBlock": {"cidr": "198.51.100.20/32"}}]})
 
 
+@pytest.mark.parametrize("fixtures", [False, True], ids=["product", "fixtures"])
+def test_dev_fixture_services_and_secrets_are_opt_in(fixtures: bool) -> None:
+    values = _merged(DEV, DEV.parent / "fixtures" / "values.yaml") if fixtures else _merged(DEV)
+    docs = manifests(values)
+    secrets = set(_secrets_read(docs))
+    assert ("iki-dev-ca" in secrets) == fixtures
+    assert ("iki-run-secrets" in secrets) == fixtures
+
+    proxy = named(docs, "NetworkPolicy", "iki-egress-proxy")["spec"]["egress"]
+    peers = [peer for rule in proxy for peer in rule["to"]]
+    for service in ("fake-lims", "fake-foldcloud"):
+        peer = {"podSelector": {"matchLabels": {"app.kubernetes.io/name": service}}}
+        assert (peer in peers) == fixtures
+
+    run_namespaces = {role["metadata"]["namespace"] for role in by_kind(docs, "Role")}
+    assert "iki-runs" in run_namespaces
+    for namespace in ("iki-runs-shared", "iki-runs-bucket"):
+        assert (namespace in run_namespaces) == fixtures
+
+
 @pytest.mark.parametrize(
     "values",
     [

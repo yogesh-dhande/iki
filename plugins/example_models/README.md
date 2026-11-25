@@ -36,6 +36,6 @@ It shows what such a plugin needs
 
 A deployment sets `fold_api_host`, the key and the webhook secret
 (`iki__example_models.FOLDCLOUD_WEBHOOK_SECRET`), and prices the calls with an
-`ApiPrice` in its compute config. The dev cluster runs it against a fake
+`ApiPrice` in its compute config. The `make dev-ci` fixture cluster runs it against a fake
 FoldCloud (`deploy/dev/manifests/fake-foldcloud.yaml`), and its tests against
 a stand-in on localhost (`server/tests/test_example_models.py`).

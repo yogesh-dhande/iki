@@ -757,11 +757,15 @@ jobs:
         run: tail -n 100 .pytest_cache/slurm-e2e/logs/* || true
 
   dev-cluster:
-    name: Dev cluster end to end (kind + Tilt)
+    name: Dev cluster end to end (${{ matrix.target }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dev-product-ci, dev-ci]
     permissions:
       contents: read
     steps:
@@ -811,7 +815,9 @@ jobs:
           path: ~/.cache/ci-apt
           key: ${{ steps.apt-chromium.outputs.cache-primary-key }}
       - name: Bring up the dev cluster and run end-to-end checks
-        run: make dev-ci
+        env:
+          DEV_TARGET: ${{ matrix.target }}
+        run: make "$DEV_TARGET"
       - name: Diagnostics on failure
         if: failure()
         run: |

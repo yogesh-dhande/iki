@@ -61,6 +61,7 @@ check-chart: ## Helm lint (strict) with the minimum required values
 	  --set encryptionKeys.existingSecret=e --set database.existingSecret=d \
 	  --set database.migrator.existingSecret=m
 	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml
+	helm lint --strict deploy/helm/iki -f deploy/dev/values-dev.yaml -f deploy/dev/fixtures/values.yaml
 	@# Iki's alerts (ADR 0098): valid, and each fires when and how its tests say.
 	docker run --rm --network none --user "$$(id -u):$$(id -g)" \
 	  -v "$(CURDIR)/deploy/helm/iki/files:/rules:ro" -w /rules --entrypoint promtool \
@@ -237,8 +238,13 @@ dev-up: ## Create the kind cluster and start Tilt (interactive)
 #: a timeout tuned to an idle machine fails a run that was only sharing the disk and the cores.
 DEV_CI_TIMEOUT ?= 40m
 
-.PHONY: dev-ci
-dev-ci: ## Bring the dev cluster up headless; run the end-to-end checks, then the restore test
+.PHONY: dev-ci dev-product-ci
+export IKI_DEV_FIXTURES ?= 0
+dev-ci: override IKI_DEV_FIXTURES := 1
+dev-ci: ## Run the dev end-to-end and restore checks with the CI fixture plugins
+dev-product-ci: override IKI_DEV_FIXTURES := 0
+dev-product-ci: ## Run the same end-to-end and restore checks with only product plugins
+dev-ci dev-product-ci:
 	deploy/dev/up.sh
 	tilt ci --timeout $(DEV_CI_TIMEOUT)
 	deploy/dev/e2e.sh

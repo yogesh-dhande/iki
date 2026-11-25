@@ -1,0 +1,101 @@
+# Additional bindings and prices for the fixture plugins on the dev cluster.
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/lims_connector_example.lims-tools
+templates: [{ template: backend-small }]
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: iki/example_models.model-tools
+templates: [{ template: backend-small }]
+---
+# What the fake FoldCloud's calls cost, so runs that call it have costs to
+# show and count against budgets (ADR 0130).
+apiVersion: iki/v1
+kind: ApiPrice
+api: iki/example_models.foldcloud
+per_call: 0.01
+usage: { gpu_seconds: 0.0011 }
+currency: USD
+---
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-small
+provisioner: k8s_job
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+---
+# The one pod kept warm: no more may run, so the end-to-end checks can tell
+# that it ran one run after another (ADR 0062) without depending on which of
+# two free pods took each. Starting more for a busy one is tested in the
+# server's tests (test_container_tier.py).
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-warm
+provisioner: k8s_deployment
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 1, min_warm: 1, idle_shutdown: 10m }
+price: { per_hour: 0.05, currency: USD }
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/example.tools
+templates: [{ template: container-small }, { template: container-warm }]
+---
+# The plugin template's reference data (ADR 0075): a setup build fills a disk
+# from the CSI host-path driver, which is snapshotted; each run pod gets a
+# read-only copy of the newest snapshot.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference
+provisioner: k8s_job
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: clone_from_snapshot
+    storage_class: csi-hostpath-sc
+    snapshot_class: csi-hostpath-snapclass
+---
+# The same reference data on a shared file system (ADR 0077), in a namespace
+# of its own: each version is a directory on it, which run pods mount
+# read-only. Runs go to the first template where a version is ready.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference-shared
+provisioner: k8s_job
+kubernetes: { namespace: iki-runs-shared }
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: shared_filesystem
+    claim: iki-shared
+---
+# And in a bucket (ADR 0078), in a third namespace: a setup build fills a disk,
+# which a Job then copies into the version's own directory (a prefix) there;
+# run pods mount that read-only.
+apiVersion: iki/v1
+kind: ComputeTemplate
+name: container-reference-bucket
+provisioner: k8s_job
+kubernetes: { namespace: iki-runs-bucket }
+capacity: { cpu: 0.25, memory: 256Mi, scratch_disk: 1Gi }
+limits: { max_concurrent: 2 }
+price: { per_hour: 0.05, currency: USD }
+volumes:
+  storage-codes:
+    strategy: object_mount
+    claim: iki-bucket
+    storage_class: csi-hostpath-sc
+---
+apiVersion: iki/v1
+kind: EnvironmentBinding
+environment: acme/example.reference
+templates:
+  - { template: container-reference }
+  - { template: container-reference-shared }
+  - { template: container-reference-bucket }

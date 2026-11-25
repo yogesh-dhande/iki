@@ -5,13 +5,18 @@ set -euo pipefail
 
 CONTEXT=kind-iki
 NS=iki
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 kc() { kubectl --context "$CONTEXT" -n "$NS" "$@"; }
 pass() { printf '\033[1;32m  ok\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31mFAIL\033[0m %s\n' "$*" >&2; exit 1; }
 secret() { kc get secret "$1" -o "jsonpath={.data.$2}" | base64 -d; }
 
 PIDS=()
-cleanup() { for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done; }
+cleanup() {
+  if (( ${#PIDS[@]} )); then
+    for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
+  fi
+}
 trap cleanup EXIT
 
 forward() { # forward <target> <local-port> <remote-port>
@@ -24,7 +29,18 @@ forward() { # forward <target> <local-port> <remote-port>
   fail "port-forward to $1 did not come up"
 }
 
-echo "Iki dev cluster end-to-end checks"
+locks=("$here/plugins.lock.yaml")
+sso_args=(--check)
+case ${IKI_DEV_FIXTURES:-0} in
+  0) profile=product ;;
+  1)
+    profile=fixtures
+    locks+=("$here/fixtures/plugins.lock.yaml")
+    sso_args+=(--fixtures --lims-port 18091)
+    ;;
+  *) fail "IKI_DEV_FIXTURES must be 0 or 1" ;;
+esac
+echo "Iki dev cluster end-to-end checks ($profile)"
 
 # Wait for every rollout in progress, so logs, execs and port-forwards hit the current
 # pods: a dependency's new image (SeaweedFS's, say) replaces its pod too, and a forward to
@@ -49,7 +65,38 @@ if ! nc -z 127.0.0.1 8333 2>/dev/null; then forward svc/seaweedfs 8333 8333; fi
 forward svc/otel-lgtm 13200 3200
 forward svc/mailpit 18025 8025
 forward svc/webhook-receiver 18090 8080
-forward svc/fake-lims 18091 8080
+if [[ "$profile" == fixtures ]]; then
+  forward svc/fake-lims 18091 8080
+else
+  services=$(kc get service fake-lims fake-foldcloud --ignore-not-found -o name)
+  [[ -z "$services" ]] || fail "product cluster runs fixture services: $services"
+fi
+
+# Check the running images against the selected source pins before the seed makes records.
+expected=$(uv run --quiet python - "${locks[@]}" <<'PYTHON'
+import sys
+from pathlib import Path
+
+import yaml
+
+names = [
+    pin["name"]
+    for path in sys.argv[1:]
+    for pin in yaml.safe_load(Path(path).read_text())["plugins"]
+    if pin["state"] != "purged"
+]
+print("\n".join(sorted(names)))
+PYTHON
+)
+check_image_plugins() {
+  local names
+  names=$(kc exec "$1" -c "$2" -- cat "$3" |
+    jq -r '[.plugins[] | select(.state != "purged") | .name] | sort[]')
+  [[ "$names" == "$expected" ]] || fail "$2 plugin names differ from the $profile lock: $names"
+}
+check_image_plugins "pod/$web_pod" web /opt/iki/plugins/iki_installed_plugins/lock.json
+check_image_plugins deploy/iki-worker worker /opt/iki/plugins/plugins.json
+pass "the running server and worker include the plugins pinned for $profile"
 
 # --- Iki web ------------------------------------------------------------------
 ready=$(curl -fsS http://127.0.0.1:18000/healthz/ready)
@@ -162,8 +209,8 @@ pass "Keycloak serves the iki realm (issuer $issuer)"
 
 # --- Sign-in ----------------------------------------------------------------------
 # The real wizard and Keycloak's real login page, driven like a browser.
-uv run --quiet python "$(dirname "${BASH_SOURCE[0]}")/sso.py" --check \
-  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --lims-port 18091 --web "pod/$web_pod"
+uv run --quiet python "$here/sso.py" "${sso_args[@]}" \
+  --iki-port 18000 --keycloak-port 18080 --mailpit-port 18025 --webhook-port 18090 --web "pod/$web_pod"
 
 # --- SeaweedFS (S3) ---------------------------------------------------------------
 anon=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18333/)
