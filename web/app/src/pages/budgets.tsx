@@ -62,7 +62,7 @@ export function BudgetDialog({
           ),
     INVALIDATE,
   );
-  const form = useForm(save.error);
+  const form = useForm(save.error, save.isPending);
   const whose = scope.kind === "organization" ? "the organization" : scope.name;
 
   function submit(event: SubmitEvent<HTMLFormElement>) {

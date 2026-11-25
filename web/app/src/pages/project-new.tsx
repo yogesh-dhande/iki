@@ -46,7 +46,7 @@ export function ProjectNew() {
       ),
     [["projects"], ["me"]],
   );
-  const form = useForm(create.error);
+  const form = useForm(create.error, create.isPending);
   const { errors } = form;
 
   function submit(event: SubmitEvent<HTMLFormElement>) {

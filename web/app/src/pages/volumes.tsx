@@ -222,7 +222,7 @@ function AskDialog({
       unwrap(await iki.POST("/api/v1/compute/setups", { body })),
     [VOLUMES],
   );
-  const form = useForm(ask.error);
+  const form = useForm(ask.error, ask.isPending);
   const approval = environment.setup?.requires_approval ?? false;
 
   function submit(event: SubmitEvent<HTMLFormElement>) {

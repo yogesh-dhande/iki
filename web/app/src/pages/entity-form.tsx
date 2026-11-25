@@ -422,7 +422,7 @@ function NewEntityForm({ type, types }: { type: EntityType; types: EntityType[] 
     [ENTITIES],
   );
   const hold = needsHold(found, create.error);
-  const form = useForm(create.error);
+  const form = useForm(create.error, create.isPending);
   const label = inSentence(type.label);
   const registers = type.identity.length > 0;
   // A new request is its project's alone: the service's fields wait until it's sent.
@@ -652,7 +652,7 @@ function EditEntityForm({
   );
   const hold = needsHold(found, save.error);
   const stale = save.error instanceof ApiError && save.error.problem.code === "stale";
-  const form = useForm(stale ? null : save.error);
+  const form = useForm(stale ? null : save.error, save.isPending);
 
   /** Someone saved first: bring their values in where this person hadn't typed. */
   async function catchUp() {

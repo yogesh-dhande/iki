@@ -1167,7 +1167,7 @@ it("says a saved handover beside its Save, without moving the page", async () =>
   await user.click(screen.getByRole("button", { name: "Save" }));
   const said = await screen.findByText("Saved.");
   expect(said.closest(".actions")).toContainElement(screen.getByRole("button", { name: "Save" }));
-  expect(document.querySelector(".messages")).toBeEmptyDOMElement();
+  expect(document.querySelector(".notices-list")).toBeEmptyDOMElement();
 });
 
 /** A response held back until the test lets it go. */

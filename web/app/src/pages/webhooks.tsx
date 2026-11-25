@@ -316,7 +316,7 @@ function AddWebhook({
         : unwrap(await iki.POST("/api/v1/webhooks", { body })),
     [WEBHOOKS],
   );
-  const form = useForm(create.error);
+  const form = useForm(create.error, create.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -570,7 +570,7 @@ function Details({
   const [chosen, setChosen] = useState<string[]>(webhook.events);
   const events = useEventChoices(scope);
   const save = usePatchWebhook(webhook);
-  const form = useForm(save.error);
+  const form = useForm(save.error, save.isPending);
   const readOnly = Boolean(project?.archived);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {

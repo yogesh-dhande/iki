@@ -14,7 +14,7 @@ import { membersQuery, problemOf, projectsQuery, useApiMutation, type Project } 
 import { typeFlowQuery } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
-import { either } from "../flow-model";
+import { useForm } from "../forms";
 import { StaleNote } from "../observations";
 import { intakeQuery, listed } from "../requests";
 import {
@@ -169,7 +169,6 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
   const [plan, setPlan] = useState<{ key: string; plan: StarterPlan } | null>(null);
   // After a refused apply: how what applying does changed since it was previewed.
   const [changes, setChanges] = useState<{ key: string; body: string }[] | null>(null);
-  const [tried, setTried] = useState(false);
 
   const roleOf = (role: string) => starter.roles.find((r) => r.id === role);
   const label = (role: string) => roleOf(role)?.label ?? role;
@@ -218,18 +217,25 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
     return found ? memberName(found) : "someone";
   };
 
-  const blocked = !requester
-    ? "Choose the project that asks for the example assay."
-    : missing.length
-      ? `Choose someone for ${either(missing.map(label))}.`
-      : !independent
-        ? `Choose ${String(signers.length)} different people for ${listed(signers.map(label))}: each signs a different step, and someone who signed one can’t sign the next. One person may hold several roles, so long as each step can have its own signer.`
-        : null;
+  // What's missing is said when it's previewed, and stays till it's previewed again, as a
+  // form's errors do: a choice made meanwhile doesn't move the choices or Preview.
+  const form = useForm(null, preview.isPending || apply.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
-    setTried(true);
-    if (blocked || cannotSwitch) return;
+    if (cannotSwitch) return;
+    const checks: Record<string, string | false> = {
+      requester: !requester && "Choose the project that asks for the example assay.",
+      independent:
+        Boolean(requester) &&
+        !missing.length &&
+        !independent &&
+        `Choose ${String(signers.length)} different people for ${listed(signers.map(label))}: each signs a different step, and someone who signed one can’t sign the next. One person may hold several roles, so long as each step can have its own signer.`,
+    };
+    for (const role of required) {
+      checks[`role:${role}`] = !(chosen[role] ?? []).length && `Choose someone for ${label(role)}.`;
+    }
+    if (!form.validate(checks)) return;
     if (!previewed) {
       apply.reset();
       setChanges(null);
@@ -294,7 +300,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
         </span>
       </div>
       <p>{starter.description}</p>
-      <form onSubmit={submit} noValidate>
+      <form {...form.props} onSubmit={submit}>
         <RadioField
           label="Review flow"
           value={flow?.id ?? "research"}
@@ -343,11 +349,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
             value={requester}
             onChange={setRequester}
             help="It sends the example analysis request, and gets the signed result back. You need to be able to edit it."
-            error={
-              tried && !requester
-                ? "Choose the project that asks for the example assay."
-                : undefined
-            }
+            error={form.errors["requester"]}
             options={[
               { value: "", label: "Choose a project" },
               ...requesters.map((p) => ({ value: p.id, label: p.name })),
@@ -378,11 +380,7 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
                 setPicked({ ...chosen, [role]: value });
               }}
               help={`Needs ${PROJECT_ROLE[minimum]} or higher.`}
-              error={
-                tried && !(chosen[role] ?? []).length
-                  ? `Choose someone for ${label(role)}.`
-                  : undefined
-              }
+              error={form.errors[`role:${role}`]}
               options={options.map((m) => ({
                 value: m.id,
                 label: memberName(m),
@@ -404,9 +402,9 @@ function StarterSetupCard({ starter, project }: { starter: Starter; project: Pro
             </div>
           );
         })}
-        {tried && blocked && !missing.length && requester ? (
+        {form.errors["independent"] ? (
           <p className="field-error" role="alert">
-            {blocked}
+            {form.errors["independent"]}
           </p>
         ) : null}
 

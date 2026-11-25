@@ -350,7 +350,7 @@ function WorkflowForm({
       ),
     [RUNS],
   );
-  const form = useForm(launch.error);
+  const form = useForm(launch.error, launch.isPending);
   // A start refused for inputs from other projects, to send again adding them.
   const [outside, setOutside] = useState<{ body: Start; hrids: string[] } | null>(null);
 

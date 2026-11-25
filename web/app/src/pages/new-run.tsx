@@ -475,7 +475,7 @@ function RunForm({
     },
     [RUNS],
   );
-  const form = useForm(launch.error);
+  const form = useForm(launch.error, launch.isPending);
   // A launch refused for inputs from other projects, to send again adding them.
   const [outside, setOutside] = useState<{ body: Launch; hrids: string[] } | null>(null);
 

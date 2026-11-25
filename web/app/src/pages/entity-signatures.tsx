@@ -433,22 +433,17 @@ function SignDialog({
         />
       ) : null}
       {acknowledging && mine ? (
-        <>
-          {missing === "agreement" ? (
-            <p className="field-error" role="alert">
-              Agree to this before your first signature.
-            </p>
-          ) : null}
-          <CheckboxField
-            label="I agree"
-            checked={agreed}
-            onChange={(value) => {
-              setAgreed(value);
-              setMissing("");
-            }}
-            help={mine.acknowledgment}
-          />
-        </>
+        <CheckboxField
+          label="I agree"
+          checked={agreed}
+          onChange={(value) => {
+            setAgreed(value);
+            setMissing("");
+          }}
+          error={missing === "agreement" ? "Agree to this before your first signature." : undefined}
+          announce
+          help={mine.acknowledgment}
+        />
       ) : null}
       <p className="muted">
         Next, {mine?.provider ?? "your identity provider"} asks you to sign in again, with your

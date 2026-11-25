@@ -815,7 +815,7 @@ function Apply({
     [[IMPORTS]],
   );
   // While asking, the dialog shows what went wrong.
-  const form = useForm(asking ? null : apply.error);
+  const form = useForm(asking ? null : apply.error, apply.isPending);
   const c = plan.counts;
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
