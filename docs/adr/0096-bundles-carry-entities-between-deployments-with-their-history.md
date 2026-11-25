@@ -75,7 +75,7 @@ listed with its SHA-256 and size, and limits what it unpacks
 (`IKI_BUNDLE_MAX_BYTES`). `iki-server verify_bundle` runs these checks
 alone.
 
-A registered file (ADR 0055) goes as its address, object version and
+A registered file (ADR 0036) goes as its address, object version and
 SHA-256, not its bytes: it stays where it was registered, and the importing
 deployment must be able to read it there.
 
