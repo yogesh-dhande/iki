@@ -65,6 +65,7 @@ REACHABLE = {
     ("GET", "/entity-types"),
     ("GET", "/entity-types/{name}"),
     ("GET", "/entity-types/{name}/flow"),
+    ("GET", "/formats"),
     ("GET", "/starters"),
     ("GET", "/actions"),
     ("GET", "/actions/{name}"),
@@ -272,6 +273,28 @@ def test_a_project_token_can_read_flow_definitions_and_only_its_projects_starter
     assert bearer(token, "GET", "/starters", None).status_code == 200
     assert bearer(token, "GET", f"/starters?project={chosen.pk}", None).status_code == 200
     problem(bearer(token, "GET", f"/starters?project={world.project.pk}", None), 404, "not_found")
+
+
+def test_project_tokens_share_format_definitions_and_count_only_their_files() -> None:
+    from test_project_files import add
+
+    world = build_world()
+    person = everything(world)
+    other = elsewhere(world, person)
+    add(world.project, "coordinates.pdb", "chemical/x-pdb")
+    add(other, "observations.csv", "text/csv")
+    here = token_for(person, projects=[world.project], scopes=["read"])
+    there = token_for(person, projects=[other], scopes=["read"])
+
+    definitions = bearer(here, "GET", "/formats")
+    assert definitions.status_code == 200
+    assert {f["id"] for f in definitions.json()} >= {"iki/core.pdb", "iki/core.csv"}
+    assert bearer(there, "GET", "/formats").json() == definitions.json()
+    for token, expected in ((here, "iki/core.pdb"), (there, "iki/core.csv")):
+        facets = bearer(token, "GET", "/files/formats")
+        assert facets.status_code == 200
+        assert [(f["id"], f["count"]) for f in facets.json()] == [(expected, 1)]
+    problem(bearer(here, "GET", f"/files/formats?project={other.pk}"), 404, "not_found")
 
 
 def test_its_person_is_told_only_what_their_roles_allow() -> None:

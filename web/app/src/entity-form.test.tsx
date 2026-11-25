@@ -956,7 +956,7 @@ describe("file fields", () => {
     const structure = screen.getByRole("group", { name: "Structure" });
     await waitFor(() =>
       expect(structure).toHaveAccessibleDescription(
-        "It takes protein FASTA (.fasta, .fa or .faa) or plain-text (.txt, .log, .aln, .a3m or .sto) files.",
+        "It takes protein FASTA (.fasta, .fa or .faa) or plain-text (.txt, .log, .aln, .a3m, .sto, .fasta or .fa) files.",
       ),
     );
     const input = within(structure).getByLabelText("Upload a file");

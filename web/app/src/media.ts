@@ -76,17 +76,22 @@ export class MediaFormats {
     );
   }
 
-  /** Longest filename suffix first. With a shared extension the field selects its format. */
+  /** Longest suffix first. For a shared suffix, honor a compatible browser type,
+   * then use the first variant the field takes. */
   of(file: { name: string; type: string }, allowed: readonly string[] = []): string {
     const name = file.name.toLowerCase();
+    const reported = this.get(file.type);
     for (let dot = name.indexOf(".", 1); dot >= 0; dot = name.indexOf(".", dot + 1)) {
       const formats = this.byExtension.get(name.slice(dot));
       if (formats?.length) {
+        if (reported && formats.includes(reported) && this.allowed(reported.canonical, allowed)) {
+          return reported.canonical;
+        }
         const format = formats.find((f) => this.allowed(f.canonical, allowed)) ?? formats[0];
         if (format) return format.canonical;
       }
     }
-    return this.get(file.type)?.canonical ?? (file.type || "application/octet-stream");
+    return reported?.canonical ?? (file.type || "application/octet-stream");
   }
 
   /** Read only as much as the installed signatures need. The server checks the stored bytes. */

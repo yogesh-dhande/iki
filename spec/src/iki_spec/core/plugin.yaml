@@ -59,11 +59,10 @@ formats:
     extensions: [.fasta, .fa, .faa]
     viewer: alignment
   fasta:
-    # Earlier workers recorded this type for both alphabets. Keep their files
-    # findable without assigning either alphabet to the historical record.
+    # A caller can identify FASTA without knowing its alphabet.
     label: FASTA (unspecified alphabet)
     media_types: [text/x-fasta]
-    extensions: []
+    extensions: [.fasta, .fa]
     viewer: alignment
   genbank:
     label: GenBank
@@ -188,7 +187,8 @@ formats:
   text:
     label: plain-text
     media_types: [text/plain]
-    extensions: [.txt, .log, .aln, .a3m, .sto]
+    # .fasta and .fa alone cannot assign an alphabet to a file supplied as plain text.
+    extensions: [.txt, .log, .aln, .a3m, .sto, .fasta, .fa]
     viewer: alignment
   gzip:
     label: gzip

@@ -35,9 +35,11 @@ available. Four choices affect existing callers.
   [Open Babel's MOL and SD format registrations](https://github.com/openbabel/openbabel/blob/master/src/formats/mdlformat.cpp)
 - A `.fna` file is `chemical/seq-na-fasta` and a `.faa` file is
   `chemical/seq-aa-fasta`. A `.fasta` or `.fa` can hold either. Its input
-  field can select protein FASTA, with nucleotide FASTA the default. The
-  worker's former `text/x-fasta` carries no alphabet information. The Files
-  filter offers these older files as “FASTA (unspecified alphabet)”.
+  field can select protein FASTA. The registry preserves a caller's
+  `text/plain` or `text/x-fasta` declaration for either shared extension.
+  Neither declaration identifies an alphabet. Callers that provide no type
+  or field hint retain the existing nucleotide FASTA default. The Files filter
+  includes files recorded as `text/x-fasta` under “FASTA (unspecified alphabet)”.
   [Wolfram's FASTA formats](https://reference.wolfram.com/language/ref/format/FASTA.html.en)
 - MOL2 and HDF5 use `application/vnd.sybyl.mol2` and
   `application/vnd.hdfgroup.hdf5`. Their previous `chemical/x-mol2` and

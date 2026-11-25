@@ -43,6 +43,30 @@ describe("media", () => {
     );
   });
 
+  it.each(["sequences.fa", "sequences.fasta"])(
+    "honors a compatible reported type for %s",
+    (name) => {
+      const protein = "chemical/seq-aa-fasta";
+      const nucleotide = "chemical/seq-na-fasta";
+      for (const type of ["text/plain", "text/x-fasta", protein]) {
+        expect(media.of({ name, type })).toBe(type);
+        expect(media.of({ name, type }, [nucleotide, protein, "text/plain", "text/x-fasta"])).toBe(
+          type,
+        );
+      }
+      expect(media.of({ name, type: "text/plain" }, [protein])).toBe(protein);
+      expect(media.of({ name, type: "" })).toBe(nucleotide);
+      expect(media.of({ name, type: "application/pdf" })).toBe(nucleotide);
+    },
+  );
+
+  it("keeps the alphabet given by a specific FASTA suffix", () => {
+    expect(media.of({ name: "sequences.fna", type: "text/plain" })).toBe("chemical/seq-na-fasta");
+    expect(media.of({ name: "sequences.faa", type: "chemical/seq-na-fasta" })).toBe(
+      "chemical/seq-aa-fasta",
+    );
+  });
+
   it("offers .fasta and .fa files to protein FASTA pickers", () => {
     expect(media.accept(["chemical/seq-aa-fasta", "text/plain"])).toBe(
       "chemical/seq-aa-fasta,text/plain,.fasta,.fa,.faa,.txt,.log,.aln,.a3m,.sto",
@@ -52,7 +76,7 @@ describe("media", () => {
 
   it("names types the way scientists do, with their extensions", () => {
     expect(media.either(["chemical/seq-aa-fasta", "text/plain"])).toBe(
-      "protein FASTA (.fasta, .fa or .faa) or plain-text (.txt, .log, .aln, .a3m or .sto)",
+      "protein FASTA (.fasta, .fa or .faa) or plain-text (.txt, .log, .aln, .a3m, .sto, .fasta or .fa)",
     );
     expect(media.either(["chemical/x-pdb", "chemical/x-mmcif", "image/*"])).toBe(
       "PDB (.pdb or .ent), mmCIF (.cif or .mmcif) or image",

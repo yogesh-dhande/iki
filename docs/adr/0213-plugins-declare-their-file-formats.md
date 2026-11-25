@@ -34,9 +34,12 @@ types of input records. Existing record viewers continue to
 obtain fields and record context from `display.viewers`. The format identifies
 the file decoder where that viewer needs one.
 
-The API exposes the installed formats. File pickers, worker uploads, Files
-facets and generated reference documentation use the declarations. The Files
-facet still counts only files visible to the caller under the active filters.
+File pickers, worker uploads, Files facets and generated reference documentation
+use the declarations. Like the entity type catalog, `GET /formats` describes
+what a deployment supports. Every authenticated caller can read it, including
+a token granted access to a single project. The counts in `GET /files/formats`
+come from project data and include only files the caller may read under the
+active filters. [ADR 0152](0152-a-token-given-some-projects-acts-only-in-them.md)
 Aliases allow older files to be found without rewriting immutable file records.
 
 ## Consequences

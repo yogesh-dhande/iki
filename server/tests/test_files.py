@@ -165,6 +165,10 @@ def test_upload_recognises_bytes_before_the_name_and_uses_the_registered_reader(
     [
         ("RESULT.MOL", "application/octet-stream", "chemical/x-mdl-molfile"),
         ("result.FA", "chemical/seq-aa-fasta", "chemical/seq-aa-fasta"),
+        ("result.fa", "text/plain", "text/plain"),
+        ("result.fasta", "text/x-fasta", "text/x-fasta"),
+        ("result.faa", "text/plain", "chemical/seq-aa-fasta"),
+        ("result.fna", "text/plain", "chemical/seq-na-fasta"),
         ("report.lab-report", "application/x-lab-report", "application/x-lab-report"),
         ("structure.pdb", "application/vnd.palm", "chemical/x-pdb"),
         ("page.html", "application/octet-stream", "text/html"),

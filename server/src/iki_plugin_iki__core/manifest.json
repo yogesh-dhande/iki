@@ -3991,7 +3991,10 @@
         "media_types": [
           "text/x-fasta"
         ],
-        "extensions": [],
+        "extensions": [
+          ".fasta",
+          ".fa"
+        ],
         "signatures": [],
         "reader": null,
         "viewer": "alignment",
@@ -4415,7 +4418,9 @@
           ".log",
           ".aln",
           ".a3m",
-          ".sto"
+          ".sto",
+          ".fasta",
+          ".fa"
         ],
         "signatures": [],
         "reader": null,
