@@ -952,12 +952,38 @@ def test_files_download_from_the_signed_url_without_ikis_token(
 ) -> None:
     content = b"HEADER    TEST\nEND\n"
     downloadable(fake, content, hashlib.sha256(content).hexdigest())
+    client._http.cookies.set("sessionid", "test-session", domain=".example.com")
     saved = client.files.download("f1", tmp_path)
     assert Path(saved) == tmp_path / "abl1.pdb"
     assert Path(saved).read_bytes() == content
     signed = fake.sent("GET", "/abl1")[0]
     assert signed.url.host == "files.example.com"
     assert "Authorization" not in signed.headers
+    assert "Cookie" not in signed.headers
+
+
+def test_signed_download_refuses_an_https_downgrade(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    downloadable(fake, b"x", "")
+    fake.on(
+        "GET",
+        "/api/v1/files/f1/content",
+        httpx2.Response(302, headers={"Location": "http://files.example.com/abl1?sig=x"}),
+    )
+    with pytest.raises(iki.IkiError, match="downgrades HTTPS"):
+        client.files.download("f1", tmp_path)
+    assert not fake.sent("GET", "/abl1")
+
+
+def test_signed_download_follows_one_location(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    downloadable(fake, b"x", "")
+    fake.on("GET", "/abl1", httpx2.Response(302, headers={"Location": "/another"}))
+    with pytest.raises(iki.IkiError, match=r"refused the download of f1 \(302\)"):
+        client.files.download("f1", tmp_path)
+    assert not fake.sent("GET", "/another")
 
 
 @pytest.mark.parametrize(

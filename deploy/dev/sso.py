@@ -458,6 +458,7 @@ def identity_provider_mail(user: str) -> None:
             "username": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_USERNAME"),
             "password": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_PASSWORD"),
         },
+        allow_redirects=False,
         timeout=10,
     )
     if token.status_code != 200:
@@ -467,6 +468,7 @@ def identity_provider_mail(user: str) -> None:
         f"{keycloak}/admin/realms/iki/users",
         params={"username": user, "exact": "true"},
         headers=admin,
+        allow_redirects=False,
         timeout=10,
     ).json()
     if len(found) != 1:
@@ -477,6 +479,7 @@ def identity_provider_mail(user: str) -> None:
         params={"lifespan": 300},
         json=["VERIFY_EMAIL"],
         headers=admin,
+        allow_redirects=False,
         timeout=30,
     )
     if sent.status_code != 204:
@@ -526,8 +529,10 @@ class Scim:
         )
 
     def __call__(self, method: str, path: str, body: Any = None) -> Any:  # noqa: ANN401
-        response = self.session.request(method, f"{IKI}/scim/v2{path}", json=body)
-        if response.status_code >= 400:
+        response = self.session.request(
+            method, f"{IKI}/scim/v2{path}", json=body, allow_redirects=False
+        )
+        if response.status_code >= 300:
             fail(f"SCIM {method} {path}: HTTP {response.status_code} {response.text[:300]}")
         return response.json() if response.content else None
 
@@ -778,7 +783,11 @@ def page_post(
 
 def bearer_call(token: str, method: str, path: str, body: Any = None) -> requests.Response:  # noqa: ANN401
     return browser().request(
-        method, f"{IKI}/api/v1{path}", json=body, headers={"Authorization": f"Bearer {token}"}
+        method,
+        f"{IKI}/api/v1{path}",
+        json=body,
+        headers={"Authorization": f"Bearer {token}"},
+        allow_redirects=False,
     )
 
 
@@ -806,6 +815,7 @@ def cli_read_token(session: requests.Session, *, project: str | None = None) -> 
     time.sleep(device["interval"])
     tokens = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             "device_code": device["device_code"],
@@ -902,6 +912,7 @@ def oauth(admin: requests.Session) -> None:
         fail(f"allowing the app answered HTTP {allowed.status_code}: {allowed.headers}")
     exchanged = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "authorization_code",
             "code": params["code"][0],
@@ -941,6 +952,7 @@ def oauth(admin: requests.Session) -> None:
         fail("creating service-account credentials didn't show them once")
     issued = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={"grant_type": "client_credentials"},
         auth=(client_id[1], html.unescape(secret[1])),
     )
@@ -989,6 +1001,7 @@ def oauth(admin: requests.Session) -> None:
         fail(f"delegating answered HTTP {delegated.status_code}: {delegated.text[:300]}")
     acting = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "subject_token": grant[1],
@@ -1030,6 +1043,7 @@ def mcp(token: str) -> None:
                 **({"Authorization": f"Bearer {auth}"} if auth else {}),
                 **headers,
             },
+            allow_redirects=False,
             timeout=30,
         )
 
@@ -6263,7 +6277,12 @@ def upload(
     made = started.json()
     offset = 0
     for part in made["parts"]:
-        sent = requests.put(part["url"], data=data[offset : offset + part["size"]], timeout=30)
+        sent = requests.put(
+            part["url"],
+            data=data[offset : offset + part["size"]],
+            allow_redirects=False,
+            timeout=30,
+        )
         if sent.status_code != 200:
             fail(f"sending part {part['number']} answered HTTP {sent.status_code}")
         offset += part["size"]

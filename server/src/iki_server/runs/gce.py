@@ -562,9 +562,35 @@ class GoogleGce:
 
     def _client(self, kind: str) -> Any:  # noqa: ANN401 - google-cloud-compute's client
         if kind not in self._clients:
+            import google.auth
             from google.cloud import compute_v1
 
-            self._clients[kind] = getattr(compute_v1, kind)()
+            from iki_server.google_http import credential_request, restrict_google_session
+
+            client_type = getattr(compute_v1, kind)
+            rest = client_type.get_transport_class("rest")
+
+            def transport(**options: Any) -> Any:  # noqa: ANN401 - Google supplies transport options
+                credentials, _ = google.auth.default(
+                    default_scopes=rest.AUTH_SCOPES, request=credential_request()
+                )
+                if hasattr(credentials, "with_gdch_audience"):
+                    credentials = credentials.with_gdch_audience(
+                        options["api_audience"] or options["host"]
+                    )
+                options["credentials"] = credentials
+                return rest(**options)
+
+            client = client_type(transport=transport)
+            restrict_google_session(client.transport._session)
+            # These generated clients open a second REST session to poll their operations.
+            if kind in {"InstancesClient", "DisksClient"}:
+                restrict_google_session(client.transport._zone_operations_client.transport._session)
+            elif kind == "ImagesClient":
+                restrict_google_session(
+                    client.transport._global_operations_client.transport._session
+                )
+            self._clients[kind] = client
         return self._clients[kind]
 
     def _call(self, kind: str, method: str, *args: Any, **params: Any) -> Any:  # noqa: ANN401

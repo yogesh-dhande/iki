@@ -26,8 +26,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
+from http.client import HTTPMessage
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from imports import ACCESSION_BODY, Record, UnreadableError, finish, genbank
 
@@ -42,6 +43,33 @@ PAUSE = 0.34
 PAUSE_WITH_KEY = 0.1
 ATTEMPTS = 4
 MAX_BYTES = 1024**3
+
+
+class NcbiRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow at most five redirects within the E-utilities HTTPS origin."""
+
+    max_redirections = 5
+    max_repeats = 1
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        target = urllib.parse.urlsplit(newurl)
+        host = urllib.parse.urlsplit(EFETCH).netloc
+        if target.scheme != "https" or not re.fullmatch(
+            re.escape(host) + r"(?::0*443)?", target.netloc.lower()
+        ):
+            raise urllib.error.HTTPError(req.full_url, code, "Redirect outside NCBI", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+NCBI_OPENER = urllib.request.build_opener(NcbiRedirectHandler())
 
 
 def accessions(text: str) -> list[str]:
@@ -80,7 +108,7 @@ def efetch(ids: list[str], email: str) -> str:
     for attempt in range(1, ATTEMPTS + 1):
         request = urllib.request.Request(EFETCH, data=body, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+            with NCBI_OPENER.open(request, timeout=120) as response:
                 data = response.read(MAX_BYTES + 1)
         except urllib.error.HTTPError as error:
             error.close()

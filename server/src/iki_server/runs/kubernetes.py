@@ -24,6 +24,7 @@ from typing import Any, Protocol
 
 import requests
 
+from iki_server.http import same_origin_redirects
 from iki_server.runs.machines import BIN, RUN_LABELS, SCRATCH, UID, worker_settings
 from iki_spec.compute import Template
 
@@ -522,7 +523,7 @@ class InCluster:
     def __init__(self, host: str, port: str, account: Path = ACCOUNT) -> None:
         self.base = f"https://{host}:{port}"
         self.account = account
-        self.session = requests.Session()
+        self.session = same_origin_redirects(requests.Session())
         self.session.verify = str(account / "ca.crt")
 
     def _call(self, method: str, path: str, body: Any = None, **params: str) -> Any:  # noqa: ANN401 - JSON

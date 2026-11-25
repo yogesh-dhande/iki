@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import requests
 import test_gcp_live as live
 
 SETTINGS = live.Settings(
@@ -59,6 +60,34 @@ class FakeGcp:
 @pytest.fixture(autouse=True)
 def no_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(live, "LISTING_WAIT", 0)
+
+
+@pytest.mark.parametrize("location", ["https://elsewhere.test/", "http://oauth2.googleapis.com/"])
+def test_the_operator_token_is_only_posted_to_tokeninfo(
+    monkeypatch: pytest.MonkeyPatch, location: str
+) -> None:
+    endpoint = "https://oauth2.googleapis.com/tokeninfo"
+    sent = []
+
+    def answer(
+        adapter: requests.adapters.HTTPAdapter, request: requests.PreparedRequest, **kwargs: Any
+    ) -> requests.Response:
+        sent.append(request.url)
+        assert sent == [endpoint]
+        assert request.body == "access_token=sample"
+        response = requests.Response()
+        response.request = request
+        response.url = endpoint
+        response.status_code = 307
+        response.headers["Location"] = location
+        response._content = b""
+        return response
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", answer)
+    gcp = SimpleNamespace(access_token=lambda: "sample")
+    with pytest.raises(AssertionError, match="the token's info: HTTP 307"):
+        live.Gcp.identity(gcp)  # type: ignore[arg-type]
+    assert sent == [endpoint]
 
 
 def test_a_listing_that_fails_makes_the_inventory_incomplete_not_empty() -> None:

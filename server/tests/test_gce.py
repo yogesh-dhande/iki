@@ -459,6 +459,26 @@ def test_it_makes_lists_and_deletes_disks_and_images() -> None:
     client.delete_image("p", "iki-prod-setup-000001-v1")  # gone already
 
 
+def test_distributed_cloud_credentials_use_the_resolved_compute_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import google.auth
+    from google.auth.credentials import AnonymousCredentials
+
+    audiences: list[str] = []
+
+    class DistributedCredentials(AnonymousCredentials):
+        def with_gdch_audience(self, audience: str) -> AnonymousCredentials:
+            audiences.append(audience)
+            return self
+
+    monkeypatch.setenv("GOOGLE_CLOUD_UNIVERSE_DOMAIN", "cloud.example")
+    credentials = DistributedCredentials()  # type: ignore[no-untyped-call]
+    monkeypatch.setattr(google.auth, "default", lambda **options: (credentials, None))
+    client = GoogleGce()._client("InstancesClient")
+    assert audiences == [client.api_endpoint] == ["compute.cloud.example"]
+
+
 def test_no_credentials_is_refused() -> None:
     from google.auth import exceptions as auth
 

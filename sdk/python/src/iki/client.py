@@ -2084,13 +2084,17 @@ def _download(
         target = target / (base if base not in ("", ".", "..") else what)
     partial = target.with_name(target.name + ".part")
     digest = hashlib.sha256()
-    # It answers with a short-lived signed URL. That's fetched without Iki's token,
-    # which is for Iki alone.
+    # A signed storage URL needs no Iki credentials, including cookies set by the API.
     signed = client._send("GET", content)
     location = signed.headers.get("Location")
     if signed.status_code not in (301, 302, 303, 307) or not location:
         raise IkiError(f"{client.url} didn't say where to download {what} from.")
-    response = client._http.send(client._http.build_request("GET", location), stream=True)
+    url = signed.request.url.join(location)
+    if url.scheme not in ("https", "http") or url.userinfo:
+        raise IkiError("Iki returned an invalid download address.")
+    if signed.request.url.scheme == "https" and url.scheme == "http":
+        raise IkiError("Iki returned a download address that downgrades HTTPS to HTTP.")
+    response = client._http.send(httpx2.Request("GET", url), stream=True)
     try:
         if response.status_code != 200:
             raise IkiError(
