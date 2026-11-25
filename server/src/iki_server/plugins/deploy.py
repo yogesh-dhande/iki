@@ -61,6 +61,7 @@ from django.db import DatabaseError, connection, migrations, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.migration import Migration
+from django.db.migrations.operations.base import Operation
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.state import ProjectState
 from django.db.models import Q
@@ -221,7 +222,11 @@ def migrate_deployment(
                     sync.drop_views(cursor)
                 report.reversed = _roll_back(to_reverse, archive, applied)
             forwards = MigrationExecutor(connection)
-            _unguard(forwards, forwards.migration_plan(forwards.loader.graph.leaf_nodes()))
+            plan = forwards.migration_plan(forwards.loader.graph.leaf_nodes())
+            for migration, _ in plan:
+                if problems := _rename_problems(migration):
+                    raise DeployError("\n".join(problems))
+            _unguard(forwards, plan)
             call_command(_Migrate(), interactive=False, verbosity=1, stdout=stdout)
             report.archived = _keep_copies(installed)
             report.synced = sync.sync(analyst_role)
@@ -541,6 +546,38 @@ def _last_applied(loader: MigrationLoader, app: str, applied: set[Key]) -> Key |
     return None
 
 
+def _database_operations(operations: Iterable[Operation]) -> Iterable[Operation]:
+    for operation in operations:
+        if isinstance(operation, migrations.SeparateDatabaseAndState):
+            yield from _database_operations(operation.database_operations)
+        else:
+            yield operation
+
+
+def _rename_problems(migration: Migration) -> list[str]:
+    """Each signed rename must describe the columns this migration actually renames."""
+    operations = list(_database_operations(migration.operations))
+    renames = {
+        (op.model_name_lower, op.old_name, op.new_name)
+        for op in operations
+        if isinstance(op, migrations.RenameField)
+    }
+    problems = []
+    for op in operations:
+        if isinstance(op, RecordRename):
+            history = op.model_name.lower()
+            live = history.removesuffix("_history")
+            if live == history or any(
+                (model, op.old_name, op.new_name) not in renames for model in (live, history)
+            ):
+                problems.append(
+                    f"{_plugin(migration.app_label)} {migration.name}: "
+                    f"{op.describe()} needs matching RenameField operations "
+                    "on the live and history models."
+                )
+    return problems
+
+
 def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) -> list[str]:
     """What reversing ``plan`` would destroy, if anything."""
     blockers = []
@@ -548,24 +585,8 @@ def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) 
         for migration, _ in plan:
             key = (migration.app_label, migration.name)
             state = executor.loader.project_state(key, at_end=False)
-            renames = {
-                (op.model_name_lower, op.old_name, op.new_name)
-                for op in migration.operations
-                if isinstance(op, migrations.RenameField)
-            }
+            blockers.extend(_rename_problems(migration))
             for operation in migration.operations:
-                if isinstance(operation, RecordRename):
-                    history = operation.model_name.lower()
-                    live = history.removesuffix("_history")
-                    if live == history or any(
-                        (model, operation.old_name, operation.new_name) not in renames
-                        for model in (live, history)
-                    ):
-                        blockers.append(
-                            f"{_plugin(migration.app_label)} {migration.name}: "
-                            f"{operation.describe()} needs matching RenameField operations "
-                            f"on the live and history models."
-                        )
                 before = state.clone()
                 operation.state_forwards(migration.app_label, state)
                 problem = _lost_by_reversing(cursor, migration.app_label, operation, before, state)

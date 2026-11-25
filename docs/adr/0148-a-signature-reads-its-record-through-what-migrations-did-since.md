@@ -52,8 +52,8 @@ back:
   `scale` and `offset`.
 - `RenameEntityType` records a renamed type.
 
-When rolling back a field rename, the deploy checks that the migration
-renamed both the live and history columns as recorded. The reverse records
+Before applying or reversing a field rename, the deploy checks that the
+migration renames both the live and history columns as recorded. The reverse records
 the return to the earlier name, including for signatures made under the newer name.
 
 Each row names the part of a type its table holds, as the type's shape

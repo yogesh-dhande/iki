@@ -1838,7 +1838,9 @@ result = [
     ) == [(["count", "name"], 0), (["name"], 0), (["title"], 1)]
 
 
-def test_rollback_requires_matching_live_and_history_renames(lab: Path, database: str) -> None:
+def test_deploy_requires_matching_live_and_history_renames_in_both_directions(
+    lab: Path, database: str
+) -> None:
     made("lab", "--no-input", cwd=lab.parent)
     first = build_to(lab.parent, "v1", "lab")
     deployed(first, database)
@@ -1847,7 +1849,14 @@ def test_rollback_requires_matching_live_and_history_renames(lab: Path, database
     migration = lab / "migrations" / "0002_rename.py"
     source, marker = migration.read_text().split("RecordRename(", 1)
     migration.write_text(source + "RecordRename(" + marker.replace("'title'", "'label'", 1))
-    deployed(build_to(lab.parent, "v2", "lab"), database)
+    second = build_to(lab.parent, "v2", "lab")
+    assert "needs matching RenameField operations" in refused(second, database)
+    assert "name" in columns(database, "acme__lab_sample__history")
+    assert query(database, "SELECT id FROM iki_history_change") == []
+
+    # A database migrated before the forward check still has to preflight its kept copy.
+    migrate(second, database)
+    deployed(second, database)
     assert "needs matching RenameField operations" in refused(first, database)
     assert "title" in columns(database, "acme__lab_sample__history")
 
