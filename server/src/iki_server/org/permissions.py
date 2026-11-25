@@ -573,15 +573,26 @@ def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     return teams
 
 
+#: ``/me``'s ``can`` that are an organization-wide action, which org roles grant.
+_CAPABILITY_ACTIONS = {
+    "manage_org": Action.ORG_MANAGE,
+    "read_audit": Action.AUDIT_READ,
+    "manage_webhooks": Action.ORG_WEBHOOKS_MANAGE,
+    "read_costs": Action.COSTS_READ,
+    "manage_compute": Action.COMPUTE_MANAGE,
+    "manage_quarantine": Action.QUARANTINE_MANAGE,
+}
+
+
 def capabilities(user: Any) -> dict[str, bool]:  # noqa: ANN401
     """What the person may do across the organization: ``/me``'s ``can``, and what the
     header's navigation offers them (:mod:`iki_server.web.navigation`)."""
-    return {
-        "manage_org": can(user, Action.ORG_MANAGE),
-        "read_audit": can(user, Action.AUDIT_READ),
-        "create_projects": teams_for_new_project(user).exists(),
-        "manage_webhooks": can(user, Action.ORG_WEBHOOKS_MANAGE),
-        "read_costs": can(user, Action.COSTS_READ),
-        "manage_compute": can(user, Action.COMPUTE_MANAGE),
-        "manage_quarantine": can(user, Action.QUARANTINE_MANAGE),
-    }
+    can_do = {name: can(user, action) for name, action in _CAPABILITY_ACTIONS.items()}
+    return {**can_do, "create_projects": teams_for_new_project(user).exists()}
+
+
+def roles_granting(capability: str) -> frozenset[OrgRole]:
+    """The org roles that give a person this one of :func:`capabilities` (none for one
+    that isn't an org role's, such as ``create_projects``)."""
+    action = _CAPABILITY_ACTIONS.get(capability)
+    return frozenset(_ORG_ACTION_ROLES[action]) if action is not None else frozenset()

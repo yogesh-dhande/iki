@@ -155,6 +155,10 @@ def test_admin_is_not_for_someone_who_may_open_none_of_it(world: World) -> None:
     anonymous = world.browser("anonymous").get("/admin/")
     assert anonymous.status_code == 302
     assert anonymous["Location"].startswith("/login/")
+    # An org role with no page in the area isn't named as one it's for.
+    held = world.browser("quarantine_admin").get("/admin/").content.decode()
+    assert "The admin area isn’t open to you" in held
+    assert "Org Admins, Compute Admins and Auditors:" in held
 
 
 def test_every_page_of_the_area_is_under_admin() -> None:
