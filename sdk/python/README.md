@@ -12,7 +12,7 @@ import iki
 
 iki.login("https://iki.example.org")  # once: you enter a code in your browser
 
-samples = iki.entities.search("iki/example_lims.Sample", project="qc-lab")
+samples = iki.entities.search("iki/samples.Sample", project="qc-lab")
 table = samples.to_pandas()  # one row per record, a column per field
 ```
 
