@@ -1491,6 +1491,12 @@ related:
   results: { direction: downstream, depth: 5, edges: [reference, run] }
 ```
 
+The [calibration tracing example](../examples/plugins/calibration_tracing/README.md)
+uses three downstream reference searches to collect service history, instrument
+uses and existing assessments when an instrument's calibration state changes.
+The equipment types come from its dependency. The trigger's action and worker
+are local to the example.
+
 Each such input takes many (`trigger-related-one`), and isn't the one the
 entity goes to (`trigger-related-is-input`); a scheduled trigger has none.
 

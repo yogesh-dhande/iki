@@ -110,3 +110,6 @@ scripts/ci/with-browser-traces.sh --vm ~/.local/share/iki-test-vm/bin/vm-run.sh 
   bash -c 'pnpm install --frozen-lockfile && make -k check'
 ~/.local/share/iki-test-vm/bin/vm-run.sh make dev-ci
 ```
+
+The optional failed-instrument trigger moved from the original Equipment split
+to the [facility calibration tracing example](../examples/plugins/calibration_tracing/README.md).

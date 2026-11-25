@@ -7,6 +7,9 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [Automatic calibration impact tracing](calibration_tracing/README.md) opens
+  impact cases for affected measurements when an engineer marks an instrument's
+  calibration as failed.
 
 ## Copy and name a plugin
 

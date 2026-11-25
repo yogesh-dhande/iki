@@ -4605,16 +4605,6 @@ def equipment_calibration(
             "suspect_since": performed.isoformat(),
         },
     )
-    configured = api_call(
-        alice,
-        "POST",
-        f"/projects/{project['id']}/triggers/{prefix}trace_failed_instrument/enable",
-        {},
-    )
-    if configured.status_code != 200 or not configured.json()["enabled"]:
-        fail(
-            f"enabling the calibration trigger answered {configured.status_code}: {configured.text}"
-        )
     for field, state in (("service", "out_of_service"), ("calibration", "failed")):
         change(
             instrument,
@@ -4622,26 +4612,18 @@ def equipment_calibration(
             {"state": state, "reason": "Synthetic calibration failure"},
             method="POST",
         )
-    deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        cases = api_call(
-            alice,
-            "POST",
-            "/entities/search",
-            {
-                "type": prefix + "CalibrationImpact",
-                "project": project["id"],
-                "where": {"field": "failure", "op": "eq", "value": failure["id"]},
-            },
-        )
-        if cases.status_code != 200:
-            fail(f"reading calibration impacts answered HTTP {cases.status_code}: {cases.text}")
-        if cases.json()["items"]:
-            break
-        time.sleep(2)
-    else:
-        fail(f"the calibration trigger did not find {use['hrid']} for {failure['hrid']}")
-    [impact] = cases.json()["items"]
+    traced = launch(
+        alice,
+        project,
+        prefix + "trace_failed_calibrations",
+        {
+            "instrument": instrument["id"],
+            "calibrations": [passing["id"], failure["id"]],
+            "uses": [use["id"]],
+        },
+    )
+    [case] = [effect["entity"] for effect in traced["effects"]]
+    impact = record(alice, case)
     if (
         impact["values"]["use"] != use["id"]
         or impact["values"]["failure_revision"] != failure["revision"]
