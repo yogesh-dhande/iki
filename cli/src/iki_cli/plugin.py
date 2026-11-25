@@ -176,9 +176,17 @@ def run_validate(args: argparse.Namespace, out: TextIO | None = None) -> int:
     return 1 if failed else 0
 
 
-def _load(directory: Path, dependencies: Sequence[Path], out: TextIO) -> Result | None:
+def _load(
+    directory: Path,
+    dependencies: Sequence[Path],
+    out: TextIO,
+    *,
+    require_setting_policy: bool = True,
+) -> Result | None:
     """The plugin, or None after printing why it can't be built."""
-    result = load_plugin(directory, dependencies=dependencies)
+    result = load_plugin(
+        directory, dependencies=dependencies, require_setting_policy=require_setting_policy
+    )
     if result.plugin is not None:
         return result
     problems = list(result.problems)

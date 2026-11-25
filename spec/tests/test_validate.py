@@ -1568,7 +1568,7 @@ def test_plugins_round_trip_through_json() -> None:
 def test_settings_rules(tmp_path: Path) -> None:
     plugin = PLUGIN + textwrap.dedent("""\
         settings:
-          api_key: { type: string }
+          api_key: { type: string, required: false }
           region: { type: enum, values: [eu, us], required: true, default: eu }
           batch: { type: int, min: 1, default: 0 }
     """)
@@ -1624,12 +1624,12 @@ def test_settings_values() -> None:
 def test_settings_values_of_every_type(tmp_path: Path) -> None:
     plugin = PLUGIN + textwrap.dedent("""\
         settings:
-          s: { type: string }
-          i: { type: int }
-          f: { type: float }
-          b: { type: bool }
-          e: { type: enum, values: [x, y] }
-          l: { type: list, items: { type: int }, max_items: 2 }
+          s: { type: string, required: false }
+          i: { type: int, required: false }
+          f: { type: float, required: false }
+          b: { type: bool, required: false }
+          e: { type: enum, values: [x, y], required: false }
+          l: { type: list, items: { type: int }, max_items: 2, required: false }
     """)
     result = make(tmp_path, "", plugin)
     assert result.plugin is not None
@@ -3298,3 +3298,55 @@ def test_a_type_says_what_it_holds_its_grid_its_barcode_and_what_needs_a_scan(
         ("items: { type: ref, to: Tube } }", "items: { type: ref, to: Shipment } }")
     ) == ["request-receives"]
     assert problems(("by: [qa]", "by: [porter]")) == ["unknown-role"]
+
+
+def test_a_setting_declares_its_required_or_default_policy(tmp_path: Path) -> None:
+    setting = PLUGIN + "settings:\n  endpoint: { type: string }\n"
+    assert "required" in only(make(tmp_path, {}, setting), "setting-policy")
+    explicit = setting.replace("type: string", "type: string, required: false")
+    assert make(tmp_path, {}, explicit).ok
+    default = setting.replace("type: string", "type: string, default: example")
+    assert make(tmp_path, {}, default).ok
+
+
+def test_invalid_types_do_not_cascade_into_missing_type_errors(tmp_path: Path) -> None:
+    root = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Parent
+schema_version: 1
+hrid: { prefix: PAR }
+fields:
+  label: { type: not_a_field_type }
+"""
+    child = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Child
+schema_version: 1
+hrid: { prefix: CHD }
+extends: Parent
+"""
+    reader = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Reader
+schema_version: 1
+hrid: { prefix: RDR }
+fields:
+  parent: { type: ref, to: Parent }
+  child: { type: ref, to: Child }
+  unknown: { type: ref, to: Misspelled }
+"""
+    result = make(
+        tmp_path,
+        {
+            "types/parent.yaml": root,
+            "types/child.yaml": child,
+            "types/reader.yaml": reader,
+        },
+    )
+    assert [(p.code, p.path) for p in result.problems] == [
+        ("schema", ("fields", "label", "type")),
+        ("unknown-type", ("fields", "unknown", "to")),
+    ]

@@ -269,12 +269,17 @@ class _Checker:
 
 
 def load_plugin(
-    directory: FilePath | str, *, dependencies: Sequence[FilePath | str] = (), core: bool = False
+    directory: FilePath | str,
+    *,
+    dependencies: Sequence[FilePath | str] = (),
+    core: bool = False,
+    require_setting_policy: bool = True,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
+    Only an upgrade probe loading old manifests can relax the explicit setting policy.
     """
     root = FilePath(directory)
     loaded = _read(root)
@@ -304,7 +309,7 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core).run()
+    _Semantics(loaded, others, core=core).run(require_setting_policy=require_setting_policy)
     return loaded.result()
 
 
@@ -346,6 +351,7 @@ class _Loaded:
     plugin: Plugin | None = None
     plugin_source: Document | None = None
     type_sources: dict[str, Document] = field(default_factory=dict)
+    invalid_types: set[str] = field(default_factory=set)
     extension_sources: list[Document] = field(default_factory=list)
     action_sources: dict[str, Document] = field(default_factory=dict)
     environment_sources: dict[str, Document] = field(default_factory=dict)
@@ -439,7 +445,7 @@ def _read(root: FilePath) -> _Loaded:
 
     types: dict[str, EntityType] = {}
     extensions: list[Extension] = []
-    for document in _manifests(root, TYPES_DIR, checker):
+    for document in _manifests(root, TYPES_DIR, checker, invalid_types=loaded.invalid_types):
         body = document.data
         if _kind(document) == "EntityType":
             entity_type = _entity_type(name, body, document)
@@ -563,7 +569,9 @@ def _read(root: FilePath) -> _Loaded:
     return loaded
 
 
-def _manifests(root: FilePath, directory: str, checker: _Checker) -> list[Document]:
+def _manifests(
+    root: FilePath, directory: str, checker: _Checker, *, invalid_types: set[str] | None = None
+) -> list[Document]:
     """The schema-valid manifests under `directory`, after reporting any that belong elsewhere."""
     usable = []
     for file in _files(root, directory):
@@ -588,6 +596,12 @@ def _manifests(root: FilePath, directory: str, checker: _Checker) -> list[Docume
                 continue
             if _schema_ok(document, checker):
                 usable.append(document)
+            elif (
+                invalid_types is not None
+                and kind == "EntityType"
+                and isinstance(name := document.data.get("name"), str)
+            ):
+                invalid_types.add(name)
     return usable
 
 
@@ -992,6 +1006,15 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.types.update(other.plugin.types)
         self.types.update(self.plugin.types)
+        invalid = {qualify(n, self.plugin.name) for n in loaded.invalid_types} - self.types.keys()
+        self.invalid_types = invalid
+        if invalid:
+            # A subtype's inherited fields can't be checked until its parent can be read.
+            self.invalid_types |= {
+                t.qualified_name
+                for t in self.plugin.types.values()
+                if any(parent.extends in invalid for parent in [t, *self.ancestors(t)])
+            }
         self.stock_lots = {
             t.stock_catalogue.lots.type: t for t in self.types.values() if t.stock_catalogue
         }
@@ -1004,11 +1027,12 @@ class _Semantics:
         self.unavailable: set[str] = set()
         self.used: set[str] = set()
 
-    def run(self) -> None:
+    def run(self, *, require_setting_policy: bool) -> None:
         self.plugin_manifest()
         self.lab_roles()
         for qualified, entity_type in self.plugin.types.items():
-            self.entity_type(entity_type, self.loaded.type_sources[qualified])
+            if qualified not in self.invalid_types:
+                self.entity_type(entity_type, self.loaded.type_sources[qualified])
         self.hrid_prefixes()
         self.table_names()
         seen: dict[str, Document] = {}
@@ -1016,7 +1040,7 @@ class _Semantics:
             self.plugin.extensions, self.loaded.extension_sources, strict=True
         ):
             self.extension(extension, document, seen)
-        self.settings()
+        self.settings(require_policy=require_setting_policy)
         # With what each rule and guard reads, for the server to load and point at.
         types, extensions = rules.check(self)
         self.plugin = self.loaded.plugin = dataclasses.replace(
@@ -1212,6 +1236,8 @@ class _Semantics:
 
     def reference(self, ref: str, source: Document, path: Path) -> EntityType | None:
         """The type `ref` names, or None after reporting why it can't be used."""
+        if ref in self.invalid_types:
+            return None  # The root schema error has already been reported.
         plugin, name = ref.split(".")
         if "/" not in plugin:
             own = plugin == naming.short_name(self.plugin.name)
@@ -2522,6 +2548,8 @@ class _Semantics:
     def aliquots(self, entity_type: EntityType, amount: Amount, source: Document) -> None:
         target = self.types.get(amount.aliquots or "")
         at: Path = ("amount", "aliquots")
+        if amount.aliquots in self.invalid_types:
+            return
         if target is None:
             self.add(
                 "unknown-type",
@@ -3808,9 +3836,23 @@ class _Semantics:
 
     # Settings -----------------------------------------------------------------------------------
 
-    def settings(self) -> None:
+    def settings(self, *, require_policy: bool) -> None:
         for name, setting in self.plugin.settings.items():
             path: Path = ("settings", name)
+            if (
+                require_policy
+                and not setting.has_default
+                and "required" not in self.source.data["settings"][name]
+            ):
+                self.add(
+                    "setting-policy",
+                    f"`{name}` must declare whether it is required or give a default.",
+                    self.source,
+                    path,
+                    key=True,
+                    hint="Give a `default`, write `required: true`, or write "
+                    "`required: false` to let deployments leave it unset.",
+                )
             if setting.required and setting.has_default:
                 self.add(
                     "required-with-default",

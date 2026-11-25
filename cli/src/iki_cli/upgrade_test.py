@@ -87,7 +87,7 @@ def run(
         earlier_core = checkout / _CORE_SOURCE if (checkout / _CORE_APP).is_dir() else None
         try:
             with using_core(earlier_core):
-                earlier = _built(earlier_dir, dependencies, earlier_build, err)
+                earlier = _built(earlier_dir, dependencies, earlier_build, err, historical=True)
                 if earlier is None:
                     return False
                 earlier_types = {
@@ -276,7 +276,12 @@ def _git(command: list[str]) -> str | None:
 
 
 def _built(
-    directory: Path, dependencies: Sequence[Path], output: Path, err: TextIO
+    directory: Path,
+    dependencies: Sequence[Path],
+    output: Path,
+    err: TextIO,
+    *,
+    historical: bool = False,
 ) -> Plugin | None:
     """Builds the plugin with its dependencies into ``output``; returns the plugin."""
     from iki_cli.plugin import _defaults, _load
@@ -284,7 +289,7 @@ def _built(
     loaded = []
     for d in [directory, *dependencies]:
         others = [o for o in [directory, *dependencies] if o != d]
-        result = _load(d, others, err)
+        result = _load(d, others, err, require_setting_policy=not historical)
         if result is None or result.plugin is None:
             return None
         loaded.append((result.plugin, d))

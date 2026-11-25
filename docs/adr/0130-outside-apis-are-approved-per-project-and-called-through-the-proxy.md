@@ -188,8 +188,13 @@ Prices are the deployment's, beside its templates' (ADR 0070): the
 compute config gives each API a price per call and per unit of usage it
 reports, in the deployment's currency. `unpriced-api` warns about one without
 any. Each priced call becomes a cost record (`kind: api`) of its run, project,
-team and action, so reports, the finance CSV and budgets count it. Actions
-that use a priced API are costly as container and VM runs are: an enforced
+team and action, so reports, the finance CSV and budgets count it.
+
+A bundle preserves the amount and currency Iki recorded for the original call.
+The importing deployment displays that evidence without counting it against
+its budgets or creating a cost record.
+
+Actions that use a priced API are costly as container and VM runs are: an enforced
 budget that's spent refuses their launches and holds their queued runs, on
 any tier, and an agent's runs of them wait for approval.
 

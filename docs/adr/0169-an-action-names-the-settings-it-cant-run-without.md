@@ -33,8 +33,9 @@ equivalent.
 
 **An action names the settings it can't run without**, under
 `requires_settings`: `requires_settings: [ncbi_email]`. Each is one of its
-plugin's settings that's neither required nor has a default, since one every
-deployment has is no prerequisite. The plugin's checks refuse one the plugin
+plugin's settings declared `required: false` without a default, since one
+every deployment has is no prerequisite. A setting must declare whether it
+is required or provide a default. The plugin's checks refuse one the plugin
 doesn't declare (`requires-unknown-setting`) and warn of one that's always
 set (`requires-setting-always-set`).
 

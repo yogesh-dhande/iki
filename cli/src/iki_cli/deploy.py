@@ -80,7 +80,7 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help=(
             "Also write the images the deployment's runs use, one per line, pinned by digest: "
             "those of environments it binds to container-tier templates. Its build signs "
-            "each, so the cluster admits them (ADR 0063)."
+            "each, so the cluster admits them."
         ),
     )
     build.add_argument(
@@ -103,7 +103,7 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
             "A mirror of Iki's repository to fetch Iki's own plugins (iki/...) from, rather "
             "than Iki's repository: the deployment's plugins.mirrors. Repeat for several, "
             "tried in order. Each plugin must be at the commit its lockfile pins, with a tree "
-            "Iki's repository has had (ADR 0114)."
+            "Iki's repository has had."
         ),
     )
     build.add_argument(

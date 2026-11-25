@@ -950,7 +950,8 @@ class Work(_Part):
         latest changed. Each has its ``entity``, the ``fields`` naming you and when it's
         ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
-            for item in iki.work.mine(
+            client = iki.client()
+            for item in client.work.mine(
                 type="iki/example_lims.Sample", state={"status": "in_review"}
             ):
                 print(item["entity"]["hrid"], item["due"])
@@ -1041,8 +1042,9 @@ class Notifications(_Part):
         """Chooses how you're told of each kind: everywhere, or in one ``project``, where
         ``None`` follows your choice everywhere again::
 
-            iki.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
-            iki.notifications.choose(
+            client = iki.client()
+            client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+            client.notifications.choose(
                 {"iki/example_lims.Sample.in_review": "off"}, project="stability"
             )
         """

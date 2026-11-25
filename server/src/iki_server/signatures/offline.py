@@ -32,7 +32,6 @@ from typing import Any
 
 from iki_server.bundles import reading
 from iki_server.signatures import proof
-from iki_spec.model import SIGNATURE_MEANINGS
 
 
 @dataclass
@@ -165,7 +164,7 @@ def _one(
         id=line["id"],
         record=line["record"],
         hrid=record.get("hrid", hrid) if record else hrid,
-        manifestation=_manifestation(document),
+        manifestation=proof.manifestation(document),
         status=status,
         checks=checks,
     )
@@ -264,17 +263,6 @@ def _carried(
             else f"Revision {r['number']} carries it, but isn't the change it signed.",
         )
     return None
-
-
-def _manifestation(document: Mapping[str, Any]) -> str:
-    sig = document.get("signature") or {}
-    signer = document.get("signer") or {}
-    when = str(document.get("signed_at", ""))
-    shown = when[:10] + " at " + when[11:19] + " UTC" if len(when) >= 19 else when
-    meaning = SIGNATURE_MEANINGS.get(str(sig.get("meaning", "")))
-    verb = meaning.verb if meaning else "Signed"
-    who = signer.get("name") or signer.get("email")
-    return f"{verb} by {who} on {shown}. Meaning: {sig.get('label') or sig.get('meaning_label')}."
 
 
 def _parsed(text: str) -> dict[str, Any]:

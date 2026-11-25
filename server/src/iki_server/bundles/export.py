@@ -855,6 +855,11 @@ def _run_lines(found: _Found) -> list[dict[str, Any]]:
                 "version": a.version,
                 "parameters": a.parameters,
                 "usage": a.usage,
+                **(
+                    {"cost": {"amount": format(a.cost, "f"), "currency": a.currency}}
+                    if a.cost is not None
+                    else {}
+                ),
             }
         )
     return [

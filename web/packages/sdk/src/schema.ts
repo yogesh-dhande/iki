@@ -5836,7 +5836,7 @@ export interface components {
             attempt: number;
             /**
              * Cost
-             * @description At this deployment's price; null without one.
+             * @description At the deployment where the call ran; null without a recorded price.
              */
             cost: number | null;
             /** Currency */

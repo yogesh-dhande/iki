@@ -631,7 +631,9 @@ class ApiCallOut(Schema):
     version: str
     parameters: dict[str, Any] = Field(description="The request's declared parameters.")
     usage: dict[str, Any] = Field(description="What the answer said it used, as declared.")
-    cost: float | None = Field(description="At this deployment's price; null without one.")
+    cost: float | None = Field(
+        description="At the deployment where the call ran; null without a recorded price."
+    )
     currency: str | None
 
 

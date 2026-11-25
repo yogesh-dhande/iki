@@ -218,7 +218,7 @@ class ApiCallOut(TypedDict):
     api: str
     #: The attempt it was made for.
     attempt: int
-    #: At this deployment's price; null without one.
+    #: At the deployment where the call ran; null without a recorded price.
     cost: float | None
     currency: str | None
     duration_ms: int

@@ -100,17 +100,19 @@ directory intact so the agent can run its scripts.
 
 ## Deploy it
 
-A deployment installs the plugin by pinning a commit in its lockfile
-(`plugins.lock.yaml` in its config repository):
+A deployment installs a plugin by pinning a commit in its lockfile
+(`plugins.lock.yaml` in its config repository). For example, this entry
+pins the Small molecule plugin from Iki's repository:
 
 ```yaml
 plugins:
-  - name: acme_assays
-    git: https://github.com/acme/iki-plugin-acme-assays.git
-    sha: <the commit>
+  - name: iki/small_molecule
+    git: https://github.com/yogesh-dhande/iki.git
+    path: plugins/small_molecule
+    sha: b9b1632a67fda1d13a26f0a06b9c9edb18ffe19a
     state: active
-    settings: settings/acme_assays.yaml
 ```
 
-Its CI builds the plugins into the deployment's image, checking them
+For your own plugin, use its name, repository and commit. CI builds the
+plugins into the deployment's image, checking them
 together. The deployment migrates the database on its next rollout.

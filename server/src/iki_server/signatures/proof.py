@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import datetime as dt
 import hashlib
 import json
 import math
@@ -31,6 +32,7 @@ from decimal import Decimal
 from typing import Any
 
 from iki_server.bundles import keys
+from iki_spec.model import SIGNATURE_MEANINGS
 
 #: The format of what a signature signs.
 DOCUMENT_FORMAT = "iki/signature/v1"
@@ -40,6 +42,26 @@ CONTENT_FORMAT = "iki/signed-content/v3"
 #: The format of what a deployment signs to vouch for what was done to a signed record's
 #: history since it was signed (ADR 0148).
 READ_THROUGH_FORMAT = "iki/read-through/v1"
+
+
+def manifestation(document: Mapping[str, Any]) -> str:
+    """The printed name, UTC time and meaning read from the signed document."""
+    sig = document.get("signature") or {}
+    signer = document.get("signer") or {}
+    meaning = SIGNATURE_MEANINGS.get(str(sig.get("meaning", "")))
+    verb = meaning.verb if meaning else "Signed"
+    label = sig.get("label") or (meaning.label if meaning else "")
+    who = signer.get("name") or signer.get("email")
+    stamp = str(document.get("signed_at", ""))
+    try:
+        when = dt.datetime.fromisoformat(stamp)
+    except ValueError:
+        shown = stamp
+    else:
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=dt.UTC)
+        shown = when.astimezone(dt.UTC).strftime("%Y-%m-%d at %H:%M:%S UTC")
+    return f"{verb} by {who} on {shown}. Meaning: {label}."
 
 
 class NotCanonical(ValueError):  # noqa: N818 - reads as "the JSON is not canonical"

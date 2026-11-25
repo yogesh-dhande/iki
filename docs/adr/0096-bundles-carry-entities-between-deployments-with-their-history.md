@@ -143,9 +143,11 @@ and the public records read. What a run read in the same project goes
 too; what it read elsewhere is kept on the run, and doesn't need to be
 here. A run keeps its ID and, unless another run has it, its HRID. What it
 was tied to there that doesn't come (its batch, workflow and approval) is
-kept on it, and its page says where it ran. Artifacts and costs stay
-behind: they're kept for a while where they were made (ADR 0068, ADR
-0070). Imported runs keep the volume versions their attempts read. Exact
+kept on it, and its page says where it ran. Artifacts and accounting
+cost records stay where the run took place (ADR 0068, ADR 0070). The
+amount and currency recorded for an outside API call travel with the
+call's provenance (ADR 0130). Imported runs keep the volume versions
+their attempts read. Exact
 reproduction requires the original plugin commit and, for a run that read
 managed volumes, the original setup build on this deployment (ADR 0057).
 
