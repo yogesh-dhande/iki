@@ -44,7 +44,7 @@ pub struct RunInputEntity {
     pub included: Option<std::collections::BTreeMap<String, Vec<RunInputEntity>>>,
 }
 
-/// What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. iki-worker gets it when it leases a job and writes it to input.json.
+/// What an action's command reads: the run, its params, and its inputs' values at the revisions the run was launched on. Commands receive the job ID, timeout and resource limits. The full job envelope is private to the worker.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RunInput {
     #[serde(rename = "apiVersion")]
@@ -475,6 +475,9 @@ pub struct RunOutputUpdatesValueItem {
     /// The input entity's ID, from input.json.
     pub entity: String,
     pub values: serde_json::Map<String, serde_json::Value>,
+    /// An optional echo of the operator's launch reason. Iki checks it against the saved launch and uses the original on the revision even if this field is omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     /// When true, write this output only if the record is still at the revision this input read. Any intervening revision rejects the entire result, including its creates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub require_unchanged: Option<bool>,

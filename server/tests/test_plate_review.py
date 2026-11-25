@@ -97,8 +97,8 @@ def _requests(world: World) -> tuple[Entity, Entity, Entity]:
     )
 
 
-def _sign(world: World, who: str, record: Entity, to: str) -> Signature:
-    signature = signed(world, who, str(record.pk), to, field="review").signature
+def _sign(world: World, who: str, record: Entity, to: str, reason: str = "") -> Signature:
+    signature = signed(world, who, str(record.pk), to, field="review", reason=reason).signature
     assert signature is not None
     record.refresh_from_db()
     assert states.values_of(record)["review"] == to
@@ -230,13 +230,13 @@ def exercise_reviews() -> None:
 
     previous_revision = qc.revision
     correction = "Checked the retained reader export"
+    _sign(world, "runner", qc, "recorded", correction)
     services.update(
         editor,
         qc,
         {"notes": correction},
-        expected_revision=previous_revision,
+        expected_revision=qc.revision,
         reason=correction,
-        allow_correction=True,
     )
     qc.refresh_from_db()
     assert states.values_of(qc)["review"] == "recorded"
@@ -249,7 +249,7 @@ def exercise_reviews() -> None:
     with pytest.raises(Refused):
         begin(world, "viewer", str(qc.pk), "released", field="review")
     _sign(world, "editor", qc, "submitted")
-    review = _sign(world, "runner", qc, "reviewed")
+    review = _sign(world, "runner", qc, "reviewed", "Reviewed the corrected measurements")
     for author in ("editor", "runner"):
         with pytest.raises(Refused):
             begin(world, author, str(qc.pk), "released", field="review")

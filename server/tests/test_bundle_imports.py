@@ -6,6 +6,7 @@ import hashlib
 import io
 import random
 import tarfile
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -324,6 +325,38 @@ def test_a_late_initial_planner_preserves_the_finished_import(
     monkeypatch.setattr(storage, "download_file", downloaded)
     assert plan(earlier) == outcome
     assert snapshot() == before
+
+
+def test_imported_agent_identity_is_derived_from_its_fields(world: World, tmp_path: Path) -> None:
+    from dataclasses import asdict
+    from unittest.mock import Mock
+
+    from iki_server.audit.log import AgentInfo
+    from iki_server.audit.models import Agent
+    from iki_server.bundles import applying, reading
+
+    identity = AgentInfo(client_id="acme", client_name="Workbench")
+    local = Agent.objects.create(key=identity.key(), **asdict(identity))
+    row = {
+        "id": str(local.pk),
+        "key": local.key,
+        **asdict(identity),
+        "first_seen_at": local.first_seen_at.isoformat(),
+    }
+    bundle = Mock(spec=reading.Bundle)
+    writer = applying._Writer(Mock(), bundle, tmp_path)
+    other_id = str(uuid.uuid4())
+    bundle.lines.return_value = [
+        row,
+        {**row, "id": other_id, "first_seen_at": "2024-02-01T00:00:00Z"},
+    ]
+    writer._agents()
+    assert writer.agents[other_id] == local
+    assert writer.agents[row["id"]] == local
+    bundle.lines.return_value = [{**row, "client_name": "Different identity"}]
+    with pytest.raises(reading.BundleError, match="agent"):
+        writer._agents()
+    assert Agent.objects.get(pk=local.pk).client_name == identity.client_name
 
 
 # --- Applying ----------------------------------------------------------------------------

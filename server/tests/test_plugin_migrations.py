@@ -15,6 +15,7 @@ import subprocess
 import sys
 import textwrap
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -30,16 +31,26 @@ TESTS = Path(__file__).parent
 PLUGINS = TESTS.parents[1] / "spec" / "tests" / "plugins"
 
 
-@pytest.fixture
-def database(_postgres_url: str) -> Iterator[str]:
+@contextmanager
+def private_database(_postgres_url: str) -> Iterator[str]:
     """A database of the test's own, which plugin apps migrate."""
     name = f"iki_plugins_{secrets.token_hex(4)}"
     with psycopg.connect(_postgres_url, autocommit=True) as connection:
         connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
     parts = urlsplit(_postgres_url)
-    yield urlunsplit(parts._replace(path=f"/{name}"))
-    with psycopg.connect(_postgres_url, autocommit=True) as connection:
-        connection.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+    try:
+        yield urlunsplit(parts._replace(path=f"/{name}"))
+    finally:
+        with psycopg.connect(_postgres_url, autocommit=True) as connection:
+            connection.execute(
+                sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name))
+            )
+
+
+@pytest.fixture
+def database(_postgres_url: str) -> Iterator[str]:
+    with private_database(_postgres_url) as url:
+        yield url
 
 
 def iki(*args: str | Path, cwd: Path, answers: str = "") -> subprocess.CompletedProcess[str]:
@@ -1242,6 +1253,12 @@ def test_state_fields_migrate_and_a_removed_state_moves_its_records(
             "Its plugin removed the state on_hold: its migration moved it to received.",
         )
     ]
+    assert query(
+        database,
+        "SELECT via, data->>'reason' FROM iki_audit_event WHERE target_id = %s"
+        " AND action = 'entity.state_changed'",
+        str(held_id),
+    ) == [("system", revisions[0][-1])]
     assert query(database, "SELECT revision FROM iki_entity WHERE id = %s", held_id) == [(2,)]
     # Its history has the revision's values: the record's, with its new state.
     history = "SELECT revision, name, status, stage FROM acme__lab_sample__history"

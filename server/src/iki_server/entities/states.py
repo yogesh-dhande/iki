@@ -32,6 +32,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
@@ -45,6 +46,7 @@ from iki_server.entities.values import Invalid
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_server.signatures import entries
 from iki_spec.model import Field, State
 
 __all__ = [
@@ -94,6 +96,17 @@ def locking(fields: Mapping[str, Field], values: Mapping[str, Any]) -> list[str]
     return [name for name, f in fields.items() if values.get(name) in f.locking_states]
 
 
+def transitions(
+    entity: Entity,
+    field: Field,
+    current: str,
+    history: Mapping[tuple[UUID, str], entries.Entry] | None = None,
+) -> Mapping[str, State]:
+    history = entries.for_records([entity]) if history is None else history
+    entry = history.get((entity.pk, field.name))
+    return entry.transitions(field, current) if entry else field.states
+
+
 def on_edit(fields: Mapping[str, Field], values: Mapping[str, Any]) -> dict[str, str]:
     """The destination of each current state that returns the record on a value edit."""
     return {
@@ -103,6 +116,7 @@ def on_edit(fields: Mapping[str, Field], values: Mapping[str, Any]) -> dict[str,
         and (st := f.states.get(values.get(name, ""))) is not None
         and not st.removed
         and st.on_edit is not None
+        and not st.signatures
     }
 
 
@@ -206,16 +220,27 @@ class Option:
         return bool(self.state.signatures)
 
 
-def options(user: User, entity: Entity, values: Mapping[str, Any]) -> dict[str, list[Option]]:
+def options(
+    user: User,
+    entity: Entity,
+    values: Mapping[str, Any],
+    *,
+    history: Mapping[tuple[UUID, str], entries.Entry] | None = None,
+) -> dict[str, list[Option]]:
     """For each of a record's state fields, the states it could be set to (every one but
     the one it's in), each with why ``user`` may not set it. ``values``: the record's,
     as the database stores them: its guards read them."""
     if entity.registry_id is not None:
         return {}
+    history = entries.for_records([entity]) if history is None else history
     out: dict[str, list[Option]] = {}
     for name, f in state_fields(entity.type).items():
         current = values.get(name)
-        candidates = [st for st in f.states.values() if not st.removed and st.name != current]
+        candidates = [
+            st
+            for st in transitions(entity, f, current or "", history).values()
+            if not st.removed and st.name != current
+        ]
         whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
         conditions = _conditions(
             user, entity, name, [st for st in candidates if whys[st.name] is None], values
@@ -237,6 +262,8 @@ def why_not(
 ) -> str | None:
     """Why ``user`` may not set ``f`` to ``state`` on the record now, or None if they may.
     Its current state isn't checked here: :func:`set_state` does that, under its lock."""
+    values = values if values is not None else values_of(entity)
+    state = transitions(entity, f, values.get(f.name) or "")[state.name]
     found = _why_not_who(user, entity, f.name, state)
     if found is not None:
         return found[0]
@@ -400,6 +427,9 @@ def set_state(
         current = values.get(field)
         if current == state:
             raise Refused(f"{locked.hrid}'s {f.label} is {target.label} already.")
+        if locked.released_review_revision is not None:
+            raise Refused(_final_release(locked))
+        target = transitions(locked, f, current or "")[state]
         if target.signatures:
             count = len(target.signatures)
             raise NeedsSignatures(

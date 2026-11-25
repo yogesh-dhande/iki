@@ -547,6 +547,7 @@ function pickable(found: readonly Entity[]): Picked[] {
     id: e.id,
     hrid: e.hrid,
     title: e.title,
+    ...(!e.locked && e.can.edit_reason_required ? { editReasonRequired: true } : {}),
     ...((shared.get(e.hrid) ?? 0) > 1 && e.owner_project ? { project: e.owner_project.name } : {}),
   }));
 }

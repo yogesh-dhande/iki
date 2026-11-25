@@ -10,11 +10,14 @@
 //! The worker saves only when the directory changed since it last saved (or restored):
 //! its fingerprint is each entry's path, size and modification time.
 
+use std::ffi::OsStr;
 use std::fs::{File, Metadata};
 use std::io::{self, BufWriter, Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use rustix::fs::{Dir, Mode, OFlags, open, openat};
 use sha2::{Digest, Sha256};
 
 use crate::bundles::{self, Limits};
@@ -40,8 +43,29 @@ pub struct Packed {
 /// An entry of the directory, by its path inside it.
 struct Entry {
     relative: PathBuf,
-    path: PathBuf,
     metadata: Metadata,
+}
+
+/// Open each directory relative to its already-open parent. A running command can
+/// rename checkpoint entries between the directory scan and the archive read.
+fn directory(root: &Path, relative: &Path) -> io::Result<File> {
+    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let mut dir = open(root, flags, Mode::empty())?;
+    for component in relative {
+        dir = openat(&dir, component, flags, Mode::empty())?;
+    }
+    Ok(File::from(dir))
+}
+
+fn checkpoint_file(root: &Path, relative: &Path) -> io::Result<File> {
+    let parent = directory(root, relative.parent().unwrap_or(Path::new("")))?;
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let name = relative.file_name().ok_or(io::ErrorKind::InvalidInput)?;
+    let file = File::from(openat(&parent, name, flags, Mode::empty())?);
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::other("checkpoint entry is not a regular file"));
+    }
+    Ok(file)
 }
 
 /// The directory's regular files and directories, sorted by path, and how many other
@@ -51,7 +75,7 @@ fn walk(dir: &Path) -> io::Result<(Vec<Entry>, usize)> {
     let mut left_out = 0usize;
     let mut pending = vec![PathBuf::new()];
     while let Some(relative) = pending.pop() {
-        let entries = match std::fs::read_dir(dir.join(&relative)) {
+        let parent = match directory(dir, &relative) {
             Ok(entries) => entries,
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound && relative.as_os_str().is_empty() =>
@@ -60,19 +84,26 @@ fn walk(dir: &Path) -> io::Result<(Vec<Entry>, usize)> {
             }
             Err(error) => return Err(error),
         };
-        for entry in entries {
+        for entry in Dir::read_from(&parent)? {
             let entry = entry?;
-            // Not followed: a link's metadata is the link's own.
-            let metadata = entry.metadata()?;
-            let inner = relative.join(entry.file_name());
-            if metadata.is_dir() {
-                pending.push(inner.clone());
-            } else if !metadata.is_file() {
-                left_out += 1;
+            let name = entry.file_name();
+            if matches!(name.to_bytes(), b"." | b"..") {
                 continue;
             }
+            let inner = relative.join(OsStr::from_bytes(name.to_bytes()));
+            let stat = rustix::fs::statat(&parent, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW)?;
+            let metadata = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
+                rustix::fs::FileType::Directory => {
+                    pending.push(inner.clone());
+                    directory(dir, &inner)?.metadata()?
+                }
+                rustix::fs::FileType::RegularFile => checkpoint_file(dir, &inner)?.metadata()?,
+                _ => {
+                    left_out += 1;
+                    continue;
+                }
+            };
             found.push(Entry {
-                path: entry.path(),
                 relative: inner,
                 metadata,
             });
@@ -157,7 +188,13 @@ impl<R: Read> Read for Exact<R> {
 /// Packs `dir` into `target`.
 pub fn pack(dir: &Path, target: &Path) -> Result<Packed, String> {
     let (entries, left_out) = walk(dir).map_err(|e| format!("couldn't read it: {e}"))?;
-    let out = File::create(target).map_err(|e| e.to_string())?;
+    let flags = OFlags::WRONLY
+        | OFlags::CREATE
+        | OFlags::TRUNC
+        | OFlags::NOFOLLOW
+        | OFlags::CLOEXEC
+        | OFlags::NONBLOCK;
+    let out = File::from(open(target, flags, Mode::RUSR | Mode::WUSR).map_err(|e| e.to_string())?);
     let mut builder = tar::Builder::new(Hashing {
         inner: BufWriter::new(out),
         hasher: Sha256::new(),
@@ -178,7 +215,8 @@ pub fn pack(dir: &Path, target: &Path) -> Result<Packed, String> {
         }
         let size = entry.metadata.len();
         header.set_size(size);
-        let file = File::open(&entry.path).map_err(|e| format!("couldn't read {shown}: {e}"))?;
+        let file = checkpoint_file(dir, &entry.relative)
+            .map_err(|e| format!("couldn't read {shown}: {e}"))?;
         builder
             .append_data(
                 &mut header,

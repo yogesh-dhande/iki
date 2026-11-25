@@ -1,8 +1,8 @@
 //! Wire types for the Iki worker protocol (ADR 0010, ADR 0043).
 //!
-//! - [`RunInput`] and [`RunOutput`]: what an action's command reads (`input.json`) and
-//!   writes (`output.json`), from the `run-input/v1` and `run-output/v1` schemas in
-//!   `spec/`.
+//! - [`RunInput`] and [`RunOutput`]: what the worker receives when it leases a run and what the
+//!   command writes (`output.json`). Both follow schemas in `spec/`. The command’s `input.json` contains only
+//!   the job ID, timeout and resource limits from the worker’s lease.
 //! - The request and response bodies of the `/worker/v1` API, from its description
 //!   (`worker-openapi.json`, beside this crate), and its [`paths`].
 //!

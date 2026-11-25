@@ -220,6 +220,13 @@ Inputs = Annotated[
 Params = Annotated[
     dict[str, Any], Field(description="Its params, as describe_action's params_schema says.")
 ]
+LaunchReason = Annotated[
+    str,
+    Field(
+        max_length=2000,
+        description="Ask the operator for their reason when updating a reopened record.",
+    ),
+]
 RunReason = Annotated[
     str, Field(min_length=1, max_length=2000, description="Why, for the record: people read it.")
 ]
@@ -1064,14 +1071,15 @@ def build() -> MCPServer:
         project: Annotated[
             UUID, Field(description="Where it runs. Entities it creates belong to it.")
         ],
-        reason: RunReason,
+        reason: LaunchReason = "",
         inputs: Inputs | None = None,
         params: Params | None = None,
         reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run of an action. Its inputs, params and the person's role are
-        checked first. Its inputs must be in the project: for ones that aren't, the error
-        lists them, and the person adds them to it in Iki. Runs on the container and VM
+        checked first. For changes to reopened records, ask the operator for their reason and
+        pass it verbatim. Iki records it on the revision. The error lists inputs outside the
+        project so the person can add them in Iki. Runs on the container and VM
         tiers wait for the person to approve them in Iki; the answer says so. So do runs
         of actions that send data to outside APIs (their `apis` in get_action): the person
         agrees to what's sent by approving, as an agent can't for them. A run that reuses an
@@ -1101,7 +1109,7 @@ def build() -> MCPServer:
                 description=f"Entity IDs: one run for each, in order, at most {MAX_BATCH}.",
             ),
         ],
-        reason: RunReason,
+        reason: LaunchReason = "",
         inputs: Annotated[
             dict[str, UUID | list[UUID]] | None,
             Field(description="Every run's other inputs, as for run_action."),

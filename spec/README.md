@@ -2042,9 +2042,11 @@ When a worker leases a job, it gets the run input and writes it to
   },
   "command": ["python", "scripts/properties.py"],
   "environment": "iki/protein.protein-tools",
-  "job": { "…": "the lease, for iki-worker" }
+  "job": { "id": "…", "timeout": 60, "resources": { "cpu": 1 } }
 }
 ```
+
+The worker keeps the lease and its control credentials outside the command’s input.
 
 For a single run, `run.requested_by` identifies its authenticated requester. A job
 that packs several runs omits this field, since each run has its own requester.
@@ -2151,7 +2153,10 @@ change what its action declares:
 entities given there. An update item may set `require_unchanged: true` to
 require the record revision the run read. A later revision rejects the
 entire output, including its creates. Use this when a reviewed preview
-determines what the run will write.
+determines what the run will write. If a target’s lock has been lifted, the
+operator gives the reason at launch. Iki puts it on the revision even when
+the action omits `reason` from the update. An explicit `reason` must match
+the operator’s launch text.
 
 `creates` may make only the declared types. Leave out
 `derived_from` when the inputs the type is derived from hold one entity.

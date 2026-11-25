@@ -54,6 +54,7 @@ from iki_server.runs.models import (
     WorkflowRun,
     WorkflowStatus,
     WorkflowStep,
+    operator_change_reason,
 )
 from iki_spec.model import (
     Action,
@@ -179,7 +180,13 @@ def start(
     steps = actions(of)
     errors: dict[str, list[str]] = {}
     entities = services.check_inputs(
-        user, of, project, inputs, errors, updated=_updated_inputs(of, steps)
+        user,
+        of,
+        project,
+        inputs,
+        errors,
+        updated=_updated_inputs(of, steps),
+        change_reason=operator_change_reason(audit.current_via(), reason),
     )
     values = services.check_params(user, of, project, params, errors)
     if errors:
@@ -293,7 +300,13 @@ def rerun(
         given.setdefault(each.name, []).append(each.entity_id)
     errors: dict[str, list[str]] = {}
     entities = services.check_inputs(
-        user, of, project, given, errors, updated=_updated_inputs(of, steps)
+        user,
+        of,
+        project,
+        given,
+        errors,
+        updated=_updated_inputs(of, steps),
+        change_reason=operator_change_reason(audit.current_via(), reason),
     )
     values = services.check_params(user, of, project, original.params, errors)
     if errors:

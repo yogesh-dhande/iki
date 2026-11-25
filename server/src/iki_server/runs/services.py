@@ -71,6 +71,7 @@ from iki_server.runs.models import (
     RunInput,
     RunStatus,
     WorkflowRun,
+    operator_change_reason,
 )
 from iki_server.setup import starter_flows
 from iki_spec.model import Action, Updates, Workflow, action_from_dict
@@ -200,7 +201,14 @@ def launch(
     may_launch(user, action, project)
     wanted = launch_labels(action, labels)
     errors: dict[str, list[str]] = {}
-    entities = check_inputs(user, action, project, inputs, errors)
+    entities = check_inputs(
+        user,
+        action,
+        project,
+        inputs,
+        errors,
+        change_reason=operator_change_reason(audit.current_via(), reason, workflow),
+    )
     values = check_params(user, action, project, params, errors)
     if errors:
         raise Invalid(errors)
@@ -285,7 +293,15 @@ def launch_each(
         errors["entities"] = ["Each entity can be given once."]
     if errors:
         raise Invalid(errors)
-    entities = check_inputs(user, action, project, {**inputs, each: entity_ids}, errors, each=each)
+    entities = check_inputs(
+        user,
+        action,
+        project,
+        {**inputs, each: entity_ids},
+        errors,
+        each=each,
+        change_reason=operator_change_reason(audit.current_via(), reason, workflow),
+    )
     values = check_params(user, action, project, params, errors)
     if f"inputs/{each}" in errors:
         errors["entities"] = errors.pop(f"inputs/{each}")
@@ -798,6 +814,7 @@ def check_inputs(
     errors: dict[str, list[str]],
     *,
     each: str | None = None,
+    change_reason: str,
     updated: Mapping[str, Iterable[str]] | None = None,
 ) -> dict[str, list[Entity]]:
     """The entities for each input of a run in `project`, checked; problems go in `errors`.
@@ -850,6 +867,10 @@ def check_inputs(
                 problems.append(side)
             elif name in updated and (why := states.locked_why(entity)):
                 problems.append(f"This action changes it, but {why}")
+            elif name in updated and entity.has_been_locked and not change_reason:
+                errors["reason"] = [
+                    f"Give a reason for changing {entity.hrid} after its lock was lifted."
+                ]
             chosen.append(entity)
         if problems:
             errors[key] = problems

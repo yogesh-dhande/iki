@@ -139,7 +139,22 @@ fn verify(
             )
         }),
     ];
-    for (who, issuer, subject, pattern, repository) in authorities.into_iter().flatten() {
+    let authorities: Vec<_> = authorities.into_iter().flatten().collect();
+    for (who, _, subject, pattern, _) in &authorities {
+        match (
+            subject.filter(|s| !s.is_empty()),
+            pattern.filter(|p| !p.is_empty()),
+        ) {
+            (None, None) => return Err(format!("{who} needs a subject or a subject regexp.")),
+            (Some(_), Some(_)) => {
+                return Err(format!(
+                    "{who} has two subject selectors. The server must verify their intersection before sending the policy."
+                ));
+            }
+            _ => {}
+        }
+    }
+    for (who, issuer, subject, pattern, repository) in authorities {
         let mut command = Command::new(&tools.cosign);
         command.args(["verify", "--certificate-oidc-issuer", issuer]);
         match (
@@ -326,6 +341,30 @@ mod tests {
             let mode = std::fs::metadata(&cache).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o700);
         }
+    }
+
+    #[test]
+    fn each_signer_must_have_consistent_subject_constraints() {
+        let dir = scratch("selectors");
+        let tools = Tools {
+            apptainer: String::new(),
+            cosign: fake(&dir, "cosign", "exit 0"),
+        };
+        let mut policy = policy();
+        policy.approvals.as_mut().unwrap().subject_regexp = Some("^build$".into());
+        assert!(
+            verify(&tools, &image(), &policy)
+                .unwrap_err()
+                .contains("two subject selectors")
+        );
+        let signer = policy.approvals.as_mut().unwrap();
+        signer.subject = None;
+        signer.subject_regexp = None;
+        assert!(
+            verify(&tools, &image(), &policy)
+                .unwrap_err()
+                .contains("needs a subject")
+        );
     }
 
     #[test]

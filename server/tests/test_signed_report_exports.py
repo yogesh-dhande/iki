@@ -65,6 +65,14 @@ def exercise_exports() -> None:
     problem(reader.get(export, format="signed-report-json"), 404, "report_not_issued")
 
     old = signed(lab, "editor", ref, "submitted", field="review")
+    signed(
+        lab,
+        "editor",
+        ref,
+        "recorded",
+        field="review",
+        reason="Reopen the report to correct a transcription error",
+    )
     changed = editor.patch(
         f"/entities/{ref}",
         {
@@ -73,7 +81,7 @@ def exercise_exports() -> None:
             },
             "reason": "Correct a transcription error",
         },
-        headers={"If-Match": '"2"'},
+        headers={"If-Match": '"3"'},
     )
     assert changed.status_code == 200, changed.content
     assert changed.json()["values"]["review"] == "recorded"

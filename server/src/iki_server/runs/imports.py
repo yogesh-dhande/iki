@@ -1195,6 +1195,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
     params: dict[str, Any] = {
         "run": run.pk,
         "user": user.pk,
+        "reason": run.change_reason,
         "project": project.pk,
         "registry": registry_of(project),
     }
@@ -1326,7 +1327,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
                 " via, client, reason, submitted, created_at)"
                 " SELECT uuidv7(), s.entity_id, 1, 'created',"
                 "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(own)s) ORDER BY c),"
-                "  %(user)s, 'run', '', '', p.submitted, now()"
+                "  %(user)s, 'run', '', %(reason)s, p.submitted, now()"
                 f" FROM {table} s JOIN iki_import_resolved r USING (line)"
                 " LEFT JOIN iki_import_spelled p USING (line)"
                 " WHERE r.new AND s.type = %(type)s ORDER BY s.line",
@@ -1585,7 +1586,7 @@ def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, A
         " via, client, reason, project_id, created_at)"
         " SELECT uuidv7(), r.entry_id, 1, 'created',"
         "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(names)s) ORDER BY c),"
-        f"  %(user)s, 'run', '', '', %(project)s, now() {making} AND s.type = %(type)s"
+        f"  %(user)s, 'run', '', %(reason)s, %(project)s, now() {making} AND s.type = %(type)s"
         " ORDER BY s.line",
         {**params, "names": names, "type": type_name},
     )
@@ -1743,6 +1744,7 @@ class _Filling:
                         locked[entry_id],
                         values,
                         project=self.run.project,
+                        reason=self.run.change_reason,
                         by_run=True,
                     )
                 except Invalid as error:

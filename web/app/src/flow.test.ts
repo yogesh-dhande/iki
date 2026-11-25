@@ -150,12 +150,12 @@ describe("a flow as a diagram has it", () => {
     expect(model.edges.filter((e) => e.kind === "move")).toEqual([]);
   });
 
-  it("draws a recorded sample's signed return to testing and its next review", () => {
+  it("draws a reviewed sample's signed return to testing and its next review", () => {
     const model = modelOf(SAMPLE, "status");
-    expect(nextFrom(model, "results_recorded").map((n) => n.name)).toEqual(["retesting"]);
+    expect(nextFrom(model, "reviewed").map((n) => n.name)).toEqual(["retesting"]);
     expect(nextFrom(model, "retesting").map((n) => n.name)).toEqual(["in_review"]);
     expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
-      from: ["in_review", "reviewed", "results_recorded"],
+      from: ["in_review", "reviewed"],
       setters: ["Reviewer"],
       reason: "required",
       locks: false,

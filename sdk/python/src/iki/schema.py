@@ -1287,6 +1287,8 @@ class EntityCan(TypedDict):
     edit: bool
     #: Change its amount, including while a state locks the record's values.
     edit_amount: bool
+    #: Present and true when a value edit needs a reason after an unlock.
+    edit_reason_required: NotRequired[bool | None]
     #: The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
     sign: list[SignCan]
     #: For each of its state fields (ADR 0125), the states it could be set to: every one but the one it's in, each with whether you may set it and why not. Empty for a type without state fields.
@@ -4611,7 +4613,7 @@ class RunBatchIn(TypedDict):
     params: NotRequired[dict[str, Any]]
     #: Where they run. Entities they create belong to it.
     project: str
-    #: Why, for the record.
+    #: The operator's reason. Required when changing an input whose lock was lifted.
     reason: NotRequired[str]
     #: For a deterministic action: for each run, reuse the results of an identical one that succeeded, which you can read, instead of running again (ADR 0057). Those end at once, with `reused_from`. Set false to run them all.
     reuse: NotRequired[bool]
@@ -4700,7 +4702,7 @@ class RunIn(TypedDict):
     params: NotRequired[dict[str, Any]]
     #: Where it runs. Entities it creates belong to it.
     project: str
-    #: Why, for the record.
+    #: The operator's reason. Required when changing an input whose lock was lifted.
     reason: NotRequired[str]
     #: For a deterministic action: reuse the results of an identical run that succeeded, which you can read, instead of running again (ADR 0057). The run ends at once, with `reused_from`. Set false to run it anyway.
     reuse: NotRequired[bool]
@@ -5918,10 +5920,10 @@ class StateOut(TypedDict):
     #: A record in it is held (ADR 0139): none of its amount can be drawn, transferred or split off until its state field is set to a state that doesn't.
     holds_amount: NotRequired[bool]
     label: str
-    #: Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.
+    #: Locks the record against value edits, archiving, restoring and moving. An unsigned lock may declare a reasoned correction through `on_edit`.
     locks: bool
     name: str
-    #: The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).
+    #: The state this field returns to on a value edit under an unsigned lock. The correction needs a reason and permission to enter this state (ADR 0179).
     on_edit: NotRequired[str | None]
     #: Whether setting it asks why: required, optional, or not at all (null).
     reason: Literal['required', 'optional'] | None

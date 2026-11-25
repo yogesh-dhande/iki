@@ -30,7 +30,7 @@ import datetime as dt
 import tempfile
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -366,19 +366,25 @@ class _Writer:
 
     def _agents(self) -> None:
         for line in self.bundle.lines("agents.ndjson"):
-            agent = Agent.objects.filter(key=line["key"]).first()
-            if agent is None:
-                agent = Agent.objects.create(
-                    key=line["key"],
-                    client_id=line["client_id"],
-                    client_name=line["client_name"],
-                    grant=line["grant"],
-                    session=line["session"],
-                    software=line["software"],
-                    model=line["model"],
-                    first_seen_at=line["first_seen_at"],
-                )
-            self.agents[line["id"]] = agent
+            info = audit.AgentInfo(
+                client_id=line["client_id"],
+                client_name=line["client_name"],
+                grant=uuid.UUID(line["grant"]) if line["grant"] else None,
+                session=line["session"],
+                software=line["software"],
+                model=line["model"],
+            )
+            key = info.key()
+            if key != line["key"]:
+                raise reading.BundleError("An agent's key does not match its identity.")
+            identity = asdict(info)
+            agent, _ = Agent.objects.get_or_create(
+                key=key, defaults={**identity, "first_seen_at": line["first_seen_at"]}
+            )
+            if any(getattr(agent, field) != value for field, value in identity.items()):
+                raise reading.BundleError("An agent's identity conflicts with the local record.")
+            if self.agents.setdefault(line["id"], agent) != agent:
+                raise reading.BundleError("The bundle gives one agent ID two identities.")
 
     def _user(self, source_id: str | None) -> User | None:
         return self.people.get(source_id) if source_id else None
@@ -584,7 +590,7 @@ class _Writer:
             row.save(update_fields=["hrid_here"])
         self._extensions_and_lists(form, instance.pk, values, fresh=True)
         self._history(form, instance.pk, line, revisions, after=0)
-        self._lock(instance.pk, line["type"], values)
+        self._lock(instance.pk, line, values)
         ProjectLink.objects.create(
             entity_id=instance.pk, project=self.made.project, linked_by=self.made.applied_by
         )
@@ -610,15 +616,16 @@ class _Writer:
             updated_at=revisions[-1]["created_at"],
             archived_at=line["archived_at"],
         )
-        self._lock(instance.pk, line["type"], values)
+        self._lock(instance.pk, line, values)
         self.counts["updated"] += 1
 
     @staticmethod
-    def _lock(entity_id: uuid.UUID, type_name: str, values: dict[str, Any]) -> None:
+    def _lock(entity_id: uuid.UUID, line: dict[str, Any], values: dict[str, Any]) -> None:
         """Whether the record's state fields, as the bundle has them, lock it (ADR 0125)."""
-        found = states.locking(states.state_fields(type_name), values)
-        if found:
-            Entity.objects.filter(pk=entity_id).update(locked_by=found)
+        fields = states.state_fields(line["type"])
+        found = states.locking(fields, values)
+        if found or line.get("has_been_locked"):
+            Entity.objects.filter(pk=entity_id).update(locked_by=found, has_been_locked=True)
 
     @staticmethod
     def _set_values(form: Shape, instance: Any, values: dict[str, Any]) -> None:  # noqa: ANN401
@@ -714,19 +721,31 @@ class _Writer:
         from iki_server.signatures import services as signature_services
         from iki_server.signatures.models import Signature, Withdrawal
 
-        listed = {k["key"]: k["deployment"] for k in self.bundle.manifest.get("signing_keys", [])}
-        trusted = {**signing_keys.trusted(), **listed}
         # What migrations here do to its record's history from now on, it's read through,
         # signed by this deployment's own key (ADR 0148): made now, if it has none yet.
         seen = signature_services.history_seen()
         if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
             signing_keys.current()
+        trusted = signing_keys.trusted()
+        for binding in self.bundle.manifest.get("signing_keys", []):
+            if trusted.setdefault(binding["key"], binding["deployment"]) != binding["deployment"]:
+                raise reading.BundleError(
+                    "A signing key names a different deployment than its established binding."
+                )
         entities = {line["id"]: line["type"] for line in self.bundle.lines("entities.ndjson")}
         reviews: dict[str, tuple[str, int, str, str]] = {}
         for line in self.bundle.lines("signatures.ndjson"):
             if line["record"] not in planned:
                 continue
             document = proof_document(line["document"])
+            key, deployment = line["key"], line["deployment"]
+            if (document.get("key"), document.get("deployment")) != (
+                key,
+                deployment,
+            ) or trusted.get(key) != deployment:
+                raise reading.BundleError(
+                    "A signature's signing key or deployment conflicts with its signed identity."
+                )
             if "reviewed" in document:
                 reviews[line["id"]] = (
                     line["record"],
@@ -747,6 +766,15 @@ class _Writer:
                 )
             try:
                 before = proof.vouched(line.get("since"), line, trusted)
+                if since := line.get("since"):
+                    authority = proof_document(since["document"])
+                    since_label = trusted[since["key"]]
+                    if since_label != authority.get("deployment") or not signing_keys.trust(
+                        since["key"], since_label, self.made
+                    ):
+                        raise reading.BundleError(
+                            "The history attestation's deployment conflicts with its signing key."
+                        )
                 content = proof.migrated(proof_document(line["content"]), before)
             except proof.Unexplained as unexplained:
                 raise reading.BundleError(
@@ -755,8 +783,10 @@ class _Writer:
             signer = self._user(line["signer"])
             if signer is None:
                 raise reading.BundleError(f"Signature {line['id']} names nobody in it.")
-            for key in {line["key"]} - set(signing_keys.trusted()):
-                signing_keys.trust(key, listed.get(key, self.made.trusted_as or ""), self.made)
+            if not signing_keys.trust(key, deployment, self.made):
+                raise reading.BundleError(
+                    "The signing key already belongs to a different deployment."
+                )
             # How this import names, here, the people and registry entries it names: what
             # its record's history here is read through, after what was done where it came
             # from (ADR 0096, ADR 0148).

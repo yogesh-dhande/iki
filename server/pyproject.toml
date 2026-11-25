@@ -36,6 +36,7 @@ dependencies = [
   # Comparing worker versions, as Python and Cargo write them (ADR 0060).
   "packaging>=26.3",
   "python-calamine>=0.9.1",
+  "google-re2>=1.1.20251105",
 ]
 
 [project.optional-dependencies]

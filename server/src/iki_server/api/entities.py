@@ -87,6 +87,7 @@ from iki_server.org.permissions import Action
 from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, Recalculation, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
+from iki_server.signatures import entries as signed_entries
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
 from iki_spec import rules as spec_rules
@@ -203,11 +204,11 @@ class StateOut(Schema):
     )
     locks: bool = Field(
         description="Locks the record against value edits, archiving, restoring and moving. "
-        "A declared `on_edit` permits a reasoned correction."
+        "An unsigned lock may declare a reasoned correction through `on_edit`."
     )
     on_edit: str | None = Field(
         None,
-        description="The state this field returns to when an editable value changes. The "
+        description="The state this field returns to on a value edit under an unsigned lock. The "
         "correction needs a reason and permission to enter this state (ADR 0179).",
     )
     holds_amount: bool = Field(
@@ -731,6 +732,11 @@ class EntityCan(Schema):
     edit: bool = Field(
         description="Change it, archive or restore it: false for everyone when its plugin is "
         "detached, or while a state locks it."
+    )
+    edit_reason_required: bool | None = Field(
+        None,
+        exclude_if=lambda value: value is None,
+        description="Present and true when a value edit needs a reason after an unlock.",
     )
     correct: bool = Field(
         False,
@@ -1807,6 +1813,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
+    signed_history = signed_entries.for_records(entities)
     belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
     from iki_server.storage import services as storage
@@ -1838,7 +1845,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
-        transitions = states.options(user, entity, values[entity.pk])
+        transitions = states.options(user, entity, values[entity.pk], history=signed_history)
         mine = _ids_in(fields, values[entity.pk])
         shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
         out.append(
@@ -1878,6 +1885,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ),
                 "can": {
                     "edit": editable_record and not entity.locked,
+                    "edit_reason_required": True
+                    if entity.has_been_locked and not entity.locked_by
+                    else None,
                     "correct": editable_record
                     and _can_correct(entity, values[entity.pk], transitions),
                     "edit_amount": edit_amount,
@@ -1891,7 +1901,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     if draw_amount
                     else [],
                     "states": _states_can(transitions),
-                    "sign": _sign_can(user, entity, values[entity.pk], signing),
+                    "sign": _sign_can(user, entity, values[entity.pk], signing, transitions),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -2057,10 +2067,14 @@ class _Signing:
 
 
 def _sign_can(
-    user: User, entity: Entity, values: dict[str, Any], signing: _Signing
+    user: User,
+    entity: Entity,
+    values: dict[str, Any],
+    signing: _Signing,
+    transitions: dict[str, list[states.Option]],
 ) -> list[dict[str, Any]]:
     out = []
-    for change in sig_changes.signed(entity, values):
+    for change in sig_changes.signed(transitions, values):
         slots = sig_services.slots(
             user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
         )

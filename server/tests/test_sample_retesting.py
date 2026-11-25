@@ -142,10 +142,15 @@ def exercise_retesting() -> None:
         response = advance(analyst, state)
         assert response.status_code == 200, response.content
 
-    def measure(client: Api, value: str, etag: str) -> Any:
+    def measure(client: Api, value: str, etag: str, reason: str = "") -> Any:
         return client.patch(
             path,
-            {"values": {"measurements": [{"method": "Absorbance", "value": value, "unit": "AU"}]}},
+            {
+                "values": {
+                    "measurements": [{"method": "Absorbance", "value": value, "unit": "AU"}]
+                },
+                "reason": reason,
+            },
             headers={"If-Match": etag},
         )
 
@@ -153,8 +158,8 @@ def exercise_retesting() -> None:
     signed(world, "editor", str(sample.pk), "in_review")
     original = signed(world, "runner", str(sample.pk), "reviewed").signature
     assert original and all(check.ok for check in verify(original))
-    assert advance(reviewer, "results_recorded").status_code == 200
     inspected = analyst.get(path)
+    assert inspected.json()["locked"] and inspected.json()["values"]["status"] == "reviewed"
     etag = inspected["ETag"]
     reason = "Correct the absorbance transcription"
     with pytest.raises(PermissionDenied):
@@ -172,13 +177,17 @@ def exercise_retesting() -> None:
     assert json.loads(returned.document)["reason"] == reason
     problem(measure(analyst, "0.55", etag), 412, "stale")
     event = AuditEvent.objects.get(
-        action="entity.state_changed", target_id=sample.pk, data__from="results_recorded"
+        action="entity.state_changed", target_id=sample.pk, data__from="reviewed"
     )
     assert event.data["reason"] == reason and event.actor == world.users["runner"]
-    assert measure(reviewer, "0.55", reviewer.get(path)["ETag"]).status_code == 200
-    signed(world, "editor", str(sample.pk), "in_review")
+    current = reviewer.get(path)["ETag"]
+    problem(measure(reviewer, "0.55", current), 422, "validation_failed")
+    assert measure(reviewer, "0.55", current, reason).status_code == 200
+    signed(world, "editor", str(sample.pk), "in_review", reason="Submit the corrected measurements")
     with pytest.raises(Refused, match="measurement editors"):
-        begin(world, "runner", str(sample.pk), "reviewed")
-    fresh = signed(world, "admin", str(sample.pk), "reviewed").signature
+        begin(world, "runner", str(sample.pk), "reviewed", reason="Review the correction")
+    fresh = signed(
+        world, "admin", str(sample.pk), "reviewed", reason="Review the corrected measurement"
+    ).signature
     assert fresh and all(check.ok for check in verify(fresh))
     assert all(check.ok for check in verify(original))

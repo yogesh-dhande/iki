@@ -124,6 +124,30 @@ sent, and where it's kept) in Settings → Signatures. Each person agrees, at
 their first signature, that it's the legally binding equivalent of their
 handwritten one.
 
+## Amendment to state locks and signatures
+
+These controls apply to every record type. Iki determines whether a state is a return from this
+record’s own state history for the field.
+
+- **Forward signed step.** When an analyst submits a result for the first time and a reviewer
+  approves it, each step uses its declared signatures and reason policy. An approval can stand
+  on its signed statement alone.
+- **Return to a signed state.** Sending a reviewed result back to a previously visited Submitted
+  state uses the signatures for Submitted. The signer also records why the record is going back.
+- **Exit to an unsigned state.** Returning a released lot to Quarantined requires a reason and
+  a signature reversing each meaning required for its release. Each signer must hold the entry
+  signer’s role as recorded in the original signed document and be permitted to make the transition. The signed document identifies the
+  reversal, both states and the revision. An automatic transition made by the system itself,
+  such as expiry at a recorded date, records its cause in the audit trail.
+- **Value edits after an unlock.** After QA reopens a lot, each correction to its values carries
+  the editor’s reason on that revision. When an action changes such a record, its launcher
+  supplies the reason before the job is queued. Each resulting revision identifies the
+  operator and the run and carries the launcher's own explanation. Initial quarantine and a hold before its first lock
+  retain their existing workflows.
+
+Iki uses these controls to preserve who authorized a change, its sequence and the meaning of
+each signature linked to its record. [21 CFR 11.10(e) and (g)](https://www.ecfr.gov/current/title-21/chapter-I/subchapter-A/part-11/subpart-B/section-11.10), [11.50(a)](https://www.ecfr.gov/current/title-21/chapter-I/subchapter-A/part-11/subpart-B/section-11.50), and [11.70](https://www.ecfr.gov/current/title-21/chapter-I/subchapter-A/part-11/subpart-B/section-11.70).
+
 ## Consequences
 
 - A signature can't be moved, edited or kept through a change without a

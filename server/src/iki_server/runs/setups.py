@@ -33,7 +33,7 @@ from iki_server.entities import hrids, registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_server.runs import catalog, live
+from iki_server.runs import catalog, egress, live
 from iki_server.runs.models import (
     SETUP_HRID_PREFIX,
     SETUP_HRID_SEQUENCE,
@@ -641,9 +641,7 @@ def payload(build: SetupBuild) -> dict[str, Any]:
         else settings.IKI_EGRESS_PROXY_URL
     )
     if build.spec.get("network") and url:
-        from urllib.parse import urlsplit
-
-        proxy = {"proxy": f"http://{build.pk}:{build.lease_token}@{urlsplit(url).netloc}"}
+        proxy = {"proxy": egress.proxy_url(url, build.pk, build.lease_token)}
     return {
         "apiVersion": "iki/v1",
         "kind": "SetupInput",

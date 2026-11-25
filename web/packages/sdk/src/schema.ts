@@ -54,8 +54,9 @@ export interface paths {
          * Run an action
          * @description Queue a run. Everything is checked first: your role for the action's tier, that it can
          *     run on this deployment, its inputs (entities you can read, of the right types, not archived,
-         *     and editable by you where it changes them) and its params. A run reads only what's in its
-         *     project: inputs from other projects need `add_to_project`.
+         *     and editable by you where it changes them) and its params. Give the operator's reason if
+         *     an input it changes has been unlocked. Iki records that reason on the revision. Inputs from
+         *     other projects need `add_to_project`.
          */
         post: operations["iki_server_api_runs_launch_run"];
         delete?: never;
@@ -8106,6 +8107,11 @@ export interface components {
              */
             edit_amount: boolean;
             /**
+             * Edit Reason Required
+             * @description Present and true when a value edit needs a reason after an unlock.
+             */
+            edit_reason_required?: boolean | null;
+            /**
              * Sign
              * @description The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
              */
@@ -15054,7 +15060,7 @@ export interface components {
             project: string;
             /**
              * Reason
-             * @description Why, for the record.
+             * @description The operator's reason. Required when changing an input whose lock was lifted.
              * @default
              */
             reason: string;
@@ -15247,7 +15253,7 @@ export interface components {
             project: string;
             /**
              * Reason
-             * @description Why, for the record.
+             * @description The operator's reason. Required when changing an input whose lock was lifted.
              * @default
              */
             reason: string;
@@ -17861,14 +17867,14 @@ export interface components {
             label: string;
             /**
              * Locks
-             * @description Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.
+             * @description Locks the record against value edits, archiving, restoring and moving. An unsigned lock may declare a reasoned correction through `on_edit`.
              */
             locks: boolean;
             /** Name */
             name: string;
             /**
              * On Edit
-             * @description The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).
+             * @description The state this field returns to on a value edit under an unsigned lock. The correction needs a reason and permission to enter this state (ADR 0179).
              */
             on_edit?: string | null;
             /**

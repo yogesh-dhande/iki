@@ -23,7 +23,7 @@ from org_world import World
 from test_api_entities import api_as, create, patch
 from test_oauth import bearer, signed_in_token
 from test_runs import world
-from test_states import ANALYST, QA, REVIEWER, roles, set_
+from test_states import ANALYST, QA, REVIEWER, roles
 
 from iki_server.accounts import service_accounts
 from iki_server.accounts.models import IdentityProvider, UserSession
@@ -161,6 +161,75 @@ def lab(world: World) -> World:
 
 
 # --- What a type declares -----------------------------------------------------------------------
+
+
+def test_reversals_and_edits_after_unlock_keep_their_reasons(lab: World) -> None:
+    from iki_server.entities import states
+
+    ref = lot(lab)["id"]
+    entity = Entity.objects.get(pk=ref)
+    signed(lab, "editor", ref, "in_review")
+    signed(lab, "admin", ref, "approved")
+    signed(lab, "viewer", ref, "approved")
+    entity.refresh_from_db()
+    with pytest.raises(states.NeedsSignatures):
+        states.set_state(
+            lab.users["admin"],
+            entity,
+            "status",
+            "open",
+            expected_revision=entity.revision,
+            reason="Review again",
+        )
+    with pytest.raises(Invalid):
+        begin(lab, "editor", ref, "in_review")
+    with pytest.raises(Invalid):
+        begin(lab, "admin", ref, "open")
+    first = signed(lab, "admin", ref, "open", reason="Review again").signature
+    assert (
+        first is not None
+        and json.loads(first.document)["signature"]["label"] == "Reversal of Review"
+    )
+    final = signed(lab, "viewer", ref, "open", reason="Review again").signature
+    assert (
+        final is not None
+        and json.loads(final.document)["signature"]["label"] == "Reversal of QA approval"
+    )
+    api = api_as(lab, "editor")
+    path = f"/entities/{ref}"
+    for label in ("first correction", "second correction"):
+        etag = api.get(path)["ETag"]
+        body = {"values": {"label": label}}
+        refused = api.patch(path, body, headers={"If-Match": etag})
+        assert refused.status_code == 422 and refused.json()["errors"][0]["pointer"] == "#/reason"
+        changed = api.patch(path, {**body, "reason": label}, headers={"If-Match": etag})
+        assert changed.status_code == 200, changed.content
+        assert (
+            Revision.objects.get(entity=entity, number=changed.json()["revision"]).reason == label
+        )
+
+
+def test_reversal_keeps_the_roles_and_meaning_actually_signed(
+    lab: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from django.core.exceptions import PermissionDenied
+
+    ref = lot(lab)["id"]
+    signed(lab, "editor", ref, "in_review")
+    fields = states.state_fields(LOT)
+    original = fields["status"].states["in_review"]
+    monkeypatch.setitem(fields["status"].states, "in_review", replace(original, signatures=()))
+    with pytest.raises(PermissionDenied):
+        begin(lab, "admin", ref, "open", reason="New measurements")
+    roles(lab, admin=(REVIEWER, ANALYST))
+    reversal = signed(lab, "admin", ref, "open", reason="New measurements").signature
+    assert reversal
+    doc = json.loads(reversal.document)
+    assert doc["change"]["reversal"] and doc["signature"]["roles"] == [ANALYST]
+    assert doc["signature"]["label"] == "Reversal of " + original.signatures[0].label
+    assert services.manifestation(doc).startswith("Reversed by ")
 
 
 def test_a_type_says_which_states_are_signed_for(world: World) -> None:
@@ -892,7 +961,7 @@ def _history_queries(lab: World, ref: str, cycles: int) -> int:
     a page of its revisions takes."""
     for _ in range(cycles):
         signed(lab, "editor", ref, "in_review")
-        set_(lab, "admin", ref, "status", "open", reason="More data")
+        signed(lab, "admin", ref, "open", reason="More data")
     api = api_as(lab, "viewer")
     with CaptureQueriesContext(connection) as queries:
         answer = api.get(f"/entities/{ref}/revisions", limit=100)
@@ -906,6 +975,7 @@ def _history_queries(lab: World, ref: str, cycles: int) -> int:
 
 def test_a_page_of_signed_history_takes_as_many_queries_however_long_it_is(lab: World) -> None:
     """Its state changes' type and signatures are found for the whole page at once."""
+    roles(lab, admin=(REVIEWER, ANALYST))
     made = lot(lab)
     few = _history_queries(lab, made["id"], 1)
     assert _history_queries(lab, made["id"], 6) == few

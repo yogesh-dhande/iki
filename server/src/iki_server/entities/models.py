@@ -106,6 +106,8 @@ class Entity(models.Model):
         db_default=models.Value([], output_field=ArrayField(models.CharField(max_length=50))),
         db_comment="The state fields whose states lock it (ADR 0125).",
     )
+    #: Remains true after reopening, including when a plugin migration changes its lock.
+    has_been_locked = models.BooleanField(default=False, db_default=False)
     #: A signed result delivered to its requester holds this reviewed revision for good.
     released_review_revision = models.PositiveIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(db_default=Now())

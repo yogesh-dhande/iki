@@ -592,6 +592,23 @@ describe("editing an entity", () => {
     expect(sent?.headers.get("If-Match")).toBe('"2"');
   });
 
+  it("keeps the reason on a value edit after an unlock", async () => {
+    onSample(sample({ can: { ...sample().can, edit_reason_required: true } }));
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, sample({ revision: 3 }));
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    await user.type(screen.getByRole("textbox", { name: "Name" }), " corrected");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByText("Give a reason for this correction.")).toBeInTheDocument();
+    expect(calls("PATCH")).toEqual([]);
+    await user.type(screen.getByRole("textbox", { name: /^Reason/ }), "Correct the sample label");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Saved revision 3 of SMP-000001.");
+    expect(calls("PATCH")[0]?.body).toEqual({
+      values: { name: "Plasma A corrected" },
+      reason: "Correct the sample label",
+    });
+  });
+
   it("says so when nothing changed, without saving", async () => {
     onSample();
     const { user } = await renderApp("/entities/SMP-000001/edit/");
@@ -637,7 +654,14 @@ describe("editing an entity", () => {
   it("isn't offered for archived entities or to people who can't edit", async () => {
     onSample(
       sample({
-        can: { edit: false, correct: false, edit_amount: false, draw: false, states: {}, sign: [] },
+        can: {
+          edit: false,
+          correct: false,
+          edit_amount: false,
+          draw: false,
+          states: {},
+          sign: [],
+        },
       }),
     );
     await renderApp("/entities/SMP-000001/");
@@ -1010,7 +1034,14 @@ describe("a detached plugin's data", () => {
     answer(
       "GET /api/v1/entities/SMP-000001",
       sample({
-        can: { edit: false, correct: false, edit_amount: false, draw: false, states: {}, sign: [] },
+        can: {
+          edit: false,
+          correct: false,
+          edit_amount: false,
+          draw: false,
+          states: {},
+          sign: [],
+        },
       }),
     );
     answer("GET /api/v1/entities/SMP-000001/provenance", {});

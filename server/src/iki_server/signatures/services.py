@@ -22,7 +22,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from allauth.socialaccount.models import SocialAccount
@@ -46,6 +46,7 @@ from iki_server.org.services import Refused
 from iki_server.plugins.models import HistoryChange
 from iki_server.signatures import changes, proof, signing_keys
 from iki_server.signatures.changes import Change, roles_for
+from iki_server.signatures.entries import Reversal
 from iki_server.signatures.models import (
     Acknowledgment,
     Certification,
@@ -171,6 +172,27 @@ class Slot:
     lapsed: str | None = None
 
 
+def _terms(change: Change, index: int) -> dict[str, Any]:
+    wanted = change.signatures[index]
+    return {
+        "index": index,
+        "of": len(change.signatures),
+        "meaning": wanted.meaning,
+        "meaning_label": SIGNATURE_MEANINGS[wanted.meaning].label,
+        "label": wanted.label,
+        "statement": wanted.statement,
+        "roles": list(roles_for(change, wanted)),
+    }
+
+
+def _terms_digest(change: Change, index: int) -> str:
+    return proof.sha256(
+        proof.canonical(
+            [change.current, change.to, change.reason, change.reversal, _terms(change, index)]
+        )
+    )
+
+
 def pending(entities: Sequence[Entity]) -> dict[Any, list[Signature]]:
     """The signatures given on each record's current revision, not withdrawn: one query.
     A record of a registry entry needs them on the entry's current revision too."""
@@ -241,15 +263,29 @@ def slots(
         if s.index >= len(change.signatures) or s.index in counted:
             continue
         wanted = change.signatures[s.index]
-        if s.meaning != wanted.meaning:
+        document = parsed(s)
+        if (
+            document.get("signature") != _terms(change, s.index)
+            or bool(document.get("change", {}).get("reversal")) != change.reversal
+            or (change.reason == "required" and not document.get("reason"))
+        ):
             continue  # the plugin changed what it means since
-        if owner is not None and _qualifies(s.signer, owner, roles_for(change, wanted)):
+        if (
+            owner is not None
+            and _qualifies(s.signer, owner, roles_for(change, wanted))
+            and (not change.reversal or _qualifies(s.signer, owner, change.roles))
+        ):
             counted[s.index] = s
         else:
             who = s.signer.name or s.signer.email
+            lapsed_roles = (
+                change.roles
+                if change.reversal and owner and not _qualifies(s.signer, owner, change.roles)
+                else roles_for(change, wanted)
+            )
             lapsed[s.index] = (
                 f"{who}’s signature no longer counts: they no longer hold the "
-                + _either([lab_roles.label(r) for r in roles_for(change, wanted)])
+                + _either([lab_roles.label(r) for r in lapsed_roles])
                 + f" role in {owner.name if owner else 'the project'}, or their account was "
                 "deactivated."
             )
@@ -260,12 +296,26 @@ def slots(
         why: str | None
         if signature is not None:
             why = f"{signature.signer.name or signature.signer.email} gave it."
+        elif isinstance(wanted, Reversal) and not roles:
+            why = (
+                "The original entry signature is unavailable. Its signer roles cannot be verified."
+            )
         elif cant is not None and cant.startswith("Signatures are given by people"):
             why = cant
         elif (
             base := states.refusal(user, entity, roles, change.to_label, field=change.field)
         ) is not None:
             why = base[0]
+        elif (
+            change.reversal
+            and (
+                destination := states.refusal(
+                    user, entity, change.roles, change.to_label, field=change.field
+                )
+            )
+            is not None
+        ):
+            why = destination[0]
         elif cant is not None:
             why = cant
         else:
@@ -296,7 +346,7 @@ def _condition(
         }
         for _, s in sorted(counted.items())
     ]
-    state = change.how.states[change.to]
+    state = replace(change.how.states[change.to], signatures=change.signatures)
     why = states.condition(user, entity, change.field, state, values, given)
     if why is not None or not _requires_review(entity, change):
         return why
@@ -447,7 +497,11 @@ def begin(
             raise Refused(f"Setting it to {change.to_label} has no signature {index}.")
         if slot.why_not is not None:
             owner = requests.field_project(locked, change.field)
-            if owner is not None and _qualifies(user, owner, slot.roles):
+            if (
+                owner is not None
+                and _qualifies(user, owner, slot.roles)
+                and (not change.reversal or _qualifies(user, owner, change.roles))
+            ):
                 raise Refused(slot.why_not)
             raise PermissionDenied(slot.why_not)
         reason = reason.strip()
@@ -478,6 +532,7 @@ def begin(
             field=change.field,
             state=change.to,
             index=slot.index,
+            terms_digest=_terms_digest(change, slot.index),
             reason=reason,
             return_to=return_to[:2000],
             acknowledged=ACKNOWLEDGMENT if first else "",
@@ -666,6 +721,8 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
         change = changes.find(locked, s.field, s.state)
     except Refused as refused:
         raise Failure("refused", str(refused)) from None
+    if s.index >= len(change.signatures) or _terms_digest(change, s.index) != s.terms_digest:
+        raise Failure("changed", "The signing requirements changed. Review them and sign again.")
     given = pending([locked]).get(locked.pk, [])
     slot = slots(user, locked, change, given=given, cant=why_cant_sign(user))[s.index]
     if slot.why_not is not None:
@@ -686,7 +743,6 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
     key, private = signing_keys.current()
     signed_at = timezone.now()
     signature_id = uuid7()
-    meaning = SIGNATURE_MEANINGS[slot.wanted.meaning]
     document: dict[str, Any] = {
         "format": proof.DOCUMENT_FORMAT,
         "id": str(signature_id),
@@ -704,6 +760,7 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
             "content_sha256": proof.sha256(content_text),
         },
         "change": {
+            **({"reversal": True} if change.reversal else {}),
             "field": change.field,
             "field_label": change.field_label,
             "from": change.current,
@@ -711,15 +768,7 @@ def _sign(s: Signing, evidence: Evidence) -> Signature:
             "to": change.to,
             "to_label": change.to_label,
         },
-        "signature": {
-            "index": slot.index,
-            "of": len(change.signatures),
-            "meaning": slot.wanted.meaning,
-            "meaning_label": meaning.label,
-            "label": slot.wanted.label,
-            "statement": slot.wanted.statement,
-            "roles": list(slot.roles),
-        },
+        "signature": _terms(change, slot.index),
         "signer": {"id": str(user.pk), "name": user.name, "email": user.email},
         "reason": s.reason,
         "signed_at": _instant(signed_at),

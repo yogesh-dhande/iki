@@ -11,6 +11,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import pytest
 from api_client import problem
@@ -39,7 +40,8 @@ def fetching(world: World) -> dict[str, Any]:
 
 
 def authorization(job: dict[str, Any]) -> str:
-    secret = f"{job['job']['id']}:{job['job']['lease_token']}"
+    url = urlsplit(job["job"]["proxy"])
+    secret = f"{url.username}:{url.password}"
     return "Basic " + base64.b64encode(secret.encode()).decode()
 
 
@@ -65,9 +67,13 @@ def test_runs_that_declare_hosts_get_the_proxy_with_their_attempts_credentials(
     world: World,
 ) -> None:
     job = fetching(world)
-    assert job["job"]["proxy"] == (
-        f"http://{job['job']['id']}:{job['job']['lease_token']}@iki-egress-proxy:3128"
+    proxy = urlsplit(job["job"]["proxy"])
+    assert (proxy.hostname, proxy.port, proxy.username) == (
+        "iki-egress-proxy",
+        3128,
+        job["job"]["id"],
     )
+    assert proxy.password and proxy.password != job["job"]["lease_token"]
     assert egress.decide(authorization(job), HOST, 443).allowed
 
 

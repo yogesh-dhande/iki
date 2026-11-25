@@ -867,7 +867,13 @@ def test_release_requires_a_fresh_review_after_any_intervening_revision(
     with pytest.raises(Refused, match="review"):
         begin(lab.world, "core_qa", ref, "released", field="review")
     problem(lab.api("editor").get(f"/entities/{ref}"), 404, "not_found")
-    assert state(lab, "tech", ref, "review", "draft").status_code == 200
+    LabRoleGrant.objects.create(
+        membership=lab.core.memberships.get(user=lab.users["admin"]), role=ANALYST
+    )
+    permissions.forget(lab.users["admin"])
+    signed(
+        lab.world, "admin", ref, "draft", field="review", reason="Review the corrected measurement"
+    )
     fresh = signed(lab.world, "admin", ref, "reviewed", field="review").signature
     qa = signed(lab.world, "core_qa", ref, "released", field="review").signature
     assert qa is not None and fresh is not None

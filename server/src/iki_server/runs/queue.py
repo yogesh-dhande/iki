@@ -30,7 +30,6 @@ import uuid
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple
-from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
@@ -50,6 +49,7 @@ from iki_server.runs import (
     catalog,
     checkpoints,
     costs,
+    egress,
     endings,
     included,
     launches,
@@ -647,7 +647,7 @@ def _trigger(run: ActionRun) -> dict[str, Any]:
 
 def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
     """For an action that declares hosts, or calls outside APIs: the egress proxy, with this
-    attempt's job ID and lease token as its credentials (ADR 0053, 0130). They work while
+    attempt's proxy-only credentials (ADR 0053, 0130). They work while
     the attempt holds its lease."""
     # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074), and a Slurm
     # cluster's compute nodes from theirs (ADR 0133).
@@ -657,8 +657,8 @@ def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
         url = slurm.proxy_url(job)
     if not (run.spec.get("network") or run.spec.get("apis")) or not url:
         return {}
-    parts = urlsplit(url)
-    return {"proxy": f"http://{job.pk}:{job.lease_token}@{parts.netloc}"}
+    assert job.lease_token is not None  # noqa: S101 - a leased attempt
+    return {"proxy": egress.proxy_url(url, job.pk, job.lease_token)}
 
 
 # --- Reports from the worker -------------------------------------------------------------------

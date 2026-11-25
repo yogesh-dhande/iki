@@ -597,6 +597,7 @@ def _entity(
         "created_at": entity.created_at.isoformat(),
         "created_by": _json(entity.created_by_id),
         "archived_at": _json(entity.archived_at),
+        "has_been_locked": entity.has_been_locked,
         **({"entry": str(entity.entry_id)} if entity.entry_id is not None else {}),
         "revisions": [
             {

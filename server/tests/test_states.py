@@ -404,7 +404,33 @@ def test_a_locked_record_refuses_every_change_but_its_states(world: World) -> No
     freed = set_(world, "viewer", ref, "custody", "in_lab")
     assert (freed["locked"], freed["locked_by"]) == (False, [])
     assert api_as(world, "editor").get(f"/entities/{ref}").json()["can"]["edit"] is True
-    assert patch(api_as(world), ref, {"values": {"notes": "x"}}, '"8"').status_code == 200
+    edit = {"values": {"notes": "x"}}
+    assert patch(api_as(world), ref, edit, '"8"').status_code == 422
+    assert (
+        patch(api_as(world), ref, {**edit, "reason": "Corrected after review"}, '"8"').status_code
+        == 200
+    )
+
+
+def test_a_later_lock_declaration_does_not_retroactively_lock_an_edit(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    roles(world, editor=(ANALYST,))
+    ref = sample(world)["id"]
+    changed = set_(world, "editor", ref, "status", "in_testing")
+    assert not changed["locked"]
+    field = states.state_fields(SAMPLE)["status"]
+    monkeypatch.setitem(field.states, "received", replace(field.states["received"], locks=True))
+    api = api_as(world, "editor")
+    record = api.get(f"/entities/{ref}")
+    assert "edit_reason_required" not in record.json()["can"]
+    assert (
+        patch(api, ref, {"values": {"notes": "First measurement"}}, record["ETag"]).status_code
+        == 200
+    )
 
 
 def test_state_changes_are_in_the_audit_log(world: World) -> None:
@@ -453,7 +479,10 @@ def test_a_run_cant_change_a_locked_record(world: World) -> None:
     ]
     # ...and a run launched before it locked writes nothing.
     set_(world, "admin", body["id"], "status", "in_testing", "Rerun purity")
-    run = launch(api_as(world), world.project, {"sample": body["id"]}, MEASURE)
+    target = {"sample": body["id"]}
+    missing = launch(api_as(world), world.project, target, MEASURE)
+    assert problem(missing, 422, "validation_failed")["errors"][0]["pointer"] == "#/reason"
+    run = launch(api_as(world), world.project, target, MEASURE, reason="Repeat the measurement")
     assert run.status_code == 201, run.content
     pod = worker(world)
     job = pod.lease().json()

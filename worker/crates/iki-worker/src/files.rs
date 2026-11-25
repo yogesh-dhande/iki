@@ -33,6 +33,20 @@ use ureq::Agent;
 use crate::api::{self, Api, Error};
 use crate::{checkpoint, globs};
 
+/// Reads a command-written file without opening a link, device, or blocking pipe.
+pub fn open_regular(path: &Path) -> std::io::Result<File> {
+    use rustix::fs::{Mode, OFlags, open};
+    let file = File::from(open(
+        path,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::empty(),
+    )?);
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::other("expected a regular file"));
+    }
+    Ok(file)
+}
+
 /// How long staging or uploading may take, all told. Heartbeats keep the lease meanwhile.
 const TRANSFERS_FOR: Duration = Duration::from_secs(3600);
 
@@ -261,6 +275,9 @@ fn resolve(
         .unwrap_or_default();
     let outside =
         || format!("output.json names the file {given:?}, which isn't a file in IKI_OUT_DIR.");
+    if !out_dir.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+        return Err(outside());
+    }
     let root = out_dir.canonicalize().map_err(|_| outside())?;
     let path = root.join(given).canonicalize().map_err(|_| outside())?;
     // Canonical paths resolve `..` and symlinks, so this can't reach outside.
@@ -557,6 +574,9 @@ pub const MAX_ARTIFACTS: usize = 1000;
 /// many more there were than an attempt keeps.
 pub fn find_artifacts(out_dir: &Path, patterns: &[String]) -> (Vec<(String, PathBuf)>, usize) {
     let mut found = Vec::new();
+    if !out_dir.symlink_metadata().is_ok_and(|meta| meta.is_dir()) {
+        return (found, 0);
+    }
     let mut pending = vec![(out_dir.to_path_buf(), String::new())];
     while let Some((dir, prefix)) = pending.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

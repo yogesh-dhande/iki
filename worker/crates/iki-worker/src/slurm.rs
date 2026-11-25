@@ -182,16 +182,21 @@ const LOG_MARKS: &str = "log.json";
 /// The batch script's note of how the command exited, for a cluster without accounting.
 const EXIT: &str = "exit";
 
+/// Recovery state belongs to the login worker, outside the command's bind mount.
+fn control_dir(dirs: &Dirs) -> &Path {
+    &dirs.control
+}
+
 fn keep(dirs: &Dirs, kept: &Kept) -> Result<(), String> {
     let bytes = serde_json::to_vec(kept).map_err(|e| e.to_string())?;
-    write_private(&dirs.root.join(KEPT), &bytes, 0o600)
+    write_private(&control_dir(dirs).join(KEPT), &bytes, 0o600)
         .map_err(|e| format!("Couldn't note the job in its directory: {e}"))
 }
 
 /// Keeps how far the job's log has reached the server in its directory, before each
 /// chunk is sent.
 fn keep_log_marks(host: &Job, dirs: &Dirs) {
-    let path = dirs.root.join(LOG_MARKS);
+    let path = control_dir(dirs).join(LOG_MARKS);
     let job = host.id.clone();
     host.keep_log_marks(move |marks| {
         let written = serde_json::to_vec(marks)
@@ -208,7 +213,7 @@ fn keep_log_marks(host: &Job, dirs: &Dirs) {
 
 /// The marks a job's directory keeps, if it has any.
 fn log_marks(dirs: &Dirs) -> logs::Marks {
-    std::fs::read(dirs.root.join(LOG_MARKS))
+    std::fs::read(control_dir(dirs).join(LOG_MARKS))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok())
         .unwrap_or_default()
@@ -564,7 +569,8 @@ impl Cluster {
     }
 
     fn dirs(&self, job: &str) -> Dirs {
-        Dirs::new(&self.settings.work_dir, job)
+        let private = self.settings.work_dir.join("jobs").join(job);
+        Dirs::with_control(private.join("command"), private)
     }
 
     /// Removes the job's directory, unless it's kept to debug.
@@ -572,7 +578,7 @@ impl Cluster {
         if self.config.keep_job_dirs {
             return;
         }
-        if let Err(error) = std::fs::remove_dir_all(&dirs.root)
+        if let Err(error) = std::fs::remove_dir_all(control_dir(dirs))
             && error.kind() != std::io::ErrorKind::NotFound
         {
             say::warn(
@@ -650,6 +656,22 @@ fn submit(cluster: &Arc<Cluster>, raw: &serde_json::Value) -> Ended {
         timeout: Duration::from_secs(u64::try_from(input.job.timeout.max(1)).unwrap_or(3600)),
     };
     let host = Arc::clone(&held.job);
+    // Keep the login worker's recovery input outside the job's mount. A restart
+    // must not trust a command's writable input.json.
+    let mut recovery = input.clone();
+    recovery.job.secrets = None;
+    let saved = private_dir(control_dir(&dirs)).and_then(|()| {
+        let bytes = serde_json::to_vec(&recovery)?;
+        write_private(&control_dir(&dirs).join("input.json"), &bytes, 0o600)
+    });
+    if let Err(error) = saved {
+        let ended = held.end(Some(Report::Fail(
+            FailInReason::Failed,
+            format!("Couldn't save the worker's recovery input: {error}"),
+        )));
+        cluster.clean(&dirs);
+        return ended;
+    }
     if let Err(report) = job::prepare(&host, &plan, &dirs, raw) {
         let ended = held.end(report);
         cluster.clean(&dirs);
@@ -716,7 +738,7 @@ fn start(
     .map_err(failed)?;
     let (program, args) = job::command_line(plan).map_err(failed)?;
     let (env, secrets) = step_environment(dirs, input);
-    let mask = job::hidden(&input.job);
+    let mask = job::command_secrets(&input.job);
     let step = step::Step {
         apptainer: cluster.settings.tools.apptainer.clone(),
         image: pulled.sif,
@@ -730,7 +752,7 @@ fn start(
     let write = |name: &str, bytes: serde_json::Result<Vec<u8>>| {
         bytes
             .map_err(std::io::Error::other)
-            .and_then(|bytes| write_private(&dirs.root.join(name), &bytes, 0o600))
+            .and_then(|bytes| write_private(&control_dir(dirs).join(name), &bytes, 0o600))
             .map_err(|e| failed(format!("Couldn't write the job's {name}: {e}")))
     };
     write(step::STEP, serde_json::to_vec(&step))?;
@@ -738,15 +760,15 @@ fn start(
         step::SECRETS,
         serde_json::to_vec(&step::Secrets { env: secrets, mask }),
     )?;
-    let script = dirs.root.join("job.sh");
+    let script = control_dir(dirs).join("job.sh");
     let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"));
     let body = format!(
         "#!/bin/sh\n# Iki job {job}: runs its command on this node (ADR 0133).\n\
          {bin} slurm-step {dir}\nstatus=$?\necho \"$status\" > {exit}\nexit \"$status\"\n",
         job = kept.job,
         bin = quote(&cluster.step_binary),
-        dir = quote(&dirs.root),
-        exit = quote(&dirs.root.join(EXIT)),
+        dir = quote(control_dir(dirs)),
+        exit = quote(&control_dir(dirs).join(EXIT)),
     );
     write_private(&script, body.as_bytes(), 0o700)
         .map_err(|e| failed(format!("Couldn't write the job's batch script: {e}")))?;
@@ -757,7 +779,7 @@ fn start(
         ));
     }
     let comment = format!("iki:{}", kept.job);
-    let args = commands::sbatch_args(placed, &kept.name, &comment, &dirs.root);
+    let args = commands::sbatch_args(placed, &kept.name, &comment, control_dir(dirs));
     let id = cluster.settings.slurm.submit(&args, &script).map_err(|e| {
         failed(format!(
             "The cluster refused the job: {e} A Compute admin can check the `{}` \
@@ -972,7 +994,7 @@ fn watch(
     let done = Arc::new(AtomicBool::new(false));
     let reading = {
         let tail = Tail {
-            path: dirs.root.join("log"),
+            path: control_dir(dirs).join("log"),
             from: from.read,
             file: None,
             done: Arc::clone(&done),
@@ -1101,7 +1123,7 @@ fn ended_as(
             Err(error) => say::warn("Couldn't ask sacct about a job.", &[("detail", &error)]),
         }
     }
-    let noted = std::fs::read_to_string(dirs.root.join(EXIT))
+    let noted = std::fs::read_to_string(control_dir(dirs).join(EXIT))
         .ok()
         .and_then(|t| t.trim().parse::<i32>().ok());
     let Some(found) = accounted else {
@@ -1347,12 +1369,9 @@ fn resume(cluster: &Arc<Cluster>, kept: &Kept) -> Ended {
     );
     keep_log_marks(&held.job, &dirs);
     held.job.resume_log(mark.clone());
-    let raw = std::fs::read(&dirs.input)
+    let input = std::fs::read(control_dir(&dirs).join("input.json"))
         .ok()
-        .and_then(|t| serde_json::from_slice::<serde_json::Value>(&t).ok());
-    let input = raw
-        .as_ref()
-        .and_then(|raw| serde_json::from_value::<RunInput>(raw.clone()).ok());
+        .and_then(|bytes| serde_json::from_slice::<RunInput>(&bytes).ok());
     let (Some(input), Some(id)) = (input, found) else {
         let ended = held.end(Some(Report::Fail(
             FailInReason::Interrupted,

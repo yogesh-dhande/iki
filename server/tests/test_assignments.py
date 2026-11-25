@@ -49,10 +49,12 @@ def pk(world: World, principal: str) -> str:
     return str(world.users[principal].pk)
 
 
-def edit(world: World, ref: str, values: dict[str, Any], who: str = "editor") -> Any:
+def edit(
+    world: World, ref: str, values: dict[str, Any], who: str = "editor", *, reason: str = ""
+) -> Any:
     api = api_as(world, who)
     etag = api.get(f"/entities/{ref}")["ETag"]
-    return patch(api, ref, {"values": values}, etag)
+    return patch(api, ref, {"values": values, "reason": reason}, etag)
 
 
 def work(world: World, who: str, query: str = "", open_: bool = False) -> list[dict[str, Any]]:
@@ -298,7 +300,12 @@ def test_a_locked_records_people_are_locked_with_it(world: World) -> None:
     # Out of the locking state, it can be reassigned again.
     set_(world, "viewer", body["id"], "status", "released")
     set_(world, "viewer", body["id"], "status", "in_testing", "Wrong lot")
-    changed = edit(world, body["id"], {"analyst": pk(world, "viewer")})
+    changed = edit(
+        world,
+        body["id"],
+        {"analyst": pk(world, "viewer")},
+        reason="Reassign testing for the corrected lot",
+    )
     assert changed.status_code == 200, changed.content
     event = AuditEvent.objects.filter(action="entity.assigned", target_id=body["id"]).first()
     assert event is not None

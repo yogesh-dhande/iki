@@ -188,6 +188,7 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     assert run.requested_by == world.users["editor"]
     assert run.via == WorkflowRun.objects.get().via == "web"
     assert run.reason == f"Step `weigh` of {body['hrid']}: Kinase panel"
+    assert run.change_reason == "Kinase panel"
     event = AuditEvent.objects.get(action="workflow.started")
     assert (event.target_label, event.data["steps"]) == (body["hrid"], 2)
     launched = AuditEvent.objects.get(action="run.launched")

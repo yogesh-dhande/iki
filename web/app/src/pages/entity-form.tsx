@@ -682,7 +682,8 @@ function EditEntityForm({
     const { values, errors } = encodeAll(type, changed, drafts);
     if (!reason.trim()) {
       if (clearing) errors["reason"] = "Give a reason for clearing this flag.";
-      else if (returns.length) errors["reason"] = "Give a reason for this correction.";
+      else if (returns.length || (changed.length > 0 && base.entity.can.edit_reason_required))
+        errors["reason"] = "Give a reason for this correction.";
     }
     if (!form.validate({ ...ruleChecks(found, hold, holdReason), ...errors })) return;
     if (changed.length === 0) {
@@ -793,7 +794,9 @@ function EditEntityForm({
             value={reason}
             onChange={setReason}
             error={form.errors["reason"]}
-            required={clearing || returns.length > 0}
+            required={
+              clearing || returns.length > 0 || base.entity.can.edit_reason_required === true
+            }
           />
           <div className="actions">
             <Button

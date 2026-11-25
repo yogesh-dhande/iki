@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from iki_server.entities import registry, states
 from iki_server.org.services import Refused
+from iki_server.signatures.entries import Reversal
 from iki_spec.model import Field, State
 from iki_spec.model import Signature as Wanted
 
@@ -43,6 +44,10 @@ class Change:
     how: Field | None = None
 
     @property
+    def reversal(self) -> bool:
+        return any(isinstance(slot, Reversal) for slot in self.signatures)
+
+    @property
     def label(self) -> str:
         """How people read it: “Approved”, the state it sets."""
         return self.to_label
@@ -50,6 +55,8 @@ class Change:
 
 def roles_for(change: Change, wanted: Wanted) -> tuple[str, ...]:
     """The lab roles whoever gives a signature holds: its own, or the state's."""
+    if isinstance(wanted, Reversal):
+        return wanted.entry_roles
     return (wanted.role,) if wanted.role else change.roles
 
 
@@ -58,21 +65,13 @@ def wanted(state: State) -> tuple[Wanted, ...]:
     return state.signatures or ()
 
 
-def signed(entity: Entity, values: Mapping[str, Any] | None = None) -> list[Change]:
-    """The changes the record may take now that need signatures: for each of its state
-    fields, each signed state but the one it's in. ``values``: its state fields', if
-    they've been read already."""
-    if entity.registry_id is not None:
-        return []
-    fields = states.state_fields(entity.type)
-    if not any(wanted(st) for f in fields.values() for st in f.states.values()):
-        return []
-    found = values if values is not None else states.values_of(entity)
+def signed(options: Mapping[str, list[states.Option]], values: Mapping[str, Any]) -> list[Change]:
+    """The signed transitions among the record's available state options."""
     return [
-        _change(f, found.get(name) or "", st)
-        for name, f in fields.items()
-        for st in f.states.values()
-        if wanted(st) and not st.removed and st.name != found.get(name)
+        _change(option.field, values.get(name) or "", option.state)
+        for name, choices in options.items()
+        for option in choices
+        if option.signed
     ]
 
 
@@ -88,12 +87,13 @@ def find(entity: Entity, field: str, to: str) -> Change:
     target = f.states.get(to)
     if target is None or target.removed:
         raise Refused(f"{f.label} has no state `{to}`.")
+    current = states.values_of(entity).get(field) or ""
+    target = states.transitions(entity, f, current)[to]
     if not wanted(target):
         raise Refused(
             f"Setting {entity.hrid}’s {f.label} to {target.label} isn’t signed: set it as any "
             "state is."
         )
-    current = states.values_of(entity).get(field) or ""
     if current == to:
         raise Refused(f"{entity.hrid}’s {f.label} is {target.label} already.")
     return _change(f, current, target)

@@ -171,7 +171,7 @@ iki.entities.downstream_csv("TUB-000001")  # everything at once, as the CSV has 
 iki.entities.graph("PRT-000123", up=2, down=1)  # a few steps each way, to draw
 # In a search, with any other condition: every sample drawn from a tube whose results are still pending.
 from_tube = {"field": "downstream", "op": "of", "value": "TUB-000001"}
-open_results = {"not": {"field": "state", "op": "eq", "value": "results_recorded"}}
+open_results = {"not": {"field": "state", "op": "eq", "value": "reviewed"}}
 iki.entities.search("iki/samples.Sample", where={"all": [from_tube, open_results]})
 
 # What plugins' rules caught (ADR 0127): what a rule holds for review, and what breaks a

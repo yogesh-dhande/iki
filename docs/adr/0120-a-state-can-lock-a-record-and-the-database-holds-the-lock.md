@@ -54,6 +54,9 @@ A locking state may declare a reasoned return on edit. Iki then performs the
 authorized transition and edit in one transaction. The database lock still
 covers every write to the protected values. [ADR 0179](0179-a-corrected-result-goes-back-for-review.md)
 
+Each value revision after a lock is lifted carries a reason. The rules for signing a return or
+reversal apply to every record type. [State locks and signatures amendment](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md#amendment-to-state-locks-and-signatures)
+
 ## Consequences
 
 - A locked record's values are what they were when it locked, whichever

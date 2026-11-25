@@ -31,7 +31,7 @@ pharma IT run work the same way, and the clients commands use (`urllib`,
 
 **Each attempt has its own credentials.** When a worker leases a job for
 an action that declares hosts, the server gives it the proxy's address with
-the attempt's job ID and lease token as credentials. The worker hands the
+the attempt's job ID and a proxy-only password derived from its lease. The worker hands the
 command `HTTPS_PROXY` (and `HTTP_PROXY`, so plain-HTTP requests are refused
 with a reason rather than time out). The credentials work while the attempt
 holds its lease. When the attempt ends, or loses its lease, the proxy closes

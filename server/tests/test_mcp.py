@@ -1112,6 +1112,35 @@ async def test_writes_need_the_scope_and_the_role(world: World) -> None:
 # --- Runs ---------------------------------------------------------------------------------------
 
 
+async def test_launching_an_edit_on_a_reopened_record_needs_the_operators_reason(
+    world: World,
+) -> None:
+    from test_api_entities import api_as
+
+    from iki_server.entities.models import Entity
+    from iki_server.runs.models import Job
+
+    def target() -> str:
+        record = protein(api_as(world, "runner"), world.project, "reopened")
+        return str(record["id"])
+
+    released = await sync_to_async(target)()
+    token = await token_for(world, "runner", scope="read write run")
+    launch = {"name": "acme/protein.compute_properties", "project": str(world.project.pk)}
+    single = {**launch, "inputs": {"protein": released}}
+    assert data(await tool(token, "run_action", **single))["reason"] == ""
+    await Entity.objects.filter(pk=released).aupdate(has_been_locked=True)
+    before = await Job.objects.acount()
+    assert "after its lock was lifted" in error(await tool(token, "run_action", **single))
+    batch = {**launch, "each": "protein", "entities": [released]}
+    assert "after its lock was lifted" in error(await tool(token, "run_batch", **batch, reason=" "))
+    assert await Job.objects.acount() == before
+    explanation = "Repeat the calculation after correcting the input."
+    assert (
+        data(await tool(token, "run_action", **single, reason=explanation))["reason"] == explanation
+    )
+
+
 async def test_agents_run_actions_and_costly_runs_wait_for_the_person(
     world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -19,6 +19,8 @@ export interface Picked {
   /** In a picker's list, the project whose record it is, where two share its ID: one
    * registry entry's records in two projects, each named as its project names it. */
   project?: string;
+  /** Editing this reopened record requires the operator’s reason. */
+  editReasonRequired?: boolean;
   /** A file still uploading: the form waits for it. */
   uploading?: boolean;
   /** A file chosen from this computer with others, which its input starts uploading. */

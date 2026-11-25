@@ -66,8 +66,10 @@ def _report(project: Project, name: str, content: bytes) -> str:
     )
 
 
-def _sign(world: World, person: str, entity: Entity, target: str) -> Signature:
-    signature = signed(world, person, str(entity.pk), target, field="review").signature
+def _sign(world: World, person: str, entity: Entity, target: str, reason: str = "") -> Signature:
+    signature = signed(
+        world, person, str(entity.pk), target, field="review", reason=reason
+    ).signature
     assert signature is not None
     entity.refresh_from_db()
     assert states.values_of(entity)["review"] == target
@@ -419,6 +421,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     assert api.get(f"/files/{report}").status_code == 404
 
     corrected = _report(world.project, "corrected-report.txt", b"Training: confirmed run accession")
+    _sign(world, "admin", deliverable, "recorded", "Reopen the report for correction")
     services.update(
         world.users["editor"],
         deliverable,
@@ -432,7 +435,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     with pytest.raises(Refused):
         begin(world, "viewer", str(deliverable.pk), "released", field="review")
     _sign(world, "editor", deliverable, "submitted")
-    review = _sign(world, "admin", deliverable, "reviewed")
+    review = _sign(world, "admin", deliverable, "reviewed", "Review the corrected report")
     with pytest.raises(Refused, match="did not create, submit, edit or review"):
         begin(world, "admin", str(deliverable.pk), "released", field="review")
 

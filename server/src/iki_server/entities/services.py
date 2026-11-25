@@ -243,6 +243,7 @@ def create(
     by_run: bool = False,
     hold_reason: str = "",
     amount: Any = None,  # noqa: ANN401 - JSON: a quantity
+    amount_reason: str | None = None,
     fills: frozenset[str] = frozenset(),
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
@@ -252,7 +253,8 @@ def create(
     computed fields, and its revision is marked ``via="run"``. ``hold_reason``: why to save
     it though it breaks rules that hold records for review (ADR 0127). Without one, such a
     save is refused with :class:`checking.Held`. ``amount``: how much there is of it, for a
-    type with one (ADR 0139). ``fills``: fields of ``values`` that only fill an
+    type with one (ADR 0139). A receipt's ``amount_reason`` explains its ledger movement.
+    ``fills``: fields of ``values`` that only fill an
     existing entry's empty ones: where it has a value, it keeps it and this isn't refused,
     as a fact that differs otherwise is (ADR 0140).
     """
@@ -284,7 +286,12 @@ def create(
             _hold(saved, holding, user, hold_reason, saved.revision.number, entry_number)
         if given_amount is not None and not saved.reused:
             record = Entity.objects.get(pk=saved.entity.pk)
-            amounts.record(user, record, given_amount, reason=reason)
+            amounts.record(
+                user,
+                record,
+                given_amount,
+                reason=reason if amount_reason is None else amount_reason,
+            )
         return saved
 
 
@@ -861,6 +868,7 @@ def update(
     taking: bool = False,
     allow_correction: bool = False,
     _recording_draw: bool = False,
+    _recheck_note: str = "",
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -957,7 +965,7 @@ def update(
             if name == ledger_field and not _recording_draw:
                 errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
                 continue
-            if f.computed and not by_run and name != ledger_field:
+            if f.computed and not by_run and name not in (ledger_field, _recheck_note):
                 errors[name] = ["is computed: only actions set it."]
                 continue
             if f.type == "state":
@@ -1103,6 +1111,8 @@ def update(
         if holding:
             _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
         declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
+        # A failed launch may append a diagnostic. The action's effect still names its own edit.
+        updated = saved
         for spec, _ in rechecks:
             problem = triggers.recheck_edit(user, locked, revision, spec)
             if problem:
@@ -1111,13 +1121,13 @@ def update(
                         user,
                         locked,
                         {spec.recheck: f"Needs re-verification. {problem}"[:10000]},
-                        by_run=True,
+                        _recheck_note=spec.recheck,
                         expected_revision=saved.revision.number
                         if saved.revision
                         else revision.number,
-                        reason=f"Automatic recheck {spec.qualified_name}.",
+                        reason=revision.reason,
                     )
-    return saved
+    return updated if by_run else saved
 
 
 def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
@@ -1613,7 +1623,12 @@ def _revise(
 ) -> Revision:
     """The entity's next revision. ``project``: for an entry's, the project it was made
     through; ``registered``: for a record's first, the entry's first, which it made."""
-    number = Entity.objects.filter(pk=entity.pk).values_list("revision", flat=True).get() + 1
+    current = Entity.objects.only("revision", "has_been_locked").get(pk=entity.pk)
+    if kind == RevisionKind.EDITED and not reason.strip() and current.has_been_locked:
+        raise states.CorrectionReason(
+            {"reason": ["Give a reason for editing this record after its lock was lifted."]}
+        )
+    number = current.revision + 1
     revision = Revision.objects.create(
         entity_id=entity.pk,
         number=number,

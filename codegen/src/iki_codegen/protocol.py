@@ -210,7 +210,11 @@ def _paths(document: dict[str, Any]) -> list[tuple[str, str]]:
 def generate(openapi: dict[str, Any]) -> str:
     """The generated Rust module, from the worker OpenAPI document and spec's schemas."""
     gen = _Generator()
-    gen.spec_schema("RunInput", schemas.load("run-input"))
+    run_input = schemas.load("run-input")
+    # The worker deserializes a full lease. The other wire shape is the command's metadata.
+    definitions = dict(run_input["$defs"])
+    properties = {**run_input["properties"], "job": definitions.pop("job")}
+    gen.spec_schema("RunInput", {**run_input, "properties": properties, "$defs": definitions})
     gen.spec_schema("RunOutput", schemas.load("run-output"))
     gen.spec_schema("SetupInput", schemas.load("setup-input"))
     gen.openapi(openapi)

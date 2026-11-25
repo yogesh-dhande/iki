@@ -15,7 +15,7 @@ from typing import Any
 
 import psycopg
 import pytest
-from test_plugin_migrations import build, database, django, made, orm, query, sync
+from test_plugin_migrations import build, database, django, made, orm, private_database, query, sync
 from test_plugin_migrations import migrate as migrate_only
 
 __all__ = ["database"]  # a fixture, from test_plugin_migrations
@@ -320,6 +320,111 @@ def _dependencies(migration: str) -> list[tuple[str, str]]:
             found: list[tuple[str, str]] = ast.literal_eval(node.value)
             return found
     return []
+
+
+def test_a_restored_signed_entry_keeps_its_reversal_after_a_state_field_rename(
+    lab: Path,
+    database: str,
+    _postgres_url: str,
+    tmp_path: Path,
+    s3: Any,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source renamed status to phase after signing. The receiving lab installed
+    the newer schema from the outset and has no local rename operation."""
+    monkeypatch.setenv("IKI_HTTPS", "false")
+    for key in (
+        "IKI_FILES_BUCKET",
+        "IKI_FILES_PREFIX",
+        "IKI_FILES_ENDPOINT_URL",
+        "IKI_FILES_PUBLIC_ENDPOINT_URL",
+    ):
+        monkeypatch.setenv(key, getattr(settings, key))
+    manifest = lab / "types/sample.yaml"
+    manifest.write_text(SAMPLE)
+    made("lab", "--no-input", cwd=lab.parent)
+    source = build(lab.parent, "lab")
+    migrate(source, database)
+    orm(
+        source,
+        database,
+        PEOPLE
+        + """
+analyst = person("analyst", project)
+ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+sample = entities.create(analyst, "acme/lab.Sample", project, {"name": "Reviewed sample"}).entity
+sign(analyst, sample)
+result = None
+""",
+    )
+    newer = SAMPLE.replace("  status:", "  phase:").replace(
+        "schema_version: 1", "schema_version: 2"
+    )
+    manifest.write_text(newer)
+    (lab / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    source = build(lab.parent, "lab")
+    migrate(source, database)
+    archive = tmp_path / "reviewed-sample.tar.gz"
+    exported = django(
+        source,
+        database,
+        "-c",
+        f"""
+import django
+django.setup()
+from pathlib import Path
+from iki_server.accounts.models import User
+from iki_server.bundles import export
+from iki_server.entities.models import Entity
+sample = Entity.objects.get(type="acme/lab.Sample")
+export.write(
+    sample.owner_project, [sample], Path({str(archive)!r}),
+    by=User.objects.get(email="admin@example.com"),
+    reason="Hand over signed work", selection="",
+)
+""",
+    )
+    assert exported.returncode == 0, exported.stdout + exported.stderr
+    target = tmp_path / "receiving/plugins/lab"
+    (target / "types").mkdir(parents=True)
+    (target / "plugin.yaml").write_text((lab / "plugin.yaml").read_text())
+    (target / "types/sample.yaml").write_text(newer)
+    made("lab", "--no-input", cwd=target.parent)
+    receiver = build(target.parent, "lab")
+    with private_database(_postgres_url) as db:
+        migrate(receiver, db)
+        restored = django(
+            receiver,
+            db,
+            "-c",
+            f"""
+import django
+django.setup()
+from pathlib import Path
+from django.conf import settings
+from api_client import Api
+from org_world import build_world
+from test_bundle_imports import PUBLIC, applied, upload
+from iki_server.entities.models import Entity, Revision
+from iki_server.org.models import OrgRole, OrgRoleAssignment
+from iki_server.signatures import changes
+world = build_world()
+admin = world.users["admin"]
+OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+settings.IKI_BUNDLE_TRUSTED_KEYS = {{"test": (PUBLIC,)}}
+api = Api(world.browser("admin"))
+done = applied(api, upload(api, world.project, Path({str(archive)!r})))
+assert done["state"] == "applied", done
+record = Entity.objects.get(type="acme/lab.Sample")
+assert Revision.objects.get(entity=record, number=2).state_field == "status"
+exit = changes.find(record, "phase", "received")
+assert exit.reversal and exit.reason == "required"
+assert exit.signatures[0].label == "Reversal of Authorship"
+""",
+        )
+        assert restored.returncode == 0, restored.stdout + restored.stderr
 
 
 def test_signing_checks_the_registry_entry_revision_the_signer_read(

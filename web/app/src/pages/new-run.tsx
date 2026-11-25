@@ -410,6 +410,17 @@ function RunForm({
       ? "The alignment’s verdict could not be loaded."
       : "Loading the alignment’s verdict…";
   }
+  const needsChangeReason = action.updates.some(({ input }) => {
+    if (input === each?.name) return entities.some((e) => !e.locked && e.can.edit_reason_required);
+    const selected = drafts[`inputs/${input}`];
+    return (Array.isArray(selected) ? selected : [selected]).some(
+      (record) =>
+        record &&
+        typeof record === "object" &&
+        "editReasonRequired" in record &&
+        record.editReasonRequired,
+    );
+  });
   const [reason, setReason] = useState("");
   const [labels, setLabels] = useState("");
   const [agreed, setAgreed] = useState(false);
@@ -504,6 +515,9 @@ function RunForm({
     ) {
       errors["params/override_reason"] =
         "Give a reason to record a match over differing or incomplete evidence.";
+    }
+    if (needsChangeReason && !reason.trim()) {
+      errors["reason"] = "Give a reason for changing a record after its lock was lifted.";
     }
     if (tooMany) errors[`inputs/${each.name}`] = `This input takes at most ${String(each.max)}.`;
     if (action.apis.length && !agreed) {
@@ -673,9 +687,13 @@ function RunForm({
         onChange={setReason}
         error={form.errors["reason"]}
         maxLength={2000}
-        optional
+        optional={!needsChangeReason}
         multiline
-        help="Why, for the record. It’s kept with the run, and with what it changes."
+        help={
+          needsChangeReason
+            ? "Explain why you are changing the reopened record. Your reason is kept on its revision."
+            : "Why, for the record. It’s kept with the run, and with what it changes."
+        }
       />
       <SendsOutside
         projectName={project.name}

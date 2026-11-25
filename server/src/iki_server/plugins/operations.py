@@ -166,6 +166,16 @@ class _StateOperation(migrations.operations.base.Operation):
                 [field, field],
             )
             schema_editor.execute(
+                "INSERT INTO iki_audit_event (id, occurred_at, action, actor_label, via,"
+                " target_type, target_id, target_label, project_id, data, request_id)"
+                " SELECT uuidv7(), now(), 'entity.state_changed', '', 'system', 'entity',"
+                " e.id::text, e.hrid, e.owner_project_id, jsonb_build_object("
+                " 'field', %s::text, 'from', m.old, 'to', m.new, 'revision', e.revision + 1,"
+                " 'reason', m.reason), '' FROM iki_entity e"
+                " JOIN iki_moving m ON m.entity_id = e.id",
+                [field],
+            )
+            schema_editor.execute(
                 "UPDATE iki_entity e SET revision = e.revision + 1, updated_at = now()"
                 " FROM iki_moving m WHERE m.entity_id = e.id"
             )

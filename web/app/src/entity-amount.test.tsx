@@ -427,7 +427,14 @@ describe("a record's amount", () => {
     onSample(
       sample({
         amount: null,
-        can: { edit: false, correct: false, edit_amount: false, draw: false, states: {}, sign: [] },
+        can: {
+          edit: false,
+          correct: false,
+          edit_amount: false,
+          draw: false,
+          states: {},
+          sign: [],
+        },
         draw_refusals: { routine: expired, qa_sampling: expired },
       }),
     );

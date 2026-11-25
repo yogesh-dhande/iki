@@ -1,4 +1,19 @@
 {{/* Chart name, truncated to fit Kubernetes name limits. */}}
+{{- define "iki.imageSigner" -}}
+{{- $signer := dict "issuer" .issuer }}
+{{- if .subject }}
+{{- if and .subjectRegExp (not (mustRegexMatch .subjectRegExp .subject)) }}
+{{- fail "imagePolicy signer subject does not match its subjectRegExp" }}
+{{- end }}
+{{- $_ := set $signer "subject" .subject }}
+{{- else if .subjectRegExp }}
+{{- $_ := set $signer "subjectRegExp" .subjectRegExp }}
+{{- else }}
+{{- fail "imagePolicy signer needs subject (or subjectRegExp)" }}
+{{- end }}
+{{- $signer | toJson }}
+{{- end }}
+
 {{- define "iki.name" -}}
 {{- .Chart.Name | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
@@ -279,12 +294,15 @@ volumes machines there get (ADR 0075). The rest is the provisioner's alone. */}}
 {{- if .approvals.repository }}
 {{- /* Who may sign runs' images, for workers that check them themselves: a Slurm
 cluster's (ADR 0133), with no admission controller in front of its nodes. */}}
-{{- $iki := dict "issuer" .iki.issuer }}
-{{- with .iki.subject }}{{ $_ := set $iki "subject" . }}{{ end }}
-{{- with .iki.subjectRegExp }}{{ $_ := set $iki "subject_regexp" . }}{{ end }}
-{{- $approvals := dict "issuer" .approvals.issuer "repository" .approvals.repository }}
-{{- with .approvals.subject }}{{ $_ := set $approvals "subject" . }}{{ end }}
-{{- with .approvals.subjectRegExp }}{{ $_ := set $approvals "subject_regexp" . }}{{ end }}
+{{- $iki := include "iki.imageSigner" .iki | fromJson }}
+{{- $approvals := include "iki.imageSigner" .approvals | fromJson }}
+{{- $_ := set $approvals "repository" .approvals.repository }}
+{{- range $signer := list $iki $approvals }}
+{{- if hasKey $signer "subjectRegExp" }}
+{{- $_ := set $signer "subject_regexp" $signer.subjectRegExp }}
+{{- $_ := unset $signer "subjectRegExp" }}
+{{- end }}
+{{- end }}
 - name: IKI_IMAGE_POLICY
   value: {{ dict "iki" $iki "approvals" $approvals | toJson | quote }}
 {{- end }}

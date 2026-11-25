@@ -20,7 +20,7 @@ from test_states import roles
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, checking, services, states
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import shape, to_json
 from iki_server.files.models import Blob, File
 from iki_server.org.services import Refused
@@ -213,6 +213,26 @@ def exercise_review(blob: Blob) -> None:
     assert current["matches_product"] is None
     assert "Needs re-verification" in current["verification_note"]
     assert "backbone" in current["verification_note"]
+
+    # A failed automatic recheck on a reopened record keeps the operator's explanation.
+    reopened = routes[0]
+    Entity.objects.filter(pk=reopened.pk).update(has_been_locked=True)
+    explanation = "Correct the reference on the reopened record"
+    with patch.object(catalog, "availability", return_value=catalog.Availability(True)):
+        saved = services.update(
+            analyst,
+            reopened,
+            {"product": str(dna.pk)},
+            expected_revision=reopened.revision,
+            reason=explanation,
+            by_run=True,
+        )
+    assert saved.revision is not None
+    diagnostic = Revision.objects.get(entity=reopened, number=saved.revision.number + 1)
+    assert (saved.revision.via, saved.revision.reason) == ("run", explanation)
+    assert (diagnostic.via, diagnostic.user, diagnostic.reason) == ("trigger", analyst, explanation)
+    assert diagnostic.changed_fields == ["verification_note"]
+    assert TriggerFiring.objects.filter(entity=reopened, state="failed", run__isnull=True).exists()
 
     with pytest.raises(PermissionDenied):
         triggers.disable(analyst, world.project, recheck, reason="Manual verification.")
@@ -439,8 +459,8 @@ def exercise_review(blob: Blob) -> None:
     with pytest.raises(services.Invalid):
         edit(qc, {"review_flow": "research", "plasmid_revision": 999})
 
-    def sign(who: str, record: Entity, target: str) -> None:
-        signed(world, who, str(record.pk), target, field="review")
+    def sign(who: str, record: Entity, target: str, reason: str = "") -> None:
+        signed(world, who, str(record.pk), target, field="review", reason=reason)
         assert states.values_of(record)["review"] == target
 
     def refused(who: str, record: Entity, target: str) -> None:
@@ -501,6 +521,7 @@ def exercise_review(blob: Blob) -> None:
     assert sorted(item["meaning"] for item in signatures) == ["approval", "authorship", "review"]
     assert all(item["verification"]["valid"] for item in signatures)
 
+    sign("viewer", qc, "recorded", "Reopen the evidence for correction")
     edit(qc, {"outcome": "discrepancy", "override_reason": None}, correction=True)
     assert states.values_of(qc)["review"] == "recorded"
     refused("admin", qc, "reviewed")
@@ -514,7 +535,7 @@ def exercise_review(blob: Blob) -> None:
     assert retained["plasmid_revision"] == qc_values["plasmid_revision"] < plasmid.revision
     assert retained["alignment_revision"] == qc_values["alignment_revision"] < alignment.revision
     original = standing(world, str(qc.pk))
-    assert {s["id"]: s["revision"] for s in original} == {
+    assert {s["id"]: s["revision"] for s in original if s["change"]["to"] != "recorded"} == {
         s["id"]: s["revision"] for s in signatures
     }
     for signature in original:

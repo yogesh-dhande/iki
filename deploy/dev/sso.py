@@ -2584,15 +2584,9 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if not review["set"]:
         fail(f"Independent review of {sample['hrid']} failed: {review}")
     path = f"/entities/{sample['id']}"
-    recorded = api_call(
-        bob,
-        "POST",
-        f"{path}/states/status",
-        {"state": "results_recorded"},
-        {"If-Match": api_call(bob, "GET", path).headers["ETag"]},
-    )
-    if recorded.status_code != 200 or not recorded.json()["locked"]:
-        fail(f"Recording {sample['hrid']} failed: {recorded.text[:300]}")
+    completed = api_call(bob, "GET", path).json()
+    if completed["values"]["status"] != "reviewed" or not completed["locked"]:
+        fail(f"Signed review did not complete and lock {sample['hrid']}")
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
@@ -2718,12 +2712,19 @@ def analysis_result(
     result_path = f"/entities/{result['hrid']}"
     requester = cli_read_token(analyst, project=asking["id"])
 
-    def submit_and_review() -> dict[str, Any]:
+    def submit_and_review(review_reason: str = "") -> dict[str, Any]:
         for session, name, state in (
             (analyst, "alice", "submitted"),
             (reviewer, "bob", "reviewed"),
         ):
-            signed = signing(session, result, state, name, field="review")
+            signed = signing(
+                session,
+                result,
+                state,
+                name,
+                field="review",
+                reason=review_reason if state == "reviewed" else "",
+            )
             if signed["status"] != "signed" or not signed["set"]:
                 fail(f"signing {result['hrid']} as {state} gave {signed}")
         return record(analyst, result["id"])
@@ -2731,13 +2732,19 @@ def analysis_result(
     first_review = submit_and_review()
     if not first_review["locked"] or bearer_call(requester, "GET", result_path).status_code != 404:
         fail(f"{result['hrid']} must be locked in the core until QA releases it")
+    reversal = signing(
+        reviewer, result, "recorded", "bob", field="review", reason="Reopen the measured purity"
+    )
+    if reversal["status"] != "signed" or not reversal["set"]:
+        fail(f"Reopening {result['hrid']} for correction failed: {reversal}")
+    reopened = record(analyst, result["id"])
     measurement["purity"] = 97.0
     edit = api_call(
         analyst,
         "PATCH",
         result_path,
         {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
-        {"If-Match": f'"{first_review["revision"]}"'},
+        {"If-Match": f'"{reopened["revision"]}"'},
     )
     if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
         fail(
@@ -2746,7 +2753,7 @@ def analysis_result(
     qa_states = record(qa, result["id"])["can"]["states"]["review"]
     if next(st for st in qa_states if st["name"] == "released")["allowed"]:
         fail(f"QA could release {result['hrid']} before the correction was reviewed")
-    reviewed = submit_and_review()
+    reviewed = submit_and_review("Reviewed the corrected measured purity")
     signed = signing(qa, result, "released", "carol", field="review")
     if signed["status"] != "signed" or not signed["set"]:
         fail(f"releasing {result['hrid']} gave {signed}")
@@ -2756,8 +2763,10 @@ def analysis_result(
     ]
     if len({s["signer"]["id"] for s in signatures}) != 3:
         fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
-    if len(signatures) != 5:
-        fail(f"{result['hrid']} must retain both signed reviews, both submissions and QA's release")
+    if len(signatures) != 6:
+        fail(
+            f"{result['hrid']} must retain both submissions, reviews, the reversal and QA's release"
+        )
     review = next(s for s in signatures if s["carried_by"] == reviewed["revision"])
     release = next(s for s in signatures if s["change"]["to"] == "released")
     receipt = bearer_call(requester, "GET", path + "/request").json()["result_releases"]

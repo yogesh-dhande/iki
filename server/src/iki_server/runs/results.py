@@ -313,6 +313,10 @@ def _updates(check: Check, given: Mapping[str, Any]) -> list[_Update]:
                 check.error(_pointer(*at, "entity"), "Each entity can be updated once.")
                 continue
             seen.add(entity)
+            if "reason" in item and item["reason"] != check.run.change_reason:
+                check.error(
+                    _pointer(*at, "reason"), "Only the operator’s launch reason may be recorded."
+                )
             for field_name in item["values"]:
                 if field_name not in declared[name]:
                     check.error(
@@ -622,6 +626,7 @@ def _write_updates(check: Check, updates: list[_Update]) -> None:
                     else update.expected_revision
                 ),
                 by_run=True,
+                reason=check.run.change_reason,
                 hold_reason=holds.run_reason(check.run),
                 acting_in=check.run.project,
             )
@@ -759,6 +764,7 @@ def update_match(
             values,
             expected_revision=entity.revision,
             by_run=True,
+            reason=check.run.change_reason,
             hold_reason=holds.run_reason(check.run),
             acting_in=check.run.project,
         )
@@ -819,7 +825,8 @@ def _write_creates(check: Check, creates: list[_Create]) -> dict[str, UUID]:
                     hold_reason=holds.run_reason(run),
                     fills=create.fills,
                     amount=receipt["amount"] if receipt else None,
-                    reason=receipt["reason"] if receipt else "",
+                    amount_reason=receipt["reason"] if receipt else None,
+                    reason=run.change_reason,
                 )
             except amounts.Wrong as error:
                 invalid(check, create.pointer, error, values="receipt")

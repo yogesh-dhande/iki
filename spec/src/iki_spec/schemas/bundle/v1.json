@@ -491,6 +491,7 @@
             }
           ]
         },
+        "has_been_locked": { "type": "boolean" },
         "archived_at": {
           "anyOf": [
             {

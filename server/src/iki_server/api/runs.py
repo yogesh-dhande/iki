@@ -355,7 +355,11 @@ class RunIn(Schema):
         description="Entity IDs for each input: one, or a list for inputs that take many.",
     )
     params: dict[str, Any] = Field(default_factory=dict)
-    reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reason: str = Field(
+        "",
+        max_length=2000,
+        description="The operator's reason. Required when changing an input whose lock was lifted.",
+    )
     reuse: bool = Field(
         True,
         description="For a deterministic action: reuse the results of an identical run that "
@@ -1271,8 +1275,9 @@ def invalid_problem(error: Invalid) -> Problem:
 def launch_run(request: HttpRequest, name: str, payload: RunIn, response: HttpResponse) -> Any:  # noqa: ANN401
     """Queue a run. Everything is checked first: your role for the action's tier, that it can
     run on this deployment, its inputs (entities you can read, of the right types, not archived,
-    and editable by you where it changes them) and its params. A run reads only what's in its
-    project: inputs from other projects need `add_to_project`."""
+    and editable by you where it changes them) and its params. Give the operator's reason if
+    an input it changes has been unlocked. Iki records that reason on the revision. Inputs from
+    other projects need `add_to_project`."""
     me = caller(request)
     action = _action(name)
     target = project(me, payload.project, services.TIER_PERMISSIONS[action.tier])
@@ -1314,7 +1319,11 @@ class RunBatchIn(Schema):
         default_factory=dict, description="Every run's other inputs, as for one run."
     )
     params: dict[str, Any] = Field(default_factory=dict, description="Every run's params.")
-    reason: str = Field("", max_length=2000, description="Why, for the record.")
+    reason: str = Field(
+        "",
+        max_length=2000,
+        description="The operator's reason. Required when changing an input whose lock was lifted.",
+    )
     reuse: bool = Field(
         True,
         description="For a deterministic action: for each run, reuse the results of an "
