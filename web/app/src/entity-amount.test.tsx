@@ -4,7 +4,7 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
@@ -619,5 +619,98 @@ describe("a record's amount", () => {
       now.updated_at,
     ]);
     expect(adjusts[1]?.body).toEqual({ amount: { value: "228", unit: "uL" }, reason: "Recount" });
+  });
+
+  it("holds Draw still while its box's map comes above it, and draws the map once it's let go", async () => {
+    const tube: Schemas["EntityTypeOut"] = {
+      ...SAMPLE,
+      storage: { holds: [], grid: null, barcode: "label", label: null, confirm: [] },
+    };
+    const box: Schemas["StepOut"] = {
+      id: "00000000-0000-7000-8000-0000000b0001",
+      hrid: "BOX-000014",
+      title: "Kinase retains",
+      type: "acme/lims.Box",
+      archived: false,
+      purged: false,
+      position: "A1",
+    };
+    onSample();
+    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
+      path: [box],
+      hidden: false,
+      stored: true,
+      position: "A1",
+      custodian: null,
+      custody_since: null,
+    });
+    answer(`GET /api/v1/entities/${SAMPLE_ID}/location/events`, page([]));
+    let release = (): void => undefined;
+    const held = new Promise<void>((done) => {
+      release = done;
+    });
+    const map: Schemas["ContainerOut"] = {
+      id: box.id,
+      hrid: box.hrid,
+      title: box.title,
+      type: box.type,
+      archived: false,
+      purged: false,
+      project: "00000000-0000-7000-8000-0000000000c1",
+      shape: { rows: 2, columns: 2, labels: "letter_number", order: "by_row", size: 4 },
+      holds: ["acme/lims.Sample"],
+      code: box.hrid,
+      location: {
+        path: [],
+        hidden: false,
+        stored: false,
+        position: null,
+        custodian: null,
+        custody_since: null,
+      },
+      contents: [
+        {
+          id: SAMPLE_ID,
+          ref: {
+            hrid: "SMP-000001",
+            title: "SMP-000001",
+            type: "acme/lims.Sample",
+            archived: false,
+            purged: false,
+          },
+          row: 1,
+          column: 1,
+          position: "A1",
+          code: "S-1",
+          custodian: null,
+          custody_since: null,
+          container: false,
+          count: 0,
+        },
+      ],
+      free: 3,
+      reconciliation: null,
+      can: { keep: true, label: true },
+    };
+    answer("GET /api/v1/storage/containers/BOX-000014", async () => {
+      await held;
+      return map;
+    });
+    await renderApp("/entities/SMP-000001/");
+    const card = await screen.findByRole("region", { name: "Volume" });
+    await screen.findByRole("navigation", { name: "Where SMP-000001 is" });
+    const positions = { name: "Kinase retains’s positions, with SMP-000001’s marked" };
+    // A finger on Draw as the map's read answers: the map, above it, waits for the release.
+    fireEvent.pointerDown(within(card).getByRole("button", { name: "Draw" }));
+    await act(async () => {
+      release();
+      await held;
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(calls("GET", "/api/v1/storage/containers/BOX-000014")).toHaveLength(1);
+    expect(screen.queryByRole("grid", positions)).not.toBeInTheDocument();
+    fireEvent.pointerUp(window);
+    expect(await screen.findByRole("grid", positions)).toBeInTheDocument();
   });
 });
