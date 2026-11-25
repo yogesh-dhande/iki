@@ -1316,7 +1316,7 @@ def strain_stocks(
     alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
 ) -> None:
     """A catalogue strain, a local transformant and the data from a scanned stock draw."""
-    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/data/atcc.csv"
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/tests/data/atcc.csv"
     file_id = upload(alice, project, "atcc.csv", catalogue.read_bytes(), "text/csv")
     imported = launch(alice, project, "iki/strains.import_base_strains", {}, {"file": file_id})
     entries = [
@@ -2834,7 +2834,7 @@ def core_facility_requests(
 ) -> None:
     """The working core returns production and sequencing deliverables through Requests."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
-    example = Path(__file__).resolve().parents[2] / "plugins" / "requests" / "examples"
+    example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
     fasta = (example / "P00330.fasta").read_text().splitlines()
     protein = created(

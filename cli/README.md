@@ -344,7 +344,11 @@ agree on what each run's code is
   packages its requirements file or lockfile pins, by hash.
 
 The worker image's Dockerfile copies `plugins/` to `/opt/iki/plugins` and
-runs the script.
+runs the script. The staged plugin files are the same files a self-hosted worker
+downloads in the server's plugin archive. Both include environment setup, runtime
+data and redistribution notices. Keep action fixtures in `tests/` and teaching
+files in `examples/` at the plugin root. Run them from the source checkout.
+[Runtime distribution](../docs/adr/0219-plugin-archives-and-worker-images-use-the-same-runtime-files.md)
 
 ```console
 $ iki --version

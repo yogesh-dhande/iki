@@ -17,6 +17,14 @@ ROOT = Path(__file__).parents[2]
 PLUGINS = ROOT / "spec" / "tests" / "plugins"
 URL = "https://git.example/acme/plugins.git"
 
+# These files travel with a lab's source checkout. Its runtime has no use for them.
+AUTHOR_INPUTS = (
+    ".github/workflows/check.yml",
+    "examples/sample.txt",
+    "tests/data/original.csv",
+    "tests/data/fixture.wasm.sha256",
+)
+
 
 def git(repo: Path, *args: str) -> str:
     return subprocess.run(  # noqa: S603 - a test's own git commands
@@ -39,6 +47,20 @@ def upstream(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Path, s
         assert main(["plugin", "makemigrations", str(repo / "plugins/dna"), "--no-input"]) == 0
         protein = ["plugin", "makemigrations", str(repo / "plugins/protein")]
         assert main([*protein, "--with", str(repo / "plugins/dna"), "--no-input"]) == 0
+    protein_dir = repo / "plugins/protein"
+    for relative in (
+        *AUTHOR_INPUTS,
+        "data/dictionary.json",
+        "data/NOTICE",
+        "lab-resources/examples/standards.csv",
+        "web/chromatogram.js",
+        "images/blank.png",
+        "setup/install.sh",
+    ):
+        path = protein_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(relative)
+    (protein_dir / "setup/install.sh").chmod(0o755)
     git(repo, "add", ".")
     git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "plugins")
     yield repo, git(repo, "rev-parse", "HEAD")
@@ -216,9 +238,23 @@ def test_builds_what_workers_need_from_the_same_commits(
     assert main([*command, "--workers", str(bundle)]) == 0
     assert f"Wrote what workers need to {bundle}." in capsys.readouterr().out
     assert sorted(p.name for p in bundle.iterdir()) == ["build-environments.sh", "plugins"]
-    # Each plugin's code, exported at its commit.
-    script = bundle / "plugins" / "acme__protein" / "scripts" / "relax.py"
-    assert script.read_bytes() == (repo / "plugins/protein/scripts/relax.py").read_bytes()
+    # The image and a worker downloading the server's archive get identical runtime files.
+    source = repo / "plugins/protein"
+    expected = set(git(repo, "ls-tree", "-r", "--name-only", f"{sha}:plugins/protein").splitlines())
+    assert set(AUTHOR_INPUTS) <= expected
+    expected -= set(AUTHOR_INPUTS)
+    staged = bundle / "plugins/acme__protein"
+    assert {
+        path.relative_to(staged).as_posix() for path in staged.rglob("*") if path.is_file()
+    } == expected
+    with tarfile.open(out / "iki_installed_plugins/bundles" / f"acme__protein-{sha}.tar.gz") as tar:
+        assert set(tar.getnames()) == expected
+        for name in sorted(expected):
+            member = tar.extractfile(name)
+            assert member is not None
+            assert member.read() == (source / name).read_bytes() == (staged / name).read_bytes()
+        assert tar.getmember("setup/install.sh").mode == 0o755
+        assert (staged / "setup/install.sh").stat().st_mode & 0o100
     manifest = json.loads((bundle / "plugins" / "plugins.json").read_text())
     requirements = (repo / "plugins/protein/requirements.txt").read_bytes()
     definition = {
@@ -258,6 +294,46 @@ def test_builds_what_workers_need_from_the_same_commits(
     (bundle / "notes.txt").write_text("mine")
     assert main([*command, "--workers", str(bundle)]) == 1
     assert "holds files a build didn't write (notes.txt)" in capsys.readouterr().err
+
+
+def test_deploy_validates_the_runtime_tree_before_emitting_artifacts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    directory = tmp_path / "lab"
+    (directory / "tests").mkdir(parents=True)
+    (directory / "environments").mkdir()
+    (directory / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/assay\nversion: 1.0.0\n"
+    )
+    (directory / "tests/requirements.txt").write_text("")
+    manifest = directory / "environments/assay.yaml"
+    manifest.write_text(
+        (PLUGINS / "protein/environments/protein-tools.yaml")
+        .read_text()
+        .replace("requirements.txt", "tests/requirements.txt")
+    )
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: acme/assay, local: lab, state: active}\n"
+    )
+    server, worker = tmp_path / "server", tmp_path / "worker"
+    assert (
+        main(
+            [
+                "deploy",
+                "build",
+                str(tmp_path),
+                "--allow-local",
+                "-o",
+                str(server),
+                "--workers",
+                str(worker),
+            ]
+        )
+        == 1
+    )
+    assert "tests/requirements.txt" in capsys.readouterr().err
+    assert not server.exists() and not worker.exists()
 
 
 def test_git_cant_be_sent_to_other_transports(

@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from api_client import Api
 from django.core.exceptions import PermissionDenied
-from first_party_dependencies import PLUGINS, build_order
+from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
@@ -29,7 +29,7 @@ from iki_server.storage.models import ReceiptStatus
 __all__ = ["database"]
 
 PLUGIN = PLUGINS / "requests"
-EXAMPLES = PLUGIN / "examples"
+EXAMPLES = ROOT / "examples" / "core-facility-requests"
 REQUESTS = "iki/requests."
 PLAIN = REQUESTS + "PlainRequest"
 RESEARCH = REQUESTS + "ResearchRequest"
