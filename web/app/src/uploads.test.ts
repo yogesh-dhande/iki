@@ -132,6 +132,16 @@ describe("uploading", () => {
     expect(new Set(seen)).toEqual(new Set(["hashing", "sending", "checking"]));
   });
 
+  it("reports when the upload finished and the file is no longer readable", async () => {
+    answer("POST /api/v1/uploads", respond(201, started()));
+    answer("POST /api/v1/uploads/" + UPLOAD_ID + "/complete", respond(202, { state: "checking" }));
+    answer("GET /api/v1/uploads/" + UPLOAD_ID, { state: "ready", file: null, error: "" });
+    const file = new File(["0123456789"], "plate.csv", { type: "text/csv" });
+    await expect(upload(file, PROJECT_ID, () => undefined)).rejects.toThrow(
+      "The upload finished. You no longer have access to the file.",
+    );
+  });
+
   it("gives up on a part after a few tries, saying why", async () => {
     answer("POST /api/v1/uploads", respond(201, started()));
     FakeStorage.answers = [500, 500, 500, 500, 500, 500, 500, 500];

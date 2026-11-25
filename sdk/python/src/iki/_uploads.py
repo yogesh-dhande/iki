@@ -18,7 +18,7 @@ import httpx2
 
 from iki.client import Client, _path, _retry_after
 from iki.errors import Forbidden, IkiError, TimedOut
-from iki.schema import FileOut, PartOut, RegistrationOut, StartedOut, UploadOut
+from iki.schema import FileOut, PartOut, RegistrationStatusOut, StartedOut, UploadStatusOut
 
 _CHUNK = 1024 * 1024
 
@@ -88,7 +88,7 @@ def upload(
             ) from None
 
         path = _path("/uploads/{id}", id=started["id"])
-        status: UploadOut = started
+        status: UploadStatusOut = started
         if started["state"] == "pending":
             try:
                 _send_parts(client, path, started, spool or source, start)
@@ -97,7 +97,7 @@ def upload(
                 with suppress(IkiError, httpx2.HTTPError):
                     client.request("DELETE", path)
                 raise
-            status = cast(UploadOut, client.request("POST", path + "/complete"))
+            status = cast(UploadStatusOut, client.request("POST", path + "/complete"))
 
     file = wait_for_file(client, path, status, name, "upload", timeout, poll)
     if (file["sha256"], file["size"]) != (sha256, size):
@@ -108,7 +108,7 @@ def upload(
 def wait_for_file(
     client: Client,
     path: str,
-    status: UploadOut | RegistrationOut,
+    status: UploadStatusOut | RegistrationStatusOut,
     name: str,
     operation: Literal["upload", "registration"],
     timeout: float | None,
@@ -124,12 +124,16 @@ def wait_for_file(
                 raise TimedOut(f"Iki is still checking {name} after {timeout} s. See {path}.")
             delay = min(delay, remaining)
         client._sleep(delay)
-        status = cast(UploadOut | RegistrationOut, client.request("GET", path))
+        status = cast(UploadStatusOut | RegistrationStatusOut, client.request("GET", path))
 
-    file = status["file"]
-    if status["state"] != "ready" or file is None:
+    if status["state"] != "ready":
         reason = status["error"] or "Iki did not issue a file record."
         raise IkiError(f"The {operation} of {name} ended in state {status['state']}. {reason}")
+    file = status["file"]
+    if file is None:
+        raise IkiError(
+            f"The {operation} of {name} finished. You no longer have access to the file."
+        )
     return file
 
 

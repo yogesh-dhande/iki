@@ -12278,10 +12278,10 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[RegistrationOut] */
+        /** Page_RegistrationOut_ */
         Page_RegistrationOut_: {
             /** Items */
-            items: components["schemas"]["RegistrationOut"][];
+            items: (components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"])[];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -12418,10 +12418,10 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[UploadOut] */
+        /** Page_UploadOut_ */
         Page_UploadOut_: {
             /** Items */
-            items: components["schemas"]["UploadOut"][];
+            items: (components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"])[];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -14054,10 +14054,10 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -14070,9 +14070,9 @@ export interface components {
             name: string;
             /**
              * Project
-             * Format: uuid
+             * @description Where it was added. Null if you can't see it.
              */
-            project: string;
+            project: string | null;
             /** Size */
             size: number;
             /**
@@ -14087,6 +14087,34 @@ export interface components {
              * @description The object version the file is pinned to.
              */
             version: string;
+        };
+        /**
+         * RegistrationStatusOut
+         * @description Your job status when the file is outside your current access.
+         */
+        RegistrationStatusOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed, if you can still read the details.
+             */
+            error: string;
+            /** @description The file it became, once ready and readable. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "checking" | "ready" | "failed";
         };
         /** RegistryCan */
         RegistryCan: {
@@ -17564,7 +17592,7 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
             /**
@@ -17573,7 +17601,7 @@ export interface components {
              * @description Unfinished then, it's cancelled.
              */
             expires_at: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -18708,7 +18736,7 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
             /**
@@ -18717,7 +18745,7 @@ export interface components {
              * @description Unfinished then, it's cancelled.
              */
             expires_at: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -18734,13 +18762,47 @@ export interface components {
             part_size: number;
             /**
              * Project
-             * Format: uuid
+             * @description Where it was added. Null if you can't see it.
              */
-            project: string;
+            project: string | null;
             /** Sha256 */
             sha256: string;
             /** Size */
             size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+        };
+        /**
+         * UploadStatusOut
+         * @description Your job status when the file is outside your current access.
+         */
+        UploadStatusOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed, if you can still read the details.
+             */
+            error: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description Unfinished then, it's cancelled.
+             */
+            expires_at: string;
+            /** @description The file it became, once ready and readable. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /**
              * State
              * @enum {string}
@@ -24944,7 +25006,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrationOut"];
+                    "application/json": components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"];
                 };
             };
         };
@@ -26750,7 +26812,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
         };
@@ -26792,7 +26854,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
             /** @description Accepted */
@@ -26801,7 +26863,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
         };

@@ -12,9 +12,11 @@ from org_world import World, build_world
 from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import services as entities
 from iki_server.files import services, storage
 from iki_server.files.models import Blob, File, Upload
 from iki_server.oauth.models import Consent
+from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.tasks.runner import Runner
 
 pytestmark = pytest.mark.django_db
@@ -251,6 +253,41 @@ def test_uploads_are_their_makers_and_files_their_projects(world: World, s3: Any
     assert [f["id"] for f in listed["items"]] == [file_id]
     problem(start(api_as(world, "viewer"), world, PDB), 403, "forbidden")
     problem(start(api_as(world, "outsider"), world, PDB), 404, "not_found")
+
+
+def test_upload_history_follows_current_project_and_file_access(world: World, s3: Any) -> None:
+    api = api_as(world)
+    pending = start(api, world, PDB).json()
+    private = start(api, world, b"", name="private.pdb").json()
+    shared = start(api, world, b"", name="shared.pdb").json()
+
+    editor = world.users["editor"]
+    other = Project.objects.create(team=world.team, name="Structures")
+    ProjectMembership.objects.create(user=editor, project=other, role=ProjectRole.EDITOR)
+    entities.create(
+        editor, "acme/protein.ProteinStructure", other, {"structure": shared["file"]["id"]}
+    )
+    ProjectMembership.objects.filter(user=editor, project=world.project).delete()
+
+    listed = {u["id"]: u for u in api.get("/uploads").json()["items"]}
+    for job in (pending, private):
+        status = api.get(f"/uploads/{job['id']}").json()
+        assert (
+            status
+            == listed[job["id"]]
+            == {
+                "id": job["id"],
+                "state": job["state"],
+                "created_at": job["created_at"],
+                "expires_at": job["expires_at"],
+                "file": None,
+                "error": "",
+            }
+        )
+    readable = api.get(f"/uploads/{shared['id']}").json()
+    assert readable == listed[shared["id"]]
+    assert readable["name"] == "shared.pdb" and readable["file"]["id"] == shared["file"]["id"]
+    assert readable["project"] is None and readable["file"]["project"] is None
 
 
 def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(

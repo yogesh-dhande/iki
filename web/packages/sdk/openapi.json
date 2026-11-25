@@ -14509,7 +14509,14 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/RegistrationOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                },
+                {
+                  "$ref": "#/components/schemas/RegistrationStatusOut"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -14531,7 +14538,7 @@
           "items",
           "next_cursor"
         ],
-        "title": "Page[RegistrationOut]",
+        "title": "Page_RegistrationOut_",
         "type": "object"
       },
       "Page_RegistryEntryOut_": {
@@ -14915,7 +14922,14 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/UploadOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/UploadOut"
+                },
+                {
+                  "$ref": "#/components/schemas/UploadStatusOut"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -14937,7 +14951,7 @@
           "items",
           "next_cursor"
         ],
-        "title": "Page[UploadOut]",
+        "title": "Page_UploadOut_",
         "type": "object"
       },
       "Page_UserOut_": {
@@ -18852,7 +18866,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -18865,7 +18879,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -18881,9 +18895,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it.",
+            "title": "Project"
           },
           "size": {
             "title": "Size",
@@ -18910,18 +18932,67 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "uri",
           "version",
-          "size",
-          "state",
-          "file",
-          "error",
-          "created_at"
+          "size"
         ],
         "title": "RegistrationOut",
+        "type": "object"
+      },
+      "RegistrationStatusOut": {
+        "description": "Your job status when the file is outside your current access.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed, if you can still read the details.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it became, once ready and readable."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "checking",
+              "ready",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "created_at",
+          "file",
+          "error"
+        ],
+        "title": "RegistrationStatusOut",
         "type": "object"
       },
       "RegistryCan": {
@@ -26593,7 +26664,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -26612,7 +26683,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -26671,18 +26742,18 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "size",
           "sha256",
-          "state",
           "part_size",
           "part_count",
-          "file",
-          "error",
-          "created_at",
-          "expires_at",
           "parts"
         ],
         "title": "StartedOut",
@@ -28873,7 +28944,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -28892,7 +28963,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -28916,9 +28987,17 @@
             "type": "integer"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it.",
+            "title": "Project"
           },
           "sha256": {
             "title": "Sha256",
@@ -28943,20 +29022,79 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "size",
           "sha256",
-          "state",
           "part_size",
-          "part_count",
-          "file",
-          "error",
-          "created_at",
-          "expires_at"
+          "part_count"
         ],
         "title": "UploadOut",
+        "type": "object"
+      },
+      "UploadStatusOut": {
+        "description": "Your job status when the file is outside your current access.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed, if you can still read the details.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unfinished then, it's cancelled.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it became, once ready and readable."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "checking",
+              "ready",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error"
+        ],
+        "title": "UploadStatusOut",
         "type": "object"
       },
       "UsedByCountOut": {
@@ -43881,7 +44019,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RegistrationOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RegistrationStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47853,7 +47999,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47895,7 +48049,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47905,7 +48067,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },

@@ -261,7 +261,10 @@ async function finished(uploadId: string, signal: AbortSignal | undefined): Prom
         params: { path: { upload_id: uploadId } },
       }),
     );
-    if (current.state === "ready" && current.file) return current.file;
+    if (current.state === "ready") {
+      if (current.file) return current.file;
+      throw new UploadFailed("The upload finished. You no longer have access to the file.");
+    }
     if (current.state !== "checking" && current.state !== "pending") {
       throw new UploadFailed(current.error || `The upload ${current.state}.`);
     }

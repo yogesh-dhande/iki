@@ -16,6 +16,7 @@ SHA-256, then the registration is ``ready``, with its ``file``.
 ``registration.finished`` arrives on ``/events``.
 """
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -45,6 +46,7 @@ from iki_server.files.models import (
     UploadState,
 )
 from iki_server.org import permissions
+from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 
@@ -179,23 +181,34 @@ class PartOut(Schema):
     url: str = Field(description="PUT the part's bytes here. It works for an hour.")
 
 
-class UploadOut(Schema):
+class UploadStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
+    created_at: datetime
+    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class UploadOut(UploadStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     size: int
     sha256: str
-    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
     part_size: int
     part_count: int
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
-    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+
+
+# Preserve the published OpenAPI component name as the items gain a status-only form.
+class Page_UploadOut_(Page[UploadOut | UploadStatusOut]):  # noqa: N801
+    pass
 
 
 class StartedOut(UploadOut):
+    project: UUID
     parts: list[PartOut] = Field(description="Every part, with where to send it.")
 
 
@@ -241,18 +254,27 @@ class RegistrationIn(Schema):
     )
 
 
-class RegistrationOut(Schema):
+class RegistrationStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["checking", "ready", "failed"]
+    created_at: datetime
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class RegistrationOut(RegistrationStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     uri: str
     version: str = Field(description="The object version the file is pinned to.")
     size: int
-    state: Literal["checking", "ready", "failed"]
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
+
+
+class Page_RegistrationOut_(Page[RegistrationOut | RegistrationStatusOut]):  # noqa: N801
+    pass
 
 
 class LocationsOut(Schema):
@@ -350,48 +372,54 @@ def _acquired_out(f: File) -> dict[str, Any] | None:
     }
 
 
-def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
-    file = None
-    if upload.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(pk=upload.file_id)
-        file = _file_out(user, [found])[0]
-    return {
-        "id": upload.pk,
-        "project": upload.project_id,
-        "name": upload.name,
-        "media_type": upload.media_type,
-        "size": upload.size,
-        "sha256": upload.sha256,
-        "state": upload.state,
-        "part_size": upload.part_size,
-        "part_count": storage.part_count(upload.size, upload.part_size),
-        "file": file,
-        "error": upload.error,
-        "created_at": upload.created_at,
-        "expires_at": upload.expires_at,
-    }
-
-
-def _registration_out(user: User, registration: Registration) -> dict[str, Any]:
-    file = None
-    if registration.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(
-            pk=registration.file_id
-        )
-        file = _file_out(user, [found])[0]
-    return {
-        "id": registration.pk,
-        "project": registration.project_id,
-        "name": registration.name,
-        "media_type": registration.media_type,
-        "uri": registration.storage_uri,
-        "version": registration.object_version,
-        "size": registration.size,
-        "state": registration.state,
-        "file": file,
-        "error": registration.error,
-        "created_at": registration.created_at,
-    }
+def _job_statuses(
+    user: User, jobs: Sequence[Upload | Registration], *, created_in: Project | None = None
+) -> list[dict[str, Any]]:
+    """The maker keeps the status. Details follow the file, or its project until it exists."""
+    files = services.readable(user).filter(pk__in={job.file_id for job in jobs if job.file_id})
+    file_rows = _file_out(user, list(files.select_related("blob", "created_by", "agent")))
+    by_file = {f["id"]: f for f in file_rows}
+    before_file = {job.project_id for job in jobs if job.file_id is None}
+    readable_projects = set(
+        access.readable_projects(user).filter(pk__in=before_file).values_list("pk", flat=True)
+    )
+    # Starting a job already authorized adding the file in this project on this request.
+    # Polls and history always use current read access, including access through a record.
+    rows = []
+    for job in jobs:
+        file = by_file.get(job.file_id)
+        row = {
+            "id": job.pk,
+            "state": job.state,
+            "created_at": job.created_at,
+            "file": file,
+            "error": "",
+        }
+        if isinstance(job, Upload):
+            row["expires_at"] = job.expires_at
+        just_created = created_in is not None and job.project_id == created_in.pk
+        if (
+            just_created
+            or file is not None
+            or (job.file_id is None and job.project_id in readable_projects)
+        ):
+            row.update(
+                project=job.project_id if just_created or file is None or file["project"] else None,
+                name=job.name,
+                media_type=job.media_type,
+                size=job.size,
+                error=job.error,
+            )
+            if isinstance(job, Upload):
+                row.update(
+                    sha256=job.sha256,
+                    part_size=job.part_size,
+                    part_count=storage.part_count(job.size, job.part_size),
+                )
+            else:
+                row.update(uri=job.storage_uri, version=job.object_version)
+        rows.append(row)
+    return rows
 
 
 def _invalid(error: Refused) -> Exception:
@@ -448,24 +476,27 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
     except Refused as error:
         raise _invalid(error) from None
     upload.refresh_from_db()
+    status = _job_statuses(me, [upload], created_in=target)[0]
     parts = services.parts(upload) if upload.state == UploadState.PENDING else []
-    return Status(201, {**_upload_out(me, upload), "parts": parts})
+    return Status(201, {**status, "parts": parts})
 
 
-@router.get("/uploads", response=Page[UploadOut], summary="Your uploads")
+@router.get("/uploads", response=Page_UploadOut_, summary="Your uploads")
 def list_uploads(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     mine = Upload.objects.filter(created_by=me, kind=UploadKind.FILE)
     result = page(mine, params, newest_first=True)
-    result["items"] = [_upload_out(me, u) for u in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
-@router.get("/uploads/{upload_id}", response=UploadOut, summary="One of your uploads")
+@router.get(
+    "/uploads/{upload_id}", response=UploadOut | UploadStatusOut, summary="One of your uploads"
+)
 def get_upload(request: HttpRequest, upload_id: UUID) -> dict[str, Any]:
     me = caller(request)
-    return _upload_out(me, _upload(me, upload_id))
+    return _job_statuses(me, [_upload(me, upload_id)])[0]
 
 
 @router.post(
@@ -480,7 +511,7 @@ def sign_parts(request: HttpRequest, upload_id: UUID, payload: PartsIn) -> list[
 
 @router.post(
     "/uploads/{upload_id}/complete",
-    response={202: UploadOut, 200: UploadOut},
+    response={202: UploadOut | UploadStatusOut, 200: UploadOut | UploadStatusOut},
     summary="Finish an upload",
 )
 def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, Any]]:
@@ -489,7 +520,9 @@ def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, A
     me = caller(request)
     _storage()
     upload = services.complete(_upload(me, upload_id))
-    return Status(202 if upload.state == UploadState.CHECKING else 200, _upload_out(me, upload))
+    return Status(
+        202 if upload.state == UploadState.CHECKING else 200, _job_statuses(me, [upload])[0]
+    )
 
 
 @router.delete("/uploads/{upload_id}", response={204: None}, summary="Cancel an upload")
@@ -539,21 +572,25 @@ def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[
         raise _invalid(error) from None
     registration.refresh_from_db()
     ready = registration.state == RegistrationState.READY
-    return Status(201 if ready else 202, _registration_out(me, registration))
+    return Status(201 if ready else 202, _job_statuses(me, [registration], created_in=target)[0])
 
 
-@router.get("/registrations", response=Page[RegistrationOut], summary="Your registrations")
+@router.get(
+    "/registrations",
+    response=Page_RegistrationOut_,
+    summary="Your registrations",
+)
 def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     result = page(Registration.objects.filter(created_by=me), params, newest_first=True)
-    result["items"] = [_registration_out(me, r) for r in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
 @router.get(
     "/registrations/{registration_id}",
-    response=RegistrationOut,
+    response=RegistrationOut | RegistrationStatusOut,
     summary="One of your registrations",
 )
 def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, Any]:
@@ -561,7 +598,7 @@ def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, A
     found = Registration.objects.filter(pk=registration_id, created_by=me).first()
     if found is None:
         raise Problem(404, "No such registration of yours.")
-    return _registration_out(me, found)
+    return _job_statuses(me, [found])[0]
 
 
 # --- Files ---------------------------------------------------------------------------------------

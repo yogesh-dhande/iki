@@ -901,6 +901,15 @@ def offer_one_part(fake: FakeIki) -> None:
     )
 
 
+def test_a_finished_upload_reports_lost_file_access(fake: FakeIki, client: Client) -> None:
+    offer_one_part(fake)
+    fake.on("PUT", "/staging/u1", httpx2.Response(200))
+    fake.on("POST", "/api/v1/uploads/u1/complete", {"state": "checking"})
+    fake.on("GET", "/api/v1/uploads/u1", {"state": "ready", "file": None, "error": ""})
+    with pytest.raises(iki.IkiError, match=r"finished.*no longer have access"):
+        client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.bin")
+
+
 def test_a_failed_part_is_retried_then_cancelled(fake: FakeIki, client: Client) -> None:
     offer_one_part(fake)
     fake.on("PUT", "/staging/u1", httpx2.Response(503))
