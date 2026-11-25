@@ -26,11 +26,7 @@
               "name": "recorded",
               "label": "Recorded",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.analyst",
-                "iki/lab_roles.reviewer",
-                "iki/lab_roles.qa"
-              ],
+              "set_by": ["iki/lab_roles.analyst", "iki/lab_roles.reviewer", "iki/lab_roles.qa"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -50,9 +46,7 @@
               "name": "submitted",
               "label": "Submitted",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.analyst"
-              ],
+              "set_by": ["iki/lab_roles.analyst"],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -136,9 +130,7 @@
                   "verb": "Authored",
                   "label": "Authorship",
                   "statement": "I recorded this deliverable and its evidence.",
-                  "roles": [
-                    "iki/lab_roles.analyst"
-                  ]
+                  "roles": ["iki/lab_roles.analyst"]
                 }
               ]
             },
@@ -146,9 +138,7 @@
               "name": "reviewed",
               "label": "Reviewed",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.reviewer"
-              ],
+              "set_by": ["iki/lab_roles.reviewer"],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -197,9 +187,7 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I reviewed the delivery report, outcome, and supporting evidence.",
-                  "roles": [
-                    "iki/lab_roles.reviewer"
-                  ]
+                  "roles": ["iki/lab_roles.reviewer"]
                 }
               ]
             },
@@ -207,9 +195,7 @@
               "name": "released",
               "label": "Released",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.qa"
-              ],
+              "set_by": ["iki/lab_roles.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -258,9 +244,7 @@
                   "verb": "Approved",
                   "label": "QA release",
                   "statement": "I release the independently reviewed deliverable to the requesting project.",
-                  "roles": [
-                    "iki/lab_roles.qa"
-                  ]
+                  "roles": ["iki/lab_roles.qa"]
                 }
               ]
             }
@@ -308,9 +292,7 @@
               "name": "open",
               "label": "Open",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.coordinator"
-              ],
+              "set_by": ["iki/lab_roles.coordinator"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -322,9 +304,7 @@
               "name": "withdrawn",
               "label": "Withdrawn",
               "description": "The project no longer needs it; the service stops work on it.",
-              "set_by": [
-                "iki/lab_roles.coordinator"
-              ],
+              "set_by": ["iki/lab_roles.coordinator"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -355,9 +335,7 @@
               "name": "submitted",
               "label": "Submitted",
               "description": "Sent, and waiting for the service.",
-              "set_by": [
-                "iki/lab_roles.coordinator"
-              ],
+              "set_by": ["iki/lab_roles.coordinator"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -369,9 +347,7 @@
               "name": "accepted",
               "label": "Accepted",
               "description": "The service will do it, and schedules it.",
-              "set_by": [
-                "iki/lab_roles.coordinator"
-              ],
+              "set_by": ["iki/lab_roles.coordinator"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -383,9 +359,7 @@
               "name": "in_progress",
               "label": "In progress",
               "description": "Its assignee is doing the requested work.",
-              "set_by": [
-                "iki/lab_roles.analyst"
-              ],
+              "set_by": ["iki/lab_roles.analyst"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -397,10 +371,7 @@
               "name": "delivered",
               "label": "Delivered",
               "description": "Its results are released back to the project that asked.",
-              "set_by": [
-                "iki/lab_roles.reviewer",
-                "iki/lab_roles.qa"
-              ],
+              "set_by": ["iki/lab_roles.reviewer", "iki/lab_roles.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -412,9 +383,7 @@
               "name": "declined",
               "label": "Declined",
               "description": "The service won't do it, and says why.",
-              "set_by": [
-                "iki/lab_roles.coordinator"
-              ],
+              "set_by": ["iki/lab_roles.coordinator"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -553,10 +522,7 @@
               "name": "received",
               "label": "Received",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.coordinator",
-                "iki/lab_roles.analyst"
-              ],
+              "set_by": ["iki/lab_roles.coordinator", "iki/lab_roles.analyst"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -576,9 +542,7 @@
               "name": "in_testing",
               "label": "In testing",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.analyst"
-              ],
+              "set_by": ["iki/lab_roles.analyst"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -598,9 +562,7 @@
               "name": "in_review",
               "label": "In review",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.analyst"
-              ],
+              "set_by": ["iki/lab_roles.analyst"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -621,9 +583,7 @@
                   "verb": "Authored",
                   "label": "Authorship",
                   "statement": "I recorded these measurements as observed.",
-                  "roles": [
-                    "iki/lab_roles.analyst"
-                  ]
+                  "roles": ["iki/lab_roles.analyst"]
                 }
               ]
             },
@@ -631,9 +591,7 @@
               "name": "reviewed",
               "label": "Reviewed",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.reviewer"
-              ],
+              "set_by": ["iki/lab_roles.reviewer"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -661,9 +619,7 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I reviewed this record and found it in order.",
-                  "roles": [
-                    "iki/lab_roles.reviewer"
-                  ]
+                  "roles": ["iki/lab_roles.reviewer"]
                 }
               ]
             },
@@ -671,9 +627,7 @@
               "name": "results_recorded",
               "label": "Results recorded",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.reviewer"
-              ],
+              "set_by": ["iki/lab_roles.reviewer"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -693,9 +647,7 @@
               "name": "retesting",
               "label": "Returned to testing",
               "description": null,
-              "set_by": [
-                "iki/lab_roles.reviewer"
-              ],
+              "set_by": ["iki/lab_roles.reviewer"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -716,9 +668,7 @@
                   "verb": "Signed off",
                   "label": "Responsibility",
                   "statement": "I return these measurements to testing for the reason recorded.",
-                  "roles": [
-                    "iki/lab_roles.reviewer"
-                  ]
+                  "roles": ["iki/lab_roles.reviewer"]
                 }
               ]
             }
@@ -786,9 +736,7 @@
               "name": "quarantined",
               "label": "Quarantined",
               "description": "Made or received, and not yet released. It can be drawn from to be tested.",
-              "set_by": [
-                "iki/lots.qa"
-              ],
+              "set_by": ["iki/lots.qa"],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -808,9 +756,7 @@
               "name": "released",
               "label": "Released",
               "description": "QA released it for use. Its values can't change while it's released.",
-              "set_by": [
-                "iki/lots.qa"
-              ],
+              "set_by": ["iki/lots.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -880,9 +826,7 @@
                   "verb": "Approved",
                   "label": "QA release",
                   "statement": "I release this lot for use: its records and certificate of analysis meet its specification.",
-                  "roles": [
-                    "iki/lots.qa"
-                  ]
+                  "roles": ["iki/lots.qa"]
                 }
               ]
             },
@@ -890,9 +834,7 @@
               "name": "on_hold",
               "label": "On hold",
               "description": "Kept from use while something is looked into, such as a deviation or a result out of its specification.",
-              "set_by": [
-                "iki/lots.qa"
-              ],
+              "set_by": ["iki/lots.qa"],
               "locks": false,
               "on_edit": null,
               "holds_amount": true,
@@ -912,9 +854,7 @@
               "name": "rejected",
               "label": "Rejected",
               "description": "It doesn't meet its specification. It's kept, with its records, but not used.",
-              "set_by": [
-                "iki/lots.qa"
-              ],
+              "set_by": ["iki/lots.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -927,9 +867,7 @@
                   "verb": "Signed off",
                   "label": "QA rejection",
                   "statement": "I reject this lot; it isn't to be used.",
-                  "roles": [
-                    "iki/lots.qa"
-                  ]
+                  "roles": ["iki/lots.qa"]
                 }
               ]
             },
@@ -937,9 +875,7 @@
               "name": "expired",
               "label": "Expired",
               "description": "Past its expiry or retest date. It's kept, but not used.",
-              "set_by": [
-                "iki/lots.qa"
-              ],
+              "set_by": ["iki/lots.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -1056,9 +992,7 @@
               "name": "signed",
               "label": "Signed off",
               "description": null,
-              "set_by": [
-                "iki/plate_assays.reviewer"
-              ],
+              "set_by": ["iki/plate_assays.reviewer"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -1079,9 +1013,7 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I checked the measurements, exclusions and reported fit.",
-                  "roles": [
-                    "iki/plate_assays.reviewer"
-                  ]
+                  "roles": ["iki/plate_assays.reviewer"]
                 }
               ]
             }
@@ -1133,9 +1065,7 @@
               "name": "submitted",
               "label": "Submitted",
               "description": null,
-              "set_by": [
-                "iki/plate_assays.analyst"
-              ],
+              "set_by": ["iki/plate_assays.analyst"],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -1156,9 +1086,7 @@
                   "verb": "Authored",
                   "label": "Authorship",
                   "statement": "I made this record, and what it says is accurate and complete.",
-                  "roles": [
-                    "iki/plate_assays.analyst"
-                  ]
+                  "roles": ["iki/plate_assays.analyst"]
                 }
               ]
             },
@@ -1166,9 +1094,7 @@
               "name": "reviewed",
               "label": "Independently reviewed",
               "description": null,
-              "set_by": [
-                "iki/plate_assays.reviewer"
-              ],
+              "set_by": ["iki/plate_assays.reviewer"],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -1196,9 +1122,7 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I reviewed this record and found it in order.",
-                  "roles": [
-                    "iki/plate_assays.reviewer"
-                  ]
+                  "roles": ["iki/plate_assays.reviewer"]
                 }
               ]
             },
@@ -1206,9 +1130,7 @@
               "name": "released",
               "label": "QA released",
               "description": null,
-              "set_by": [
-                "iki/plate_assays.qa"
-              ],
+              "set_by": ["iki/plate_assays.qa"],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -1236,9 +1158,7 @@
                   "verb": "Approved",
                   "label": "QA release",
                   "statement": "I approve this record.",
-                  "roles": [
-                    "iki/plate_assays.qa"
-                  ]
+                  "roles": ["iki/plate_assays.qa"]
                 }
               ]
             }
