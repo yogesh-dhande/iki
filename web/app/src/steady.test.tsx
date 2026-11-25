@@ -16,7 +16,7 @@ import { useState, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import { required, useForm } from "./forms";
-import { useSteady } from "./steady";
+import { useSteady, useSteadyBlock } from "./steady";
 import { Button, MessagesProvider, ProblemAlert, TextField, useMessages } from "./ui";
 
 /** Lets go of the press, and waits for the task after, where what was held is drawn. */
@@ -59,6 +59,49 @@ describe("useSteady", () => {
       await new Promise((resolve) => setTimeout(resolve));
     });
     expect(screen.getByText("Saved.")).toBeVisible();
+  });
+});
+
+function Block({ count }: { count: number }) {
+  const [shown, onPointerDown] = useSteadyBlock(<p>{`${String(count)} still to check`}</p>);
+  return (
+    <>
+      <section aria-label="Held" onPointerDown={onPointerDown}>
+        {shown}
+      </section>
+      <button type="button">Elsewhere</button>
+    </>
+  );
+}
+
+describe("useSteadyBlock", () => {
+  it("draws a block as it was while a press on it is on, and as it comes once it's let go", async () => {
+    const { rerender } = render(<Block count={3} />);
+    fireEvent.pointerDown(screen.getByText("3 still to check"));
+    rerender(<Block count={2} />);
+    expect(screen.getByText("3 still to check")).toBeVisible();
+    // Let go: the click it makes lands first, on the block as it was.
+    fireEvent.pointerUp(window);
+    expect(screen.getByText("3 still to check")).toBeVisible();
+    await letGo();
+    expect(screen.getByText("2 still to check")).toBeVisible();
+  });
+
+  it("draws it as it comes while a press elsewhere is on", async () => {
+    const { rerender } = render(<Block count={3} />);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Elsewhere" }));
+    rerender(<Block count={2} />);
+    expect(screen.getByText("2 still to check")).toBeVisible();
+    await letGo();
+    // A press on it that the window loses is let go too.
+    fireEvent.pointerDown(screen.getByText("2 still to check"));
+    rerender(<Block count={1} />);
+    expect(screen.getByText("2 still to check")).toBeVisible();
+    fireEvent.blur(window);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve));
+    });
+    expect(screen.getByText("1 still to check")).toBeVisible();
   });
 });
 

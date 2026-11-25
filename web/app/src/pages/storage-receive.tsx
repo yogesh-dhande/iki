@@ -28,6 +28,7 @@ import {
   StaleNote,
   type StaleItem,
 } from "../observations";
+import { useSteadyBlock } from "../steady";
 import {
   affectedLines,
   isScanConflict,
@@ -1045,149 +1046,157 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   };
   const restoring = restorable ? receipt.removed_lines.find((l) => l.id === restorable) : undefined;
   const handoffChanged = by.trim() !== receipt.handed_over_by || note.trim() !== receipt.note;
-  return (
+  // The checklist, drawn as it was while a press is on any of the receipt's cards: another
+  // line's save or scan answered, or a colleague's change read, is drawn once it's let go,
+  // so nothing moves under the press. The cards below it hold still with it.
+  const [checklist, press] = useSteadyBlock(
     <>
-      <section className="card" aria-labelledby="receipt-title">
-        <div className="section-head">
-          <h2 className="section-title" id="receipt-title">
-            What’s expected
-          </h2>
-          <p className="muted">
-            Started by {personName(receipt.started_by)} <Time value={receipt.started_at} />.{" "}
-            {unchecked ? `${String(unchecked)} still to check.` : "All checked."}
-          </p>
-        </div>
-        <ScanBar
-          label="Scan each tube"
-          help="Each scanned is matched; one that isn’t expected is added as extra."
-          // Never busy: the next tube can be scanned before the last one's answer is back.
-          disabled={!!asking}
-          onScan={(code) => {
-            scanned({ code });
+      <div className="section-head">
+        <h2 className="section-title" id="receipt-title">
+          What’s expected
+        </h2>
+        <p className="muted">
+          Started by {personName(receipt.started_by)} <Time value={receipt.started_at} />.{" "}
+          {unchecked ? `${String(unchecked)} still to check.` : "All checked."}
+        </p>
+      </div>
+      <ScanBar
+        label="Scan each tube"
+        help="Each scanned is matched; one that isn’t expected is added as extra."
+        // Never busy: the next tube can be scanned before the last one's answer is back.
+        disabled={!!asking}
+        onScan={(code) => {
+          scanned({ code });
+        }}
+      />
+      {refused ? <ScanRefusedNote mode={refused} /> : null}
+      {choosing ? (
+        <ScanChooser
+          code={choosing.code}
+          candidates={choosing.candidates}
+          busy={scan.isPending}
+          onChoose={(c) => {
+            scanned({ code: choosing.code, choice: c.id });
+          }}
+          onCancel={() => {
+            setChoosing(null);
+            setHeard("Nothing was recorded for that scan.");
           }}
         />
-        {refused ? <ScanRefusedNote mode={refused} /> : null}
-        {choosing ? (
-          <ScanChooser
-            code={choosing.code}
-            candidates={choosing.candidates}
-            busy={scan.isPending}
-            onChoose={(c) => {
-              scanned({ code: choosing.code, choice: c.id });
+      ) : null}
+      <IkiIdEntry
+        open={refused !== null}
+        disabled={!!asking}
+        onEnter={(hrid) => {
+          scanned({ code: hrid, mode: "iki_id" });
+        }}
+      />
+      <p className="scan-heard" role="status" aria-live="polite">
+        {heard}
+      </p>
+      {restoring ? (
+        <div className="actions scan-follow">
+          <Button
+            onClick={() => {
+              change({ do: "restore", line: restoring.id });
             }}
-            onCancel={() => {
-              setChoosing(null);
-              setHeard("Nothing was recorded for that scan.");
+          >
+            {`Restore ${shortName(restoring)}`}
+          </Button>
+        </div>
+      ) : null}
+      <ProblemAlert problem={lineProblem ? problemOf(lineProblem) : undefined} />
+      <ol className="receive-list" aria-label="Checklist">
+        {receipt.lines.map((line) => (
+          <ReceiveLine
+            key={line.id}
+            receipt={id}
+            line={line}
+            last={line.id === lastLine}
+            error={errors[`lines/${line.id}`]}
+            stale={
+              lineStale?.line === line.id ? (
+                <StaleNote changes={lineStale.changes} what={shortName(line)} />
+              ) : null
+            }
+            busy={
+              (check.isPending && check.variables.line === line.id) ||
+              (fixing.isPending &&
+                "line" in fixing.variables.fix &&
+                fixing.variables.fix.line === line.id)
+            }
+            onCheck={(outcome, text) => {
+              if (line.note && text.trim() !== line.note) {
+                change({ do: "outcome", line: line.id, outcome, note: text });
+                return;
+              }
+              check.mutate(
+                { line: line.id, outcome, note: text },
+                {
+                  onSettled: begin(`${shortName(line)}’s outcome`),
+                  onSuccess: (done) => {
+                    update(done.receipt);
+                    if (done.found === "again") {
+                      const now = done.receipt.lines.find((l) => l.id === line.id);
+                      setHeard(
+                        `${shortName(line)} was already checked by ${personName(now?.checked_by)}: ${outcomeLabel(now?.outcome).toLowerCase()}. Theirs is kept; change it if it’s wrong.`,
+                      );
+                    }
+                  },
+                },
+              );
+            }}
+            onChange={(fix) => {
+              setLineStale(null);
+              change(fix);
             }}
           />
-        ) : null}
-        <IkiIdEntry
-          open={refused !== null}
-          disabled={!!asking}
-          onEnter={(hrid) => {
-            scanned({ code: hrid, mode: "iki_id" });
-          }}
-        />
-        <p className="scan-heard" role="status" aria-live="polite">
-          {heard}
-        </p>
-        {restoring ? (
-          <div className="actions scan-follow">
-            <Button
-              onClick={() => {
-                change({ do: "restore", line: restoring.id });
-              }}
-            >
-              {`Restore ${shortName(restoring)}`}
-            </Button>
-          </div>
-        ) : null}
-        <ProblemAlert problem={lineProblem ? problemOf(lineProblem) : undefined} />
-        <ol className="receive-list" aria-label="Checklist">
-          {receipt.lines.map((line) => (
-            <ReceiveLine
-              key={line.id}
-              receipt={id}
-              line={line}
-              last={line.id === lastLine}
-              error={errors[`lines/${line.id}`]}
-              stale={
-                lineStale?.line === line.id ? (
-                  <StaleNote changes={lineStale.changes} what={shortName(line)} />
-                ) : null
-              }
-              busy={
-                (check.isPending && check.variables.line === line.id) ||
-                (fixing.isPending &&
-                  "line" in fixing.variables.fix &&
-                  fixing.variables.fix.line === line.id)
-              }
-              onCheck={(outcome, text) => {
-                if (line.note && text.trim() !== line.note) {
-                  change({ do: "outcome", line: line.id, outcome, note: text });
-                  return;
-                }
-                check.mutate(
-                  { line: line.id, outcome, note: text },
-                  {
-                    onSettled: begin(`${shortName(line)}’s outcome`),
-                    onSuccess: (done) => {
-                      update(done.receipt);
-                      if (done.found === "again") {
-                        const now = done.receipt.lines.find((l) => l.id === line.id);
-                        setHeard(
-                          `${shortName(line)} was already checked by ${personName(now?.checked_by)}: ${outcomeLabel(now?.outcome).toLowerCase()}. Theirs is kept; change it if it’s wrong.`,
-                        );
-                      }
-                    },
-                  },
-                );
-              }}
-              onChange={(fix) => {
-                setLineStale(null);
-                change(fix);
-              }}
-            />
-          ))}
-        </ol>
-        {receipt.removed_lines.length ? (
-          <section className="removed-lines" aria-labelledby="removed-title">
-            <h3 id="removed-title">Removed extras</h3>
-            <p className="muted">
-              Not received or put away. Each is kept with its history, and can be restored.
-            </p>
-            <ul className="receive-list" aria-labelledby="removed-title">
-              {receipt.removed_lines.map((line) => (
-                <li key={line.id} className="receive-line receive-removed">
-                  <div className="receive-what">
-                    <strong className="storage-code">{lineName(line)}</strong>
-                    {line.note ? <span>{line.note}</span> : null}
-                  </div>
-                  <div className="receive-outcomes">
-                    <Button
-                      label={`Restore ${shortName(line)}`}
-                      onClick={() => {
-                        change({ do: "restore", line: line.id });
-                      }}
-                    >
-                      Restore
-                    </Button>
-                  </div>
-                  <LineHistory parent="receipts" id={id} line={line.id} name={shortName(line)} />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-        <HistoryDisclosure
-          parent="receipts"
-          id={id}
-          names={names}
-          label="this receipt"
-          summary="This receipt’s history: who recorded what, and each change"
-        />
+        ))}
+      </ol>
+      {receipt.removed_lines.length ? (
+        <section className="removed-lines" aria-labelledby="removed-title">
+          <h3 id="removed-title">Removed extras</h3>
+          <p className="muted">
+            Not received or put away. Each is kept with its history, and can be restored.
+          </p>
+          <ul className="receive-list" aria-labelledby="removed-title">
+            {receipt.removed_lines.map((line) => (
+              <li key={line.id} className="receive-line receive-removed">
+                <div className="receive-what">
+                  <strong className="storage-code">{lineName(line)}</strong>
+                  {line.note ? <span>{line.note}</span> : null}
+                </div>
+                <div className="receive-outcomes">
+                  <Button
+                    label={`Restore ${shortName(line)}`}
+                    onClick={() => {
+                      change({ do: "restore", line: line.id });
+                    }}
+                  >
+                    Restore
+                  </Button>
+                </div>
+                <LineHistory parent="receipts" id={id} line={line.id} name={shortName(line)} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <HistoryDisclosure
+        parent="receipts"
+        id={id}
+        names={names}
+        label="this receipt"
+        summary="This receipt’s history: who recorded what, and each change"
+      />
+    </>,
+  );
+  return (
+    <>
+      <section className="card" aria-labelledby="receipt-title" onPointerDown={press}>
+        {checklist}
       </section>
-      <section className="card" aria-labelledby="handover-title">
+      <section className="card" aria-labelledby="handover-title" onPointerDown={press}>
         <h2 className="section-title" id="handover-title">
           Handed over
         </h2>
@@ -1228,7 +1237,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </span>
         </div>
       </section>
-      <section className="card" aria-labelledby="putaway-title">
+      <section className="card" aria-labelledby="putaway-title" onPointerDown={press}>
         <div className="section-head">
           <h2 className="section-title" id="putaway-title">
             Put away
@@ -1376,7 +1385,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           </div>
         ) : null}
       </section>
-      <section className="card" aria-labelledby="complete-title">
+      <section className="card" aria-labelledby="complete-title" onPointerDown={press}>
         <h2 className="section-title" id="complete-title">
           Complete
         </h2>
@@ -1705,14 +1714,17 @@ function ReceiveLine({
         {line.code && line.ref && line.code !== line.ref.hrid ? (
           <span className="cell-meta storage-code">{line.code}</span>
         ) : null}
-        <span className="cell-meta">
-          {line.expected ? "Expected" : "Not expected"}
+        <span className="cell-meta">{line.expected ? "Expected" : "Not expected"}</span>
+        {/* A line of its own, there before it's checked: who checked it never moves what's
+            below. */}
+        <span className="cell-meta receive-checked">
           {line.checked_by && line.checked_at ? (
             <>
-              {" "}
-              · checked by {personName(line.checked_by)} <Time value={line.checked_at} />
+              Checked by {personName(line.checked_by)} <Time value={line.checked_at} />
             </>
-          ) : null}
+          ) : (
+            "Not checked yet"
+          )}
         </span>
         {error ? (
           <p className="field-error" role="alert">
@@ -1749,11 +1761,14 @@ function ReceiveLine({
             {o.label}
           </button>
         ))}
-        {outcome && line.expected ? (
+        {line.expected ? (
+          // Its place is kept while there's nothing to clear, so the outcomes beside it
+          // don't move when one is recorded.
           <button
             type="button"
-            className="button button-quiet outcome"
-            disabled={busy}
+            className={`button button-quiet outcome${outcome ? "" : " outcome-spare"}`}
+            disabled={busy || !outcome}
+            aria-hidden={outcome ? undefined : true}
             onClick={() => {
               setWanting(null);
               onChange({ do: "outcome", line: line.id, outcome: null });
@@ -1776,45 +1791,47 @@ function ReceiveLine({
         ) : null}
       </div>
       {stale ? <div className="receive-stale">{stale}</div> : null}
-      {needsNote || note || shown ? (
-        <form
-          className="receive-note"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (wanting && !outcome) {
-              onCheck(wanting, note.trim());
-              setWanting(null);
-            } else if (outcome && noteChanged) {
-              onChange({ do: "outcome", line: line.id, outcome, note: note.trim() });
-            }
-          }}
+      {/* There from the start, and the same height whatever's chosen: a note opening, or a
+          save coming back, never moves this line's outcomes or the lines below. */}
+      <form
+        className="receive-note"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (wanting && !outcome) {
+            onCheck(wanting, note.trim());
+            setWanting(null);
+          } else if (outcome && noteChanged) {
+            onChange({ do: "outcome", line: line.id, outcome, note: note.trim() });
+          }
+        }}
+      >
+        <TextField
+          label={`Note on ${short}`}
+          value={note}
+          onChange={setNote}
+          optional={!needsNote}
+          maxLength={2000}
+          help={
+            line.expected
+              ? "Needed if it’s damaged or rejected: say what’s wrong with it."
+              : "Needed: say what it is, and anything wrong with it."
+          }
+        />
+        <Button
+          type="submit"
+          busy={busy}
+          busyText="Saving…"
+          disabled={
+            wanting && !outcome
+              ? !note.trim()
+              : !outcome || !noteChanged || (needsNote && !note.trim())
+          }
         >
-          <TextField
-            label={`Note on ${short}`}
-            value={note}
-            onChange={setNote}
-            optional={!needsNote}
-            maxLength={2000}
-            {...(needsNote
-              ? { help: `Say why it’s ${shown}: what’s wrong with it, or what it is.` }
-              : {})}
-          />
-          <Button
-            type="submit"
-            busy={busy}
-            busyText="Saving…"
-            disabled={
-              wanting && !outcome
-                ? !note.trim()
-                : !outcome || !noteChanged || (needsNote && !note.trim())
-            }
-          >
-            {wanting && !outcome
-              ? `Mark ${OUTCOMES.find((o) => o.value === wanting)?.label.toLowerCase() ?? ""}`
-              : "Save note"}
-          </Button>
-        </form>
-      ) : null}
+          {wanting && !outcome
+            ? `Mark ${OUTCOMES.find((o) => o.value === wanting)?.label.toLowerCase() ?? ""}`
+            : "Save note"}
+        </Button>
+      </form>
       <LineHistory parent="receipts" id={receipt} line={line.id} name={short} />
     </li>
   );

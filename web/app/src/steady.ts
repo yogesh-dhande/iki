@@ -13,7 +13,7 @@
  * nothing (MessagesProvider), and a form's problems change only when it's sent (useForm).
  */
 
-import { useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 
 const listeners = new Set<() => void>();
 const pointers = new Set<number>();
@@ -94,4 +94,25 @@ export function useKept<T>(value: T, holding: boolean): T {
   const [shown, setShown] = useState({ value });
   if (!holding && shown.value !== value) setShown({ value });
   return holding ? shown.value : value;
+}
+
+/**
+ * A block of the page, `drawn` as it was when a press began on what `onPointerDown` is
+ * given to, while that press is on; otherwise `drawn`.
+ *
+ * For what's drawn afresh each time (elements, which `useSteady` can't keep): it's kept as
+ * the press begins, not as it's drawn, and only for a press on what it's given to, so a
+ * press elsewhere on the page draws it as it comes. It's let go as `useSteady` is, in the
+ * task after the press ends, is cancelled or the window loses it. State a component inside
+ * it keeps for itself (a note being typed) still changes as it would.
+ */
+export function useSteadyBlock(drawn: ReactNode): [shown: ReactNode, onPointerDown: () => void] {
+  const pressing = usePressing();
+  const [held, hold] = useState<{ drawn: ReactNode } | null>(null);
+  if (held && !pressing) hold(null);
+  const onPointerDown = () => {
+    // The window has heard the press already (it listens first): it's on till it's let go.
+    hold((now) => now ?? { drawn });
+  };
+  return [held && pressing ? held.drawn : drawn, onPointerDown];
 }
