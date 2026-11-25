@@ -1301,9 +1301,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=READ, title="Describe a workflow")
     async def describe_workflow(
-        name: Annotated[
-            str, Field(description="Its name, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="A qualified workflow name from list_workflows.")],
     ) -> CallToolResult:
         """One workflow: its inputs, params (with a JSON Schema), and its steps in the order
         they start: the action each runs, where each input comes from, what it waits for,
@@ -1312,9 +1310,7 @@ def build() -> MCPServer:
 
     @server.tool(annotations=ADD, title="Run a workflow")
     async def run_workflow(
-        name: Annotated[
-            str, Field(description="The workflow, such as protein.translate_and_characterize.")
-        ],
+        name: Annotated[str, Field(description="The qualified name returned by list_workflows.")],
         project: Annotated[
             UUID, Field(description="Where its steps run. Entities they create belong to it.")
         ],

@@ -38,6 +38,9 @@ steps:
     inputs: { protein: $steps.translate.created.Protein }
 ```
 
+The [translation and characterization example](../../examples/plugins/protein_translation)
+implements this workflow with local actions and registered DNA and Protein types.
+
 **Steps are wired by reference, and the build checks the types.** A step's
 input takes the workflow's input (`$inputs.<name>`), the entities a step
 created of a type (`$steps.<id>.created.<Type>`), or what a step was given

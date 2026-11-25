@@ -16,6 +16,8 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
   matching comparison and lock the record.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
+- [Protein translation](protein_translation/README.md) chains translation and
+  property calculation for labs that characterize each translated protein.
 
 ## Copy and name a plugin
 

@@ -18,8 +18,6 @@ from iki_server.runs import services, workflows
 from iki_server.runs.models import (
     ActionRun,
     EffectKind,
-    Job,
-    JobState,
     RunEffect,
     RunStatus,
     WorkflowRun,
@@ -441,24 +439,24 @@ def test_a_step_with_nothing_created_to_take_fails(world: World, s3: Any) -> Non
 # --- Once for each entity ----------------------------------------------------------------------
 
 
-def imported(world: World, *names: str) -> dict[str, Any]:
-    """A run of import_and_weigh whose import "created" a protein for each of `names`."""
+def imported(world: World, pod: WorkerClient, *sequences: str) -> dict[str, Any]:
+    """Complete the import step with one protein per sequence."""
     editor = api_as(world, "editor")
-    made = [protein(editor, world.project, name) for name in names]
     fasta = _empty_file(world, "panel.fasta", "chemical/seq-aa-fasta")
     body: dict[str, Any] = start(editor, world, {}, IMPORT_AND_WEIGH, params={"file": fasta}).json()
     assert steps(body) == {"import": "running", "weigh": "waiting"}
-    first = ActionRun.objects.get(pk=body["steps"][0]["run"]["id"])
-    for each in made:
-        RunEffect.objects.create(run=first, entity_id=each["id"], kind=EffectKind.CREATED)
-    ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
-    Job.objects.filter(run=first).update(state=JobState.SUCCEEDED)
-    workflows.advance(body["id"])
+    creates = [
+        {"type": "acme/protein.Protein", "values": {"sequence": sequence}} for sequence in sequences
+    ]
+    job = complete(pod, {"creates": creates})
+    assert job["params"]["file"] == fasta
+    run_tasks()
     return body
 
 
 def test_a_step_runs_once_for_each_entity_an_earlier_one_created(world: World, s3: Any) -> None:
-    body = imported(world, "kit", "met")
+    pod = worker(world)
+    body = imported(world, pod, "KIT", "MET")
     now = get(world, body)
     assert steps(now) == {"import": "succeeded", "weigh": "running"}
     weigh_step = now["steps"][1]
@@ -470,7 +468,6 @@ def test_a_step_runs_once_for_each_entity_an_earlier_one_created(world: World, s
     assert [r["workflow"]["step"] for r in runs] == ["weigh", "weigh"]
 
     # The batch's runs go in one job (compute_properties is batchable).
-    pod = worker(world)
     job = pod.lease().json()
     document = {
         "apiVersion": "iki/v1",
@@ -488,9 +485,19 @@ def test_a_step_runs_once_for_each_entity_an_earlier_one_created(world: World, s
     assert done["status"] == "succeeded"
     assert done["steps"][1]["batch"]["statuses"] == {"succeeded": 2}
 
+    viewer = api_as(world, "viewer")
+    import_id = done["steps"][0]["run"]["id"]
+    created = viewer.get(f"/runs/{import_id}").json()["effects"]
+    weighed = {r["inputs"][0]["entity"]: r["id"] for r in runs}
+    assert set(weighed) == {effect["entity"] for effect in created}
+    for entity, run_id in weighed.items():
+        provenance = viewer.get(f"/entities/{entity}/provenance").json()
+        assert provenance["sequence"]["run"]["id"] == import_id
+        assert provenance["molecular_weight"]["run"]["id"] == run_id
+
 
 def test_a_step_run_for_each_fails_if_any_of_its_runs_does(world: World, s3: Any) -> None:
-    body = imported(world, "kit", "met")
+    body = imported(world, worker(world), "KIT", "MET")
     first, second = ActionRun.objects.filter(workflow_step="weigh").order_by("id")
     ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
     ActionRun.objects.filter(pk=second.pk).update(
@@ -506,7 +513,7 @@ def test_a_step_run_for_each_fails_if_any_of_its_runs_does(world: World, s3: Any
 
 
 def test_a_step_run_for_each_waits_for_all_its_runs(world: World, s3: Any) -> None:
-    body = imported(world, "kit", "met")
+    body = imported(world, worker(world), "KIT", "MET")
     first = ActionRun.objects.filter(workflow_step="weigh").order_by("id").first()
     assert first is not None
     ActionRun.objects.filter(pk=first.pk).update(status=RunStatus.SUCCEEDED)
@@ -515,7 +522,7 @@ def test_a_step_run_for_each_waits_for_all_its_runs(world: World, s3: Any) -> No
 
 
 def test_a_step_run_for_each_with_none_to_run_on_fails(world: World, s3: Any) -> None:
-    body = imported(world)
+    body = imported(world, worker(world))
     failed = get(world, body)
     assert failed["status"] == "failed"
     assert failed["steps"][1]["error"]["message"] == (
@@ -588,8 +595,8 @@ def test_a_step_whose_condition_doesnt_hold_is_skipped_and_so_are_those_after_it
     assert ActionRun.objects.filter(workflow_step__in=["weigh", "weigh_again"]).count() == 0
 
 
-def test_a_condition_reads_the_workflows_params(world: World) -> None:
-    body = aligned(world, worker(world), 3, params={"min_score": 2.5})
+def test_a_metric_equal_to_the_workflows_minimum_passes(world: World) -> None:
+    body = aligned(world, worker(world), 2.5, params={"min_score": 2.5})
     assert steps(body) == {"align": "succeeded", "weigh": "running", "weigh_again": "waiting"}
 
 
