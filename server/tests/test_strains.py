@@ -160,8 +160,9 @@ def test_strain_identity_and_stock_to_data_lineage(tmp_path: Path, database: str
             (rack.pk, "1"), (box.pk, "B3"),
         ]
         assert storage.where(user, tube).path[-1].position == "B2"
+        second_box = make("iki/inventory.Box", name="Second box")
         with pytest.raises(storage.Wrong, match="doesn't hold"):
-            storage.move(user, [storage.Wanted(clone_a, box, "A1")], reason="Check contents")
+            storage.move(user, [storage.Wanted(second_box, box, "A1")], reason="Check contents")
 
         readout = make("iki/dna.DNASequence", name="Synthetic readout", bases="AAGTCA")
         quantity = amounts.Given(Decimal("10"), "uL")
