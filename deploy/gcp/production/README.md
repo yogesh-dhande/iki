@@ -67,8 +67,14 @@ The cluster starts only images Binary Authorization allows
 Iki's, External Secrets', the first-party plugins', and GKE's own. Before
 installing anything else, add its images to `extra_images` and apply;
 otherwise GKE refuses its pods, and the audit logs say which image.
-A server or worker built with your plugins goes in the `server` or
-`worker` repository, pushed by your CI (`image_writers`).
+Your CI can push its plugin builds to the `server` and `worker` repositories
+using `image_writers`. If you use the config template's GHCR builds, set
+`config_image_files` to the paths of the reviewed `image.yaml` files for this
+deployment. Binary Authorization admits the server and backend worker by their
+exact digests. Before merging the deployment PR, apply with the current and
+incoming files from their respective config checkouts. Remove the old file
+after rollout, or keep its pins for rollback. Grant the cluster pull access
+to private GHCR packages through the chart's `imagePullSecrets`.
 
 ## 4. Secrets and the database's roles, once
 

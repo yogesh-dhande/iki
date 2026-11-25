@@ -155,13 +155,18 @@ module "registry" {
 }
 
 # The cluster runs only images from the repositories above, the ones the chart and this
-# runbook use, and those named in plugin_images and extra_images. Everything else is
-# refused, and each refusal audit-logged.
+# runbook use, and the configured image pins and additional patterns. Each refusal is
+# written to the audit log.
 locals {
+  config_builds = [for path in var.config_image_files : yamldecode(file(path))]
+  config_images = flatten([for build in local.config_builds : [
+    for image in [build.image, build.backendWorkers.image] : "${image.repository}@${image.digest}"
+  ]])
+
   runbook_images = [
     # The chart's: Iki's server (image.repository; the egress proxy runs it too) and the
     # worker the container tier copies into runs (containerTier.workerImage). A server or
-    # worker built with your plugins goes in the server or worker repository above.
+    # worker built with your plugins can use the repositories above or the config pins.
     "ghcr.io/yogesh-dhande/iki-server*",
     "ghcr.io/yogesh-dhande/iki-worker*",
     # External Secrets' controller, webhook and certificate controller, as its chart
@@ -177,7 +182,7 @@ module "binary_authorization" {
   name         = var.name
   project_id   = var.project_id
   repositories = values(module.registry.repositories)
-  images       = distinct(concat(local.runbook_images, var.plugin_images, var.extra_images))
+  images       = distinct(concat(local.runbook_images, var.plugin_images, var.extra_images, local.config_images))
 }
 
 module "vm_tier" {
