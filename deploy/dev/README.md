@@ -25,7 +25,8 @@ make dev-down    # delete the cluster
 Tilt rebuilds the server image and redeploys whenever code under `server/`
 changes. It builds the image as a deployment does: the server image, then
 the plugins in [`plugins.lock.yaml`](plugins.lock.yaml), built with
-`iki deploy build --allow-local` and added by
+`iki deploy build --allow-local --test-only` to include the local plugin template,
+and added by
 [`deploy/plugins.Dockerfile`](../plugins.Dockerfile). To try a plugin you
 are writing, add it there with `local:`. `iki deploy build` checks the
 plugins' rules and guards with iki-wasm

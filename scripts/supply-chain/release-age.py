@@ -8,9 +8,9 @@ which has no such setting.
 
 - ``uv.lock``: when each package's files were uploaded, as the lockfile records.
 - ``worker/Cargo.lock``: each crate's publish time, from the crates.io index.
-- ``plugins/*/requirements.txt``: each pin must be the release uv.lock has, so the
+- Product and example plugins' ``requirements.txt``: each pin must be in uv.lock, so the
   plugin's tests run what its environment installs, and its age is checked there.
-- ``plugins/*/images/*/uv.lock``: what a plugin's image installs, checked as uv.lock is.
+- Their ``images/*/uv.lock``: what a plugin's image installs, checked as uv.lock is.
   A package from an index that doesn't say when it was uploaded (PyTorch's CPU builds)
   is as old as the same release on PyPI, which it's built from.
 
@@ -56,7 +56,8 @@ def _fetch(url: str, *, attempts: int = 4) -> bytes:
     for attempt in range(1, attempts + 1):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-                return response.read()
+                data: bytes = response.read()
+                return data
         except urllib.error.HTTPError as error:
             if error.code not in _TRANSIENT or attempt == attempts:
                 raise
@@ -133,11 +134,17 @@ def _normalized(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def plugin_files(root: Path, pattern: str) -> list[Path]:
+    return sorted(
+        file for base in ("plugins", "examples/plugins") for file in (root / base).glob(pattern)
+    )
+
+
 def plugin_pins(root: Path) -> list[tuple[Path, str, str]]:
-    """(file, name, version) for each ``name==version`` in a first-party plugin's
+    """(file, name, version) for each ``name==version`` in a product or example plugin's
     requirements."""
     found = []
-    for file in sorted(root.glob("plugins/*/requirements.txt")):
+    for file in plugin_files(root, "*/requirements.txt"):
         for line in file.read_text(encoding="utf-8").splitlines():
             pinned = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)", line)
             if pinned:
@@ -165,7 +172,7 @@ def main() -> int:
     locked: set[tuple[str, str]] = set()
     images = [
         (f"Python ({lock.relative_to(ROOT)})", lock, python_releases)
-        for lock in sorted(ROOT.glob("plugins/*/images/*/uv.lock"))
+        for lock in plugin_files(ROOT, "*/images/*/uv.lock")
     ]
     for label, lock, read in (
         ("Python (uv.lock)", ROOT / "uv.lock", python_releases),
@@ -193,7 +200,7 @@ def main() -> int:
             f"  {file.relative_to(ROOT)} pins {name} {version}, which uv.lock doesn't: pin "
             "the same release in pyproject.toml's dev dependencies, or recompile it.\n"
         )
-    sys.stdout.write(f"First-party plugins: {len(pins)} pins, checked against uv.lock.\n")
+    sys.stdout.write(f"Product and example plugins: {len(pins)} pins, checked against uv.lock.\n")
     for name, version in sorted(EXCEPTIONS):
         if (name, version) not in locked:
             failed = True

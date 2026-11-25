@@ -76,7 +76,18 @@ def _environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def build(tmp_path: Path, sha: str, *mirrors: str) -> int:
     flags = [arg for url in mirrors for arg in ("--mirror", url)]
     out = str(tmp_path / "plugins")
-    return main(["deploy", "build", str(deployment(tmp_path, sha)), "-o", out, *flags])
+    return main(
+        [
+            "deploy",
+            "build",
+            str(deployment(tmp_path, sha)),
+            "-o",
+            out,
+            "--workers",
+            str(tmp_path / "workers"),
+            *flags,
+        ]
+    )
 
 
 def test_ikis_plugin_comes_from_the_mirror_and_says_so(
@@ -91,6 +102,8 @@ def test_ikis_plugin_comes_from_the_mirror_and_says_so(
     # The lockfile still names Iki's repository; the build records the mirror.
     assert entry["git"] == CANONICAL
     assert entry["sha"] == sha
+    assert (registry / "bundles" / f"iki__dna-{sha}.tar.gz").is_file()
+    assert (tmp_path / "workers/plugins/iki__dna/plugin.yaml").is_file()
     assert entry["fetched_from"] == url
     assert f"MIRRORS = [{url!r}]" in (registry / "__init__.py").read_text()
 

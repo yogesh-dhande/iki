@@ -11,7 +11,15 @@ from pathlib import Path
 
 import pytest
 import yaml
-from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, TEMPLATE, build_order, withs
+from first_party_dependencies import (
+    FIRST_PARTY,
+    PLUGINS,
+    ROOT,
+    TEMPLATE,
+    TEMPLATE_DEPENDENCIES,
+    build_order,
+    withs,
+)
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
 from iki_spec import rules
@@ -24,9 +32,8 @@ __all__ = ["database"]
 
 
 def test_first_party_fixtures_include_declared_dependencies_in_build_order() -> None:
-    manifests = [*PLUGINS.glob("*/plugin.yaml"), TEMPLATE / "plugin.yaml"]
-    assert set(FIRST_PARTY) == {manifest.parent for manifest in manifests}
-    for plugin, dependencies in FIRST_PARTY.items():
+    assert set(FIRST_PARTY) == {manifest.parent for manifest in PLUGINS.glob("*/plugin.yaml")}
+    for plugin, dependencies in [*FIRST_PARTY.items(), (TEMPLATE, TEMPLATE_DEPENDENCIES)]:
         seen = {"iki/core"}
         for path in (*dependencies, plugin):
             manifest = yaml.safe_load((path / "plugin.yaml").read_text(encoding="utf-8"))
@@ -35,9 +42,14 @@ def test_first_party_fixtures_include_declared_dependencies_in_build_order() -> 
             seen.add(manifest["name"])
 
 
-@pytest.mark.parametrize("plugin", FIRST_PARTY, ids=lambda p: p.name)
-def test_it_is_valid_and_its_migrations_are_current(plugin: Path) -> None:
-    dependencies = FIRST_PARTY[plugin]
+@pytest.mark.parametrize(
+    ("plugin", "dependencies"),
+    [pytest.param(path, deps, id=path.name) for path, deps in FIRST_PARTY.items()]
+    + [pytest.param(TEMPLATE, TEMPLATE_DEPENDENCIES, id=TEMPLATE.name)],
+)
+def test_it_is_valid_and_its_migrations_are_current(
+    plugin: Path, dependencies: tuple[Path, ...]
+) -> None:
     checked = iki("plugin", "validate", plugin, *withs(dependencies), cwd=ROOT)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert "is valid" in checked.stdout

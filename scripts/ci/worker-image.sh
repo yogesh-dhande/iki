@@ -46,7 +46,7 @@ plugins:
   - { name: acme/protein, local: ../plugins/protein, state: active }
 EOF
   uv run --frozen iki deploy build "$context/deployment" --output "$context/server" \
-    --workers "$context/worker" --allow-local
+    --workers "$context/worker" --allow-local --test-only
   docker build -f deploy/worker.Dockerfile --build-arg IKI_WORKER_IMAGE="$base" \
     -t iki-worker-deployment:ci "$context/worker"
 

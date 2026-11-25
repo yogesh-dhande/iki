@@ -1,8 +1,10 @@
+import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
 
+from iki_spec import naming
 from iki_spec.lockfile import (
     LockedPlugin,
     load_lock,
@@ -196,6 +198,101 @@ def test_plugins_are_named_in_a_namespace(tmp_path: Path) -> None:
 def test_iki_plugins_come_from_iki(tmp_path: Path, git: str) -> None:
     entry = f"- {{name: iki/dna, git: '{git}', path: plugins/dna, sha: {SHA}, state: active}}\n"
     assert codes(lock(tmp_path, entry)) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "examples/plugins/provider",
+        "./plugin-template/",
+        "spec/tests/data/signed_report",
+        "spec/tests/plugins/dna",
+        "server/tests/fixtures/plugins/execution",
+        "deploy/dev/fixtures/plugins/worker_execution",
+        "deploy/live/plugins/live_check",
+        "plugins/../examples/plugins/connector",
+    ],
+)
+def test_official_teaching_and_fixture_pins_need_a_test_build(tmp_path: Path, path: str) -> None:
+    mirror = "https://git.lab.example/release/iki.git"
+    file = lock(
+        tmp_path,
+        f"- name: acme/a\n  git: {naming.IKI_REPOSITORY}\n  path: {path}\n"
+        f"  sha: {SHA}\n  state: detached\n"
+        f"- name: lab/b\n  git: ssh://git@git.lab.example/release/iki\n  path: {path}\n"
+        f"  sha: {SHA}\n  state: active\n",
+    )
+    problems = load_lock(file, mirrors=[mirror]).problems
+    assert [(p.code, p.path) for p in problems] == [
+        ("test-only-source", ("plugins", 0, "path")),
+        ("test-only-source", ("plugins", 1, "path")),
+    ]
+    assert all(p.location and "--test-only" in (p.hint or "") for p in problems)
+    assert load_lock(file, mirrors=[mirror], test_only=True).ok
+
+
+@pytest.mark.parametrize(
+    ("git", "path"),
+    [
+        ("https://git.lab.example/iki.git", "examples/plugins/provider"),
+        ("https://git.lab.example/custom/iki.git", "plugin-template"),
+        (naming.IKI_REPOSITORY, "examples/plugins_extra/provider"),
+        (naming.IKI_REPOSITORY, "deploy/live/plugins/checks"),
+    ],
+)
+def test_distribution_rule_matches_both_repository_and_directory(
+    tmp_path: Path, git: str, path: str
+) -> None:
+    file = lock(
+        tmp_path, f"- {{name: acme/provider, git: {git}, sha: {SHA}, path: {path}, state: active}}"
+    )
+    assert load_lock(file, mirrors=["https://git.lab.example/release/iki.git"]).ok
+
+
+def test_official_repository_spellings(tmp_path: Path) -> None:
+    for url in ("git@github.com:yogesh-dhande/iki", "https://github.com:443/Yogesh-Dhande/Iki.git"):
+        file = lock(
+            tmp_path,
+            f"- {{name: acme/a, git: {url}, sha: {SHA}, path: plugin-template, state: active}}",
+        )
+        assert codes(file) == ["test-only-source"]
+
+
+def test_local_pin_follows_its_own_checkout_and_resolves_links(tmp_path: Path) -> None:
+    repo = tmp_path / "checkout"
+    fixture = repo / "examples" / "plugins" / "provider"
+    fixture.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)  # noqa: S603, S607
+    (tmp_path / "provider").symlink_to(fixture, target_is_directory=True)
+    file = lock(tmp_path, "- {name: acme/provider, local: provider, state: detached}")
+    mirror = "https://git.lab.example/iki.git"
+    for origin in (mirror, naming.IKI_REPOSITORY):
+        subprocess.run(  # noqa: S603
+            ["git", "-C", str(repo), "config", "remote.origin.url", origin],  # noqa: S607
+            check=True,
+        )
+        result = load_lock(file, mirrors=[mirror])
+        assert [(p.code, p.path) for p in result.problems] == [
+            ("test-only-source", ("plugins", 0, "local"))
+        ]
+        assert load_lock(file, test_only=True).ok
+    # The same path in a customer's repository is a lab plugin.
+    subprocess.run(  # noqa: S603
+        ["git", "-C", str(repo), "config", "remote.origin.url", "https://git.lab.example/custom"],  # noqa: S607
+        check=True,
+    )
+    assert load_lock(file, mirrors=[mirror]).ok
+
+
+def test_local_pin_in_an_iki_source_archive(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    marker = source / "spec/src/iki_spec/lockfile.py"
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    (source / "plugin-template").mkdir()
+    file = lock(tmp_path, "- {name: acme/example, local: source/plugin-template, state: active}")
+    assert codes(file) == ["test-only-source"]
+    assert load_lock(file, test_only=True).ok
 
 
 def test_the_iki_namespace_is_reserved(tmp_path: Path) -> None:

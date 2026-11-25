@@ -83,6 +83,20 @@ migrate Job reverses the plugin migrations the older image doesn't have.
 If reversing could lose data entered since, it refuses and changes nothing,
 and you restore the database from its backup instead.
 
+## Choosing plugin sources
+
+Pin each first-party plugin to `plugins/<name>` in Iki's repository. For a
+lab-specific plugin, pin the reviewed commit from your lab's repository
+using the name in its manifest. To adapt a worked recipe, follow the
+[example copy and test instructions](../../examples/plugins/README.md).
+
+The default build checks active and detached entries against Iki's example,
+template, fixture and live-check directories, including on mirrors named under
+`plugins.mirrors`. The config template's staging and production builds use
+this default. A separate CI or live-check deployment can pass `--test-only`
+to build an official example in place. An entry using `local:` also needs
+`--allow-local`.
+
 ## Compute
 
 Plugins' actions say what they need; `compute.yaml` says what this

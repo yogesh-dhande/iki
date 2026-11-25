@@ -32,6 +32,8 @@ server.
 | `plugin-template/` | Where a lab's own plugin starts: example types, migrations, CI       |
 | `docs/adr/`        | Architecture Decision Records                                        |
 
+For lab-specific procedures, see the [plugin examples and copy instructions](examples/plugins/README.md).
+
 ## Development
 
 Requirements:
