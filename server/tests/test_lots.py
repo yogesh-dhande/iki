@@ -794,6 +794,74 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
     assert result["hrids"] == ["CJLOT", "GLOT", "OLOT", "OLOT", "PLOT", "PREP", "PYLOT"]
 
 
+def test_a_lot_fills_a_tube_labeled_with_that_lot(tmp_path: Path, database: str) -> None:
+    out = tmp_path / "build"
+    built = iki(
+        "plugin", "build", *build_order(LOTS, PLUGINS / "inventory"), "--output", out, cwd=ROOT
+    )
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(out, database)
+    sync(out, database)
+    orm(
+        out,
+        database,
+        """
+        from decimal import Decimal
+        from api_client import Api
+        from org_world import build_world
+        from iki_server.amounts.models import Amount, Movement
+        from iki_server.entities import services
+
+        world = build_world()
+        editor = world.users["editor"]
+        api = Api(world.browser("editor"))
+        def make(kind, fields, amount=None):
+            return services.create(editor, kind, world.project, fields, amount=amount).entity
+
+        material = make("iki/core.Collection", {"name": "Training reference"})
+        fields = {"of": str(material.pk), "concentration": 3}
+        lot, other = [
+            make("iki/lots.GenericLot", fields, {"value": 4, "unit": "mg"}) for _ in range(2)
+        ]
+        tube = make("iki/inventory.Tube", {"contents": str(lot.pk)})
+        def fill(source, target, value, unit):
+            return api.post(f"/entities/{source.pk}/amount/transfer", {
+                "to": str(target.pk), "amount": {"value": value, "unit": unit}
+            })
+
+        wrong = fill(other, tube, 250, "uL")
+        assert wrong.status_code == 422, wrong.content
+        assert not Amount.objects.filter(entity=tube).exists()
+        assert Amount.objects.get(entity=other).value == 4
+
+        dry = make("iki/lots.GenericLot", {"of": str(material.pk)}, {"value": 4, "unit": "mg"})
+        dry_tube = make("iki/inventory.Tube", {"contents": str(dry.pk), "concentration": 3})
+        unmeasured = fill(dry, dry_tube, 1, "mg")
+        assert unmeasured.status_code == 422, unmeasured.content
+        assert "concentration" in unmeasured.json()["errors"][0]["detail"]
+        assert Amount.objects.get(entity=dry).value == 4
+        assert not Amount.objects.filter(entity=dry_tube).exists()
+
+        moved = fill(lot, tube, 250, "uL")
+        assert moved.status_code == 200, moved.content
+        debit = Movement.objects.get(entity=lot, kind="transferred_out")
+        credit = Movement.objects.get(entity=tube, kind="transferred_in")
+        assert debit.operation == credit.operation
+        assert (debit.counterpart_id, credit.counterpart_id) == (tube.pk, lot.pk)
+        assert (debit.change, debit.balance, debit.unit) == (-0.75, 3.25, "mg")
+        assert (credit.change, credit.balance, credit.unit) == (250, 250, "uL")
+        assert api.get(f"/entities/{tube.pk}").json()["values"]["concentration"] == 3
+
+        # When asked by mass, the volume at a measured concentration rounds once (ADR 0157).
+        more = fill(lot, tube, 1, "mg")
+        assert more.status_code == 200, more.content
+        assert Amount.objects.get(entity=lot).value == Decimal("2.25")
+        assert Amount.objects.get(entity=tube).value == Decimal("583.333333333333")
+        result = None
+        """,
+    )
+
+
 def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
     tmp_path: Path, database: str
 ) -> None:
