@@ -179,6 +179,13 @@ name = "iki-wasm"
 ecosystem = "crates.io"
 license.override = ["Apache-2.0"]
 
+# The file previews' readers, which the web app runs in a worker (ADR 0226). Apache-2.0,
+# like the rest of the workspace.
+[[PackageOverrides]]
+name = "iki-previews"
+ecosystem = "crates.io"
+license.override = ["Apache-2.0"]
+
 # The unpublished annotation worker module inherits the workspace license.
 [[PackageOverrides]]
 name = "iki-dna-annotation-wasm"

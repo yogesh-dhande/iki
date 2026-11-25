@@ -48,6 +48,7 @@ SHARED = (
     "server/iki_wasm.wasm.sha256",
     "server/iki_wasm.amd64.cwasm.sha256",
     "server/iki_wasm.arm64.cwasm.sha256",
+    "web/app/iki_previews.wasm.sha256",
     "worker/Dockerfile",
     "scripts/build-dna-annotation-wasm.sh",
     "scripts/build-oligo-checks-wasm.sh",

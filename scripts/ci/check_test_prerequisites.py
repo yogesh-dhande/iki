@@ -61,6 +61,11 @@ def wasm() -> None:
             Path(consumer) / "iki_wasm.wasm",
             Path("scripts/build-wasm.sh"),
         )
+    # The file previews' readers, which the web app's tests load (ADR 0226).
+    previews = Path("web/app/wasm/iki_previews.wasm")
+    populated(previews, "scripts/build-wasm.sh")
+    if not previews.read_bytes().startswith(WASM_HEADER):
+        raise SystemExit(f"{previews} isn't WebAssembly. Run scripts/build-wasm.sh.")
     # This standalone is an individual Rust source. Its installed filename and pin
     # differ from its builder's stem, and the shared factory supplies its output path.
     oligo_builder = Path("scripts/build-oligo-wasm.sh")

@@ -15,4 +15,8 @@ onlyBuiltDependencies: []
 allowBuilds:
   "@scarf/scarf": false
 strictDepBuilds: true
+# pdf.js (file previews, ADR 0226) offers a native canvas for rendering in Node. The app
+# renders in browsers, and a canvas in jsdom would change what the app's tests run.
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"
 engineStrict: true

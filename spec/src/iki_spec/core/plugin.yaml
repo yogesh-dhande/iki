@@ -94,6 +94,7 @@ formats:
     extensions: [.ab1, .abi, .fsa]
     signatures: [{ hex: "41424946" }]
     reader: abif
+    viewer: chromatogram-abif
   vcf:
     label: VCF
     media_types: [text/x-vcf]
@@ -116,11 +117,13 @@ formats:
     media_types: [application/x-mzml]
     extensions: [.mzml]
     reader: mzml
+    viewer: spectrum-mzml
   jcamp-dx:
     label: JCAMP-DX
     media_types: [chemical/x-jcamp-dx]
     extensions: [.jdx, .dx, .jcamp]
     reader: jcamp-dx
+    viewer: spectrum-jcamp-dx
   hdf5:
     label: HDF5
     media_types: [application/vnd.hdfgroup.hdf5, application/x-hdf5]
@@ -138,26 +141,31 @@ formats:
     # Classic TIFF and BigTIFF, in both byte orders.
     signatures: [{ hex: "49492a00" }, { hex: "4d4d002a" }, { hex: "49492b00" }, { hex: "4d4d002b" }]
     reader: image
+    viewer: image-tiff
   jpeg:
     label: JPEG
     media_types: [image/jpeg]
     extensions: [.jpg, .jpeg]
     signatures: [{ hex: "ffd8ff" }]
     reader: image
+    viewer: image
   png:
     label: PNG
     media_types: [image/png]
     extensions: [.png]
     signatures: [{ hex: "89504e470d0a1a0a" }]
+    viewer: image
 
   csv:
     label: CSV
     media_types: [text/csv]
     extensions: [.csv]
+    viewer: table-csv
   tsv:
     label: TSV
     media_types: [text/tab-separated-values]
     extensions: [.tsv]
+    viewer: table-tsv
   json:
     label: JSON
     media_types: [application/json]
@@ -166,10 +174,12 @@ formats:
     label: Excel
     media_types: [application/vnd.openxmlformats-officedocument.spreadsheetml.sheet]
     extensions: [.xlsx]
+    viewer: table-xlsx
   xlsm:
     label: Macro-enabled Excel workbook
     media_types: [application/vnd.ms-excel.sheet.macroenabled.12]
     extensions: [.xlsm]
+    viewer: table-xlsx
   xls:
     label: Excel 97–2003
     media_types: [application/vnd.ms-excel]
@@ -184,6 +194,7 @@ formats:
     label: PDF
     media_types: [application/pdf]
     extensions: [.pdf]
+    viewer: pdf
   text:
     label: plain-text
     media_types: [text/plain]
