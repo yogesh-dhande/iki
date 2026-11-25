@@ -662,6 +662,10 @@ fields:
 - `request.materials` names the sent fields that identify the subjects of the work.
   A result's `material` names the immutable reference to its subject. Iki checks
   the subject when the result is recorded and again when it is released.
+  State guards can read `covered_subjects`, the IDs of commissioned records covered
+  by this result's material through any depth of recorded aliquots. For example,
+  `covered_subjects.exists(id, id in record.request.tubes)` checks sequencing
+  evidence against the tubes currently requested.
 - `request.completed` names the service state that closes the request. Completing
   it requires at least one returned result, all recorded results returned, and
   coverage of every commissioned subject by a returned result for that subject

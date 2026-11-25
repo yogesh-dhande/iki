@@ -268,6 +268,10 @@ def guard_variables(
             },
         },
         "holds": {"type": "list", "items": {"type": "string", "label": "A rule"}},
+        "covered_subjects": {
+            "type": "list",
+            "items": {"type": "string", "label": "Commissioned record ID"},
+        },
         "draws": {
             "type": "list",
             "items": {

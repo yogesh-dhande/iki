@@ -68,6 +68,7 @@ def allows(
                 "materials": ["sample-id"],
             },
         },
+        "covered_subjects": ["sample-id"] if values.get("material") else [],
         "actor": {"person": person},
         "last": {"review": {change["to"]: change for change in history}},
         "history": {"review": history},

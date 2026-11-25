@@ -40,7 +40,7 @@ fields:
               record.request.facility_service == "protein_production" ?
               (record.protein != null && record.protein.id in record.request.records) :
               (record.request.facility_service != "sequencing" ||
-               (record.material != null && record.material.id in record.request.tubes))
+               covered_subjects.exists(id, id in record.request.tubes))
             message: The returned evidence must match the current request.
 rules:
   production_evidence:
@@ -57,7 +57,7 @@ rules:
   sequencing_evidence:
     when: record.request.facility_service == "sequencing"
     check: >-
-      record.material != null && record.material.id in record.request.tubes &&
+      record.material != null &&
       record.protein == null && record.lot_number == null && record.delivered_mass == null &&
       (record.outcome == "unsuccessful" || record.run_accession != null ||
         (record.data_files != null && size(record.data_files) > 0))

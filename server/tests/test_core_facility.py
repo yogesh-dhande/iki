@@ -13,6 +13,7 @@ from org_world import World, build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
+from iki_server.amounts import services as amounts
 from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
@@ -345,9 +346,20 @@ def _plain_delivery_coverage(world: World, asking: Project) -> None:
 def _sequencing(world: World, asking: Project, api: Api) -> None:
     # ERR13376132 is the public long-read run for natural yeast isolate CEY652.
     # https://www.ncbi.nlm.nih.gov/sra/ERX12747051
-    tube = _make(
-        world, REQUESTER, "iki/inventory.Tube", asking, name="CEY652", barcode="TRAINING-CEY652"
-    )
+    sender = world.users[REQUESTER]
+    stock = _make(world, REQUESTER, "iki/core.Collection", asking, name="CEY652 stock")
+    tube = services.create(
+        sender,
+        "iki/inventory.Tube",
+        asking,
+        {"name": "CEY652", "barcode": "TRAINING-CEY652", "contents": str(stock.pk)},
+        amount={"value": 10, "unit": "uL"},
+    ).entity
+    tube = Entity.objects.get(pk=tube.pk)
+    (child,) = amounts.split(sender, tube, 1, amounts.Given.of({"value": 4, "unit": "uL"})).aliquots
+    (portion,) = amounts.split(
+        sender, child, 1, amounts.Given.of({"value": 2, "unit": "uL"})
+    ).aliquots
     private_tube = _make(
         world, REQUESTER, "iki/inventory.Tube", asking, name="Another project tube"
     )
@@ -372,12 +384,13 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     assert ProjectLink.objects.get(entity=tube, project=world.project).via_request_id == qc.pk
     assert not ProjectLink.objects.filter(entity=private_tube, project=world.project).exists()
 
+    services.link(world.users["editor"], portion, world.project)
     report_path = EXAMPLES / "ERR13376132-delivery.txt"
     report = _report(world.project, report_path.name, report_path.read_bytes())
     fields = {
         "request": str(qc.pk),
         "outcome": "fulfilled",
-        "material": str(tube.pk),
+        "material": str(portion.pk),
         "report": report,
         "run_accession": "ERR13376132",
     }
@@ -385,7 +398,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
         with pytest.raises(Invalid):
             _make(world, "editor", type_name, world.project, **fields)
     duplicate_tube = _make(world, "editor", "iki/inventory.Tube", world.project, name="Unsent tube")
-    with pytest.raises(Invalid, match="Name a tube on the request"):
+    with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
         _make(
             world,
             "editor",

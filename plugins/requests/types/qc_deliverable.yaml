@@ -78,7 +78,7 @@ fields:
             message: Submit the deliverable from Recorded.
           has_sample:
             when: record.analysis != null
-            check: record.material != null && record.material.id in record.request.materials
+            check: record.material != null
             message: Name the sample that was measured.
           has_result:
             when: record.analysis != null
@@ -107,14 +107,14 @@ fields:
             when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
             check: >-
               record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              record.material != null && record.request.materials != null && record.material.id in record.request.materials
+              size(covered_subjects) > 0
             message: The measurement must still answer this request for the material it sent.
           scope_still_matches:
             check: >-
               record.request.facility_service == "protein_production" ?
               (record.protein != null && record.protein.id in record.request.records) :
               (record.request.facility_service != "sequencing" ||
-               (record.material != null && record.material.id in record.request.tubes))
+               covered_subjects.exists(id, id in record.request.tubes))
             message: The protein or tube must still be on the request.
       reviewed:
         label: Reviewed
@@ -140,14 +140,14 @@ fields:
             when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
             check: >-
               record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              record.material != null && record.request.materials != null && record.material.id in record.request.materials
+              size(covered_subjects) > 0
             message: The measurement must still answer this request for the material it sent.
           scope_still_matches:
             check: >-
               record.request.facility_service == "protein_production" ?
               (record.protein != null && record.protein.id in record.request.records) :
               (record.request.facility_service != "sequencing" ||
-               (record.material != null && record.material.id in record.request.tubes))
+               covered_subjects.exists(id, id in record.request.tubes))
             message: The protein or tube must still be on the request.
       released:
         label: Released
@@ -174,14 +174,14 @@ fields:
             when: record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)
             check: >-
               record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses &&
-              record.material != null && record.request.materials != null && record.material.id in record.request.materials
+              size(covered_subjects) > 0
             message: The measurement must still answer this request for the material it sent.
           scope_still_matches:
             check: >-
               record.request.facility_service == "protein_production" ?
               (record.protein != null && record.protein.id in record.request.records) :
               (record.request.facility_service != "sequencing" ||
-               (record.material != null && record.material.id in record.request.tubes))
+               covered_subjects.exists(id, id in record.request.tubes))
             message: The protein or tube must still be on the request.
 rules:
   production_evidence:
@@ -198,7 +198,7 @@ rules:
   sequencing_evidence:
     when: record.request.facility_service == "sequencing"
     check: >-
-      record.material != null && record.material.id in record.request.tubes &&
+      record.material != null &&
       record.protein == null && record.lot_number == null && record.delivered_mass == null &&
       (record.outcome == "unsuccessful" || record.run_accession != null ||
         (record.data_files != null && size(record.data_files) > 0))

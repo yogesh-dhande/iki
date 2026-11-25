@@ -597,6 +597,25 @@ def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
     return next(_covered_subjects(materials, material), None) is not None
 
 
+def covered_subjects(entity: Entity, values: Mapping[str, Any]) -> list[str]:
+    """Commissioned subjects this result covers, including through nested aliquots."""
+    result = result_spec(entity.type)
+    if result is None or not result.material:
+        return []
+    material = values.get(result.material)
+    reference = values.get(result.of)
+    if material is None or reference is None:
+        return []
+    request = (
+        Request.objects.select_related("entity")
+        .filter(entity_id=reference, service_id=entity.owner_project_id)
+        .first()
+    )
+    if request is None:
+        return []
+    return [str(subject) for subject in _covered_subjects(materials_of(request.entity), material)]
+
+
 def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> Iterator[uuid.UUID]:
     """A requested record or its physical derivative through an immutable aliquot chain."""
     from iki_server.amounts.models import Movement, MovementKind

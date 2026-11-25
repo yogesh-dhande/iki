@@ -13,7 +13,8 @@ iki-wasm here and in browsers alike, over:
   change into each of its states (null if it's never been in it), each with who made it,
   through which agent, when and why. A record's initial state is a change at its creation;
 - ``edits``: who set which of the record's value fields since it last entered a state;
-- ``holds``: the rules holding it for review (ADR 0127).
+- ``holds``: the rules holding it for review (ADR 0127);
+- ``covered_subjects``: the commissioned record IDs covered by this result.
 
 So a plugin can say which state may follow which (``state.from == "approved"``), keep
 people apart (``last.status.in_review.by != actor.person``: four eyes), and tie fields
@@ -32,7 +33,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from iki_server.entities import checking, registry
+from iki_server.entities import checking, registry, requests
 from iki_server.entities.models import Entity, Revision, RevisionKind, RuleHold
 from iki_server.entities.values import shape
 from iki_server.plugins.models import HistoryChange
@@ -195,20 +196,15 @@ def refusals(
         form, values.get, reads, referenced, entity_id=entity.pk, hrid=entity.hrid
     )
     missing = checking.unread(form, values.get, reads, referenced)
-    # Only guards mentioning the variable need the record's ordinary edit revisions.
-    with_edits = any(
-        "edits" in source
+    sources = [
+        source
         for s in guarded
         for g in s.guards.values()
         for source in (g.check, g.when or "", g.message)
+    ]
+    history, edits = _history(
+        entity, state_fields, values, with_edits=any("edits" in s for s in sources)
     )
-    with_draws = any(
-        "draws" in source
-        for s in guarded
-        for g in s.guards.values()
-        for source in (g.check, g.when or "", g.message)
-    )
-    history, edits = _history(entity, state_fields, values, with_edits=with_edits)
     last = {
         name: {
             s: next((c for c in reversed(changes) if c["to"] == s), None)
@@ -231,7 +227,10 @@ def refusals(
         "last": last,
         "edits": edits,
         "holds": held,
-        "draws": _draws(entity) if with_draws else [],
+        "draws": _draws(entity) if any("draws" in s for s in sources) else [],
+        "covered_subjects": requests.covered_subjects(entity, values)
+        if any("covered_subjects" in s for s in sources)
+        else [],
         "signatures": list(signatures),
     }
     current = values.get(field) or ""
