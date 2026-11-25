@@ -1,0 +1,174 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Tree from "../../components/Tree.astro";
+import { manifestKinds } from "../../lib/manifests.ts";
+
+const V = "spec/src/iki_spec/validate.py";
+const kinds = manifestKinds().filter((k) => k.kind !== "Plugin");
+const H = {
+  short: "A directory of manifests, named in a namespace",
+  how: "The kinds, and how they're checked",
+  example: "The lots plugin, file by file",
+  rules: "Names, settings, roles and the rest of plugin.yaml",
+  ref: "Decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "validation", label: "Validation" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin is <code>plugin.yaml</code> at the root of a directory, and its other manifests in
+      one directory per kind, each holding any number of YAML documents. It's named <code
+        >namespace/name</code
+      >, and its parts <code>namespace/name.Part</code>, such as <code>iki/protein.Protein</code>.
+      Everything a plugin declares is data that Iki reads and checks; the only code is its actions'
+      scripts, and those run on workers (<Adr n={[6, 32]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The kinds, read from the validator: {
+        kinds.map((k, i) => (
+          <>
+            {i > 0 && ", "}
+            <code>{k.kind}</code> in <code>{k.directory}</code>
+          </>
+        ))
+      }. Each has a JSON Schema; the table with schemas is on <PageLink to="Core types" hash="kinds" />.
+      Two more documents have schemas but aren't plugin manifests: <code>ActionTest</code> in a
+      plugin's <code>tests/</code> (<PageLink to="Plugin tests" />), and <code>PluginLock</code>,
+      a deployment's lockfile (<PageLink to="Builds and deploys" hash="lockfile" />).
+    </p>
+    <p>
+      What each kind becomes is covered where it's used: entity types on <PageLink
+        to="Types and tables"
+      />, actions and environments on <PageLink to="Launching a run" />, workflows and triggers on{" "}
+      <PageLink to="Workflows and triggers" />, components on <PageLink to="Plugin frames" />.
+    </p>
+    <h3 id="validation">Validation</h3>
+    <p>
+      <code>iki plugin validate</code> reads every manifest as YAML 1.2, strictly: only <code
+        >true</code
+      > and <code>false</code> are booleans, and duplicate keys, aliases, merge keys, custom tags
+      and oversized files are refused (<Path p="spec/src/iki_spec/yamlsource.py" />). Then two
+      stages. Each document is checked against its JSON Schema, with errors rewritten as plain
+      sentences. Then what no schema can check: references across files and to the plugins given
+      with <code>--with</code>, identities, states and guards, table-name lengths, settings, rules,
+      actions, workflows, triggers and components (<Path p={V} sym="def load_plugin(" />, <Path
+        p="cli/src/iki_cli/plugin.py"
+        sym="def run_validate("
+      />). Rules and guards are type-checked by iki-wasm, the module that evaluates them (<PageLink
+        to="WebAssembly"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      <Path p="plugins/lots" label="iki/lots" /> is a mid-sized first-party plugin: nine types, six
+      actions, five triggers that recompute lots, one component, and five migrations. Its files, as
+      git has them:
+    </p>
+    <Tree dir="plugins/lots" depth={2} />
+    <p>
+      Its manifest declares the types it needs, by schema version rather than commit (<Adr
+        n={[16, 95]}
+      />):
+    </p>
+    <Excerpt file="plugins/lots/plugin.yaml" start="^dependencies:" />
+    <p>
+      A setting a deployment chooses, here which review flow plasmid verifications use. It's read at
+      build time from the deployment's settings file and checked against this declaration:
+    </p>
+    <Excerpt file="plugins/lots/plugin.yaml" start="^  verification_flow:" />
+    <p>
+      The component that shows a prep's verifications in a tab, and offers the plugin's own action
+      on it (<Adr n="0170" />):
+    </p>
+    <Excerpt file="plugins/lots/components/prep_verifications.yaml" start="^kind:" />
+    <p>How a deployment pins it: <PageLink to="Builds and deploys" hash="example" />.</p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Namespaces" open>
+        <p>
+          <code>iki</code> is Iki's own namespace, for the plugins in Iki's repository, and no other
+          namespace may start with <code>iki_</code>; a lab names its plugins under its own, such
+          as <code>acme/</code> (<Path p={V} sym="reserved-namespace" />, <Adr n="0113" />). Where a{" "}
+          <code>/</code> can't go, a plugin goes by its label, <code>namespace__name</code>, so two
+          plugins with the same name in different namespaces never share a table (<Path
+            p="spec/src/iki_spec/naming.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="What plugin.yaml holds">
+        <p>
+          Its name, version, title, description, licence and homepage; <code>iki:</code>, the Iki
+          releases it works with, and <code>dependencies:</code>, both covered on <PageLink
+            to="Migrations and versions"
+            hash="versions"
+          />; and these (<Path p="spec/src/iki_spec/schemas/plugin/v1.json" />):
+        </p>
+        <ul>
+          <li>
+            <code>settings:</code> typed values each deployment sets in its config repository and
+            the build checks. They aren't secret: secrets are declared on the actions that need them
+            (<Path p="spec/src/iki_spec/schemas/settings/v1.json" />).
+          </li>
+          <li>
+            <code>roles:</code> the lab roles it declares, which project Admins give beside project
+            roles. Lab roles are this key, not a kind (<Adr n="0116" />, <PageLink
+              to="Projects and roles"
+            />).
+          </li>
+          <li><code>starters:</code> project setup recipes it ships, by ID and version (<Adr n="0198" />).</li>
+          <li>
+            <code>apis:</code> the outside APIs its actions call, approved per project and called
+            through the egress proxy (<Adr n="0130" />, <PageLink to="Network and secrets" />).
+          </li>
+        </ul>
+      </Rule>
+      <Rule title="Units">
+        <p>
+          Quantities are UCUM, case-sensitive, parsed and converted by Iki's own code over the
+          unmodified UCUM essence file (<Path p="spec/src/iki_spec/units/__init__.py" />).
+        </p>
+      </Rule>
+      <Rule title="Where a lab's plugin starts">
+        <p>
+          The template is a working plugin with its own CI, tests and skills for authors (<Path
+            p="plugin-template"
+          />, <Adr n="0039" />). Iki's own plugins have the same layout: <PageLink
+            to="First-party plugins"
+          />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <ul>
+      <li><Adr n="0006" title /></li>
+      <li><Adr n="0032" title /></li>
+      <li><Adr n="0039" title /></li>
+      <li><Adr n="0113" title /></li>
+      <li><Adr n="0116" title /></li>
+    </ul>
+  </Layer>
+</Layout>

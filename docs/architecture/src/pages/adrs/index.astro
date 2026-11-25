@@ -6,7 +6,7 @@ import Path from "../../components/Path.astro";
 import AdrGraph from "../../components/AdrGraph.astro";
 import { ADR_GROUPS, groupOf } from "../../lib/adr-groups.ts";
 import { adrs, type Adr } from "../../lib/adrs.ts";
-import { NAV } from "../../lib/nav.ts";
+import { NAV, PAGES } from "../../lib/nav.ts";
 
 const all = [...adrs().values()];
 const counts = { Accepted: 0, Proposed: 0, Superseded: 0 };
@@ -28,8 +28,15 @@ const rel = (a: Adr): [string, string[]][] =>
   ).filter(([, ns]) => ns.length);
 const title = (n: string) => adrs().get(n)?.title ?? "";
 groupOf();
+// A group's section names a page, or a group of pages and so its first page.
 const sectionHref = (name?: string) =>
-  NAV.flatMap((g) => g.items).find((i) => i.label === name)?.href;
+  name === undefined
+    ? undefined
+    : (PAGES.find((p) => p.label === name)?.href ??
+      NAV.find((g) => g.heading === name)?.items[0]?.href ??
+      (() => {
+        throw new Error(`ADR group section "${name}" is neither a page nor a group.`);
+      })());
 const pad = (n: number) => String(n).padStart(4, "0");
 const toc = [
   { id: "graph", label: "How decisions build on each other" },

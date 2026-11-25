@@ -1,0 +1,199 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const SV = "server/src/iki_server/signatures/services.py";
+const P = "server/src/iki_server/signatures/proof.py";
+const EN = "server/src/iki_server/signatures/entries.py";
+
+const toc = [
+  { id: "short", label: "A signature sets a state, bound to one revision" },
+  { id: "how", label: "Signing, step by step" },
+  { id: "reversals", label: "Leaving a signed state" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="A signature sets a state, bound to one revision">
+    <p>
+      A state can need electronic signatures (21 CFR Part 11). It's never set directly: each signer
+      signs in again at the identity provider, Iki signs a canonical document naming the SHA-256 of
+      the record's content at that revision with the deployment's Ed25519 key, and the last signature
+      sets the state, on a revision that carries them all. A signature counts only while the record
+      stays at the revision it signed. Once a state has been entered by signing, a return to an
+      earlier signed state needs a reason, and leaving it for an unsigned one needs a signed reversal
+      by someone holding a lab role the original signature recorded, with a reason (<Adr n={[124, 126]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="Signing, step by step">
+    <p>
+      A state's <code>signatures</code> are slots, each with a meaning (authorship, review,
+      approval…), a statement the signer reads, and optionally a label and its own lab role;
+      without a role, a slot is given by anyone the state's <code>set_by</code> allows. Whether one
+      person may give two, or in what order, is the plugin's, as guards.
+    </p>
+    <ol>
+      <li>
+        <strong>Before anyone signs.</strong> An Org Admin records the organization's certification
+        letter to the FDA (§11.100(c)); with none, nobody signs. Each person agrees, at their first
+        signature, that it binds them as their handwritten one.
+      </li>
+      <li>
+        <strong>Begin.</strong> The signer starts a short-lived <code>Signing</code> (ten minutes) in
+        the web app for the revision they're reading, after its role, guard and <code
+          >recheck_before_signing</code
+        > rule checks pass (<Path p={SV} sym="def begin(" />).
+      </li>
+      <li>
+        <strong>Sign in again.</strong> Iki sends them to the identity provider with a forced fresh
+        sign-in: OIDC <code>prompt=login</code> and <code>max_age=0</code>; SAML <code
+          >ForceAuthn</code
+        >. The answer must be fresh and for the same person (<Path
+          p="server/src/iki_server/signatures/reauth.py"
+        />). Three failures in 15 minutes lock their signing until an Org Admin unlocks it.
+      </li>
+      <li>
+        <strong>Sign.</strong> On return, under the row lock, the revision must not have moved. Iki
+        builds the document: the record (ID, type, HRID, revision, its entry's revision, and its
+        content's SHA-256), the change (field, from, to, and whether it's a reversal), the slot's
+        terms, the signer, the reason, when, how they signed in again, and the public key. It's
+        canonical JSON (RFC 8785), signed with Ed25519 (<Path p={SV} sym="def _sign(" />, <Path
+          p={P}
+          sym="def canonical("
+        />).
+      </li>
+      <li>
+        <strong>The last one sets the state.</strong> When every slot counts, the state is set by{" "}
+        <code>states.write</code>, and its revision carries the signatures in order. Each step is
+        audited: <code>signature.requested</code>, <code>signature.signed</code>, <code
+          >signature.failed</code
+        >.
+      </li>
+    </ol>
+    <p>
+      The content is the record's values as its history keeps them, with each quantity's unit,
+      canonical JSON too. A record of a registry entry is signed with its entry's revision, so a
+      change to the entry lapses it as well.
+    </p>
+
+    <h3 id="reversals">Leaving a signed state</h3>
+    <p>
+      Iki reads, from the record's own state history, which signatures entered the state each field
+      is in now (<Path p={EN} sym="def for_records(" />). While that state was entered by signing,
+      the field's other states change (<Path p={EN} sym="class Entry:" />):
+    </p>
+    <ul>
+      <li>
+        <strong>A return to a signed state it's been in before</strong> uses that state's
+        signatures, and the signer also says why.
+      </li>
+      <li>
+        <strong>A move to an unsigned state</strong> becomes a reversal: one slot per signature that
+        entered the current state, each keeping its meaning, labelled "Reversal of …", with the
+        statement "I reverse the decision signed as …", and a reason required. Each signer must hold
+        one of the lab roles the original signature recorded and be allowed to set the destination
+        (<Path p="server/src/iki_server/signatures/changes.py" sym="def roles_for(" />). The signed
+        document marks it <code>reversal</code>, with both states and the revision. A slot whose
+        original signature can't be read can't be given.
+      </li>
+      <li>
+        <strong>Then every value edit</strong> after the record is unlocked carries its editor's
+        reason: <PageLink to="Locks and corrections" />.
+      </li>
+    </ul>
+    <p>
+      A forward step to a state the record hasn't been in uses its declared signatures and reason
+      policy. The <PageLink to="States and guards" hash="example" /> worked example, a plasmid
+      verification's review, shows a released record reversed to Recorded by QA.
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="When a signature counts" open>
+        <p>
+          A signature counts while the record, and its entry, stay at the revisions it signed, while
+          its signer still holds a role it needs, and while the plugin's terms for its slot are what
+          they were. Once the record changes it has lapsed, and the change needs it again. A signer
+          can withdraw theirs, with a reason, before the state is set (<Path
+            p={SV}
+            sym="def withdraw("
+          />). Guards run again at each signature, with the signer acting and the signatures given so
+          far (<Adr n="0128" />).
+        </p>
+      </Rule>
+      <Rule title="Verifying a signature">
+        <p>
+          <code>GET /api/v1/signatures/{"{id}"}/verification</code> answers with each check: the
+          document is the format it says; its Ed25519 signature matches; the content it names hashes
+          to what it signed; the record's history, recomputed now, is still that content; and the
+          revision that set the state names it. A value changed in SQL, a signature moved to another
+          record, a document edited or a signature deleted each fail a named check (<Path
+            p={SV}
+            sym="def verify("
+          />, <Path p={P} />).
+        </p>
+        <p>
+          Verification reads through renames and unit conversions that migrations recorded in <code
+            >iki_history_change</code
+          >, each vouched for by the deployment's key, instead of calling them tampering (<Adr
+            n="0148"
+          />, <Path p={P} sym="def read_through(" />). A bundle carries its signatures and verifies
+          offline with <code>iki bundle verify</code>: <PageLink to="Exports" />.
+        </p>
+      </Rule>
+      <Rule title="What's kept, and kept for good">
+        <p>
+          Signatures, withdrawals, certifications and acknowledgments are append-only tables (<Path
+            p="server/src/iki_server/signatures/models.py"
+            sym="class Signature("
+          />). The deployment's key is made at the first signature, its private half kept encrypted
+          with <code>IKI_ENCRYPTION_KEYS</code>, so a key is trusted only once its private half
+          decrypts and gives its public one. <code>iki-server signing_key</code> retires it for a new
+          one, audited as <code>signature.key_rotated</code> (<Path
+            p="server/src/iki_server/signatures/signing_keys.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="A release signs the review it releases">
+        <p>
+          When a result's release needs signing and its review was signed, QA's document names the
+          reviewer's revision, its content digest and the signatures that established review (<Adr
+            n="0179"
+          />). <PageLink to="Release and completion" /> covers what the requesting project receives.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes tags={["signatures"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={SV} />: begin, finish, verify, withdraw</li>
+          <li><Path p={P} />: the document and its checks, without Django</li>
+          <li><Path p={EN} />: signed entries and their reversals</li>
+          <li><Path p="server/src/iki_server/signatures/reauth.py" />: signing in again</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0124" title /></li>
+          <li><Adr n="0126" title /></li>
+          <li><Adr n="0148" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

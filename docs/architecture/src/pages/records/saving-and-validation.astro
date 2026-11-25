@@ -1,0 +1,251 @@
+---
+import Adr from "../../components/Adr.astro";
+import Inferred from "../../components/Inferred.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const S = "server/src/iki_server/entities/services.py";
+const C = "server/src/iki_server/entities/checking.py";
+const H = "server/src/iki_server/entities/holds.py";
+const API = "server/src/iki_server/api/entities.py";
+
+const toc = [
+  { id: "short", label: "Everything is checked, then written in one transaction" },
+  { id: "how", label: "Creating and editing" },
+  { id: "save", label: "One save, step by step" },
+  { id: "rules", label: "Rules, holds and what the database holds" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="Everything is checked, then written in one transaction">
+    <p>
+      Every write of a record's values goes through one service, whether a person, an agent, a
+      run's results, a bulk import or setup data makes it. A create checks the type, each value and
+      the plugin's rules first, then writes the row, revision 1, its history and its entry in one
+      transaction. An edit does the same under the record's row lock, for the revision the client
+      read. A rule that's broken refuses the save, or, for a rule that holds, keeps it only with a
+      reason and holds the record for review. <code>unique</code> and <code>no_overlap</code>{" "}
+      rules are held by the database (<Adr n={[35, 127]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="Creating and editing">
+    <p>
+      <code>POST /api/v1/entities</code> needs edit access to the project. The service checks
+      everything first (<Path p={S} sym="def prepare(" />), then writes in one transaction. <code
+        >PATCH /api/v1/entities/{"{ref}"}</code
+      > sends only the values to change and the ETag the client read (<PageLink
+        to="Revisions and history"
+      /> covers the ETag). Fields it doesn't name keep their values. On an edit, only the rules
+      reading a field it changes run, as Kubernetes ratchets its validation: a record saved before a
+      rule existed can still change in other ways, and a deploy reports it rather than leaving it
+      to fail later.
+    </p>
+    <p>
+      An edit refuses, field by field: a field the type hasn't got; a <code>computed</code> field
+      unless a run writes it; the amount a ledger records; a state field, which is set on its own
+      (<PageLink to="States and guards" />); an identity field once set; an <code>immutable</code>{" "}
+      field once set; a required field cleared. A locked record refuses every value edit, unless the
+      edit is a correction (<PageLink to="Locks and corrections" />). A Boolean marked <code
+        >reason_on_clear</code
+      > needs a reason to clear (<Path p={S} sym="def update(" />).
+    </p>
+
+    <h3 id="save">One save, step by step</h3>
+    <p>
+      What <code>POST /api/v1/entities</code> does. All of it after the first phase is one database
+      transaction; CHECK constraints and the lock and unique triggers fire as the rows are written.
+    </p>
+    <Sequence
+      id="save-seq"
+      title="Creating a record"
+      width={900}
+      actors={[
+        { id: "client", label: "Client", sub: "app, SDK or agent" },
+        { id: "api", label: "API", sub: "api/entities.py" },
+        { id: "svc", label: "Services", sub: "entities/services.py" },
+        { id: "wasm", label: "Rules", sub: "iki-wasm (CEL)" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { phase: "Checked first, outside the transaction" },
+        { id: "post", from: "client", to: "api", label: "POST /api/v1/entities" },
+        { id: "call", from: "api", to: "svc", label: "create()" },
+        { id: "prepare", from: "svc", to: "svc", label: "prepare: type, each value, defaults, required" },
+        { id: "cel", from: "svc", to: "wasm", label: "plugin rules on the new values" },
+        { id: "broken", from: "wasm", to: "svc", label: "breaks: refuse, or hold with a reason", dashed: true },
+        { phase: "One transaction" },
+        { id: "entry", from: "svc", to: "db", label: "find or make the entry, under an advisory lock" },
+        { id: "row", from: "svc", to: "db", label: "insert the typed row: HRID, identity hash" },
+        { id: "revise", from: "svc", to: "db", label: "revision 1, then queue webhooks and triggers" },
+        { id: "history", from: "svc", to: "db", label: "history rows, file uses, project link" },
+        { id: "after", from: "svc", to: "db", label: "notifications; the hold; the amount" },
+        { id: "reply", from: "api", to: "client", label: "201, or 200 reused · ETag: the revision", dashed: true },
+      ]}
+    >
+      <div slot="post">
+        <p>Needs edit access to the target project. The MCP tool <code>create_entity</code> calls the same endpoint.</p>
+        <p><Path p={API} sym="def create_entity(" />, <Path p="server/src/iki_server/mcp/tools.py" sym="create_entity" /></p>
+      </div>
+      <div slot="call">
+        <p>Run results, imports, collections and setup data create records through the same service, so every path gets the same checks.</p>
+        <p><Path p={S} sym="def create(" />, <Path p="server/src/iki_server/runs/results.py" /></p>
+      </div>
+      <div slot="prepare">
+        <p>
+          Refuses an abstract or frozen type; an unknown, removed, ledger, computed (unless a run
+          writes it) or state field; converts and validates each value. New records start each state
+          field at its <code>initial</code>. Then the core types' own rules in Python.
+        </p>
+        <p><Path p={S} sym="def prepare(" />, <Path p="server/src/iki_server/entities/rules.py" /></p>
+      </div>
+      <div slot="cel">
+        <p>The record's values go to iki-wasm under wasmtime, with a fuel budget per call; the browser runs the same module (<Adr n="0127" />). <PageLink to="WebAssembly" /> covers the module.</p>
+        <p><Path p={C} sym="def broken(" />, <Path p="spec/src/iki_spec/wasm.py" sym="FUEL" /></p>
+      </div>
+      <div slot="broken">
+        <p>
+          <code>raise_broken</code> refuses with every broken rule named, or, for rules that hold
+          rather than refuse, needs a hold reason (422 <code>hold_reason_required</code> without
+          one). <code>apart</code> names the record a unique or no-overlap rule clashes with.
+        </p>
+        <p><Path p={C} sym="def raise_broken(" />, <Path p={C} sym="def apart(" /></p>
+      </div>
+      <div slot="entry">
+        <p>Inside the transaction a result for a request is checked against it, under its lock, and a project starter's flow may refuse the type. Then the entry: the lock key is the registry and the identity's digest, so two creates of the same thing can't both make one (<PageLink to="Identity and HRIDs" />).</p>
+        <p><Path p={S} sym="iki_entry:" />, <Path p="server/src/iki_server/entities/identity.py" sym="def hash_for(" /></p>
+      </div>
+      <div slot="row">
+        <p><code>Entity.save</code> sets the type, takes the next HRID (or the entry's) and, for an entry, the identity hash. Extension and list rows follow.</p>
+        <p><Path p={S} sym="def _new_record(" /></p>
+      </div>
+      <div slot="revise">
+        <p>
+          <code>_revise</code> inserts the <code>Revision</code> and bumps <code>Entity.revision</code>;{" "}
+          <code>_announce</code> then queues webhooks and records trigger firings in the same
+          transaction, so they exist exactly when the change does (<Adr n={[31, 80]} />).
+        </p>
+        <p><Path p={S} sym="def _revise(" />, <Path p={S} sym="def _announce(" /></p>
+      </div>
+      <div slot="history">
+        <p>A full row per touched table into its <code>__history</code>, the files the record uses, and its owner project's link.</p>
+        <p><Path p={S} sym="def _write_history(" /></p>
+      </div>
+      <div slot="after">
+        <p>Assignment notices and the type's declared notifications (<Adr n="0129" />); if a rule held it, the hold and its <code>entity.held</code> audit event; for a type with an amount, its first ledger movement (<PageLink to="Amounts and the ledger" />).</p>
+        <p><Path p="server/src/iki_server/notifications/declared.py" />, <Path p={H} sym="def hold(" /></p>
+      </div>
+      <div slot="reply">
+        <p>201 for a new record; 200 with <code>reused</code> when the project already had a record of that identity; <code>registered</code> says whether a new entry was made.</p>
+        <p><Path p={API} sym="def create_entity(" /></p>
+      </div>
+    </Sequence>
+    <p>
+      <Inferred why="The code only queues rows in the transaction; the delivery workers weren't traced.">
+        Webhook delivery and the runs triggers start happen after commit, from the task runner and
+        the trigger machinery; this page shows only that they're queued in the transaction.
+      </Inferred>
+    </p>
+  </Layer>
+
+  <Layer n={4} title="Rules, holds and what the database holds">
+    <div class="rules">
+      <Rule title="CEL rules" open>
+        <p>
+          A type's rules are its own, its ancestors' and those its extensions declare. A <code
+            >check</code
+          > is CEL over the record as it will be saved, type-checked when the plugin is validated
+          and evaluated by iki-wasm on the server and in browsers' forms alike. <code>when</code>{" "}
+          limits it to records it's true of; <code>fields</code> names the fields a failure points at
+          in forms and errors. An edit runs the checks that read a field it changes (or that read
+          none). A check that can't be worked out because a value it reads is
+          empty passes, as SQL's CHECK does with NULL; one that can't be worked out otherwise breaks
+          (<Path p={C} />, <Path p="spec/src/iki_spec/rules.py" />).
+        </p>
+        <p>
+          <code>reference_revisions</code> makes a check read the records a reference names at the
+          revisions this record pinned, not as they are now; <code>recheck_before_signing</code>{" "}
+          runs it again at each signed state change (<Path
+            p="spec/src/iki_spec/schemas/rule/v1.json"
+          />). The <PageLink to="States and guards" hash="example" /> worked example uses both.
+        </p>
+      </Rule>
+      <Rule title="Holds: a broken specification is recorded, not refused">
+        <p>
+          A rule with <code>hold</code> is a specification, such as a result's limits. A result
+          outside it is data, and refusing it invites testing into compliance, so it's kept, with a
+          reason, and the record is held. A hold is cleared by a review: a person (not an agent or a
+          service account) with one of the rule's lab roles in the record's project, and not whoever
+          saved it, says why it may stand. Editing it back within the rule keeps the hold; saving it
+          outside again adds to it. While any hold is open the record can't enter a state that locks
+          it (<Adr n="0127" />, <Path p={H} sym="def blocks_locking(" />). A run's or an import's
+          results hold with a reason naming the run. Searches find what rules caught (<Adr
+            n="0135"
+          />).
+        </p>
+      </Rule>
+      <Rule title="What the database holds" id="database">
+        <p>
+          <code>unique</code> fields (<Adr n="0082" />) and the <code>unique</code> and <code
+            >no_overlap</code
+          > rules are triggers that keep a row per record in a side table: <code
+            >iki_unique_value</code
+          > for a combination, <code>iki_range_value</code> for a range, whose exclusion constraint
+          refuses two overlapping ones in a project. So a person, a run, a bulk import and SQL are
+          all held to it, and two saves at once can't both get in. A rule's <code>while</code> counts
+          only records whose enum, state or Boolean fields have one of its values: a tube that's
+          stored, a booking that isn't cancelled. Before writing, <code>taken</code> finds the
+          record a save would clash with, so the person is told which (<Path
+            p="server/src/iki_server/entities/constraints.py"
+          />, <Path p="server/src/iki_server/entities/unique.py" />).
+        </p>
+        <p>
+          A unique registry fact (a ChEMBL ID) is held once per registry instead. Projects are kept
+          apart: who holds a clashing value is told only to someone who can read it.
+        </p>
+      </Rule>
+      <Rule title="When a plugin's rules change">
+        <p>
+          A deploy that adds or changes a rule fills in the side tables for records already there,
+          and stops, naming them, if records already break a <code>unique</code> or <code
+            >no_overlap</code
+          > rule. Each type whose checks changed has its records checked again: those breaking a
+          rule are reported, or for a rule that holds, held by the system (<Path
+            p="server/src/iki_server/entities/breaches.py"
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes paths={/^\/api\/v1\/entities(\/\{ref\})?(\/holds[^]*)?$/} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={S} />: create, update, archive</li>
+          <li><Path p={C} />: plugins' rules</li>
+          <li><Path p={H} />: holds and their review</li>
+          <li><Path p="server/src/iki_server/entities/constraints.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0035" title /></li>
+          <li><Adr n="0082" title /></li>
+          <li><Adr n="0127" title /></li>
+          <li><Adr n="0135" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

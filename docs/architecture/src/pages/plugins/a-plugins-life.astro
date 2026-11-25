@@ -1,0 +1,145 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const P = "cli/src/iki_cli/plugin.py";
+const D = "server/src/iki_server/plugins/deploy.py";
+const at = (label: string, hash?: string) => page(label).href + (hash ? `#${hash}` : "");
+
+const boxes = [
+  { id: "repo", x: 20, y: 40, w: 150, h: 60, label: "Plugin repository", sub: "YAML, scripts, tests", href: at("What a plugin declares") },
+  { id: "validate", x: 200, y: 40, w: 150, h: 60, label: "Validate", sub: "schemas, then semantics", href: at("What a plugin declares", "validation") },
+  { id: "migrations", x: 380, y: 40, w: 150, h: 60, label: "Migrations", sub: "iki plugin makemigrations", href: at("Migrations and versions") },
+  { id: "tests", x: 560, y: 40, w: 150, h: 60, label: "Tests", sub: "actions, upgrade", href: at("Plugin tests") },
+  { id: "pin", x: 740, y: 40, w: 150, h: 60, label: "Pinned", sub: "plugins.lock.yaml", href: at("Builds and deploys", "lockfile") },
+  { id: "wasm", x: 200, y: 170, w: 150, h: 60, label: "CEL via iki-wasm", sub: "rules type-checked", href: at("WebAssembly") },
+  { id: "preflight", x: 560, y: 170, w: 150, h: 60, label: "Preflight", sub: "against live records", href: at("Migrations and versions", "preflight") },
+  { id: "build", x: 740, y: 170, w: 150, h: 60, label: "Deployment build", sub: "apps + image", strong: true, href: at("Builds and deploys") },
+  { id: "migrate", x: 740, y: 300, w: 150, h: 60, label: "Migrate", sub: "one transaction", strong: true, href: at("Builds and deploys", "deploy") },
+  { id: "sync", x: 560, y: 300, w: 150, h: 60, label: "sync_plugins", sub: "triggers, views, grants", href: at("Builds and deploys", "sync") },
+  { id: "running", x: 380, y: 300, w: 150, h: 60, label: "Running", sub: "types, actions, UI", href: at("Server and APIs", "rules") },
+  { id: "detach", x: 200, y: 300, w: 150, h: 60, label: "Detach, purge", sub: "kept, frozen; tombstones", href: at("Revisions and history") },
+];
+const edges = [
+  { from: "repo", to: "validate" },
+  { from: "validate", to: "migrations" },
+  { from: "migrations", to: "tests" },
+  { from: "tests", to: "pin" },
+  { from: "validate", to: "wasm", label: "rules", dashed: true },
+  { from: "pin", to: "build", label: "iki deploy build" },
+  { from: "build", to: "preflight", dashed: true },
+  { from: "build", to: "migrate", label: "migrate Job" },
+  { from: "migrate", to: "sync" },
+  { from: "sync", to: "running" },
+  { from: "running", to: "detach", dashed: true },
+];
+
+const H = {
+  short: "What a plugin is",
+  how: "From a plugin repository to a running deployment",
+  ref: "Where each part is covered",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin is a git directory of YAML manifests and the scripts its actions run. It's checked
+      against the iki/v1 spec, its migrations are written when it's authored and reviewed like code,
+      and its actions are tested by running fixtures through the real worker. A deployment pins each
+      plugin to a commit in its lockfile; <code>iki deploy build</code> compiles them all into
+      Django apps inside the deployment's own image. On deploy, one database transaction applies
+      every plugin's migrations together with the triggers and grants that guard their tables.
+    </p>
+    <ul>
+      <li>Plugins are deploy-time and trusted; there's no marketplace (<Adr n="0006" />).</li>
+      <li>Declarations are data, behaviour is code: only actions run code, on workers (<Adr n="0032" />).</li>
+      <li>Migrations keep history: nothing is ever dropped silently (<Adr n="0033" />).</li>
+      <li>Each deployment pins plugins in a lockfile and builds its own image (<Adr n="0034" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The top row happens in the plugin's own repository and CI (<Path
+        p="plugin-template/.github/workflows/ci.yml"
+      />); the rest in a deployment's config repository and cluster (<Path
+        p="deploy/config-template/.github/workflows/build.yml"
+      />). Each box links to the page that covers it.
+    </p>
+    <Diagram id="pluginlife" title="A plugin's life" width={910} height={380} boxes={boxes} edges={edges}>
+      <div slot="repo">
+        <p><code>plugin.yaml</code> at the root, each other kind of manifest in its own directory, named <code>namespace/name</code> (<Adr n="0113" />).</p>
+        <p><Path p="plugin-template" />, <Path p="spec/src/iki_spec/schemas" /></p>
+      </div>
+      <div slot="validate">
+        <p>JSON Schema first, then what no schema can check: references across files and plugins, states, rules, actions (<Adr n="0032" />).</p>
+        <p><Path p={P} sym="def run_validate(" />, <Path p="spec/src/iki_spec/validate.py" sym="def load_plugin(" /></p>
+      </div>
+      <div slot="migrations">
+        <p>Django's makemigrations with Iki's rules for history on top (<Adr n="0033" />).</p>
+        <p><Path p={P} sym="def run_makemigrations(" />, <Path p="server/src/iki_server/plugins/makemigrations.py" /></p>
+      </div>
+      <div slot="tests">
+        <p><code>ActionTest</code> fixtures through the real worker, and an upgrade from an earlier commit (<Adr n={[93, 94]} />).</p>
+        <p><Path p="cli/src/iki_cli/testing.py" />, <Path p="cli/src/iki_cli/upgrade_test.py" /></p>
+      </div>
+      <div slot="pin">
+        <p>Each entry names a git URL, a path, a full commit, a state and settings (<Adr n="0034" />).</p>
+        <p><Path p="spec/src/iki_spec/lockfile.py" sym="def load_lock(" /></p>
+      </div>
+      <div slot="wasm">
+        <p>The validator type-checks rules and guards with the module the server and browser evaluate them with (<Adr n={[127, 128]} />).</p>
+        <p><Path p="spec/src/iki_spec/rules.py" sym="def type_check(" /></p>
+      </div>
+      <div slot="preflight">
+        <p>A built plugin checked against the live records, read-only, before it's deployed (<Adr n="0181" />).</p>
+        <p><Path p="server/src/iki_server/plugins/preflight.py" sym="def preview_manifest(" /></p>
+      </div>
+      <div slot="build">
+        <p>Fetches the pinned commits, validates them together, and writes each plugin's app into the image (<Adr n="0034" />).</p>
+        <p><Path p="cli/src/iki_cli/deploy.py" sym="def run_build(" />, <Path p="codegen/src/iki_codegen/build.py" sym="def build(" /></p>
+      </div>
+      <div slot="migrate">
+        <p>Iki's own migrations, then one transaction for every plugin's migrations, the sync and the grants (<Adr n="0134" />).</p>
+        <p><Path p={D} sym="def migrate_deployment(" /></p>
+      </div>
+      <div slot="sync">
+        <p>Puts back what the database enforces for the installed plugins: sequences, views, triggers (<Adr n={[120, 127]} />).</p>
+        <p><Path p="server/src/iki_server/plugins/sync.py" sym="def sync(" /></p>
+      </div>
+      <div slot="running">
+        <p>The server imports the generated apps and refuses a build made by another Iki version.</p>
+        <p><Path p="server/src/iki_server/settings.py" sym="iki_installed_plugins" /></p>
+      </div>
+      <div slot="detach">
+        <p>A detached plugin's data is kept and frozen; a purge leaves tombstones (<Adr n={[91, 92]} />).</p>
+        <p><Path p="server/src/iki_server/plugins/purge.py" /></p>
+      </div>
+    </Diagram>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <ul>
+      <li><PageLink to="What a plugin declares" />: the manifest kinds, validation, namespaces, and the lots plugin file by file.</li>
+      <li><PageLink to="Builds and deploys" />: the lockfile, what a build produces, a deploy step by step, first-party plugins.</li>
+      <li><PageLink to="Migrations and versions" />: how migrations keep history, removed states, preflight, versions.</li>
+      <li><PageLink to="Plugin tests" />: action fixtures and upgrade tests.</li>
+      <li><PageLink to="Plugin frames" />: plugins' web components in sandboxed frames.</li>
+      <li><PageLink to="WebAssembly" />: CEL in iki-wasm, and the modules some actions call.</li>
+      <li><PageLink to="Revisions and history" />: detaching and purging a plugin.</li>
+      <li><PageLink to="First-party plugins" /> and <PageLink to="Core types" />: generated reference.</li>
+      <li>Skills for plugin authors: <Path p="plugin-template/.claude/skills" />, <Path p="plugin-template/README.md" /></li>
+    </ul>
+  </Layer>
+</Layout>

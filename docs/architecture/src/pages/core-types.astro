@@ -3,6 +3,7 @@
 import Layout from "../components/Layout.astro";
 import Path from "../components/Path.astro";
 import Adr from "../components/Adr.astro";
+import PageLink from "../components/PageLink.astro";
 import { corePlugin, manifestKinds } from "../lib/manifests.ts";
 
 const core = corePlugin();
@@ -21,6 +22,7 @@ const toc = [
       p="spec/src/iki_spec/validate.py"
       sym="DIRECTORIES = {"
     />. Each kind has a JSON Schema in <Path p="spec/src/iki_spec/schemas" /> (<Adr n="0032" />).
+    How they're read and checked: <PageLink to="What a plugin declares" />.
   </p>
   <div class="table-wrap">
     <table>
@@ -33,7 +35,7 @@ const toc = [
   <h2 id="core">Core types: {core.name} {core.version}</h2>
   <p>
     {core.description} Released with Iki itself, not listed in lockfiles, and built into the server
-    as <Path p="server/src/iki_plugin_iki__core" /> by <code>make core</code> (<Adr n="0038" />).
+    as <Path p="server/src/iki_plugin_iki__core" /> by <code>make core</code> (<Adr n="0038" />).{" "}
     <code>Entity</code>'s own columns are the server's model, not fields here.
   </p>
   <div class="table-wrap">

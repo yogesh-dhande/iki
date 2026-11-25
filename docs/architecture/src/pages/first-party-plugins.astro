@@ -3,6 +3,7 @@
 import Layout from "../components/Layout.astro";
 import Path from "../components/Path.astro";
 import Adr from "../components/Adr.astro";
+import PageLink from "../components/PageLink.astro";
 import { firstPartyPlugins } from "../lib/manifests.ts";
 
 const plugins = firstPartyPlugins();
@@ -24,7 +25,8 @@ const SHORT: Record<string, string> = {
   <p>
     {plugins.length} plugins in <Path p="plugins" />, each with the same layout as a lab's own and
     its own version; deployments pin them by this repository, a path and a commit (<Adr n="0039" />).
-    Counts are manifests by kind, found as the validator finds them.
+    Counts are manifests by kind, found as the validator finds them. How they're checked, pinned
+    and mirrored: <PageLink to="Builds and deploys" hash="rules" />.
   </p>
   <div class="table-wrap">
     <table>

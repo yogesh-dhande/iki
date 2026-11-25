@@ -1,0 +1,198 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const CI = ".github/workflows/ci.yml";
+const SHARDS = "scripts/ci/pytest_shards.py";
+
+const H = {
+  short: "What runs before a change can merge",
+  how: "Locally, then in CI",
+  example: "The oligo change, through the change script and the shards",
+  rules: "Shards, the harness, guards and fuzzing",
+  ref: "Targets, jobs and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Locally, a pre-commit hook checks what's staged, and <code>make check</code> runs eight
+      targets: workflows, the chart, infrastructure, dependencies, the web app, this site, Python
+      and Rust. In CI, a script first decides whether a change is docs only. If it isn't, every
+      code job runs, Python's tests in sixteen shards, and one job, "CI passed", is the only
+      required check. Inside any gate, an unexpected skip fails the run (<Adr n="0019" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The pre-commit hook runs Ruff, mypy, the workspace imports on Python 3.12, and Prettier, on
+      the files as they're staged rather than as they are on disk (<Path p="scripts/git-hooks/pre-commit" />).{" "}
+      <code>make check</code> runs its targets in order, and <code>make</code> stops at the first that
+      fails, so <code>make -k check</code> runs them all. It refuses the browser opt-out <code
+        >IKI_SKIP_BROWSER_TESTS=1</code
+      >, which is only for a partial local pytest run:
+    </p>
+    <Excerpt file="Makefile" start="^check: check-workflows" />
+    <p>
+      The test VM runs a full check off the laptop. The host-side wrapper gives each run its own
+      id, sets <code>IKI_GATE=1</code> there, and fetches failing browser traces back; the VM sets{" "}
+      <code>IKI_VM_RUN</code>, so pytest run directly there keeps the gate's rules. The VM itself,
+      and <code>vm-run.sh</code>, live outside this repository (<Path
+        p="scripts/ci/with-browser-traces.sh"
+      />, <Path p="CONTRIBUTING.md" />).
+    </p>
+    <p>
+      In CI, "What changed" runs <Path p="scripts/ci/changes.sh" />, which answers two questions:
+      whether the change is code, and whether it needs the server image. Docs-only changes run
+      Prettier and the docs tests instead of the code jobs. Code changes run Python's lint, types
+      and tests, TypeScript (lint, types, Vitest, the generated client, the build and this site),
+      Rust, the server image (built natively on arm64 too, for pull requests and merge groups), the
+      worker and
+      plugin images, OpenTofu, dependencies and dependency review, Slurm, and the dev cluster
+      (<PageLink to="The dev cluster" />). A change to a package's README can be docs to the code
+      jobs and still be copied into the server image, so it still builds that image.
+    </p>
+    <p>
+      "CI passed" fails if any job it needs is neither a success nor skipped (<Path
+        p={CI}
+        sym="name: CI passed"
+      />). A new push to a pull request cancels its earlier run.
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      The oligo Chemistry tab change from <PageLink to="Where a change is tested" hash="example" />,
+      on its pull request. The change script finds code, not docs, because a plugin's files never
+      count as docs; nor does anything under a <code>src/</code> directory, and a new branch or an
+      unknown base runs everything:
+    </p>
+    <Excerpt file="scripts/ci/changes.sh" start="^is_docs\(\) \{" />
+    <p>
+      So every code job runs. The browser test lands in a browser shard, the first-party test in a
+      plain shard, and the oligo plugin's action tests in the worker shard. Each shard collects the
+      whole suite, keeps its kind, and deals the files out like this:
+    </p>
+    <Excerpt file={SHARDS} start="^def assign\(" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The Python matrix" open>
+        <p>
+          Sixteen shards: Python 3.12, the oldest supported version, runs seven plain; Python 3.14,
+          what servers run, runs five plain, one worker and three browser. Plain tests need Python,
+          Postgres and Docker; worker tests also iki-worker, built with cargo; browser tests the
+          built web app and three browsers. Every shard builds iki-wasm, since saves evaluate
+          plugins' rules with it. Browser shards may take 45 minutes, the others 30 (<Path
+            p={CI}
+            sym="python-tests:"
+          />).
+        </p>
+        <p>
+          A test file is never split across shards, so its module-scoped fixtures start once. Files
+          are dealt longest first to whichever shard has least so far, by the seconds each took last
+          time, recorded per Python version and kind (<Path p="scripts/ci/test-durations.json" />). A
+          new file's time is estimated from measured files nearby (<Path
+            p={SHARDS}
+            sym="def file_weights("
+          />). The summary job checks that every test ran in exactly one shard, combines coverage,
+          and writes a fresh durations table, which is copied in by hand when the shards drift apart
+          (<Path p="scripts/ci/shard_summary.py" />). One shard can be run locally with <code
+            >uv run pytest -p pytest_shards --shard plain:2/7</code
+          >.
+        </p>
+      </Rule>
+      <Rule title="The harness, and no unexpected skips">
+        <p>
+          Postgres and SeaweedFS come from testcontainers unless the environment names them; xdist
+          workers share one of each (<Path p="server/tests/conftest.py" />). Inside a gate (<code
+            >IKI_GATE=1</code
+          >, CI, or the test VM), any skip not on an allow-list fails the run, and so does a skip at
+          collection (<Path p="scripts/ci/pytest_gate_skips.py" />). An <code>xfail</code> that passes
+          fails too (<Path p="pyproject.toml" sym="xfail_strict = true" />).
+        </p>
+      </Rule>
+      <Rule title="Generated files are checked against what generates them">
+        <p>
+          The first-party plugins' trees (<Path p="spec/tests/test_first_party.py" />), the core
+          plugin's generated app and migrations (<Path
+            p="server/tests/test_core_plugin.py"
+            sym="def test_the_generated_app_matches_the_manifests("
+          />), the bundled plugin components (<code>pnpm test</code>), the OpenAPI document and the
+          clients made from it (<PageLink to="Packages and the SDK" />), and the rule that no <code
+            >.wasm</code
+          > is ever in git (<PageLink to="WebAssembly" />) (<Adr n={[38, 114, 191]} />).
+        </p>
+      </Rule>
+      <Rule title="Authorization fuzzing">
+        <p>
+          The access matrix lists every API operation. The IDOR tests send each one as a project's
+          Admin with another project's objects swapped in, one identifier at a time and all at once;
+          each must answer exactly as it does for an identifier that names nothing (<Adr n="0101" />,{" "}
+          <Path p="server/tests/test_api_idor.py" sym="def test_another_projects_objects_are_never_reached(" />).
+          Every worker job route is fuzzed the same way with another worker's job (<Path
+            p="server/tests/test_worker_idor.py"
+            sym="def test_every_job_route_is_fuzzed("
+          />).
+        </p>
+      </Rule>
+      <Rule title="What this repository doesn't hold">
+        <p>
+          The test VM's machine and its settings, the lock that keeps heavy local runs to two at a
+          time, and the split between a scoped gate for changes local to one page and the full gate
+          for shared ones are working practice, kept outside the repository. Nothing here encodes
+          them, so this page can't cite them. In the repository, CI's only scoping is docs versus
+          code, and whether the server image is needed.
+        </p>
+      </Rule>
+      <Rule title="Where the docs and the code differ">
+        <ul>
+          <li>
+            The Makefile's first line and <Adr n="0019" /> say <code>make check</code> runs exactly
+            what CI runs. It doesn't run the dev cluster, the image builds, Slurm, dependency review
+            or the docs job, and runs one Python version where CI runs two.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Make targets</h3>
+      <ul>
+        <li><code>make check-python</code>, <code>check-web</code>, <code>check-rust</code>, <code>check-architecture</code> <Path p="Makefile" /></li>
+        <li><code>make check-image</code>, <code>check-slurm</code>: what <code>make check</code> leaves out</li>
+        <li><code>make dev-ci</code>: the dev cluster, end to end, then the restore test</li>
+        <li><code>make live-due</code>, <code>check-gcp-live</code>, <code>check-aws-live</code>: <PageLink to="Live clouds and scale" /></li>
+        <li><code>make core</code>, <code>make first-party</code>, <code>make client</code>: regenerate what the guards check</li>
+      </ul>
+      <h3>Workflows</h3>
+      <ul>
+        <li><Path p={CI} />: every pull request, merge group and push to main</li>
+        <li><Path p=".github/workflows/publish.yml" />, <Path p=".github/workflows/release.yml" />: <PageLink to="Releases and images" /></li>
+        <li><Path p=".github/workflows/scale.yml" />: nightly load tests</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0019" title /></li>
+        <li><Adr n="0101" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

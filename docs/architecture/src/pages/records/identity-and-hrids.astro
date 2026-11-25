@@ -1,0 +1,177 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const S = "server/src/iki_server/entities/services.py";
+const E = "server/src/iki_server/entities/entries.py";
+const M = "server/src/iki_server/entities/models.py";
+
+const reg = [
+  { id: "registry", x: 20, y: 30, w: 220, h: 64, label: "Registry", sub: "every project is in one" },
+  { id: "entryb", x: 300, y: 30, w: 240, h: 64, label: "Entry", sub: ["the identity: hash, facts,", "values the identity decides"], strong: true },
+  { id: "reca", x: 160, y: 160, w: 220, h: 64, label: "Project A's record", sub: "its own fields, accession, HRID" },
+  { id: "recb", x: 460, y: 160, w: 220, h: 64, label: "Project B's record", sub: "its own fields, accession, HRID" },
+  { id: "registrar", x: 600, y: 30, w: 160, h: 64, label: "Registrars", sub: "curate, supersede" },
+];
+const regEdges = [
+  { from: "registry", to: "entryb", label: "holds" },
+  { from: "reca", to: "entryb", label: "entry" },
+  { from: "recb", to: "entryb", label: "entry" },
+  { from: "registrar", to: "entryb", label: "facts", dashed: true },
+];
+
+const toc = [
+  { id: "short", label: "What a thing is, and what a project knows of it" },
+  { id: "how", label: "Entries, records and registrars" },
+  { id: "hrids", label: "HRIDs" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="What a thing is, and what a project knows of it">
+    <p>
+      A type with an <code>identity</code> is registered. What a thing is lives once per registry,
+      as an <strong>entry</strong>: the identity, the facts about it, and the values the identity
+      alone decides. Each project that has it keeps its own <strong>record</strong> of it, pointing
+      to the entry and sharing its HRID, with everything that depends on how that project made or
+      measured it, accessions included. Registrars curate an entry's facts and supersede a mistaken
+      entry (<Adr n={[115, 131, 143, 154]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="Entries, records and registrars">
+    <Diagram id="reg" title="An entry and its projects' records" width={780} height={240} boxes={reg} edges={regEdges}>
+      <div slot="registry">
+        <p>Every project is in one registry; registries and their registrars are org models.</p>
+        <p><Path p="server/src/iki_server/org/models.py" sym="class Registry(" />, <Path p="server/src/iki_server/org/models.py" sym="class Registrar(" /></p>
+      </div>
+      <div slot="entryb">
+        <p>
+          An <code>iki_entity</code> row with a registry, no project, and an identity hash:
+          canonical JSON of the identity fields, naming the type, hashed with SHA-256. Database
+          constraints keep one entry per identity per registry, and one record per entry per
+          project.
+        </p>
+        <p><Path p="spec/src/iki_spec/identity.py" sym="def identity_hash(" />, <Path p={M} sym="iki_entity_identity_once" /></p>
+      </div>
+      <div slot="reca">
+        <p>A record has an owner project and an entry. A value is <code>registry: derived</code> only if the identity alone determines it; anything a run's parameters change is the record's (<Adr n="0131" />).</p>
+        <p><Path p={M} sym="iki_entity_record_once" /></p>
+      </div>
+      <div slot="recb">
+        <p>An accession (a UniProt ID, say) is the record's, not the entry's: two projects may have it from different sources (<Adr n="0154" />).</p>
+      </div>
+      <div slot="registrar">
+        <p>A holder sets a fact while it's empty; after that only the registry's registrars change it, with a reason. An identity field never changes: a registrar supersedes the entry instead (<Adr n="0143" />).</p>
+        <p><Path p={E} sym="def curate(" />, <Path p={E} sym="def supersede(" /></p>
+      </div>
+    </Diagram>
+    <p>
+      <strong>Registering.</strong> A create of a type with an identity hashes the identity, takes
+      an advisory lock on the registry and that digest, and looks for the entry. If there's none it
+      makes one, then the project's record. If there is one, what the create says about the entry
+      fills what it hasn't got, and a fact that differs is refused; a project that already has a
+      record of it gets that record back, as <code>reused</code>. Two people registering the same
+      thing at once make one entry: the second waits, then finds it (<Path p={S} sym="def _find_entry(" />).
+      The full order is on <PageLink to="Saving and validation" />.
+    </p>
+    <p>
+      <strong>Which fields go where.</strong> A field marked <code>registry: derived</code> is set
+      once at registration (a formula, a weight, a canonical form). One marked <code
+        >registry: fact</code
+      > is a curated fact the identity doesn't determine (a CAS number, an INN). Everything else is
+      the project's record's. An identity reads sequences and sets of parts as what they are, so
+      the same molecule spelled two ways is one entry (<Adr n="0138" />).
+    </p>
+    <p>
+      <strong>References to an identity name its entry</strong>: the foreign key is to the entries'
+      table. When a project reads the reference, it's titled by that project's own record of the
+      entry where it has one. <PageLink to="Links between records" /> covers how references are read.
+    </p>
+
+    <h3 id="hrids">HRIDs</h3>
+    <p>
+      A human-readable ID, such as <code>PRT-000123</code>, comes from one Postgres sequence per
+      prefix (<code>iki_hrid_prt</code>). <code>sync_plugins</code> creates the sequences and never
+      drops them, so a number is never handed out twice, even if a plugin is removed and comes back.
+      Numbers outgrow their padding rather than wrap. A project's record of an entry takes the
+      entry's HRID, so every project calls the same thing by the same ID (<Path
+        p="server/src/iki_server/entities/hrids.py"
+        sym="def next_hrid("
+      />). The app's database role can move a sequence forward past a number an import kept, through{" "}
+      <code>iki_hrid_advance</code>, and do nothing else to it (<Path
+        p="server/src/iki_server/core/db_roles.py"
+        sym="iki_hrid_advance"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="Superseding and moving" open>
+        <p>
+          A registrar replaces a mistaken entry (drawn with the wrong stereochemistry, say) with
+          another of the same type in the same registry, with a reason. It can't be undone. The
+          superseded entry is kept, marked, and can't be registered again; the people who added
+          each holding project's record, and those projects' Admins, are told. A holder's Editor
+          then moves the project's record to the replacement: it keeps its data, history and runs,
+          and the project's own references to the old entry are re-pointed, each a revision with the
+          reason (<Path p={E} sym="def move(" />). A locked record can't be moved.
+        </p>
+      </Rule>
+      <Rule title="What a registrar sees">
+        <p>
+          A registrar sees the entry: its values, its history, and how many projects hold it, never
+          which, nor their records. An entry's revision made through a project the reader can't read
+          says what it set, never who, how or when.
+        </p>
+      </Rule>
+      <Rule title="An entry has no states">
+        <p>
+          States, locks and archiving are the project's record's. An entry isn't archived: its
+          registrars supersede it. Its facts' changes are <code>curated</code> revisions, and the
+          holders are told.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li><Adr n="0035" />'s <code>on_duplicate</code> was removed by <Adr n="0115" />: a project has at most one record of each entry.</li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes tags={["registries"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={E} />: curating, superseding, moving</li>
+          <li><Path p="server/src/iki_server/entities/identity.py" />: an identity's digest</li>
+          <li><Path p="spec/src/iki_spec/identity.py" />: the hash</li>
+          <li><Path p="server/src/iki_server/entities/hrids.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0115" title /></li>
+          <li><Adr n="0131" title /></li>
+          <li><Adr n="0138" title /></li>
+          <li><Adr n="0143" title /></li>
+          <li><Adr n="0154" title /></li>
+          <li><Adr n="0165" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

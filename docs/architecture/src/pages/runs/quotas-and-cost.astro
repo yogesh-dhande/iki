@@ -1,0 +1,148 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/runs/models.py";
+const QU = "server/src/iki_server/runs/quotas.py";
+const B = "server/src/iki_server/runs/budgets.py";
+const C = "server/src/iki_server/runs/costs.py";
+
+const H = {
+  short: "What limits runs, and what they cost",
+  how: "Where each limit applies",
+  rules: "Quotas, budgets, costs and estimates",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Compute admins set quotas on how many runs may run and wait, per organization, team or
+      project, on one tier or all. Machines Iki starts carry a price, so each container- and
+      vm-tier run, and each call to a priced outside API, records what it cost and whose it was. A
+      monthly budget warns as spending passes its thresholds, and an enforced one stops costly runs
+      starting once it's spent (<Adr n={[45, 70, 71]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Limit</th><th>Checked</th><th>What happens past it</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>max_queued</code></td>
+            <td>At launch, in its transaction, and again when a held run is approved</td>
+            <td>The launch is refused, saying which scope is full (<Path p={QU} sym="def check_queued(" />).</td>
+          </tr>
+          <tr>
+            <td><code>max_running</code></td>
+            <td>At each lease, and when the provisioner counts what to start</td>
+            <td>Jobs in that scope wait, even with a worker free; 0 pauses the scope (<Path p={QU} sym="def blocked(" />).</td>
+          </tr>
+          <tr>
+            <td>An enforced budget</td>
+            <td>At launch and approval; at each lease on a priced tier, or for runs calling priced APIs</td>
+            <td>A spent budget refuses the launch, and stops its scope's queued costly runs starting (<Path p={B} sym="def check_launch(" />, <Path p={B} sym="def hold(" />).</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Every quota that covers a job applies, so a project's own limit and its team's both hold. The
+      checks take an advisory lock while quotas exist for that tier, so two workers leasing at once
+      can't both take the last slot. Leasing itself is on <PageLink to="The worker and its leases" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Quotas" open>
+        <p>
+          A <code>RunQuota</code> has one scope (the organization, a team or a project), a tier or
+          none for all tiers together, and either limit or both. <code>max_running</code> counts jobs
+          workers hold; a packed job counts once, as it's one command on one worker (<Path
+            p={M}
+            sym="class RunQuota("
+          />).
+        </p>
+      </Rule>
+      <Rule title="What a run costs">
+        <p>
+          Only the container and vm tiers have per-run costs; backend and self-hosted machines run
+          anyway. An ephemeral machine's whole life, from being asked for to ending, is its run's. A
+          persistent machine's time holding each attempt is that run's, and the rest is idle, the
+          organization's. A packed job is split evenly between its runs. A Slurm job pays for what{" "}
+          <code>sacct</code> says it used, at its template's rates, from when it started on its
+          nodes. Each <code>CostRecord</code> keeps the price, project, team and action as they were,
+          and is never changed (<Adr n="0070" />, <Path p={C} sym='PRICED_TIERS = ("container", "vm")' />,{" "}
+          <Path p={M} sym="class CostRecord(" />).
+        </p>
+        <p>
+          A call to an outside API costs the deployment's <code>ApiPrice</code> for it, on any tier
+          (<Adr n="0130" />, <Path p={M} sym="class CostKind(" />). A run's page shows what it has
+          cost so far, including machines still up (<Path p={C} sym="def of_run(" />).
+        </p>
+      </Rule>
+      <Rule title="Budgets">
+        <p>
+          A <code>Budget</code> is a monthly amount for the organization, a team or a project, in
+          calendar months in UTC. What's spent is what's recorded this month in its scope plus what
+          machines still working for its runs have cost so far. As spending passes each of its{" "}
+          <code>warn_at</code> percentages (50, 80 and 100 unless set), its Compute Admins, and a
+          project's Admins for a project's budget, are told once a month each, and it's audited and
+          sent to webhooks (<Adr n="0071" />, <Path p={B} sym="def send_alerts(" />).
+        </p>
+        <p>
+          An enforced budget that's spent stops new container- and vm-tier runs, and runs calling
+          priced outside APIs, in its scope until the month ends or it's raised. Runs already going
+          finish. A launch whose runs' typical cost would take the budget past what's left is refused
+          too.
+        </p>
+      </Rule>
+      <Rule title="Estimates">
+        <p>
+          Before launching, an action on a priced tier shows the template it would run on, its price
+          per hour, the median cost of its last 50 successful runs, and what a run would cost if it
+          used its whole timeout (<Path p={C} sym="def estimate(" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>Routes</h3>
+    <Routes paths={/^\/api\/v1\/compute\/(quotas|quota-scopes)/} />
+    <Routes tags={["costs"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={QU} /></li>
+          <li><Path p={B} /></li>
+          <li><Path p={C} /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0045" title /></li>
+          <li><Adr n="0070" title /></li>
+          <li><Adr n="0071" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

@@ -1,0 +1,164 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const S = "server/src/iki_server/entities/services.py";
+const ST = "server/src/iki_server/entities/states.py";
+const at = (label: string) => page(label).href;
+
+const life = [
+  { id: "manifest", x: 20, y: 40, w: 150, h: 60, label: "Type manifest", sub: "a plugin's types/*.yaml", href: at("Types and tables") },
+  { id: "tables", x: 200, y: 40, w: 150, h: 60, label: "Typed tables", sub: "row, __history, lists", href: at("Types and tables") },
+  { id: "create", x: 380, y: 40, w: 150, h: 60, label: "Create", sub: "prepare, then write", strong: true, href: at("Saving and validation") },
+  { id: "revisions", x: 560, y: 40, w: 150, h: 60, label: "Revisions", sub: "append-only; the ETag", href: at("Revisions and history") },
+  { id: "state", x: 740, y: 40, w: 150, h: 60, label: "Set a state", sub: "set_by, holds, guards", href: at("States and guards") },
+  { id: "refs", x: 20, y: 170, w: 150, h: 60, label: "References", sub: "foreign keys; graph edges", href: at("Links between records") },
+  { id: "entry", x: 200, y: 170, w: 150, h: 60, label: "Registry entry", sub: "found by identity", href: at("Identity and HRIDs") },
+  { id: "rules", x: 380, y: 170, w: 150, h: 60, label: "Rules", sub: "CEL at every save", href: at("Saving and validation") },
+  { id: "locked", x: 560, y: 170, w: 150, h: 60, label: "Locked", sub: "a database trigger", href: at("Locks and corrections") },
+  { id: "signatures", x: 740, y: 170, w: 150, h: 60, label: "Signatures", sub: "sign in again; Ed25519", href: at("Electronic signatures") },
+  { id: "correction", x: 380, y: 300, w: 150, h: 60, label: "Correction", sub: "a return, with a reason", href: at("Locks and corrections") },
+  { id: "audit", x: 740, y: 300, w: 150, h: 60, label: "Audit log", sub: "append-only events", href: at("Audit trail") },
+];
+const lifeEdges = [
+  { from: "manifest", to: "tables" },
+  { from: "tables", to: "create" },
+  { from: "create", to: "revisions" },
+  { from: "revisions", to: "state" },
+  { from: "tables", to: "refs", label: "ref fields", dashed: true },
+  { from: "create", to: "entry", label: "identity", dashed: true },
+  { from: "create", to: "rules", label: "every save", dashed: true },
+  { from: "state", to: "signatures", label: "if signed" },
+  { from: "state", to: "locked", label: "locks: true" },
+  { from: "signatures", to: "locked", label: "the last one" },
+  { from: "locked", to: "correction", label: "an edit, or a reversal" },
+  { from: "correction", to: "revisions", label: "back to review", via: [[545, 330], [545, 85]] as [number, number][], at: [545, 280] as [number, number] },
+  { from: "signatures", to: "audit", label: "signature.signed" },
+];
+const toc = [
+  { id: "short", label: "What a record is" },
+  { id: "how", label: "From a type manifest to a signed, locked record" },
+  { id: "pages", label: "Which page covers what" },
+  { id: "ref", label: "Where the code is" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="What a record is">
+    <p>
+      A record is a row of a type that a plugin declared. Every change to it is a numbered,
+      append-only revision, and the revision number is what a client must name to change it again.
+      A type may give it state fields. Setting a state is checked by the plugin's roles and guards,
+      may need electronic signatures bound to that exact revision, and may lock the record so that
+      the database itself refuses to change it. A locked record changes again only after a state
+      that doesn't lock is set: by a reasoned correction, or by a signed reversal when the lock was
+      signed for. Records live in projects; what a thing <em>is</em> (its identity) lives once, in
+      the registry, as an entry every project's record points to.
+    </p>
+    <ul>
+      <li>One table per type, with a history table beside it (<Adr n={[7, 33]} />).</li>
+      <li>Provenance is the revision that last changed a field; there's no separate table (<Adr n="0035" />).</li>
+      <li>States, locks, guards and signatures are the plugin's to declare (<Adr n={[125, 128, 126]} />).</li>
+      <li>Registries keep identities; each project keeps its own record (<Adr n="0115" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title="From a type manifest to a signed, locked record">
+    <p>
+      A plugin's type manifest is compiled into a Django model and its tables. Creating a record
+      checks every value and the plugin's rules, then writes the row, revision 1 and its history in
+      one transaction. Each edit is another revision. A state field is never set by an edit: it's
+      set on its own, by someone with a role its state allows, once its holds and guards pass and
+      any signatures it needs are given. A locking state makes the database refuse every change to
+      the record's tables until a state that doesn't lock is set. Each box below opens the page
+      that covers it.
+    </p>
+    <Diagram
+      id="life"
+      title="A record's life, from its type to its audit trail"
+      width={910}
+      height={380}
+      boxes={life}
+      edges={lifeEdges}
+      caption="Solid arrows are the order things happen in; dashed ones are what every save keeps or checks."
+    >
+      <div slot="manifest">
+        <p>An <code>EntityType</code> under a plugin's <code>types/</code>: fields, an optional <code>identity</code>, state fields, rules and display (<Adr n={[32, 38]} />).</p>
+        <p><Path p="spec/src/iki_spec/core/types" /></p>
+      </div>
+      <div slot="tables">
+        <p>The type's table extends <code>Entity</code>; beside it a <code>__history</code> table, a table per list of references, files, people or rows, and <code>__entry</code> tables for an identity (<Adr n="0033" />).</p>
+        <p><Path p="codegen/src/iki_codegen/models.py" sym="def render_models(" /></p>
+      </div>
+      <div slot="create">
+        <p><code>POST /api/v1/entities</code>: everything is checked first, then written in one transaction.</p>
+        <p><Path p={S} sym="def create(" />, <Path p={S} sym="def prepare(" /></p>
+      </div>
+      <div slot="revisions">
+        <p>Each change writes a <code>Revision</code> and a history row per table it touched. <code>Entity.revision</code> is the API's ETag (<Adr n="0035" />).</p>
+        <p><Path p={S} sym="def _revise(" /></p>
+      </div>
+      <div slot="state">
+        <p><code>POST /api/v1/entities/{"{ref}"}/states/{"{field}"}</code>, under the row lock: roles (<code>set_by</code>), holds, guards, then the reason (<Adr n={[125, 128]} />).</p>
+        <p><Path p={ST} sym="def set_state(" /></p>
+      </div>
+      <div slot="refs">
+        <p>A <code>ref</code> field is a foreign key; a list of them is a table. Triggers keep an edge per reference in the graph that lineage walks (<Adr n="0123" />).</p>
+        <p><Path p="server/src/iki_server/graph/edges.py" /></p>
+      </div>
+      <div slot="entry">
+        <p>A type with an <code>identity</code> is registered: the create finds or makes the registry's entry, and the project's record points to it (<Adr n="0115" />).</p>
+        <p><Path p={S} sym="def _find_entry(" /></p>
+      </div>
+      <div slot="rules">
+        <p>Plugins' <code>check</code> rules are CEL, run by iki-wasm on every save; <code>unique</code> and <code>no_overlap</code> are held by triggers. A rule can hold a record for review (<Adr n="0127" />).</p>
+        <p><Path p="server/src/iki_server/entities/checking.py" sym="def broken(" /></p>
+      </div>
+      <div slot="locked">
+        <p>A locking state puts its field in <code>Entity.locked_by</code>; a trigger on the type's tables refuses any write while it's not empty (<Adr n="0120" />).</p>
+        <p><Path p={ST} sym="def install_guards(" /></p>
+      </div>
+      <div slot="signatures">
+        <p>Each signer signs in again; Iki signs a canonical document naming the record's content hash at that revision with the deployment's Ed25519 key. The last signature sets the state (<Adr n={[124, 126]} />).</p>
+        <p><Path p="server/src/iki_server/signatures/services.py" sym="def _sign(" /></p>
+      </div>
+      <div slot="correction">
+        <p>An unsigned lock can name an <code>on_edit</code> state: the edit returns to it and changes the values in one transaction. A signed lock is reopened by a signed reversal (<Adr n={[179, 126]} />).</p>
+        <p><Path p={ST} sym="def return_for_edit(" /></p>
+      </div>
+      <div slot="audit">
+        <p>Events are written in the change's transaction and can't be changed. State changes, holds, links and signatures are audited; a plain edit's revision is its trail (<Adr n="0025" />).</p>
+        <p><Path p="server/src/iki_server/audit/log.py" sym="ACTIONS" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="pages">Which page covers what</h3>
+    <ul>
+      <li><PageLink to="Types and tables" />: how a manifest becomes tables, and what the deploy adds to them.</li>
+      <li><PageLink to="Identity and HRIDs" />: registries, entries and project records, HRIDs, accessions and registrars.</li>
+      <li><PageLink to="Saving and validation" />: one create or edit, step by step; CEL rules, holds, unique and no-overlap.</li>
+      <li><PageLink to="Revisions and history" />: revisions, the ETag, history tables, provenance, archiving, and who and which agent made a change.</li>
+      <li><PageLink to="States and guards" />: state fields, who sets each state, guards, and a plasmid verification's review as the worked example.</li>
+      <li><PageLink to="Locks and corrections" />: how the database holds a lock, corrections, and the reason every edit after an unlock needs.</li>
+      <li><PageLink to="Electronic signatures" />: Part 11 signing, what's signed, lapsed signatures and signed reversals.</li>
+      <li><PageLink to="Links between records" />: references and lists of them, how they're read, and the graph lineage walks.</li>
+      <li><PageLink to="Audit trail" />: the append-only audit log, and the database roles that keep it so.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={5} title="Where the code is">
+    <ul>
+      <li><Path p="server/src/iki_server/entities" />: records, states, rules, holds and registries</li>
+      <li><Path p="server/src/iki_server/signatures" />: electronic signatures</li>
+      <li><Path p="server/src/iki_server/graph" />: the graph of references and lineage</li>
+      <li><Path p="server/src/iki_server/audit" />: the audit log and agents</li>
+      <li><Path p="codegen/src/iki_codegen/models.py" />: a type's tables</li>
+      <li><Path p="server/src/iki_server/plugins/sync.py" />: the triggers a deploy installs</li>
+    </ul>
+  </Layer>
+</Layout>

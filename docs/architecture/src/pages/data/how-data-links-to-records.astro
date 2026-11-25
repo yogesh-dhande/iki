@@ -1,0 +1,145 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/files/models.py";
+const IN = "server/src/iki_server/runs/input_files.py";
+
+const H = {
+  short: "A record holds a file's ID; every use is recorded",
+  how: "The four links between files and records",
+  rules: "Who can read a file, and what a run may fetch",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: how is a file tied to the records and runs that use it? A record's file
+      field holds a file's ID, never its bytes. One file can be held by many records, and one record
+      can hold many files. Iki records each record that holds a file, and each run that read or made
+      one, in append-only tables, so a file always knows what used it, and a record's readers can
+      read the files its history names (<Adr n={[36, 177]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <ol>
+      <li>
+        <strong>File fields.</strong> A type's field of <code>type: file</code>, a list of files, or a
+        file cell in a list of rows (<Adr n="0137" />). The file must be one the editor can read, of a
+        media type the field allows, under its <code>max_size</code>. A type whose identity includes a
+        file hashes the file's SHA-256, so the same content under another name is the same entity (<Path
+          p="spec/src/iki_spec/identity.py"
+          sym="def identity_hash("
+        />).
+      </li>
+      <li>
+        <strong>Uses.</strong> Each save records the files its values hold as <code>FileUse</code>{" "}
+        rows naming the revision that first used each. They're kept when the record stops holding
+        the file, because its history still does (<Path p={M} sym="class FileUse(" />, <Path
+          p="server/src/iki_server/entities/services.py"
+          sym="def _use_files("
+        />).
+      </li>
+      <li>
+        <strong>Runs.</strong> <code>RunFile</code> records each file a run read or made: a file
+        param, a file its inputs held at the revisions it was launched on, or one its worker uploaded
+        for its results (<Path p="server/src/iki_server/runs/models.py" sym="class RunFile(" />). A
+        result names a new file as <code>{'{"$file": "model.pdb"}'}</code> in <code>output.json</code>;
+        the worker uploads it, the server checks it like any upload, and the field gets its ID (<Path
+          p="worker/crates/iki-worker/src/files.rs"
+        />).
+      </li>
+      <li>
+        <strong>Lineage and origins.</strong> The record graph has a <code>file</code> edge: a run made
+        or updated a record from a file another record held (<Path
+          p="server/src/iki_server/graph/models.py"
+        />). An import's records can each say which file, and which record in it, they came from,
+        with its SHA-256; origins are append-only (<Path
+          p="server/src/iki_server/runs/models.py"
+          sym="class ExternalOrigin("
+        />, <Adr n="0052" />).
+      </li>
+    </ol>
+    <p>
+      A file belongs to a sample when a record of a type marked <code>sample: true</code> holds it, or
+      a run that read the sample read or made it (<Path p="server/src/iki_server/files/listing.py" />).
+      Types such as <Path p="plugins/samples/types/sample.yaml" label="iki/samples.Sample" /> and <Path
+        p="plugins/lots/types/lot.yaml"
+        label="iki/lots.Lot"
+      /> say so. How files are found by these links is on <PageLink to="Finding data" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Who can read a file" open>
+        <p>
+          Anyone who can read the project a file was added to, or a record that held it at any
+          revision. Everyone else gets 404: they don't learn the file exists (<Path
+            p="server/src/iki_server/entities/access.py"
+            sym="def readable_files("
+          />, <Adr n="0036" />). An upload in progress is visible only to the person making it. How
+          records themselves are shared between projects is on <PageLink
+            to="Sharing across projects"
+          />.
+        </p>
+      </Rule>
+      <Rule title="A run fetches only its own files">
+        <p>
+          A job's run input lists its files by ID, with name, size and SHA-256: its file params', and
+          those its inputs and their included references held at the pinned revisions (<Adr
+            n={[89, 105]}
+          />). The worker asks for each by <code>POST /worker/v1/jobs/{"{id}"}/files/{"{file_id}"}</code>,
+          and gets a five-minute URL only for a listed file, only while it holds the job's lease (<Path
+            p={IN}
+            sym="def download("
+          />). It checks each download's size and SHA-256 before the command starts (<Path
+            p="worker/crates/iki-worker/src/files.rs"
+          />). What a run pins at launch is on <PageLink to="Pinning and provenance" />.
+        </p>
+      </Rule>
+      <Rule title="Clients check what they download">
+        <p>
+          The Python SDK's <code>files.download</code> hashes what it saves and compares it with the
+          file's SHA-256 (<Path p="sdk/python/src/iki/client.py" sym="def download(" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={M} />: <code>File</code>, <code>FileUse</code></li>
+          <li><Path p={IN} />: a job's files</li>
+          <li><Path p="server/src/iki_server/graph/models.py" />: the graph's edges</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0036" title /></li>
+          <li><Adr n="0052" title /></li>
+          <li><Adr n="0089" title /></li>
+          <li><Adr n="0137" title /></li>
+          <li><Adr n="0177" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

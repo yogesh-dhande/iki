@@ -1,0 +1,155 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Tree from "../../components/Tree.astro";
+
+const CHART = "deploy/helm/iki";
+const TPL = "deploy/config-template";
+const PUB = ".github/workflows/publish.yml";
+const REL = ".github/workflows/release.yml";
+
+const H = {
+  short: "What a release publishes, and how a deployment takes it",
+  how: "Iki's release, then the deployment's build",
+  example: "A release reaching a lab's staging deployment",
+  rules: "Signatures, admission and self-updating workers",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A version tag starts two workflows. <code>publish.yml</code> builds seven images, scans them,
+      signs them keyless with cosign, and attests their provenance and SBOMs; <code>release.yml</code>{" "}
+      signs and publishes the chart, the worker's binaries and two npm packages. Both refuse the tag
+      until every cloud's live test has passed at it. A deployment's own repository then builds its
+      plugins onto Iki's images, after checking Iki signed them, signs the result, approves the
+      images its runs use, and opens a pull request whose merge is the deploy (<Adr
+        n={[15, 17, 34, 63]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>publish.yml</code> builds the server, the worker and five first-party tool images, for
+      amd64 and arm64. Each is scanned with Grype, signed keyless with cosign, and given SLSA
+      provenance and a CycloneDX SBOM per platform, then verified in the same run (<Adr
+        n={[17, 65]}
+      />, <Path p={PUB} sym='run: cosign sign --yes "$REF"' />). <code>release.yml</code> publishes
+      the worker for Linux and macOS, each tarball with a Sigstore bundle, provenance and an SBOM,
+      plus a checksum file; the chart, pushed to ghcr.io as an OCI artifact, signed, with provenance;
+      and <code>@ikisci/science</code> and <code>@ikisci/ui</code> on npm with provenance (<Path
+        p={REL}
+        sym="helm package deploy/helm/iki"
+      />). Both workflows start with the live-test gate (<PageLink to="Live clouds and scale" />).
+    </p>
+    <p>
+      A deployment's configuration is a repository of its own, started from <Path p={TPL} />, with
+      one folder per deployment: the Iki version and its images by digest, the plugin lockfile,
+      chart values, plugin settings, and the image file CI writes (<Adr n={[15, 34]} />). Its build
+      workflow runs <code>iki deploy build</code> on every pull request. On main it checks Iki's
+      signatures on the server and worker images, builds the deployment's images with its plugins
+      on them, signs them, signs each image runs will use into an approvals repository, and opens a
+      "Deploy" pull request that points <code>image.yaml</code> at the new images (<Path
+        p={`${TPL}/.github/workflows/build.yml`}
+      />, <Path p="deploy/plugins.Dockerfile" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      Iki tags a release after both clouds' live tests pass; <code>publish.yml</code> signs its images
+      and <code>release.yml</code> its chart. A lab's staging deployment moves to it with one pull
+      request to its config repository, which starts from this template:
+    </p>
+    <Tree dir={`${TPL}/deployments/staging`} depth={1} />
+    <Excerpt file={`${TPL}/deployments/staging/iki.yaml`} />
+    <p>
+      The pull request's build checks the plugins and lists the images runs use. On merge, CI signs
+      each into the deployment's approvals repository, which the chart's image policy trusts beside
+      Iki's own signer:
+    </p>
+    <Excerpt file={`${CHART}/values.yaml`} start="^  imagePolicy:" />
+    <p>
+      Merging the Deploy pull request lets Argo CD or Flux apply the chart. The migrate hook runs
+      first (<PageLink to="The Helm chart" />). If the lab also runs a licensed tool, its image is
+      bound and approved the same way: <PageLink to="Licensed images" hash="example" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The cluster admits only signed or approved images" open>
+        <p>
+          A Sigstore policy-controller <code>ClusterImagePolicy</code> covers the Jobs and pods the
+          provisioner makes: an image is admitted if Iki's publish workflow signed it at a version
+          tag, or the deployment's build approved it. Any other pod in those namespaces is refused,
+          and the chart refuses to install if a runs namespace it can see isn't labelled for the
+          policy (<Adr n="0063" />, <Path p={`${CHART}/templates/image-policy.yaml`} sym="kind: ClusterImagePolicy" />).
+        </p>
+        <p>
+          On Google Cloud, Binary Authorization also denies every image cluster-wide except the
+          deployment's own repositories, Iki's, and those listed (<Adr n="0107" />, <Path
+            p="deploy/gcp/modules/binary-authorization/main.tf"
+            sym="ALWAYS_DENY"
+          />). Slurm clusters' workers check each image with cosign against the same approvals before
+          running it (<Adr n="0133" />).
+        </p>
+      </Rule>
+      <Rule title="Workers update themselves to signed releases">
+        <p>
+          Workers on people's computers update themselves, verifying offline that Iki's release
+          workflow signed the new version at its tag (<Adr n="0060" />, <Path
+            p="worker/crates/iki-worker/src/update.rs"
+          />). Machines Iki starts for the VM tier never update themselves (<Path
+            p="server/src/iki_server/runs/machines.py"
+            sym='"IKI_WORKER_AUTO_UPDATE": "0"'
+          />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0063" />, the chart's comments and the supply-chain doc say Iki's images are
+            signed by its release workflow; <code>publish.yml</code> signs them, and that's what the
+            policy pins (<Path p={`${CHART}/values.yaml`} sym="publish\.yml@refs/tags/v" />).
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={PUB} />, <Path p={REL} />: images and releases</li>
+        <li><Path p={TPL} />: a deployment's config repository</li>
+        <li><Path p="docs/supply-chain.md" />: verifying what Iki publishes</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0015" title /></li>
+        <li><Adr n="0017" title /></li>
+        <li><Adr n="0034" title /></li>
+        <li><Adr n="0060" title /></li>
+        <li><Adr n="0063" title /></li>
+        <li><Adr n="0065" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

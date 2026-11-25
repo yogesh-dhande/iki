@@ -1,0 +1,76 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const at = (label: string) => page(label).href;
+
+const boxes = [
+  { id: "upload", x: 20, y: 30, w: 170, h: 60, label: "Upload", sub: "checked by SHA-256", href: at("Where data is stored") },
+  { id: "register", x: 20, y: 130, w: 170, h: 60, label: "Register in place", sub: "a lab's versioned bucket", href: at("Where data is stored") },
+  { id: "store", x: 250, y: 80, w: 180, h: 60, label: "Object storage", sub: "the bytes", href: at("Where data is stored") },
+  { id: "file", x: 490, y: 80, w: 180, h: 60, label: "Blob and File", sub: "Postgres; never change", strong: true, href: at("Versioning") },
+  { id: "record", x: 730, y: 30, w: 170, h: 60, label: "Records", sub: "file fields, revisions", href: at("How data links to records") },
+  { id: "run", x: 730, y: 130, w: 170, h: 60, label: "Runs", sub: "parse, read, make files", href: at("How data links to records") },
+  { id: "formats", x: 490, y: 220, w: 180, h: 60, label: "Formats", sub: "core reads; plugins parse", href: at("Formats") },
+  { id: "find", x: 730, y: 240, w: 170, h: 56, label: "Finding data", sub: "search, Files, ⌘K", href: at("Finding data") },
+  { id: "out", x: 250, y: 220, w: 180, h: 60, label: "Exports", sub: "CSV, files, bundles", href: at("Exports") },
+];
+const edges = [
+  { from: "upload", to: "store", label: "signed parts" },
+  { from: "register", to: "store", label: "pinned version", dashed: true },
+  { from: "store", to: "file" },
+  { from: "file", to: "record", label: "FileUse" },
+  { from: "file", to: "run", label: "RunFile" },
+  { from: "run", to: "formats", dashed: true },
+  { from: "record", to: "find", via: [[930, 60], [930, 268]] as [number, number][] },
+  { from: "file", to: "out" },
+];
+---
+
+<Layout>
+  <Layer n={1} title="Bytes in object storage, meaning in records">
+    <p>
+      This page answers: what happens to a lab's data in Iki, and which page covers each part? A file
+      arrives by upload, or is registered where it already is, and its bytes stay in object storage.
+      Postgres holds what the file is (its hash, name, type and project) as rows that never change.
+      Records hold files by ID in their fields, and runs read and make files on workers. What a file
+      means becomes typed fields of records, written by plugins' actions, and that is what search
+      finds (<Adr n={[5, 36, 177]} />).
+    </p>
+    <ul>
+      <li><PageLink to="Formats" />: which formats core reads, and which plugins parse.</li>
+      <li><PageLink to="Where data is stored" />: object storage, checksums, data in place, retention.</li>
+      <li><PageLink to="How data links to records" />: file fields, uses, runs, lineage, who can read a file.</li>
+      <li><PageLink to="Finding data" />: search over records, and the Files list.</li>
+      <li><PageLink to="Versioning" />: what fixes each version, and how signatures and runs bind them.</li>
+      <li><PageLink to="Exports" />: CSVs, audit trails, record files and bundles.</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title="A file's path through Iki">
+    <Diagram
+      id="data"
+      title="A file from arrival to the records, runs and exports that use it"
+      width={940}
+      height={310}
+      boxes={boxes}
+      edges={edges}
+      caption="Click a box for its files; 'Its page' opens the page that covers it."
+    >
+      <div slot="upload"><p>Straight to the store in parts, re-hashed before it's a file.</p><p><Path p="server/src/iki_server/files/services.py" sym="def check(" /></p></div>
+      <div slot="register"><p>From an approved location in a versioned bucket, hashed once.</p><p><Path p="server/src/iki_server/files/services.py" sym="def register(" /></p></div>
+      <div slot="store"><p>S3, S3-compatible or Cloud Storage; SeaweedFS on the dev cluster.</p><p><Path p="server/src/iki_server/files/storage.py" /></p></div>
+      <div slot="file"><p>Append-only rows: the content, and the file as someone added it.</p><p><Path p="server/src/iki_server/files/models.py" /></p></div>
+      <div slot="record"><p>A file field holds the file's ID; each use is kept.</p><p><Path p="server/src/iki_server/files/models.py" sym="class FileUse(" /></p></div>
+      <div slot="run"><p>A run's files are listed at lease and checked by the worker.</p><p><Path p="server/src/iki_server/runs/input_files.py" /></p></div>
+      <div slot="formats"><p>Parsers are plugins' worker actions; core reads acquisition dates and spreadsheets.</p><p><Path p="server/src/iki_server/files/acquired.py" /></p></div>
+      <div slot="find"><p>Records by typed conditions; files by name, format, date, sample and run.</p><p><Path p="server/src/iki_server/entities/search.py" /></p></div>
+      <div slot="out"><p>Every way out is audited before its first byte.</p><p><Path p="server/src/iki_server/api/csvs.py" /></p></div>
+    </Diagram>
+  </Layer>
+</Layout>

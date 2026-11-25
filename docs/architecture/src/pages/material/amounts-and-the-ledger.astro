@@ -1,0 +1,176 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const AM = "server/src/iki_server/amounts";
+const SVC = `${AM}/services.py`;
+const MODEL = "spec/src/iki_spec/model.py";
+
+const H = {
+  short: "How much of a record is left, and every change to it",
+  how: "Declaring an amount, movements, transfers and splits",
+  rules: "Movement kinds, concurrency, arithmetic and adjustments",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "declaring", label: "Declaring an amount" },
+  { id: "movements", label: "A movement and the balance" },
+  { id: "transfers", label: "Transfers, pools and lots" },
+  { id: "splits", label: "Splits into aliquots" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A type with <code>amount:</code> keeps how much of each of its records there is, in one unit.
+      The core changes it only by its own operations: recorded when a record is made, then drawn,
+      transferred, split into aliquots or adjusted. Each is an append-only movement with the signed
+      change and the balance after it, written in the same transaction as the record's single balance
+      row, which the database never lets go below zero. Arithmetic is exact: a quantity that can't be
+      held exactly in the record's unit is refused, not rounded (<Adr n="0139" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="declaring">Declaring an amount</h3>
+    <p>
+      <code>amount:</code> gives the unit and, optionally, a concentration field that converts a mass
+      asked of a volume; <code>material</code>, the reference naming what the amount is of; then
+      the <code>follows</code> list, the records whose eligibility a draw also meets; then
+      the <code>aliquots</code> type a split makes and its <code>aliquots_of</code> reference back; and
+      lastly <code>whole_units</code> for discrete stock (<Path p={MODEL} sym="class Amount:" />).
+      The <code>iki/inventory</code> tube keeps microlitres and follows its contents:
+    </p>
+    <Excerpt file="plugins/inventory/types/tube.yaml" start="^amount:" />
+    <p>
+      A unit must add up: a volume, a mass, or a count (moles among them, as UCUM defines them);
+      percentages and parts per million or billion are refused. Conversions use UCUM's factors as
+      exact fractions, from Iki's own parser (<Path p="spec/src/iki_spec/validate.py" sym="def _adds_up(" />, <Path p="spec/src/iki_spec/units/__init__.py" />).
+      A type with a registry identity has no amount:
+      a molecule isn't a tube of it.
+    </p>
+
+    <h3 id="movements">A movement and the balance</h3>
+    <p>
+      Each movement keeps its kind, the signed change and the balance after it in the record's unit,
+      what was asked for in its own unit exactly as given, the counterpart of a transfer or split, what
+      a draw was used in and the source it followed, the code scanned, an operation shared by the
+      movements of one request, and the person, agent, client, path and reason. Triggers refuse
+      UPDATE, DELETE and TRUNCATE on it (<Path p={`${AM}/models.py`} sym="class Movement(" />, <Path
+        p="server/src/iki_server/plugins/operations.py"
+        sym="class AppendOnly("
+      />). Each is also audited as <code>entity.amount_moved</code>.
+    </p>
+    <p>
+      The current amount is a stored row, the ledger's last balance, not a sum taken on read. The
+      database refuses a negative one, and a negative balance on a movement too (<Path
+        p={`${AM}/models.py`}
+        sym='name="iki_amount_not_negative"'
+      />). A statement trigger on movements adds edges to the record graph: <code>aliquot</code> and <code>transfer</code> from
+      a record to its counterpart, and <code>used</code> from what a draw
+      went into to what it was drawn from, so an experiment shows downstream of its tube (<Adr
+        n="0123"
+      />, <Path p="server/src/iki_server/graph/sql.py" sym="MOVEMENTS = (" />).
+    </p>
+
+    <h3 id="transfers">Transfers, pools and lots</h3>
+    <p>
+      A transfer takes from one record and gives to another in one operation, both quantities exact
+      in their own units, or neither changes. Transferring into a record with a concentration rewrites
+      the concentration to the pool's, as a revision whose reason names the transfer; it's unknown
+      when the source's isn't recorded (<Adr n="0157" />, <Path p={SVC} sym="def _pool(" />). A transfer
+      can't change what a record is: into a type with <code>material</code> goes only material of the
+      same entity, and into a record a state locks, such as a released lot, only material in that same
+      state (<Adr n="0162" />, <Path p={SVC} sym="def _what_it_takes(" />).
+    </p>
+
+    <h3 id="splits">Splits into aliquots</h3>
+    <p>
+      <code>POST /entities/&#123;ref&#125;/aliquots</code> makes up to 200 new records in the
+      source's project, each holding the same amount, and takes exactly their total from the source:
+      one <code>aliquoted</code> movement on the source and an <code>aliquot</code> movement opening
+      each new record, under one operation. An aliquot is of what it was split from; it can't be given
+      another material (<Path p={SVC} sym="def split(" />). A split tube is still inventory, and
+      a result on an aliquot can count toward the tube it came from (<PageLink to="Release and completion" hash="completion" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Movement kinds and draw purposes" open>
+        <Excerpt file={`${AM}/models.py`} start="^class MovementKind\(" />
+        <p>
+          A <code>drawn</code> movement must have a purpose and no other kind may; only a draw can name
+          what it was used in. Both are database checks (<Path
+            p={`${AM}/models.py`}
+            sym='name="iki_amount_draw_purpose"'
+          />, <Path p={`${AM}/models.py`} sym='name="iki_amount_used_in_a_draw"' />). What a draw
+          checks is on <PageLink to="Draws and samples" />.
+        </p>
+      </Rule>
+      <Rule title="Concurrency and exact arithmetic">
+        <p>
+          Each operation locks its records, in key order, then their amount rows, in key order, so two
+          transfers between the same records can't deadlock; a second draw waits and sees what's left
+          (<Path p={SVC} sym="def _lock_records(" />, <Path p={SVC} sym="def _locked(" />). Amounts keep
+          40 digits, 12 after the point; arithmetic runs at twice that with half-even rounding, so a
+          sum or product of two amounts is exact (<Path p={SVC} sym="_EXACT = Context(" />). Each
+          change moves the balance's timestamp forward by at least a microsecond, because that
+          timestamp is the balance's revision (<Path p={SVC} sym="def _change(" />).
+        </p>
+      </Rule>
+      <Rule title="Adjustments">
+        <p>
+          An adjustment sets the amount to what it was found to be, as a recount or a correction. It
+          needs a reason and the balance revision the caller saw in <code>If-Balance-Revision</code>,
+          or <code>unrecorded</code> for a record with no amount yet: without it, 428; stale, 409 <code>stale_balance</code> (<Path
+            p={SVC}
+            sym="def adjust("
+          />, <Path
+            p="server/src/iki_server/api/amounts.py"
+            sym='alias="If-Balance-Revision"'
+          />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            An adjustment's <code>If-Balance-Revision</code> requirement is in no ADR; <Adr
+              n="0139"
+            /> asks only for a reason.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["amounts"]} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={SVC} />: drawing, transferring, splitting and adjusting</li>
+        <li><Path p={`${AM}/models.py`} />: the balance and the movement ledger</li>
+        <li><Path p={`${AM}/stock.py`} />: a project's stock, from its lots' balances</li>
+        <li><Path p="spec/src/iki_spec/units" />: UCUM units</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0139" title /></li>
+        <li><Adr n="0157" title /></li>
+        <li><Adr n="0162" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

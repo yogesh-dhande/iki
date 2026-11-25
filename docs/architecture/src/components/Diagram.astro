@@ -13,7 +13,7 @@ type Box = {
   sub?: string | string[];
   /** A box drawn stronger: the thing the diagram is about. */
   strong?: boolean;
-  /** Where the box's own section is, for the system map. */
+  /** The page that covers the box, linked from its details as "Its page". */
   href?: string;
 };
 type Edge = {
@@ -169,7 +169,7 @@ const subs = (b: Box): string[] => (b.sub === undefined ? [] : Array.isArray(b.s
             {box.label}
             {box.href && (
               <a class="dg-more" href={box.href}>
-                Its section
+                Its page
               </a>
             )}
           </h3>

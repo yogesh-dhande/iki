@@ -1,0 +1,122 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const H = {
+  short: "Files never change; records change by revision",
+  how: "Where each version is fixed",
+  rules: "Signatures, runs, exports and artifacts",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      This page answers: when data changes, what happens to the old version, and how does Iki prove
+      which version something used? A file never changes: its content is fixed by its SHA-256, or,
+      for a file registered in place, by the object version Iki pinned (<PageLink
+        to="Where data is stored"
+      />). A new version of a file is a new file. Putting it in a record's field is an edit, so it
+      makes a new revision of the record, and the old revision still names the old file. Signatures,
+      runs and exports each bind exact revisions and file hashes, so later changes can't alter what
+      they say they read.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>What</th><th>How it's fixed</th><th>Where it's described</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>A file's bytes</td>
+            <td>Content-addressed blob, or a pinned object version; append-only rows (<Adr n="0036" />)</td>
+            <td><PageLink to="Where data is stored" /></td>
+          </tr>
+          <tr>
+            <td>Which file a record held</td>
+            <td>The field's value in each revision's history row; <code>FileUse</code> keeps the revision that first used it</td>
+            <td><PageLink to="Revisions and history" />, <PageLink to="How data links to records" /></td>
+          </tr>
+          <tr>
+            <td>A field that must never change</td>
+            <td><code>immutable: true</code>, as a read set's FASTQ files are (<Path p="plugins/sequencing/types/read_set.yaml" />)</td>
+            <td><PageLink to="Saving and validation" /></td>
+          </tr>
+          <tr>
+            <td>What a signer approved</td>
+            <td>The SHA-256 of the record's content at that revision, which includes each file's SHA-256</td>
+            <td><PageLink to="Electronic signatures" /></td>
+          </tr>
+          <tr>
+            <td>What a run read</td>
+            <td>Its inputs' revisions and its files' IDs and hashes, pinned at launch</td>
+            <td><PageLink to="Pinning and provenance" /></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      A file's page shows, for each record that held it, the span of revisions that did: from the
+      revision that set it to the one before the revision that took it out, or to now (<Adr
+        n="0177"
+      />). A wrong file is never overwritten; the record is edited to hold the right one, and both
+      stay in its history.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="A signature binds file hashes" open>
+        <p>
+          The signed content (<code>iki/signed-content/v1</code>) is the record's values as its history
+          tables keep them, its references, and the SHA-256 of each file it holds, including files in
+          list rows (<Adr n="0126" />, <Path
+            p="server/src/iki_server/signatures/services.py"
+            sym="def content_of("
+          />, <Path p="server/src/iki_server/signatures/proof.py" sym="def content(" />). An
+          experiment's signatures also bind the hashes of its direct files (<Adr n="0189" />). Verifying
+          a bundle offline checks each signed file's hash against the bundle's history (<Path
+            p="server/src/iki_server/signatures/offline.py"
+            sym="wrong_files"
+          />).
+        </p>
+      </Rule>
+      <Rule title="A run reads the versions it was launched with">
+        <p>
+          A job's files are listed by ID, size and SHA-256 when it's leased, from the revisions its
+          inputs were launched on, and the worker checks each download before the command starts
+          (<Path p="server/src/iki_server/runs/input_files.py" />). Any run can be reproduced exactly
+          from what it recorded (<Adr n="0057" />).
+        </p>
+      </Rule>
+      <Rule title="Exports name their versions">
+        <p>
+          A record file is written from one revision, so the same revision is always the same file,
+          and its SHA-256 is audited. A search CSV reads each page in one snapshot, and an audit-trail
+          CSV holds the revisions as of its export event (<Adr n={[171, 207]} />, <PageLink
+            to="Exports"
+          />). A bundle carries each blob once by SHA-256, and a registered file as its location,
+          version and hash (<Adr n="0096" />).
+        </p>
+      </Rule>
+      <Rule title="Artifacts keep their hash after their bytes">
+        <p>
+          A run's artifacts are deleted when their retention ends, but the record of each, with its
+          path, size and SHA-256, stays (<Path p="server/src/iki_server/runs/artifacts.py" />, <Adr
+            n="0068"
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+</Layout>

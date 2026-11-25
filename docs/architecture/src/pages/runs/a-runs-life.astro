@@ -1,0 +1,230 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import { page } from "../../lib/nav.ts";
+
+const M = "server/src/iki_server/runs/models.py";
+const SV = "server/src/iki_server/runs/services.py";
+const Q = "server/src/iki_server/runs/queue.py";
+const R = "server/src/iki_server/runs/results.py";
+const J = "worker/crates/iki-worker/src/job.rs";
+
+const launching = page("Launching a run").href;
+const worker = page("The worker and its leases").href;
+const tiers = page("Compute tiers").href;
+const pinning = page("Pinning and provenance").href;
+
+const boxes = [
+  { id: "manifest", x: 20, y: 40, w: 150, h: 60, label: "Action manifest", sub: "a plugin's actions/*.yaml", href: page("What a plugin declares").href },
+  { id: "launch", x: 200, y: 40, w: 150, h: 60, label: "Launch", sub: "everything checked first", strong: true, href: launching },
+  { id: "queued", x: 380, y: 40, w: 150, h: 60, label: "Run and Job", sub: "queued in Postgres", href: launching },
+  { id: "lease", x: 560, y: 40, w: 150, h: 60, label: "Lease", sub: "a fenced token", href: worker },
+  { id: "worker", x: 740, y: 40, w: 150, h: 60, label: "Worker", sub: "runs the command", href: worker },
+  { id: "reuse", x: 200, y: 180, w: 150, h: 60, label: "Reuse", sub: "same key, earlier results", href: pinning },
+  { id: "approval", x: 380, y: 180, w: 150, h: 60, label: "Approval", sub: "an agent's costly run", href: launching },
+  { id: "provisioner", x: 560, y: 180, w: 150, h: 60, label: "Provisioner", sub: "starts pods, VMs", href: tiers },
+  { id: "outputs", x: 740, y: 180, w: 150, h: 60, label: "Outputs", sub: "uploaded; complete", href: worker },
+  { id: "records", x: 380, y: 310, w: 150, h: 60, label: "Records", sub: "revisions, effects, lineage", href: pinning },
+  { id: "results", x: 560, y: 310, w: 150, h: 60, label: "Results", sub: "checked, all or nothing", strong: true, href: pinning },
+];
+const edges = [
+  { from: "manifest", to: "launch" },
+  { from: "launch", to: "queued" },
+  { from: "queued", to: "lease" },
+  { from: "lease", to: "worker" },
+  { from: "launch", to: "reuse", label: "deterministic", dashed: true },
+  { from: "launch", to: "approval", label: "if unattended", dashed: true },
+  { from: "approval", to: "queued", label: "approved" },
+  { from: "queued", to: "provisioner", label: "container, vm", dashed: true },
+  { from: "provisioner", to: "worker", label: "starts one" },
+  { from: "worker", to: "outputs" },
+  { from: "outputs", to: "results", label: "POST complete" },
+  { from: "results", to: "records" },
+  { from: "reuse", to: "records", label: "reused effects", dashed: true },
+  { from: "worker", to: "queued", label: "retry: a new Job", dashed: true, via: [[815, 16], [455, 16]] as [number, number][] },
+];
+
+const H = {
+  short: "What a run is",
+  how: "How the parts fit",
+  example: "Finding an antibody chain's liabilities",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A run is one request to run a plugin's action on some records. Everything that could make it
+      fail for a reason other than its own work is checked before it's queued. It's then one <code
+        >ActionRun</code
+      >, however many attempts it takes; each attempt is a <code>Job</code> that a worker leases over
+      HTTPS with a token only it holds. The worker runs exactly the plugin code the run was launched
+      with, on the records it pinned. Its outputs are checked against what the action declared, then
+      written all at once, as revisions that name the run. A deterministic run with the same inputs
+      as an earlier one reuses that one's results instead of running.
+    </p>
+    <ul>
+      <li>A run records what was asked; jobs are its attempts (<Adr n="0042" />).</li>
+      <li>Workers pull, under fenced leases (<Adr n="0043" />).</li>
+      <li>Results are checked, then written all or nothing (<Adr n="0044" />).</li>
+      <li>Identical deterministic runs reuse results; any run can be reproduced exactly (<Adr n="0057" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The launch writes the run and its first job in one transaction and wakes that tier's workers
+      with <code>pg_notify</code>. Container- and vm-tier jobs also wake the provisioner, which starts
+      a machine whose worker then leases the job. The worker reports through heartbeats, uploads its
+      files straight to object storage, and posts its output. The server checks the output and
+      writes it, or ends the attempt; a retryable ending queues a new job. Click a box for its files;
+      "Its section" goes to the page that covers it.
+    </p>
+    <Diagram id="runlife" title="A run's life" width={910} height={390} boxes={boxes} edges={edges}>
+      <div slot="manifest">
+        <p>
+          Inputs, params, effects, where it runs (<code>runs_on</code>), its command, network hosts,
+          secrets, and whether it's deterministic, batchable or checkpointable (<Adr n="0040" />).
+        </p>
+        <p><Path p="spec/src/iki_spec/actions.py" sym="def read_action(" />, <Path p="spec/src/iki_spec/model.py" sym="class Action:" /></p>
+      </div>
+      <div slot="launch">
+        <p>The tier permission, inputs, params, references and project, outside APIs, reuse, budgets, approval and quota, in that order (<Adr n={[42, 66]} />).</p>
+        <p><Path p={SV} sym="def launch(" /></p>
+      </div>
+      <div slot="queued">
+        <p>The run pins the plugin's commit, the action as installed and each input at its revision; one <code>Job</code> is queued.</p>
+        <p><Path p={M} sym="class ActionRun(" />, <Path p={M} sym="class Job(" /></p>
+      </div>
+      <div slot="lease">
+        <p>A worker takes the best job it can run, with a new token and a 60-second expiry (<Adr n={[43, 108]} />).</p>
+        <p><Path p={Q} sym="def lease(" /></p>
+      </div>
+      <div slot="worker">
+        <p>Stages the input, runs the command in its own process group, and stops it on cancel, timeout or a lost lease (<Adr n="0046" />).</p>
+        <p><Path p={J} sym="pub fn run(" /></p>
+      </div>
+      <div slot="reuse">
+        <p>A deterministic run whose reuse key matches an earlier success ends at once with its results (<Adr n="0057" />).</p>
+        <p><Path p="server/src/iki_server/runs/reuse.py" sym="def find(" /></p>
+      </div>
+      <div slot="approval">
+        <p>A run from MCP or a trigger on a costly tier, or sending data to outside APIs, waits for its person (<Adr n={[13, 50]} />).</p>
+        <p><Path p="server/src/iki_server/runs/approvals.py" sym="def needed(" /></p>
+      </div>
+      <div slot="provisioner">
+        <p>Starts a pod or a cloud machine for queued work no free machine can take (<Adr n={[61, 74]} />).</p>
+        <p><Path p="server/src/iki_server/runs/provisioner.py" sym="def tick(" /></p>
+      </div>
+      <div slot="outputs">
+        <p>Files go to object storage by signed URLs; then <code>output.json</code> goes to <code>complete</code>, or a reason to <code>fail</code>.</p>
+        <p><Path p={Q} sym="def complete(" /></p>
+      </div>
+      <div slot="results">
+        <p>Checked against the run's own copy of the action, then written in one transaction as the launcher (<Adr n="0044" />).</p>
+        <p><Path p={R} sym="def checked(" />, <Path p={R} sym="def write(" /></p>
+      </div>
+      <div slot="records">
+        <p>Each record touched gets a <code>RunEffect</code>; each new one gets <code>Lineage</code> to its inputs (<Adr n="0035" />).</p>
+        <p><Path p={M} sym="class RunEffect(" />, <Path p={M} sym="class Lineage(" /></p>
+      </div>
+    </Diagram>
+    <p>
+      Three pages cover what surrounds that path: <PageLink to="Network and secrets" /> (what a
+      command may reach and the secrets it gets), <PageLink to="Quotas and cost" /> (what limits
+      runs and what they cost) and <PageLink to="Workflows and triggers" /> (runs launched by other
+      runs, by changes, or on a schedule).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A scientist asks Iki to find the sequence liabilities of an antibody chain. The action is <Path
+        p="plugins/antibody/actions/find_liabilities.yaml"
+        label="iki/antibody.find_liabilities"
+      />:
+    </p>
+    <Excerpt file="plugins/antibody/actions/find_liabilities.yaml" start="^inputs:" rest note="from inputs: on" />
+    <ol>
+      <li>
+        The browser posts to <code>POST /api/v1/actions/{"{name}"}/runs</code>. The server checks the
+        tier permission, the input and that it's in the run's project, then writes an{" "}
+        <code>ActionRun</code> and one <code>Job</code> and sends <code>pg_notify</code> on{" "}
+        <code>iki_jobs</code> (<PageLink to="Launching a run" />).
+      </li>
+      <li>
+        A backend worker's long poll on <code>/worker/v1/lease</code> wakes, and the server hands it
+        the job with a fresh lease token. Had the chain been one of a batch, up to 499 more of its
+        queued jobs would have been packed into this one, since the action is <code
+          >batchable: 500</code
+        > (<PageLink to="The worker and its leases" />).
+      </li>
+      <li>
+        The worker runs <code>python ./scripts/liabilities.py</code> with the run's input file,
+        heartbeating every 20 seconds, and stops it at the ten-minute <code>timeout</code>. It posts
+        the output to <code>/worker/v1/jobs/{"{job_id}"}/complete</code>.
+      </li>
+      <li>
+        The server checks that the output updates only the three fields <code>effects.updates</code>{" "}
+        names on that input, then writes the protein's new revision in one transaction, recording the
+        run as its provenance. Anything else in the output fails the run as <code>invalid_output</code>;
+        if the plugin's type changed meanwhile so the results no longer fit
+        (<code>schema: "&gt;=2"</code>), the run is <code>rejected</code> instead (<PageLink
+          to="Pinning and provenance"
+        />).
+      </li>
+      <li>
+        The browser hears the change and refetches (<PageLink to="Tasks and live updates" />).
+        Because the action is <code>deterministic: true</code>, the same request on the same revision
+        later reuses this run's result instead of running again.
+      </li>
+    </ol>
+    <p>
+      It declares no <code>network</code>, so its command reaches no host, and no{" "}
+      <code>retries</code>, so a run whose worker was lost or interrupted is retried up to twice
+      (<Path p="spec/src/iki_spec/actions.py" sym="retry_max=" />). The environment it names runs on
+      the backend and self-hosted tiers:
+    </p>
+    <Excerpt file="plugins/antibody/environments/antibody-tools.yaml" start="^tiers:" rest note="from tiers: on" />
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <h3>Public routes for runs</h3>
+    <Routes tags={["runs"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p="server/src/iki_server/runs" /></li>
+          <li><Path p="server/src/iki_server/api/runs.py" /></li>
+          <li><Path p="server/src/iki_server/api/worker.py" /></li>
+          <li><Path p="worker/crates/iki-worker/src" /></li>
+          <li><Path p="spec/src/iki_spec/actions.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0040" title /></li>
+          <li><Adr n="0042" title /></li>
+          <li><Adr n="0043" title /></li>
+          <li><Adr n="0044" title /></li>
+          <li><Adr n="0057" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

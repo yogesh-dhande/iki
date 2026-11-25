@@ -1,0 +1,144 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const ST = "server/src/iki_server/entities/states.py";
+const S = "server/src/iki_server/entities/services.py";
+
+const toc = [
+  { id: "short", label: "A lock is held by the database" },
+  { id: "how", label: "Locking, correcting and unlocking" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="A lock is held by the database">
+    <p>
+      While any of a record's state fields is in a state with <code>locks: true</code>, the record is
+      locked: its other values can't change by any path, and it can't be archived, restored or moved
+      to another registry entry. The services refuse first, saying which states would unlock it and
+      who sets them; a trigger on every table holding the record's values refuses too, whatever
+      writes. A locked record changes again only once a state that doesn't lock is set. An unsigned
+      lock can name an <code>on_edit</code> state, so a reasoned edit returns it there and changes the
+      values in one transaction. Once a record has been locked, every later edit of its values needs
+      a reason (<Adr n={[120, 125, 179]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="Locking, correcting and unlocking">
+    <p>
+      <strong>Locking.</strong> Setting a locking state puts its field in <code
+        >Entity.locked_by</code
+      >. Setting a state clears <code>locked_by</code> for its own write, under the row lock, then
+      sets it again from the new states (<Path p={ST} sym="def write(" />). A trigger keeps <code
+        >has_been_locked</code
+      > true once <code>locked_by</code> has held anything, across reopening and plugin migrations
+      (<Path p="server/src/iki_server/entities/migrations/0024_remember_record_lock.py" />).
+    </p>
+    <p>
+      <strong>The database's guard.</strong> <code>sync_plugins</code> installs a <code
+        >BEFORE INSERT OR UPDATE OR DELETE</code
+      > trigger, <code>iki_locked__&lt;table&gt;</code>, on every type and list table of a type with
+      state fields (<Path p={ST} sym="def install_guards(" />). It calls <code>iki_locked_guard</code>,
+      which raises <code>check_violation</code> when the record's <code>locked_by</code> isn't empty
+      (<Path p="server/src/iki_server/entities/migrations/0012_states.py" sym="iki_locked_guard" />).
+      A plugin's migration that must write a locked record's tables, to move records out of a
+      removed state, retire a state field or convert a quantity's unit, sets <code>iki.unlocked</code>{" "}
+      for its own transaction (<Path
+        p="server/src/iki_server/plugins/operations.py"
+        sym="def unlocked("
+      />). A pipeline that recomputes values has to reopen locked records first, as a person would.
+    </p>
+    <p>
+      <strong>Correcting under an unsigned lock.</strong> Editing a locked record is refused unless
+      every locking state it's in names an <code>on_edit</code> state and isn't one that was signed
+      for. Then <code>PATCH /api/v1/entities/{"{ref}"}</code>, with a reason, first returns each field
+      to its <code>on_edit</code> state, with the full role and guard checks, in declaration order,
+      then changes the values: two revisions or more, in one transaction (<Path
+        p={ST}
+        sym="def return_for_edit("
+      />, <Path p={S} sym="allow_correction" />). A failed check or a stale revision rolls back the
+      whole save. Only the PATCH route opts in; runs and imports never correct. The record's <code
+        >can.correct</code
+      > tells the app whether this person can (<Path p="server/src/iki_server/api/entities.py" sym="def patch_entity(" />).
+    </p>
+    <p>
+      <strong>Reopening a signed lock.</strong> A state entered by signing isn't corrected on edit. An
+      authorized signer reopens it with a signed reversal and a reason, and then the editor's own
+      reason goes on each value revision (<PageLink to="Electronic signatures" hash="reversals" />).
+    </p>
+    <p>
+      <strong>Every edit after an unlock needs a reason.</strong> <Path p={S} sym="def _revise(" />{" "}
+      refuses an <code>edited</code> revision without a reason on a record that has been locked. A
+      run that changes such a record needs its launcher's reason before it's queued, and each revision
+      it writes carries it (<Path p="server/src/iki_server/runs/services.py" />). The record's <code
+        >can.edit_reason_required</code
+      > tells the app to ask (<Adr n="0126" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="What a refusal says" open>
+        <p>
+          <Path p={ST} sym="def locked_why(" /> names the fields that lock it and the states, with
+          their roles, that would unlock it: "SAM-000012 is locked by its Status (Approved): it
+          can’t be changed until its Status is set to Registered (Coordinator), … or In review
+          (Analyst)" (<Adr n="0125" />). Archiving, restoring and moving
+          to a superseding entry need every lock lifted first.
+        </p>
+      </Rule>
+      <Rule title="Guards can read what was edited">
+        <p>
+          <code>edits.&lt;state field&gt;.&lt;state&gt;</code> lists the value edits since the record
+          last entered that state, each with its editor and the fields it changed. Returning to a
+          state starts a fresh list. So a reviewer who corrected a value can be kept from approving
+          it: <code>edits.review.draft.all(e, e.by != actor.person)</code> (<Adr n="0179" />).
+        </p>
+      </Rule>
+      <Rule title="A released result is final" id="final">
+        <p>
+          A result released to the project that requested it after signing for its reviewed
+          revision keeps that revision in <code>released_review_revision</code>. From then its values
+          and states can't change: <code>Entity.locked</code> is true for it whatever its states (<Adr
+            n="0149"
+          />, <Path p={ST} sym="def _final_release(" />). <PageLink to="Release and completion" />{" "}
+          covers how a result gets there.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li><Adr n="0120" /> names <code>iki_entity.locked</code>; the column is the <code>locked_by</code> array, and <code>locked</code> is a property of it.</li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Files and decisions">
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={ST} /></li>
+          <li><Path p={S} sym="def update(" /></li>
+          <li><Path p="server/src/iki_server/entities/migrations/0012_states.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0120" title /></li>
+          <li><Adr n="0125" title /></li>
+          <li><Adr n="0149" title /></li>
+          <li><Adr n="0179" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

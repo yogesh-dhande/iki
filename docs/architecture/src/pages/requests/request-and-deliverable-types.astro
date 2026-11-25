@@ -1,0 +1,212 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const REQ = "server/src/iki_server/entities/requests.py";
+const MODEL = "spec/src/iki_spec/model.py";
+const VALIDATE = "spec/src/iki_spec/validate.py";
+const TYPES = "plugins/requests/types";
+
+const H = {
+  short: "A request type, its deliverables, and how they pair",
+  how: "The request and result blocks, and the three pairs iki/requests ships",
+  example: "A Regulated QC request for long-read sequencing",
+  rules: "What the validator holds",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "request-block", label: "The request block" },
+  { id: "result-block", label: "The result block" },
+  { id: "pairs", label: "Plain, Research and QC" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Core has no request states of its own. A plugin type becomes a request with
+      a <code>request:</code> block, a deliverable with a <code>result:</code> block, and a service's
+      private work item with <code>work_item:</code>. <code>iki/requests</code> declares the shared
+      contract once, on the abstract <code>Request</code> and <code>Deliverable</code>, and three
+      concrete pairs under them: Plain, Research and QC. Each concrete deliverable has its own
+      immutable reference to its matching request type, so an unsigned plain deliverable can't answer
+      a QC request (<Adr n={[132, 195, 211]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="request-block">The request block</h3>
+    <p>
+      The abstract <code>Request</code> declares it, and every subtype inherits it unchanged:
+    </p>
+    <Excerpt file={`${TYPES}/request.yaml`} start="^request:" />
+    <ul>
+      <li><code>service_fields</code>: the fields the service writes, its state fields among them.</li>
+      <li><code>sends</code>: the references whose records go to the service with it.</li>
+      <li>
+        <code>materials</code>: which sent fields name the physical subjects of the work, the ones a
+        delivered result must cover. A sent field not listed here is context, such as a protein record.
+      </li>
+      <li><code>completed</code>: the service state that closes the request (<PageLink to="Release and completion" />).</li>
+      <li>
+        <code>receives</code>: the list the service receives against, and the lab roles that may
+        (<PageLink to="Receipts and counts" />).
+      </li>
+    </ul>
+    <p>
+      The service's status is a state field the core's lab roles set; <code>standing</code>, Open or
+      Withdrawn, is the asking project's (<Path p={MODEL} sym="class RequestSpec:" />).
+    </p>
+
+    <h3 id="result-block">The result block</h3>
+    <p>
+      A deliverable names its reference to the request, its subject, and the state field and states
+      that release it:
+    </p>
+    <Excerpt file={`${TYPES}/qc_deliverable.yaml`} start="^result:" />
+    <p>
+      <code>material</code> is one immutable reference to the deliverable's subject, such as a tested
+      sample or a sequencing tube. It's checked when the deliverable is recorded and again when it's
+      released (<Path p={REQ} sym="def check_result(" />, <Path p={MODEL} sym="class ResultSpec:" />). A
+      deliverable's state guards can read <code>covered_subjects</code>, the commissioned records its
+      material covers, through a sample's draw or any depth of aliquots (<Path
+        p={REQ}
+        sym="def covered_subjects("
+      />).
+    </p>
+
+    <h3 id="pairs">Plain, Research and QC</h3>
+    <p>
+      A service admin chooses a review flow by the request types its intake accepts; the type of each
+      sent request sets the deliverables that can answer it (<Adr n="0195" />):
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Request</th><th>Deliverable</th><th>What returns it</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><Path p={`${TYPES}/plain_request.yaml`} label="PlainRequest" /></td>
+            <td><Path p={`${TYPES}/plain_deliverable.yaml`} label="PlainDeliverable" /></td>
+            <td>A reviewer sets <code>status</code> to Delivered, which locks it. No signature.</td>
+          </tr>
+          <tr>
+            <td><Path p={`${TYPES}/research_request.yaml`} label="ResearchRequest" /></td>
+            <td><Path p={`${TYPES}/research_deliverable.yaml`} label="ResearchDeliverable" /></td>
+            <td>A reviewer signs <code>review</code> to Signed off, meaning review.</td>
+          </tr>
+          <tr>
+            <td><Path p={`${TYPES}/qc_request.yaml`} label="QCRequest" /></td>
+            <td><Path p={`${TYPES}/qc_deliverable.yaml`} label="QCDeliverable" /></td>
+            <td>
+              An analyst signs Submitted (authorship), an independent reviewer signs Reviewed, and a
+              third person in QA signs Released (approval).
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Each deliverable's <code>request</code> field refers to its own concrete request type. The core
+      finds a request's deliverables by the types whose reference can point at it, so a QC request's
+      results are QC deliverables only (<Path p={REQ} sym="def result_rows(" />). The shared fields
+      on <code>Deliverable</code> are an outcome, a required report, and evidence fields for protein
+      production and sequencing; rules on each concrete type check the evidence for the service asked
+      for, and an arbitrary collaboration leaves those fields empty (<Path p={`${TYPES}/deliverable.yaml`} />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A training project asks a core to sequence tube CEY652 by long reads; the core answers with the
+      public run ERR13376132. <Path p="server/tests/test_core_facility.py" sym="def _sequencing(" /> drives
+      it through the services. The request names its service and method, and
+      the <code>sequencing_scope</code> rule needs the tubes the core will receive. The QC deliverable's
+      release state, which only QA sets:
+    </p>
+    <Excerpt file={`${TYPES}/qc_deliverable.yaml`} start="^      released:" />
+    <p>What the test establishes about the types, in order:</p>
+    <ol>
+      <li>A QC request without tubes is refused by <code>sequencing_scope</code>.</li>
+      <li>A Research or Plain deliverable can't answer the QC request.</li>
+      <li>A deliverable for a tube that isn't on the request, or without files or a run accession, is refused.</li>
+      <li>The analyst who submitted it can't review it; the reviewer can't release it.</li>
+      <li>Release is refused while the tube is off the request, and allowed once it's back.</li>
+    </ol>
+    <p>What happens at release and after is on <PageLink to="Release and completion" />.</p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Request types" open>
+        <p>
+          A service field is one of the type's own fields. It isn't a reference or a file, which would
+          reach into the service's project; nor unique, which would tell one side what the other's
+          records hold; nor immutable, nor required without a default, as a request is made without
+          it. <code>sends</code> names references and none of the service's fields; <code>materials</code> names
+          sent fields that identify physical records; <code>completed</code> names a non-initial
+          state of a state field the service writes. A request has no identity, and a subtype doesn't
+          declare <code>request</code> again (<Path p={VALIDATE} sym='"request-redeclared"' />, <Path
+            p="spec/README.md"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Result types">
+        <p>
+          <code>of</code> is a required, immutable reference to a request type; <code>material</code> an
+          immutable reference to a physical record. The released states are states of the named
+          state field, not its initial one, and they neither declare nor receive an <code>on_edit</code> return.
+          When the field also has a state signed for with meaning review, a signed release must
+          lock the record. A type isn't both a request and a result (<Path
+            p={VALIDATE}
+            sym='"result-release-lock"'
+          />).
+        </p>
+      </Rule>
+      <Rule title="Work item types">
+        <p>
+          <code>work_item.of</code> is a required, immutable reference to a request. A work item
+          can't also declare or inherit a request, a result or a registry identity (<Path
+            p={VALIDATE}
+            sym='"work-item-conflict"'
+          />, <Path p={MODEL} sym="class WorkItemSpec:" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0132" />'s consequences still describe the example LIMS plugin's analysis request.
+            Those types are now <code>iki/requests</code>'s, as its update note and <Adr n="0211" /> say.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={TYPES} />: Request, Deliverable, their three pairs and WorkItem</li>
+        <li><Path p="plugins/requests/README.md" />: the pairs, and facility examples to try</li>
+        <li><Path p={MODEL} sym="class RequestSpec:" />, <Path p={MODEL} sym="class ResultSpec:" />: what the blocks parse to</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0125" title /></li>
+        <li><Adr n="0132" title /></li>
+        <li><Adr n="0195" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

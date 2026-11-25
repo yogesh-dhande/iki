@@ -1,0 +1,229 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+import { firstPartyPlugins } from "../../lib/manifests.ts";
+
+const P = "cli/src/iki_cli/plugin.py";
+const B = "cli/src/iki_cli/deploy.py";
+const D = "server/src/iki_server/plugins/deploy.py";
+const firstParty = firstPartyPlugins();
+const H = {
+  short: "A lockfile in, an image out, one transaction on deploy",
+  how: "Pinning, building and deploying",
+  example: "One plugin in two lockfiles",
+  rules: "What a build produces, and what a deploy refuses",
+  ref: "Commands and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "lockfile", label: "The lockfile" },
+  { id: "build", label: "The build" },
+  { id: "deploy", label: "A deploy, step by step" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A deployment's config repository holds a lockfile that pins each plugin to a commit. <code
+        >iki deploy build</code
+      > fetches those commits, checks every plugin together, and writes a Django app for each into
+      the deployment's own image, on top of Iki's. When the cluster applies the new image, the
+      chart's migrate Job runs Iki's migrations, then every plugin's migrations, the database
+      guards they need and the app role's grants in one transaction, before any new pod starts.
+    </p>
+    <ul>
+      <li>Each deployment pins its plugins and builds its own image (<Adr n="0034" />).</li>
+      <li>Configuration is GitOps, one repository per deployment (<Adr n="0015" />).</li>
+      <li>A deploy's migrations and their guards commit together or not at all (<Adr n="0134" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="lockfile">The lockfile</h3>
+    <p>
+      <code>plugins.lock.yaml</code> lists each plugin with a git URL, a path and a full commit, a
+      state (<code>active</code>, <code>detached</code> or <code>purged</code>) and, optionally, a
+      settings file (<Path p="spec/src/iki_spec/lockfile.py" sym="def load_lock(" />). A <code
+        >local</code
+      > entry, a directory instead of a commit, is for development: the build needs <code
+        >--allow-local</code
+      > and the server refuses it unless told otherwise. Iki's own plugins may come from a mirror of
+      Iki's repository, accepted only at a tree Iki's repository has had (<Adr n="0114" />).
+    </p>
+    <h3 id="build">The build</h3>
+    <p>
+      <code>iki deploy build</code> reads the lockfile and fetches only the pinned commits. Then it
+      checks that nothing still active needs a plugin being purged, validates all plugins together,
+      refuses an active plugin that depends on a detached one, checks the deployment's settings and
+      compute, writes the apps, and fails if any plugin's migrations don't match its manifests (<Path
+        p={B}
+        sym="def run_build("
+      />). It also bundles each plugin's code for workers. <Path p="deploy/plugins.Dockerfile" />{" "}
+      copies the apps onto Iki's server image, owned by root and read-only to the server.{" "}
+      <code>iki plugin build</code> does the same for one plugin in its own repository (<Path
+        p={P}
+        sym="def run_build("
+      />).
+    </p>
+
+    <h3 id="deploy">A deploy, step by step</h3>
+    <p>What happens between a merged lockfile change and new pods serving it.</p>
+    <Sequence
+      id="deploy-seq"
+      title="A deploy of a plugin change"
+      width={900}
+      actors={[
+        { id: "repo", label: "Config repo", sub: "CI" },
+        { id: "build", label: "iki deploy build" },
+        { id: "cluster", label: "Cluster", sub: "GitOps applies" },
+        { id: "job", label: "Migrate Job" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "pr", from: "repo", to: "build", label: "every PR: build and check the pinned plugins" },
+        { id: "image", from: "repo", to: "repo", label: "on merge: verify Iki's signatures, build, sign, pin by digest" },
+        { id: "apply", from: "repo", to: "cluster", label: "image.yaml updated; Argo CD or Flux applies the chart" },
+        { id: "job", from: "cluster", to: "job", label: "the migrate Job runs before new pods" },
+        { phase: "migrate_deployment" },
+        { id: "refuse", from: "job", to: "job", label: "refuse: newer Iki, missing plugin, changed migration…" },
+        { id: "own", from: "job", to: "db", label: "Iki's own migrations, each in its transaction" },
+        { id: "one", from: "job", to: "db", label: "one transaction: purges, plugins' migrations, sync, grants" },
+        { id: "pods", from: "cluster", to: "cluster", label: "new pods; a too-powerful role never turns ready" },
+      ]}
+    >
+      <div slot="pr"><p>Fetches each plugin at its commit, and fails on mismatched migrations, a missing dependency, or an active plugin that depends on a detached one.</p><p><Path p={B} sym="def _detached_alone(" /></p></div>
+      <div slot="image"><p>Builds the server image and the worker image, after verifying Iki's images with cosign; signs both; then opens a pull request pointing <code>image.yaml</code> at them by digest (<Adr n="0017" />).</p><p><Path p="deploy/config-template/.github/workflows/build.yml" />, <Path p="deploy/config-template/plugins.Dockerfile" /></p></div>
+      <div slot="apply"><p>Merging that pull request deploys; reverting it rolls back. Data moves between deployments only in bundles (<Adr n="0015" />).</p><p><Path p="deploy/config-template/README.md" /></p></div>
+      <div slot="job"><p>The Job runs as the migrator role, the only one that owns tables (<Adr n="0025" />).</p><p><Path p="deploy/helm/iki/templates/migrate-job.yaml" /></p></div>
+      <div slot="refuse"><p>Also refused: a non-atomic plugin migration, and blocking preflight findings not acknowledged in the chart's <code>acknowledgePreflight</code> (<Adr n="0181" />).</p><p><Path p={D} sym="def _check_preflight(" />, <Path p="deploy/helm/iki/values.yaml" sym="acknowledgePreflight" /></p></div>
+      <div slot="own"><p>Some of Iki's own migrations build indexes <code>CONCURRENTLY</code>, which can't run inside a transaction. None of them touches a plugin's table.</p></div>
+      <div slot="one"><p>So a deploy's migrations and the guards that hold its records are applied or rolled back together: other connections see the old schema with its guards until the commit, then the new one with its guards (<Adr n="0134" />).</p><p><Path p={D} sym="def _unguard(" />, <Path p="server/src/iki_server/core/management/commands/grant_app_privileges.py" /></p></div>
+      <div slot="pods"><p>Readiness checks the app role's privileges (<Adr n="0025" />).</p><p><Path p="server/src/iki_server/health.py" />, <Path p="server/src/iki_server/core/db_roles.py" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      On the dev cluster, <Path p="plugins/lots" label="iki/lots" /> is a local directory, so editing
+      it rebuilds the cluster's image:
+    </p>
+    <Excerpt file="deploy/dev/plugins.lock.yaml" start="^  - \{ name: iki/lots" />
+    <p>A real deployment pins a commit, as the config template's staging lockfile does:</p>
+    <Excerpt file="deploy/config-template/deployments/staging/plugins.lock.yaml" start="^  - name: iki/dna" />
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="What a build produces" open>
+        <p>
+          One package per plugin, <code>iki_plugin_&lt;namespace&gt;__&lt;name&gt;</code>: <code
+            >apps.py</code
+          >, <code>models.py</code>, <code>manifest.json</code> with the hosts its actions name
+          through settings filled in, <code>settings.json</code> for a deployment, the plugin's own
+          migrations copied unchanged, and its components checked against their digests. Beside
+          them, <code>iki_installed_plugins</code> lists the apps in dependency order with the Iki
+          version that built them and, for a deployment, where each plugin came from. The same
+          inputs always give the same bytes (<Path p="codegen/src/iki_codegen/build.py" />).
+        </p>
+        <p>
+          The core plugin is built the same way by <code>make core</code> into <Path
+            p="server/src/iki_plugin_iki__core"
+          />, and a test fails while that app is behind its manifests (<Path
+            p="scripts/build_core.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Fetching plugins">
+        <p>
+          Only https and ssh URLs, never prompting, never a URL with credentials in it; no hooks,
+          submodules or LFS; every object checked, and the fetched commit checked to be the one
+          asked for. A plugin is exported from the commit, never run from a working copy. An{" "}
+          <code>iki/*</code> plugin from a mirror is accepted only at a tree listed in <Path
+            p="spec/src/iki_spec/first_party_trees.json"
+          />, and git config that redirects Iki's repository is refused (<Path
+            p="cli/src/iki_cli/fetch.py"
+          />).
+        </p>
+      </Rule>
+      <Rule title="What the migrate Job refuses" id="refusals">
+        <p>
+          A database a newer Iki migrated; a plugin missing from the build unless the lockfile purges
+          it; a migration that changed after it was applied; a plugin migration that isn't atomic;
+          and blocking preflight findings nobody acknowledged. Rolling back means deploying an older
+          lockfile: the Job reverses the migrations the build lacks only if no reversal can lose
+          data, and otherwise changes nothing and says why (<Path p={D} sym="def migrate_deployment(" />,{" "}
+          <Adr n="0034" />).
+        </p>
+      </Rule>
+      <Rule title="sync_plugins" id="sync">
+        <p>
+          In the same transaction, it puts back what the database enforces for the installed
+          plugins: HRID sequences, never dropped; comments on every table and column; the read-only{" "}
+          <code>iki_views</code> views; triggers for unique fields, reference edges, rules, the types
+          a reference may name, and locked records; and an analyst role if one is named (<Path
+            p="server/src/iki_server/plugins/sync.py"
+            sym="def sync("
+          />, <Adr n={[120, 127]} />). What those triggers hold: <PageLink to="States and guards" />,{" "}
+          <PageLink to="Saving and validation" />.
+        </p>
+      </Rule>
+      <Rule title="First-party plugins and their trees">
+        <p>
+          Iki's {firstParty.length} plugins live in <Path p="plugins" /> with their own versions, and
+          must validate with their dependencies, have matching migrations, build, migrate forwards
+          and back, and store entities (<Adr n="0039" />, <Path
+            p="server/tests/test_first_party_plugins.py"
+          />). <code>make first-party</code> adds each
+          plugin's current git tree to the trees file, and a test fails while one is missing (<Path
+            p="scripts/first_party_trees.py"
+            sym="def tree("
+          />). The list and what each does: <PageLink to="First-party plugins" />. Who owns lots,
+          inventory, samples, requests, lab roles and instruments is set by <Adr n="0211" />.
+        </p>
+        <p>
+          First-party images are built and signed like Iki's own, from <code
+            >plugins/&lt;plugin&gt;/images/</code
+          > (<Adr n="0065" />, <Path p="plugins/protein/images" />). Wasm modules some actions call
+          are checked before they reach a worker: <PageLink to="WebAssembly" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Commands</h3>
+        <ul>
+          <li><code>iki plugin build</code> <Path p={P} sym="def run_build(" label="plugin.py" /></li>
+          <li><code>iki deploy build</code> <Path p={B} sym="def run_build(" label="deploy.py" /></li>
+          <li><code>iki-server migrate_deployment</code> <Path p="server/src/iki_server/plugins/management/commands/migrate_deployment.py" label="command" /></li>
+          <li><code>iki-server sync_plugins</code> <Path p="server/src/iki_server/core/management/commands/sync_plugins.py" label="command" /></li>
+          <li><code>make core</code>, <code>make first-party</code> <Path p="Makefile" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0015" title /></li>
+          <li><Adr n="0034" title /></li>
+          <li><Adr n="0039" title /></li>
+          <li><Adr n="0114" title /></li>
+          <li><Adr n="0134" title /></li>
+          <li><Adr n="0211" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

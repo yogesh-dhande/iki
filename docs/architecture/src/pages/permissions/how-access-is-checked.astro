@@ -1,0 +1,225 @@
+---
+import Adr from "../../components/Adr.astro";
+import Diagram from "../../components/Diagram.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import { page } from "../../lib/nav.ts";
+
+const PERM = "server/src/iki_server/org/permissions.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const SEC = "server/src/iki_server/api/security.py";
+const COMMON = "server/src/iki_server/api/common.py";
+const OAUTH = "server/src/iki_server/oauth";
+
+const at = (label: string) => page(label).href;
+const boxes = [
+  { id: "mcp", x: 20, y: 30, w: 190, h: 60, label: "MCP endpoint", sub: "tools call the REST API", href: at("Tokens and delegation") },
+  { id: "oauth", x: 250, y: 30, w: 190, h: 60, label: "OAuth server", sub: "consent, delegation", href: at("Sign-in and identity") },
+  { id: "idp", x: 480, y: 30, w: 190, h: 60, label: "Identity provider", sub: "OIDC or SAML, SCIM", href: at("Sign-in and identity") },
+  { id: "token", x: 250, y: 140, w: 190, h: 60, label: "Token limits", sub: "scopes, projects, alongside", href: at("Tokens and delegation") },
+  { id: "session", x: 480, y: 140, w: 190, h: 60, label: "Session", sub: "cookie, CSRF, idle timeout", href: at("Sign-in and identity") },
+  { id: "can", x: 250, y: 250, w: 420, h: 60, label: "can() and require()", sub: "one permission service", strong: true },
+  { id: "roles", x: 710, y: 250, w: 190, h: 60, label: "Memberships", sub: "project and lab roles", href: at("Projects and roles") },
+  { id: "notify", x: 20, y: 370, w: 190, h: 60, label: "Notifications", sub: "readers at send time", href: at("What events disclose") },
+  { id: "audit", x: 250, y: 370, w: 190, h: 60, label: "Audit log", sub: "person and agent", href: at("Audit trail") },
+  { id: "webhooks", x: 480, y: 370, w: 190, h: 60, label: "Webhooks", sub: "identifiers, held()", href: at("What events disclose") },
+  { id: "read", x: 710, y: 370, w: 190, h: 60, label: "Read scoping", sub: "readable projects, 404", href: at("Sharing across projects") },
+  { id: "refs", x: 710, y: 480, w: 190, h: 60, label: "References", sub: "unreadable marker", href: at("Unreadable references") },
+];
+const edges = [
+  { from: "mcp", to: "token", label: "bearer" },
+  { from: "oauth", to: "token", label: "live consent" },
+  { from: "idp", to: "session", label: "signs in" },
+  { from: "idp", to: "oauth" },
+  { from: "token", to: "can" },
+  { from: "session", to: "can" },
+  { from: "can", to: "roles" },
+  { from: "can", to: "read", label: "reads" },
+  { from: "can", to: "audit", label: "changes" },
+  { from: "audit", to: "webhooks" },
+  { from: "audit", to: "notify" },
+  { from: "read", to: "refs", label: "values" },
+];
+
+const H = {
+  short: "One function decides every request",
+  how: "From a credential to an allowed or refused request",
+  answers: "What a refusal looks like",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.answers },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Every request ends at one function, <code>can(user, action, target)</code>, which combines the
+      caller's roles with what their credential allows. Project access comes only from membership: an
+      Org Admin can see a project and manage its members, but reads its data only with a project role.
+      A token carries scopes and may be held to some projects. An agent acting for a person is held
+      to what both of them may do, down to the lab role that sets a state. Reads are filtered to the
+      projects the caller can read now, and webhooks and notifications are checked against access
+      again when they're sent.
+    </p>
+    <ul>
+      <li>Fixed org and project roles, decided in one place (<Adr n="0003" />).</li>
+      <li>Project access comes only from membership (<Adr n="0024" />).</li>
+      <li>Lab roles are declared by plugins and given per project (<Adr n="0116" />).</li>
+      <li>A delegated action needs a lab role both identities hold (<Adr n="0210" />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      People sign in through the identity provider and use a session cookie. Clients, the CLI and
+      agents use OAuth bearer tokens. Either way the request reaches the same permission service with
+      a user and, for a token, its limits. Each box links to the page that covers it.
+    </p>
+    <Diagram id="perms" title="Credentials, the permission service, and what it guards" width={920} height={560} boxes={boxes} edges={edges}>
+      <div slot="mcp">
+        <p>MCP tools make in-process requests to the REST API with the agent's token, so a tool can do exactly what its endpoint allows (<Adr n={[13, 49]} />).</p>
+        <p><Path p="server/src/iki_server/mcp/views.py" sym="def _same_origin(" /></p>
+      </div>
+      <div slot="oauth">
+        <p>Iki is its own OAuth 2.1 server. A person consents to a client with scopes and, optionally, some projects (<Adr n="0028" />).</p>
+        <p><Path p={`${OAUTH}/models.py`} sym="class Consent(" /></p>
+      </div>
+      <div slot="idp">
+        <p>Sign-in is single sign-on only, by OIDC or SAML; SCIM provisions people and teams (<Adr n={[23, 26]} />).</p>
+        <p><Path p="server/src/iki_server/accounts/linking.py" /></p>
+      </div>
+      <div slot="token">
+        <p>A bearer token's limits are read from the consent as it stands now and attached to the user for the whole request (<Adr n="0152" />).</p>
+        <p><Path p={PERM} sym="class TokenLimits" />, <Path p={`${OAUTH}/access.py`} sym="def of(" /></p>
+      </div>
+      <div slot="session">
+        <p>The browser's API calls use the session cookie and need CSRF for unsafe methods (<Adr n={[27, 153]} />).</p>
+        <p><Path p={SEC} sym="class SessionAuth" /></p>
+      </div>
+      <div slot="can">
+        <p>
+          Views, the API, MCP and event streams all call <code>can</code> or <code>require</code>. It
+          checks the token's scope and projects for the action, then under a delegation the service
+          account's roles, then the caller's own org or project role (<Adr n={[3, 24, 73]} />).
+        </p>
+        <p><Path p={PERM} sym="def can(" />, <Path p={PERM} sym="ACTION_SCOPES" />, <Path p={COMMON} sym="def require(" /></p>
+      </div>
+      <div slot="roles">
+        <p>A membership is for one person or one team; lab roles are granted on it (<Adr n={[24, 116]} />).</p>
+        <p><Path p="server/src/iki_server/org/models.py" sym="class ProjectMembership(" /></p>
+      </div>
+      <div slot="read">
+        <p>Projects the caller has a role in, narrowed by the token; then entities linked into those projects. A miss is a 404 (<Adr n={[24, 101]} />).</p>
+        <p><Path p={ACCESS} sym="def readable_projects(" /></p>
+      </div>
+      <div slot="refs">
+        <p>A reference to a record the reader can't read shows as <code>unreadable</code>, with no ID, type or title (<Adr n={[66, 132]} />).</p>
+        <p><Path p="server/src/iki_server/entities/values.py" sym='UNREADABLE_REFERENCE = "unreadable"' /></p>
+      </div>
+      <div slot="audit">
+        <p>Every change is an append-only audit event naming the person and, when one acted, the agent (<Adr n={[25, 72]} />).</p>
+        <p><Path p="server/src/iki_server/audit/log.py" /></p>
+      </div>
+      <div slot="webhooks">
+        <p>Events carry identifiers, never values. An app's webhook sends only while the app could still add it (<Adr n={[31, 152]} />).</p>
+        <p><Path p="server/src/iki_server/webhooks/services.py" sym="def held(" /></p>
+      </div>
+      <div slot="notify">
+        <p>Recipients are those who can read the record when it's sent, checked again in the inbox and before each email (<Adr n={[129, 159]} />).</p>
+        <p><Path p="server/src/iki_server/notifications/declared.py" /></p>
+      </div>
+    </Diagram>
+
+    <h3 id="steps">The steps</h3>
+    <ol>
+      <li>
+        <strong>Who's calling.</strong> <code>SessionAuth</code> takes the browser's session cookie;{" "}
+        <code>BearerAuth</code> takes an OAuth access token, works out what it may do from its client
+        and consent as they stand now, and attaches those limits to the user with <code
+          >limit_to</code
+        >. A token that's invalid, expired or revoked answers 401 (<Path
+          p={SEC}
+          sym="def token_access("
+        />, <Path p={SEC} sym="permissions.limit_to(user, found.limits)" />).
+      </li>
+      <li>
+        <strong>What the credential allows.</strong> With a token, the action's scope must be among
+        the token's, and a project target must be among its projects. Under a delegation, the service
+        account's own roles must allow the action too (<Path p={PERM} sym="def allows(" />).
+      </li>
+      <li>
+        <strong>What the roles allow.</strong> An org action needs one of its org roles; a registry
+        action needs the caller to be its registrar; a team action needs membership or Org Admin; a
+        project action needs at least its project role, in a project that isn't archived unless the
+        action is one archived projects allow (<Path p={PERM} sym="def _roles_allow(" />). Who holds
+        what is on <PageLink to="Projects and roles" />.
+      </li>
+      <li>
+        <strong>What can be read.</strong> Lists, searches and lookups only ever search what's
+        readable, so a record the caller can't read and one that doesn't exist look the same. How a
+        read is scoped, and what sharing changes, is on <PageLink to="Sharing across projects" />.
+      </li>
+      <li>
+        <strong>What's shown.</strong> A readable record's references to unreadable ones are masked
+        (<PageLink to="Unreadable references" />), and what changed is told to webhooks, notifications
+        and event streams only as far as each recipient may know (<PageLink
+          to="What events disclose"
+        />).
+      </li>
+    </ol>
+    <p>
+      Decisions are cached on the user object, which lives for one request. Code that changes
+      someone's roles mid-request calls <code>forget</code> (<Path p={PERM} sym="def forget(" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.answers}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>When</th><th>The answer</th></tr></thead>
+        <tbody>
+          <tr><td>No credential, or a token that's invalid, expired or revoked</td><td>401</td></tr>
+          <tr><td>A project the caller can't see</td><td>404, "No such project, or you can’t see it."</td></tr>
+          <tr><td>A record the caller can't read</td><td>404, "No such entity, or you can’t read it."</td></tr>
+          <tr><td>The token lacks the action's scope</td><td>403 <code>insufficient_scope</code>, with a <code>WWW-Authenticate</code> header naming the scope</td></tr>
+          <tr><td>The token was given only some projects, and the action is on the organization, a team or a registry</td><td>403 <code>token_limited_to_projects</code></td></tr>
+          <tr><td>The caller sees the project but their role doesn't allow the action</td><td>403</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The project-limited code tells a client the refusal comes from the person's choice for the
+      token, not a missing role (<Adr n="0152" />, <Path p={COMMON} sym="token_limited_to_projects" />,{" "}
+      <Path p={COMMON} sym="No such project, or you can’t see it." />, <Path
+        p="server/src/iki_server/api/entities.py"
+        sym="No such entity, or you can’t read it."
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={PERM} />: actions, roles, scopes and <code>can</code></li>
+        <li><Path p={ACCESS} />: what a caller can read and share</li>
+        <li><Path p={SEC} />: the session and bearer credentials</li>
+        <li><Path p={COMMON} />: the API's 404 and 403 answers</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0003" title /></li>
+        <li><Adr n="0024" title /></li>
+        <li><Adr n="0101" title /></li>
+        <li><Adr n="0152" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

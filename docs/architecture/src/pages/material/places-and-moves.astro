@@ -1,0 +1,206 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const ST = "server/src/iki_server/storage";
+const SVC = `${ST}/services.py`;
+const INV = "plugins/inventory/types";
+
+const H = {
+  short: "Where a record is, and every move it made",
+  how: "Containers, places, the location ledger and custody",
+  example: "A rack moved to another shelf before a defrost",
+  rules: "Grids, the ledger and moves as reviewed",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "declaring", label: "Declaring containers" },
+  { id: "place", label: "A place and the location ledger" },
+  { id: "custody", label: "Custody" },
+  { id: "move-seq", label: "A bulk move, previewed then committed" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A type with <code>storage:</code> is kept somewhere, or keeps other records. Each record kept
+      somewhere has one place row: a container and position, or a person who has it. Every change is
+      an event in an append-only location ledger, audited and sent to webhooks. A move of many records
+      is one operation, all or none, and the app commits it only as its preview showed it (<Adr
+        n={[180, 207]}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="declaring">Declaring containers</h3>
+    <p>
+      <code>storage:</code> names the types a record holds, its grid, the field holding the code
+      already on it, a label line, and which operations need a scan first (<Path
+        p="spec/src/iki_spec/model.py"
+        sym="class Storage:"
+      />). In <code>iki/inventory</code> a freezer holds shelves, a shelf holds racks and boxes, a rack
+      is a 5 × 4 grid of boxes, and a box takes its grid from its own fields, fixed when it's made:
+    </p>
+    <Excerpt file={`${INV}/box.yaml`} start="^storage:" />
+    <p>
+      A grid's positions are lettered and numbered (A1 to H12) or numbered (1 to 96), along rows or
+      down columns, which is also the order they fill in (<Path p={`${ST}/grids.py`} />). A container's
+      shape is kept, append-only, the first time it holds something, and the database checks every
+      position against it (<Path p={SVC} sym="def ensure_container(" />, <Path
+        p={`${ST}/models.py`}
+        sym="class Container("
+      />).
+    </p>
+
+    <h3 id="place">A place and the location ledger</h3>
+    <p>
+      A record's place is one row: its container, row and column, or its custodian and since when.
+      One record per position is a deferred unique constraint, so a swap commits as one change; a
+      trigger checks each position against the container's grid; and nothing is in itself (<Path
+        p={`${ST}/models.py`}
+        sym="class Place("
+      />, <Path p={`${ST}/migrations/0001_initial.py`} sym="iki_storage_place_in_grid()" />).
+    </p>
+    <p>
+      Every placement, move, removal, check-out, check-in, hand-over and receipt is an event with
+      where from and where to, the custodian, the scan that confirmed it, the operation it belongs to,
+      who did it and why. Each is audited as <code>storage.moved</code> and sent to webhooks (<Path
+        p={`${ST}/models.py`}
+        sym="class Event("
+      />, <Path p={SVC} sym="def record_event(" />).
+    </p>
+
+    <h3 id="custody">Custody</h3>
+    <p>
+      Checking a record out gives it to a person and keeps its position, which nothing else can take,
+      until it's checked in, to that position or another in the same change. A record with someone can
+      be handed over to another person, by its custodian or by an Editor of its container's project.
+      Putting things in a container, or taking them out, needs Editor in the container's project: it's
+      that project's freezer (<Path p={SVC} sym="def check_out(" />, <Path p={SVC} sym="def hand_over(" />, <Path
+        p={SVC}
+        sym="def keeps("
+      />).
+    </p>
+
+    <h3 id="move-seq">A bulk move, previewed then committed</h3>
+    <Sequence
+      id="move-dg"
+      title="Moving a rack to another shelf before a defrost"
+      width={900}
+      actors={[
+        { id: "person", label: "Lab member" },
+        { id: "app", label: "Web app", sub: "MoveDialog" },
+        { id: "api", label: "API", sub: "/storage/moves" },
+        { id: "svc", label: "storage.services" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "pick", from: "person", to: "app", label: "records, a destination scan, a reason" },
+        { id: "preview", from: "app", to: "api", label: "POST, preview: true" },
+        { id: "plan", from: "api", to: "svc", label: "plan(): positions and problems, no locks" },
+        { id: "review", from: "app", to: "person", label: "each move and problem, for review", dashed: true },
+        { id: "commit", from: "app", to: "api", label: "the same items and the plan, preview: false" },
+        { id: "lock", from: "svc", to: "db", label: "lock records and containers, in id order" },
+        { id: "replan", from: "svc", to: "svc", label: "plan() again; not the plan shown: 409" },
+        { id: "apply", from: "svc", to: "db", label: "places and events, one operation; clash check" },
+      ]}
+    >
+      <div slot="pick"><p>The destination is resolved from its scan. Types that need a scan to move also ask for the records' own scans.</p><p><Path p="web/app/src/storage-ui.tsx" sym="export function MoveDialog(" /></p></div>
+      <div slot="preview"><p>The request body names each record and where it goes, with or without a position.</p><p><Path p="server/src/iki_server/api/storage.py" sym="class MovesIn(" /></p></div>
+      <div slot="plan"><p>When no position is given, the planner takes the next free one in the container's order.</p><p><Path p={SVC} sym="def plan(" /></p></div>
+      <div slot="review"><p>Nothing has changed yet. The preview also returns <code>plan</code>: a SHA-256 of each record, where it is, and the container and position it goes to.</p><p><Path p={SVC} sym="def identify(" /></p></div>
+      <div slot="commit"><p>The dialog sends back the plan it showed. An API caller may leave it out; then a position left empty is the next free one when the moves are made.</p><p><Path p="server/src/iki_server/api/storage.py" sym="plan: str | None = Field(" /></p></div>
+      <div slot="lock"><p>A record whose location changed since it was read is refused.</p><p><Path p={SVC} sym="def move(" /></p></div>
+      <div slot="replan"><p>The plan is computed again under the locks. If it isn't the plan shown, because another placement took a position or a record moved meanwhile, nothing moves: 409 <code>moves_plan_changed</code> carries what the moves would do now, and the dialog shows what changed per record for a fresh confirmation. Otherwise a single problem refuses every move with 422 (<Adr n="0207" />).</p><p><Path p={SVC} sym="raise PlanChanged(planned)" />, <Path p="web/app/src/storage-ui.tsx" sym='"moves_plan_changed"' /></p></div>
+      <div slot="apply"><p>The deferred position constraint is checked before commit, so a clash refuses the whole move.</p><p><Path p={SVC} sym="def _check_now(" /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      Before a freezer is defrosted, a lab member moves a rack of boxes to a shelf in another freezer,
+      with the reason "Freezer 2 defrost". A shelf has no grid, so the planner allocates no position;
+      the rack's place changes, one <code>moved</code> event is written, and every box in the rack,
+      and every tube in each box, keeps its place, since those are places in the rack and the box.
+      Where a record is now is read up its chain of containers, at most 16 deep (<Path
+        p={SVC}
+        sym="def chain("
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Bulk moves, as reviewed" open>
+        <p>
+          Up to 1,536 moves, with one reason, all or none, under one operation. A preview names what it
+          shows; confirming sends that name back, and the server compares it with the plan it computes
+          under the moves' locks. A different well, source, container or order gives a different name.
+          Problems and proofs aren't part of it, since they're checked again when the moves are made
+          (<Adr n={[180, 207]} />, <Path p={SVC} sym="MAX_MOVES = 1536" />).
+        </p>
+        <Excerpt file={SVC} start="^def identify\(" />
+      </Rule>
+      <Rule title="Grids and the location ledger">
+        <p>
+          A grid is at most 32 by 48, a 1536-well plate's (<Path
+            p="spec/src/iki_spec/model.py"
+            sym="GRID_POSITIONS = 1536"
+          />, <Path p={`${ST}/models.py`} sym='name="iki_storage_container_grid"' />). The kinds of
+          event:
+        </p>
+        <Excerpt file={`${ST}/models.py`} start="^class EventKind\(" />
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0139" /> still says where something is kept stays a field and containers aren't
+            modelled; <Adr n="0180" /> changed that, and its update note points to <code
+              >iki/inventory</code
+            >.
+          </li>
+          <li>
+            <Adr n="0180" />'s example has one declaration for a freezer or a shelf, holding racks and
+            boxes. In <code>iki/inventory</code> a freezer holds only shelves, and a shelf holds racks
+            and boxes.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes
+      tags={["storage"]}
+      paths={/^\/api\/v1\/(storage\/(moves|places|check-in|check-out|checked-out|hand-over|scan|labels|containers\/\{ref\}$)|entities\/\{ref\}\/location)/}
+    />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={SVC} />: places, events, custody and moves</li>
+        <li><Path p={`${ST}/scan_identity.py`} />, <Path p={`${ST}/labels.py`} />: scanning codes and printing labels</li>
+        <li><Path p={INV} />: Freezer, Shelf, Rack, Box and Tube</li>
+        <li><Path p="web/app/src/storage-ui.tsx" />: the app's storage dialogs</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0180" title /></li>
+        <li><Adr n="0207" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

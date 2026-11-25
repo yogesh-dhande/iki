@@ -1,0 +1,166 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+import { textChoices } from "../../lib/source.ts";
+
+const CG = "codegen/src/iki_codegen/models.py";
+const GM = "server/src/iki_server/graph/models.py";
+const GQ = "server/src/iki_server/graph/queries.py";
+const API = "server/src/iki_server/api/entities.py";
+const edgeKinds = textChoices(GM, "EdgeKind");
+
+const toc = [
+  { id: "short", label: "A reference is a foreign key, and an edge in the graph" },
+  { id: "how", label: "How references are stored and read" },
+  { id: "graph", label: "The graph of what depends on what" },
+  { id: "rules", label: "The rules in full" },
+  { id: "ref", label: "Routes, files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="A reference is a foreign key, and an edge in the graph">
+    <p>
+      A field of <code>type: ref</code> names another record, of one type, of several, or of an
+      abstract type. It's a real foreign key in the type's table; a list of references is a table of
+      its own, one row per item. A reference to a type with an identity names the registry entry, not
+      a project's record. Reading a record gives each reference's ID in its values, and the referred
+      records the reader can read, by ID; one they can't read shows as <code>unreadable</code>.
+      Triggers keep an edge per reference in <code>iki_graph_edge</code>, beside the edges runs and
+      the amounts ledger make, so lineage and impact walk one graph (<Adr n={[115, 123, 136]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="How references are stored and read">
+    <p>
+      <strong>Declared.</strong> <code>to</code> names the type a reference may name, or several
+      (<Adr n="0136" />). <code>list</code> with <code>items: {"{type: ref}"}</code> is a list of
+      them, with optional <code>min_items</code> and <code>max_items</code>; a list of rows can hold
+      references in its row fields (<Adr n="0137" />).
+    </p>
+    <p>
+      <strong>Stored.</strong> The code generator makes a single reference a <code>ForeignKey</code>{" "}
+      with <code>PROTECT</code>, so a referred record can't be deleted from under it (<Path
+        p={CG}
+        sym="def _ref_target("
+      />). What it points to:
+    </p>
+    <ul>
+      <li>one concrete type: that type's table of records;</li>
+      <li>a type with an identity: its entries' table (<code>&lt;table&gt;__entry</code>);</li>
+      <li>an abstract type, several types or any entity: <code>iki_entity</code>, with triggers that refuse a write naming an entity of another type, whatever makes it (<Path p="server/src/iki_server/entities/targets.py" />).</li>
+    </ul>
+    <p>
+      A list of references is a table <code>&lt;table&gt;__&lt;field&gt;</code> keyed on (entity,
+      position), each <code>item</code> its own foreign key, with a CHECK for <code>max_items</code>.
+      In the history table a reference is a bare UUID, with no foreign key, so history survives
+      whatever happens to what it pointed to (<PageLink to="Types and tables" />).
+    </p>
+    <p>
+      <strong>Read.</strong> A record's <code>values</code> carry each reference's ID, and <code
+        >refs</code
+      > carries, by ID, each referred record the reader can read: its HRID, title, type, and whether
+      it's archived or purged. A reference to an entry is titled by the reading project's own record
+      of it where it has one, as its link opens that record (<Path p={API} sym="def refs_in(" />). A
+      reference to something the reader can't read is the string <code>unreadable</code> instead of
+      an ID: <PageLink to="Unreadable references" /> covers why and where. A run pins the references
+      its inputs hold at launch: <PageLink to="Pinning and provenance" />.
+    </p>
+
+    <h3 id="graph">The graph of what depends on what</h3>
+    <p>
+      <code>iki_graph_edge</code> holds one row per dependency: <code>node</code> depends on <code
+        >on</code
+      >, for a reason that's its <code>kind</code>. A reference edge also says which field, which
+      column or list table holds it and, for a list, its place; a run's edge names the run and the
+      revision it read (<Path p={GM} sym="class Edge(" />).
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Kind</th><th>Label</th><th>Note in the code</th></tr></thead>
+        <tbody>
+          {edgeKinds.map((k) => <tr><td><code>{k.value}</code></td><td>{k.label}</td><td>{k.note}</td></tr>)}
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Statement-level triggers, which <code>sync_plugins</code> installs on every table holding
+      references and every list of them, keep reference edges in step with the columns, so whatever
+      writes a reference (a person, a run, a bulk import, a bundle or SQL) writes its edge, and
+      clearing it takes the edge away (<Path p="server/src/iki_server/graph/edges.py" />). A
+      reference edge is what the field holds now; run and file edges are history. The functions are
+      the migrator's (<code>SECURITY DEFINER</code>) and the app's role can only read the table.
+      The aliquot, transfer and used edges come from the amounts ledger: <PageLink to="Amounts and the ledger" />.
+    </p>
+    <p>
+      <code>upstream(X)</code> and <code>downstream(X)</code> are recursive CTEs over the edges, as
+      far as asked (10 by default, 30 at most), through the kinds asked for; a record's edge to its
+      entry is always followed. Each result has its <code>path</code> back to X, the first way the walk
+      found it (<Path p={GQ} sym="def walk(" />). They're on every surface: the web app's Lineage page
+      (a tree, a list or a graph), search conditions (<code>downstream:TUB-000001</code>), the API and
+      its CSVs, the MCP tools <code>get_lineage</code> and <code>get_impact</code>, and triggers that
+      give a run what's related to the record that fired it (<PageLink to="Workflows and triggers" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The rules in full">
+    <div class="rules">
+      <Rule title="A walk shows only what you can read" open>
+        <p>
+          An edge is the data of the entity that states it: a reference is its holder's, a run's edge
+          is the made entity's provenance. Downstream, the walk only reaches entities the caller can
+          read; what refers to X from a project they can't read isn't named, counted or walked
+          through. Upstream, a reference they can see leading to an entity they can't is counted in{" "}
+          <code>hidden</code>, never named, and the walk stops there. Record edges go only to records
+          they can read, so how many projects hold an entry never shows (<Adr n="0123" />).
+        </p>
+      </Rule>
+      <Rule title="Bounded work">
+        <p>
+          Each node is walked once per depth it's reached at, so diamonds and cycles cost no more than
+          the nodes times the depth, and each walk runs within search's time limit, answering <code
+            >search_too_slow</code
+          > past it. <code>GET …/graph</code>, for a picture, is capped at 200 entities and 500 edges
+          (<Path p={GQ} sym="def graph(" />). Every literal in a walk's SQL is checked to be a UUID, a
+          name or a number, so nothing a caller sends is in it.
+        </p>
+      </Rule>
+      <Rule title="Moving a reference to a replacing entry">
+        <p>
+          When a registrar supersedes an entry and a project moves its record to the replacement, the
+          project's own references to the old entry are re-pointed, each a revision with the reason
+          (<PageLink to="Identity and HRIDs" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Routes, files and decisions">
+    <Routes tags={["graph"]} />
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p="server/src/iki_server/graph" />: edges and walks</li>
+          <li><Path p="server/src/iki_server/entities/targets.py" />: what a reference may name</li>
+          <li><Path p={CG} />: reference columns and list tables</li>
+          <li><Path p="web/app/src/lineage.ts" />: the Lineage page's queries and layout</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0115" title /></li>
+          <li><Adr n="0123" title /></li>
+          <li><Adr n="0136" title /></li>
+          <li><Adr n="0137" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

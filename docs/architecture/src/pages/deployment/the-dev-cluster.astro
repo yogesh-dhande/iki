@@ -1,0 +1,129 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const DEV = "deploy/dev";
+
+const H = {
+  short: "Iki on Kubernetes on a laptop, and in CI",
+  how: "kind, Tilt and the production chart",
+  rules: "What's pinned, what's faked, and the restore test",
+  ref: "Targets and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Iki runs on Kubernetes everywhere, a laptop included: a kind cluster driven by Tilt, deployed
+      with the same Helm chart as production. kindnet enforces the chart's network policies, so
+      they're exercised locally. Tilt builds the server and worker images as a deployment does,
+      with the plugins it pins. CI brings the same cluster up headless on every code change, runs
+      the end-to-end checks, then backs the database up, restores it into a new one and checks the
+      restore (<Adr n={[14, 22, 99]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>make dev-up</code> creates the cluster (or reuses it) and starts Tilt; <Path
+        p={`${DEV}/up.sh`}
+      /> installs what Tilt doesn't manage: the CloudNativePG operator, the CSI snapshot driver and
+      generated development secrets. The cluster's single node is pinned by digest, and its
+      networking is kindnet:
+    </p>
+    <Excerpt file={`${DEV}/kind-config.yaml`} />
+    <p>
+      Tilt rebuilds the server image whenever code under <code>server/</code> changes. It builds it
+      as a deployment does: the server image, then the plugins in <Path
+        p={`${DEV}/plugins.lock.yaml`}
+      />, built with <code>iki deploy build --allow-local</code> and added by <Path
+        p="deploy/plugins.Dockerfile"
+      />; the worker image the same way, with the plugins' environments built in (<Path
+        p="Tiltfile"
+      />, <Path p={`${DEV}/values-dev.yaml`} />). How a deployment's images are built is on <PageLink
+        to="Releases and images"
+      />.
+    </p>
+    <p>
+      Beside Iki it runs what a deployment would have outside it, small: Postgres through
+      CloudNativePG, SeaweedFS for object storage, Keycloak as the identity provider over OIDC and
+      SAML, Mailpit for email, an OpenTelemetry collector with Grafana, a webhook receiver, a shared
+      file system, and fake LIMS and FoldCloud APIs for the example plugins that call them (<Path
+        p={`${DEV}/manifests`}
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="In CI, on every code change" open>
+        <p>
+          CI's dev-cluster job creates the kind cluster from the same config, then runs <code
+            >make dev-ci</code
+          >: <code>up.sh</code>, <code>tilt ci</code>, the end-to-end checks and the restore test
+          (<Path p="Makefile" sym="dev-ci:" />, <Path p={`${DEV}/e2e.sh`} />). The job is part of
+          "CI passed" (<PageLink to="Gates and CI" />).
+        </p>
+      </Rule>
+      <Rule title="The restore test">
+        <p>
+          It backs the dev database up, restores it into a new database, and checks the restore
+          with <code>iki-server check_restore</code> against the same files bucket and keys: the
+          restore must hold everything the live database held when the backup began, and every file
+          its records name must be in storage. It drops the restored database when it's done (<Adr
+            n="0099"
+          />, <Path p={`${DEV}/restore-test.sh`} />).
+        </p>
+      </Rule>
+      <Rule title="Pinned and local">
+        <p>
+          The CloudNativePG operator's chart is pinned by version and OCI digest, and Helm refuses it
+          if the digest doesn't match. The builds' Wasm modules are built in Docker as the server
+          image's are, so the cluster needs no Rust on the machine (<Path p={`${DEV}/build-wasm.sh`} />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADR and the code differ">
+        <ul>
+          <li>
+            <Adr n="0099" /> says the restore test runs on every change; the dev-cluster job is skipped
+            for docs-only changes.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Targets</h3>
+      <ul>
+        <li><code>make dev-up</code>, <code>dev-down</code>, <code>dev-creds</code>, <code>dev-sso</code></li>
+        <li><code>make dev-e2e</code>, <code>dev-restore-test</code>, <code>dev-ci</code></li>
+        <li><code>make web-dev</code>: the web app with instant reloads, against the dev cluster</li>
+      </ul>
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${DEV}/README.md`} />: what runs, and how to sign in</li>
+        <li><Path p={DEV} />: the scripts, manifests and values</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0014" title /></li>
+        <li><Adr n="0022" title /></li>
+        <li><Adr n="0099" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

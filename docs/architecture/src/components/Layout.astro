@@ -13,12 +13,12 @@ type Props = {
 const { title: given, toc = [], wide = false } = Astro.props;
 const here = Astro.url.pathname;
 const sec = section(here);
-const isSection = sec?.href === here;
-if (isSection && given) {
-  throw new Error(`${here} is the "${sec.label}" section, which takes its name from the navigation.`);
+const isPage = sec?.href === here;
+if (isPage && given) {
+  throw new Error(`${here} is the "${sec.label}" page, which takes its name from the navigation.`);
 }
-const title = isSection ? sec.label : given;
-if (!title) throw new Error(`${here} needs a title: it isn't a section in the navigation.`);
+const title = isPage ? sec.label : given;
+if (!title) throw new Error(`${here} needs a title: it isn't a page in the navigation.`);
 const commit = headCommit();
 ---
 
@@ -41,9 +41,9 @@ const commit = headCommit();
     <div class="wrap columns">
       <nav class="site-nav" aria-label="Sections">
         {
-          NAV.filter((g) => g.items.length > 0).map((group) => (
-            <>
-              <p>{group.heading}</p>
+          NAV.filter((g) => g.items.length > 0).map((group) => {
+            const holds = group.items.some((i) => i.href === sec?.href);
+            const list = (
               <ul>
                 {group.items.map((item) => (
                   <li>
@@ -58,15 +58,26 @@ const commit = headCommit();
                   </li>
                 ))}
               </ul>
-            </>
-          ))
+            );
+            return group.nested ? (
+              <details open={holds}>
+                <summary>{group.heading}</summary>
+                {list}
+              </details>
+            ) : (
+              <>
+                <p>{group.heading}</p>
+                {list}
+              </>
+            );
+          })
         }
       </nav>
       <main class={wide ? "wide" : undefined}>
         {
           sec && (
             <p class="crumb">
-              {isSection ? sec.group : <a href={sec.href}>{sec.label}</a>}
+              {isPage ? sec.group : <a href={sec.href}>{sec.label}</a>}
             </p>
           )
         }

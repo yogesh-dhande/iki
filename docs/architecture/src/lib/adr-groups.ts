@@ -6,7 +6,7 @@ import { adrs } from "./adrs.ts";
 export interface AdrGroup {
   id: string;
   name: string;
-  /** The site's section that covers it, by its navigation name, when there is one. */
+  /** The page, or group of pages, that covers it, by its navigation name, when there is one. */
   section?: string;
   numbers: number[];
 }
@@ -30,7 +30,7 @@ export const ADR_GROUPS: AdrGroup[] = [
   {
     id: "registries",
     name: "Registries",
-    section: "Records",
+    section: "Identity and HRIDs",
     numbers: [115, 138, 143, 144, 145, 154],
   },
   {
@@ -42,7 +42,7 @@ export const ADR_GROUPS: AdrGroup[] = [
   {
     id: "api",
     name: "API and clients",
-    section: "Routes",
+    section: "Server and APIs",
     numbers: [27, 49, 51],
   },
   {
@@ -57,24 +57,25 @@ export const ADR_GROUPS: AdrGroup[] = [
   {
     id: "workflows",
     name: "Workflows and triggers",
-    section: "Runs",
+    section: "Workflows and triggers",
     numbers: [11, 79, 80, 81],
   },
   {
     id: "plugins",
     name: "Plugins",
     section: "Plugins",
-    numbers: [6, 16, 32, 33, 34, 39, 65, 91, 92, 93, 94, 95, 113, 114, 121, 134, 158, 181],
+    numbers: [6, 16, 32, 33, 34, 39, 65, 91, 92, 93, 94, 95, 113, 114, 121, 134, 158, 181, 211],
   },
   {
     id: "events",
     name: "Events and notifications",
-    section: "Permissions",
+    section: "What events disclose",
     numbers: [30, 31, 129, 159],
   },
   {
     id: "files",
     name: "Files and imports",
+    section: "Data",
     numbers: [36, 52, 56, 89, 177, 178],
   },
   {
@@ -86,13 +87,13 @@ export const ADR_GROUPS: AdrGroup[] = [
   {
     id: "storage",
     name: "Storage and amounts",
-    section: "Storage",
+    section: "Material",
     numbers: [139, 180, 190, 193, 207],
   },
   {
     id: "search",
     name: "Search and exports",
-    section: "Search and exports",
+    section: "Finding data",
     numbers: [37, 96, 123, 135, 171, 175],
   },
   {

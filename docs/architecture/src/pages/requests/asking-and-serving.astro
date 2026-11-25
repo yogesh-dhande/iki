@@ -1,0 +1,195 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Routes from "../../components/Routes.astro";
+import Rule from "../../components/Rule.astro";
+
+const REQ = "server/src/iki_server/entities/requests.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const MODELS = "server/src/iki_server/entities/models.py";
+
+const H = {
+  short: "One owner, one service, two writers",
+  how: "Intake, sending, the two sides and the service's own work",
+  rules: "What sending checks, and who writes what",
+  ref: "Routes, code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "intake", label: "What a service takes" },
+  { id: "sending", label: "Sending" },
+  { id: "sides", label: "The two sides" },
+  { id: "work-items", label: "Work items" },
+  { id: "queue", label: "A service's queue" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The asking project owns a request: it's made there, by its Editors, as any record. Sending it
+      picks one service for good, and links the request and the records its <code>sends</code> fields
+      name into the service's project, through a <code>ProjectLink</code> with <code>via_request</code>. From
+      then on each side writes only its own fields, and the database holds that. What the core
+      does at the bench lives in work items in its own project, which nobody else can link or
+      reference; only the deliverable goes back (<Adr n={[132, 211]} />). What each project can read
+      through those links is on <PageLink to="Sharing across projects" />.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="intake">What a service takes</h3>
+    <p>
+      A project's Admins choose the request types it takes, and from whom: every project in its
+      registry, or the projects they name. A parent type takes its subtypes, so an intake for <code
+        >iki/requests.Request</code
+      > takes Plain, Research and QC requests alike. A project can't name itself, nor a project in
+      another registry; each change is audited as <code>project.intake_changed</code> against the one
+      before it, under a lock on the project (<Adr n={[132, 149]} />, <Path p={REQ} sym="def set_intake(" />, <Path p={REQ} sym="def accepted_by(" />).
+    </p>
+    <p>
+      The services an asker is offered are the unarchived projects of its registry whose intake takes
+      the type from it. Any other answers 404 with the same words whether it exists or not, so a
+      project's name doesn't leak to those it doesn't serve (<Path p={REQ} sym="def services_for(" />, <Path p={REQ} sym="def not_a_service(" />).
+    </p>
+
+    <h3 id="sending">Sending</h3>
+    <p>
+      <code>POST /entities/&#123;ref&#125;/submit</code> locks the request and checks, in order: it's a
+      request type's record; the caller is an Editor of the asking project; the revision is current
+      (412 otherwise); it isn't purged, archived or of a frozen type; it hasn't been sent; the
+      service's intake accepts it; the asking project allows sharing; and every record it sends is
+      shareable into the service. Then it makes the <code>Request</code> row, links the request and
+      each sent record into the service, audits <code>request.submitted</code> in the asking project
+      and <code>request.received</code> in the service, and tells the service's coordinators (<Path
+        p={REQ}
+        sym="def submit("
+      />, <Path p={MODELS} sym="class Request(" />).
+    </p>
+    <p>
+      <code>sends</code> is a declaration on the type, which its subtypes inherit; neither side
+      chooses more fields to expose at run time (<Adr n="0211" />). For a reference to a registry
+      entry, the asking project's own record of it is what's sent (<Path p={REQ} sym="def sent_records(" />; entries
+      and records are on <PageLink to="Identity and HRIDs" />). Records named later, when the
+      asker edits a sent request, go to the service too (<Path p={REQ} sym="def send(" />). A link a
+      request made can't be taken out while it's needed: the request stays with its service for good,
+      and a record it still sends stays until the asker takes it off the request (<Path
+        p={REQ}
+        sym="def why_kept("
+      />).
+    </p>
+
+    <h3 id="sides">The two sides</h3>
+    <p>
+      The type's <code>service_fields</code> are the service's; every other field is the asker's. A
+      person writes as the asking side as an Editor of the asking project, and as the service side as
+      an Editor of the service; someone in both writes both. Each side sets its state fields with the
+      lab roles it holds in its own project (<Path p={REQ} sym="def sides(" />).
+    </p>
+    <Excerpt file={REQ} start="^ASKER, SERVICE = " />
+    <p>
+      Every write path checks the fields against the sides (<Path p={REQ} sym="def refused_fields(" />). The
+      database checks it again: a trigger on each request type's tables reads which side the write
+      is from the session setting <code>iki.request_side</code>, which the server sets inside a
+      savepoint, and refuses a change to the other side's columns (<Path
+        p="server/src/iki_server/entities/migrations/0015_requests.py"
+        sym="iki_request_guard()"
+      />, <Path p={REQ} sym="def writing(" />, <Path p={REQ} sym="def install_guards(" />).
+    </p>
+
+    <h3 id="work-items">Work items</h3>
+    <p>
+      A type with <code>work_item: &#123; of: request &#125;</code> is the service's private record of
+      work on a request. It can be made only in the project the request was sent to, and no other
+      project can link it, reference it or reuse it, including through someone who belongs to both
+      (<Adr n={[132, 211]} />, <Path p={REQ} sym="def check_work_item(" />, <Path
+        p={ACCESS}
+        sym="def why_held("
+      />). <code>iki/requests</code> ships one with a schedule, an instrument, internal notes and its
+      own Queued, Scheduled, Running, Done and Cancelled states:
+    </p>
+    <Excerpt file="plugins/requests/types/work_item.yaml" start="^work_item:" />
+
+    <h3 id="queue">A service's queue</h3>
+    <p>
+      Sent requests are linked into the service, so they're in its grid and search. Search has a
+      built-in <code>sent_to</code> column on the request's service, which gives a service its queue as
+      an ordinary search, and finds unsent requests too (<Path
+        p="server/src/iki_server/entities/search.py"
+        sym='"sent_to": Column('
+      />). Each side lists the other by name alone, through <code>sent-from</code> and <code
+        >sent-to</code
+      >, so it can filter by them without seeing anything else of theirs.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Which side writes what" open>
+        <p>
+          Before sending, a service field is refused with "is the service's: the project the request
+          is sent to sets it, once it's submitted". After, a field of the other side names the project
+          that changes it. A list's table belongs to one side as a whole. An unsent request is the
+          asking project's alone, so the trigger lets every write through until
+          the <code>Request</code> row exists (<Path p={REQ} sym="def refused_fields(" />, <Path
+            p={REQ}
+            sym="def guarded_tables("
+          />).
+        </p>
+      </Rule>
+      <Rule title="A request goes to one service, for good">
+        <p>
+          A request sent once is refused a second time, naming the service it went to. It can't be
+          recalled, only withdrawn through its type's states: in <code>iki/requests</code>, the asking
+          project's coordinators set <code>standing</code> to Withdrawn, with a reason (<Path
+            p="plugins/requests/types/request.yaml"
+          />).
+        </p>
+      </Rule>
+      <Rule title="Sharing out needs both sides' consent">
+        <p>
+          A project that doesn't allow sharing can't send requests, and a sent record must be one the
+          asking project may share into the service. What a request brings into a project goes no
+          further: it's read and referenced there, and not linked into a third project (<Adr
+            n={[67, 132]}
+          />, <Path p={ACCESS} sym="def shareable_into(" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0132" /> describes the database guard as refusing an update to the other side's
+            columns. In code it's broader: it also refuses the service's inserts and deletes on a sent
+            request's tables, and any write to the other side's list tables.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <Routes tags={["requests"]} />
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={REQ} />: intake, sending, the two sides and work items</li>
+        <li><Path p={MODELS} sym="class Intake(" />, <Path p={MODELS} sym="class IntakeSource(" />: what a service takes</li>
+        <li><Path p="server/src/iki_server/api/requests.py" />: the request routes</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0067" title /></li>
+        <li><Adr n="0120" title /></li>
+        <li><Adr n="0132" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

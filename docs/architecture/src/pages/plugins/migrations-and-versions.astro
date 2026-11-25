@@ -1,0 +1,159 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const M = "server/src/iki_server/plugins/makemigrations.py";
+const O = "server/src/iki_server/plugins/operations.py";
+const H = {
+  short: "Written when authored, reviewed like code, never losing history",
+  how: "Making migrations, and checking them against live records",
+  rules: "History, states and versions",
+  ref: "Commands and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "preflight", label: "Preflight" },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A plugin's migrations are Django migrations, written by <code>iki plugin makemigrations</code>{" "}
+      while the plugin is authored and committed with the change that needs them, so a reviewer
+      reads them before any deployment runs them. On top of Django's rules, Iki's keep every type's
+      history: a field or type is never deleted, renames carry to history, and unit changes convert
+      stored values. Versions say what may run together: a plugin names the Iki releases it works
+      with, and depends on other plugins' types by schema version, not by commit.
+    </p>
+    <ul>
+      <li>Migrations keep history: nothing is ever dropped silently (<Adr n="0033" />).</li>
+      <li>A plugin can't strand records in a state it removes (<Adr n="0121" />).</li>
+      <li>A proposed plugin can be checked against the live records before it's deployed (<Adr n="0181" />).</li>
+      <li>Versions are declared and checked; dependencies name schema versions (<Adr n={[16, 95]} />).</li>
+    </ul>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>iki plugin makemigrations</code> builds the plugin and its dependencies into a temporary
+      directory and runs Django's makemigrations there, with its questions about renames, against
+      the dummy database backend, so it needs no database (<Path
+        p="cli/src/iki_cli/plugin.py"
+        sym="def run_makemigrations("
+      />, <Path p={M} />). Migrations are written as Django renders them, never through a
+      formatter, so every machine writes the same files. With <code>--check</code> it fails if the
+      manifests need a migration nobody made; the plugin template's CI runs that (<Path
+        p="plugin-template/.github/workflows/ci.yml"
+      />), and so does every deployment build. How they're applied: <PageLink
+        to="Builds and deploys"
+        hash="deploy"
+      />.
+    </p>
+    <h3 id="preflight">Preflight</h3>
+    <p>
+      Before a change is promoted, an Org Admin who can read every project can check the built{" "}
+      <code>manifest.json</code> against the deployment, from its Plugins page, the API or <code
+        >iki plugin preflight</code
+      >. It runs in one read-only snapshot and never runs the candidate's migrations. It counts the
+      records that need a required-field backfill, hold an invalid value, share a unique value or
+      overlap a range, or still occupy a removed state, and the values a unit change would convert;
+      CEL rules and checks that read lists or references run on a sample of up to 500 records per
+      type, and say so (<Path p="server/src/iki_server/plugins/preflight.py" sym="def preview_manifest(" />,{" "}
+      <Path p="cli/src/iki_cli/preflight.py" />). The migrate Job repeats the check and refuses
+      blocking findings that aren't acknowledged (<PageLink to="Builds and deploys" hash="refusals" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Migrations keep history" open>
+        <p>
+          A field deleted from a manifest is refused, with a hint to mark it <code>removed: true</code>{" "}
+          or answer that it was renamed; so is a deleted type or extension. A history column changes
+          type only when its old values still fit. Renaming a field or type renames its history
+          column or table too, and a renamed type is renamed in <code>iki_entity.type</code>. A
+          quantity whose unit changes has its current and historical values converted (<Path
+            p={O}
+            sym="class ConvertUnit"
+          />). A new history table is made append-only for every role (<Path p={O} sym="class AppendOnly" />).
+        </p>
+        <p>
+          What a migration does to kept history it records, so a signature made before still reads
+          what it signed (<Path p={O} sym="class RecordRename" />, <Adr n="0148" />). The operations
+          are API: plugins' migrations import them from <Path p={O} />.
+        </p>
+      </Rule>
+      <Rule title="Removed states">
+        <p>
+          A state that disappears from a state field is refused unless the manifest marks it{" "}
+          <code>removed: true</code> with <code>moved_to:</code> a state that remains; the migration
+          then moves its records and keeps which are locked (<Path p={O} sym="class SyncStates" />).
+          A removed state takes no transitions and no new records, and the plugin keeps its name in
+          the manifest for good. A removed state field moves its records' states to another of the
+          type's state fields, or is refused while records have it; a renamed one keeps the records
+          it locks locked (<Adr n={[121, 125]} />). What states lock: <PageLink to="States and guards" />.
+        </p>
+      </Rule>
+      <Rule title="Versions and compatibility" id="versions">
+        <p>
+          <code>iki:</code> in <code>plugin.yaml</code> says which Iki releases the plugin works
+          with, such as <code>&gt;=0.1,&lt;0.3</code>; a deployment on any other release refuses it.
+          Validate, build and the migrate Job each check it (<Path p="spec/src/iki_spec/releases.py" />).{" "}
+          <code>dependencies:</code> constrain other plugins' types by schema version, not commit,
+          because commits can't be ordered (<Adr n={[16, 95]} />).
+        </p>
+        <p>
+          A type's <code>schema_version</code> only goes up. <code>iki plugin test --upgrade-from
+          REF</code> migrates sample records from an earlier commit and back, and fails if what a
+          type's records may hold changed without a higher <code>schema_version</code> (<Path
+            p="cli/src/iki_cli/upgrade_test.py"
+          />, <Adr n={[94, 158]} />). How the upgrade test runs: <PageLink to="Plugin tests" />.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <p>
+          <Adr n="0016" /> names an <code>iki plugin upgrade</code> command that applies codemods. It
+          doesn't exist in <Path p="cli/src/iki_cli" />.
+        </p>
+      </Rule>
+      <Rule title="Detaching and purging">
+        <p>
+          A plugin a lockfile marks <code>detached</code> or <code>purged</code>, and what happens to
+          its records: <PageLink to="Revisions and history" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Commands</h3>
+        <ul>
+          <li><code>iki plugin makemigrations</code> <Path p="cli/src/iki_cli/plugin.py" sym="def run_makemigrations(" label="plugin.py" /></li>
+          <li><code>iki plugin preflight</code> <Path p="cli/src/iki_cli/preflight.py" label="preflight.py" /></li>
+          <li><code>iki plugin test --upgrade-from</code> <Path p="cli/src/iki_cli/upgrade_test.py" label="upgrade_test.py" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0016" title /></li>
+          <li><Adr n="0033" title /></li>
+          <li><Adr n="0095" title /></li>
+          <li><Adr n="0121" title /></li>
+          <li><Adr n="0148" title /></li>
+          <li><Adr n="0181" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

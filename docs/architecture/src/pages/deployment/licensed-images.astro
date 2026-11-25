@@ -1,0 +1,142 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const CATALOG = "server/src/iki_server/runs/catalog.py";
+const COMPUTE = "spec/src/iki_spec/compute.py";
+
+const H = {
+  short: "How a deployment supplies an image Iki can't ship",
+  how: "The environment asks; the deployment binds",
+  example: "A lab's licensed single-cell tool, bound and run",
+  rules: "Matching, pinning, leasing and reuse",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Some licensed tools may only run from an image the customer supplies. A plugin marks such an
+      environment <code>customer_image_required: true</code>, for its container or VM actions. The
+      deployment's <code>compute.yaml</code> adds an <code>EnvironmentImageBinding</code>: the
+      environment, a range of the plugin's releases, an image pinned by digest, and an optional pull
+      Secret. Exactly one binding may match the installed release, or the action is unavailable and
+      its launch refusal says which environment needs one. A run pins the bound image when it's
+      queued (<Adr n="0209" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      A provisioned environment needs <code>image:</code> pinned by digest, or the flag; the flag on
+      an environment with no container or VM action is an error (<Path
+        p="spec/src/iki_spec/actions.py"
+        sym="customer_image_required"
+      />). A binding is one document in <code>compute.yaml</code>, in this shape:
+    </p>
+    <Excerpt file="spec/src/iki_spec/schemas/environment-image-binding/v1.json" />
+    <p>
+      The range uses the same comparisons as a plugin's <code>iki</code> constraint, and the
+      installed version must match exactly one binding (<Path p={COMPUTE} sym="def image_binding(" />).
+      Two bindings that both match the installed release, and a pull Secret on a provisioned
+      template that isn't Kubernetes, fail the deployment build. The build lists each bound image among those runs use, so the deployment's
+      CI approves it beside the others (<Path p="cli/src/iki_cli/deploy.py" sym="def run_images(" />,{" "}
+      <PageLink to="Releases and images" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A lab runs its own single-cell plugin, whose analysis needs a vendor's licensed image that Iki
+      can't ship. Its environment declares <code>customer_image_required: true</code>, and the lab's
+      Compute admin binds it in the shape <Adr n="0209" /> gives:
+    </p>
+    <figure class="excerpt">
+      <figcaption><Path p="docs/adr/0209-deployments-supply-licensed-oci-images.md" sym="kind: EnvironmentImageBinding" /> · ADR 0209's example</figcaption>
+      <pre><code>{`apiVersion: iki/v1
+kind: EnvironmentImageBinding
+environment: acme/analysis.licensed-tools
+plugin_version: ">=1.2,<2"
+image: registry.example.org/lab/tools@sha256:aaaa…
+pull_secret: lab-registry`}</code></pre>
+    </figure>
+    <p>
+      The pull request's build lists that image with the others runs use; on merge, CI signs it into
+      the deployment's approvals, which the chart's image policy trusts. A run of the licensed action
+      pins the bound image when it's queued, so retries keep it, and the provisioner's pod carries
+      the pull Secret (<Path p="server/src/iki_server/runs/kubernetes.py" sym='pod["imagePullSecrets"]' />).
+      On Google Cloud the registry path must also be allowed by Binary Authorization, or the pod is
+      refused there (<PageLink to="Cloud infrastructure" hash="rules" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="An action with no binding is unavailable" open>
+        <p>
+          A container or VM action whose environment needs an image, with no binding that matches
+          the installed release, is unavailable; the refusal names the environment and the plugin
+          version, and says a Compute admin can add a binding (<Path p={CATALOG} sym="def customer_image(" />,{" "}
+          <Path p={CATALOG} sym="def customer_image_for(" />).
+        </p>
+      </Rule>
+      <Rule title="The image is pinned, leased and reused as itself">
+        <p>
+          The run stores the bound image and its pull Secret's name when it's queued, never the
+          Secret's contents (<Path p="server/src/iki_server/runs/models.py" sym="environment_image = " />).
+          Only a worker launched for that image and pull Secret may lease it, and a worker that
+          registered its own environment under the same name never does (<Path
+            p="server/src/iki_server/runs/queue.py"
+          />). The image's digest is part of the reuse key, and an exact reproduction needs the same
+          image still bound. <PageLink to="Pinning and provenance" /> covers what else a run pins.
+        </p>
+      </Rule>
+      <Rule title="Compute admins see each one">
+        <p>
+          Under Compute → Images, Compute admins see each environment that needs an image, the
+          binding its installed release matches, and bindings that match nothing, so stale pins show.
+          The page only reads: bindings change only in <code>compute.yaml</code>. Pull Secrets are
+          named; their values stay in the cluster (<Path p="web/app/src/pages/compute-images.tsx" />,{" "}
+          <Path p="server/src/iki_server/api/compute.py" sym="def list_image_bindings(" />).
+        </p>
+      </Rule>
+      <Rule title="Who uses it today">
+        <p>
+          No first-party plugin or deployment config declares <code>customer_image_required</code>{" "}
+          yet; the code paths are exercised by tests. Iki ships no images of licensed tools: labs
+          bring their own licences.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={COMPUTE} sym="class ImageBinding" />: the binding, and how one is chosen</li>
+        <li><Path p={CATALOG} />: availability, and the image an action gets</li>
+        <li><Path p="docs/adr/0209-deployments-supply-licensed-oci-images.md" />: the decision</li>
+      </ul>
+      <p><PageLink to="Compute tiers" /> covers the tiers these images run on.</p>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0063" title /></li>
+        <li><Adr n="0209" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

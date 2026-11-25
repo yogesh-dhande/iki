@@ -388,3 +388,21 @@ td.num {
 td > code:only-child {
   white-space: nowrap;
 }
+
+/* A nested group: closed unless it holds the page you're on. */
+.site-nav details {
+  margin: 0 0 6px;
+}
+.site-nav summary {
+  cursor: pointer;
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.site-nav summary:hover {
+  color: var(--text);
+}
+.site-nav details ul {
+  margin: 2px 0 12px;
+}

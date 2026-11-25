@@ -1,0 +1,202 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import { stringTuple } from "../../lib/source.ts";
+
+const M = "server/src/iki_server/runs/models.py";
+const P = "server/src/iki_server/runs/provisioner.py";
+const C = "spec/src/iki_spec/compute.py";
+const tiers = stringTuple(M, "TIERS");
+
+const H = {
+  short: "Where a run's machine comes from",
+  how: "The tiers and the provisioner",
+  example: "The dev cluster's compute",
+  rules: "Templates, warm pods, Slurm and machines",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      An action says which tier it runs on and in which environment. Every tier runs the same
+      worker binary; what differs is who starts the machine and how long it lives. The tiers in the
+      code are <code>{tiers.join(", ")}</code> (<Path p={M} sym="TIERS" />), plus a <code>server</code>{" "}
+      tier for core actions Iki's task runner carries out itself (<Adr n="0178" />). Plugins declare
+      environments; each deployment's reviewed <code>compute.yaml</code> declares the machines
+      (templates) and which environments run on which (<Adr n={[9, 41]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Tier</th><th>Machines come from</th><th>Code</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><code>backend</code></td><td>The chart's worker Deployment: baked, signed images, one credential per pod.</td><td><Path p="deploy/helm/iki/templates/worker-deployment.yaml" /></td><td><Adr n="0048" /></td></tr>
+          <tr><td><code>container</code></td><td>The provisioner: a Kubernetes Job per run (<code>k8s_job</code>), or warm pods that take one job after another (<code>k8s_deployment</code>).</td><td><Path p="server/src/iki_server/runs/kubernetes.py" sym="def job_manifest(" /></td><td><Adr n={[61, 62]} /></td></tr>
+          <tr><td><code>container</code> on Slurm</td><td>A worker on a cluster's login node submits each job with <code>sbatch</code> where the server placed it.</td><td><Path p="server/src/iki_server/runs/slurm.py" sym="def place(" /></td><td><Adr n={[133, 156, 167]} /></td></tr>
+          <tr><td><code>vm</code></td><td>The provisioner: an EC2 or Compute Engine instance per run, running <code>iki-worker host</code>; volumes from snapshots.</td><td><Path p="server/src/iki_server/runs/ec2_fleet.py" sym="class Ec2Fleet" />, <Path p="server/src/iki_server/runs/gce_fleet.py" sym="class GceFleet" /></td><td><Adr n={[74, 76, 109, 160]} /></td></tr>
+          <tr><td><code>self_hosted</code></td><td>A team's own machines, registered by a Compute admin; they lease only their teams' projects' runs, by labels.</td><td><Path p="server/src/iki_server/runs/workers.py" sym="def covered(" /></td><td><Adr n="0112" /></td></tr>
+          <tr><td><code>server</code></td><td>Iki's own task runner, for core actions such as a spreadsheet import.</td><td><Path p={M} sym="SERVER_TIER" /></td><td><Adr n="0178" /></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>The provisioner</h3>
+    <p>
+      <code>iki-server provision</code> is the only part of Iki that may talk to the Kubernetes API
+      or start cloud machines. One acts at a time, under a Postgres advisory lock, a round every few
+      seconds and as soon as a job is queued on its tiers (<Path
+        p="server/src/iki_server/runs/management/commands/provision.py"
+      />, <Path p="deploy/helm/iki/templates/provisioner.yaml" />). Each <code>tick</code>, for each
+      fleet (Kubernetes pods, EC2 or Compute Engine instances):
+    </p>
+    <ul>
+      <li>
+        <strong>reconciles</strong> what the cloud has with what Iki launched: a launch whose machine
+        is gone ends, and its worker's jobs are interrupted and retried;
+      </li>
+      <li><strong>stops</strong> idle persistent machines it doesn't need;</li>
+      <li>
+        <strong>starts</strong> a machine for each queued job no free machine can take, on the first
+        of its environment's templates (by priority, then size) that it fits, up to the template's{" "}
+        <code>max_concurrent</code>.
+      </li>
+    </ul>
+    <p>
+      Each machine is a <code>Launch</code> with a token for it alone; its worker registers with it
+      and may run only what the launch says (<Path p={P} sym="def tick(" />, <Path
+        p={P}
+        sym="class KubernetesFleet"
+      />, <Path p="server/src/iki_server/runs/launches.py" />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      <Path p="deploy/dev/compute.yaml" /> is a deployment's compute in small. Its{" "}
+      <code>backend-small</code> template (<code>backend_pool</code>) is sized as the chart's backend
+      worker pod, and most first-party environments are bound to it. On the container tier,{" "}
+      <code>container-small</code> (<code>k8s_job</code>) starts a pod per run, at most two at once;{" "}
+      <code>container-warm</code> (<code>k8s_deployment</code>) keeps one pod warm for actions that
+      ask for a persistent machine, stopping it after ten idle minutes. Heavier tools get templates
+      of their own, such as <code>container-numbering</code> for ANARCI. Each carries a made-up
+      price, so runs there have costs to show (<Path
+        p="deploy/dev/compute.yaml"
+        sym="limits: { max_concurrent: 1, min_warm: 1, idle_shutdown: 10m }"
+      />).
+    </p>
+    <p>
+      <code>iki deploy build</code> checks a deployment's compute against the plugins its lockfile
+      pins: every binding's templates are big enough for its environment, every action fits at
+      least one, and every volume has a way to reach the machines (<Path p={C} sym="def load_compute(" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Which template a run gets" open>
+        <p>
+          An <code>EnvironmentBinding</code> lists templates with priorities. A run's job goes to the
+          first by priority, then size, that is on its tier, fits what it asks for and serves the
+          lifecycle its action asks for. An environment with no template on its tier makes the
+          action unavailable, and the launch says why (<Path
+            p="server/src/iki_server/runs/catalog.py"
+            sym="def availability("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Warm pods">
+        <p>
+          <code>k8s_deployment</code> templates are persistent: their pods run one job after another
+          and start each clean. Each keeps <code>min_warm</code> pods per environment bound to it, and
+          stops one idle for <code>idle_shutdown</code> (ten minutes unless it says) when there are
+          more. A pod started before its template changed is replaced once idle (<Adr n="0062" />,{" "}
+          <Path p={P} />).
+        </p>
+      </Rule>
+      <Rule title="Slurm is a provisioner of the container tier">
+        <p>
+          A cluster's worker leases each container-tier job whose first fitting template is one of
+          its cluster's, while that template has room under <code>max_concurrent</code>, and holds
+          many at once. The server places each job (template, the project's Slurm account, what to
+          ask Slurm for); the worker submits it, reports what Slurm says, and masks the log on the
+          compute node (<Adr n={[133, 156, 167]} />, <Path p="worker/crates/iki-worker/src/slurm.rs" />,{" "}
+          <Path p="docs/slurm.md" />).
+        </p>
+      </Rule>
+      <Rule title="VM-tier machines">
+        <p>
+          A vm-tier run gets a cloud machine of its own. Its boot script starts <code>iki-worker
+            host</code
+          >, which pulls the environment's image, runs it with the same binary as its entrypoint,
+          and shuts the machine down when it ends. A spot machine's two-minute warning stops the
+          container so the worker checkpoints and reports the job interrupted (<Adr n={[74, 69]} />,{" "}
+          <Path p="worker/crates/iki-worker/src/host.rs" />).
+        </p>
+      </Rule>
+      <Rule title="Volumes and setup builds">
+        <p>
+          An environment can declare volumes its setup script fills, such as a reference database. A
+          build belongs to the deployment, not to a project; each provisioner supports some volume
+          strategies (snapshot clones, exclusive disks, shared filesystems, bucket mounts). Which
+          build a run reads is pinned at launch (<Adr n={[75, 76, 77, 78]} />, <Path
+            p="server/src/iki_server/runs/setups.py"
+          />, <PageLink to="Pinning and provenance" />).
+        </p>
+      </Rule>
+      <Rule title="Licensed images">
+        <p>
+          Some environments run only from an image the deployment supplies, bound in{" "}
+          <code>compute.yaml</code>. That's on <PageLink to="Licensed images" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={C} /></li>
+          <li><Path p="server/src/iki_server/runs/catalog.py" /></li>
+          <li><Path p={P} /></li>
+          <li><Path p="server/src/iki_server/runs/kubernetes.py" /></li>
+          <li><Path p="server/src/iki_server/runs/slurm.py" /></li>
+          <li><Path p="deploy/dev/compute.yaml" /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0009" title /></li>
+          <li><Adr n="0041" title /></li>
+          <li><Adr n="0061" title /></li>
+          <li><Adr n="0074" title /></li>
+          <li><Adr n="0112" title /></li>
+          <li><Adr n="0133" title /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Where the ADRs and code differ</h3>
+        <ul>
+          <li><Adr n="0009" />'s "client" tier is <code>self_hosted</code> in the code, belonging to teams (<Adr n="0112" />).</li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

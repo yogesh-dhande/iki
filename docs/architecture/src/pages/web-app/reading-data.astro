@@ -1,0 +1,96 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const APP = "web/app/src";
+
+const H = {
+  short: "How a page reads, and why it holds still",
+  how: "The query client and the page's lifetime",
+  rules: "The lint rules on reads",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Every read goes through TanStack Query and the generated client. Each read carries its
+      query's signal, so TanStack can cancel it, and the document's lifetime, so leaving the page
+      stops it on the wire; a write keeps its own lifetime and finishes. Two ESLint rules make
+      both hold for every query. How pages also hold still while they load is on <PageLink
+        to="Pages that hold still"
+      />.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The app's query client keeps a read fresh for 30 seconds and retries a failed one twice,
+      never one the API refused with a status below 500. It's a subclass, <code>PageQueryClient</code>,
+      because a loader awaiting a read that a navigation cancelled should read again rather than fail
+      with the cancellation (<Path p={`${APP}/api.ts`} sym="class PageQueryClient extends QueryClient" />).
+    </p>
+    <p>
+      The client sends every <code>GET</code> and <code>HEAD</code> through <code>fetchPageRead</code>,
+      which joins the caller's signal to the document's lifetime (<Path
+        p={`${APP}/page-reads.ts`}
+        sym="export const fetchPageRead"
+      />). Reads stop at <code>beforeunload</code>, since browsers cut a leaving page's loads off
+      anyway, and WebKit reports each as an access-control failure. If the navigation doesn't
+      happen (a download, a 204, the person choosing to stay), the next press or key resumes them;
+      a page restored from the back-forward cache resumes them too. Writes go straight to the
+      browser's <code>fetch</code>, so a save in flight finishes after the page has gone.
+    </p>
+    <p>
+      Requests made while the person is idle carry a header that says so, so they don't keep the
+      session open (<Adr n="0153" />). When a read answers 401, the app sends the person to sign in
+      and back; a query marked as background instead marks the page signed out. Live
+      updates arrive as events that invalidate queries, which then read again: <PageLink
+        to="Tasks and live updates"
+      /> covers the stream.
+    </p>
+
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Reads that can be cancelled and stop with the page" open>
+        <p>Two rules in the repository's ESLint config, besides jsx-a11y strict and React's hooks rules:</p>
+        <Excerpt file="eslint.config.js" start="^const QUERY_SIGNAL = \{" />
+        <Excerpt file="eslint.config.js" start="^const POST_READ = \{" />
+        <p>
+          A third, <code>RAW_HTML</code>, bans <code>dangerouslySetInnerHTML</code>, which Trusted
+          Types would refuse anyway (<PageLink to="Serving and security policy" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${APP}/api.ts`} />: the client and the query defaults</li>
+        <li><Path p={`${APP}/page-reads.ts`} />: the page's lifetime in every read</li>
+        <li><Path p="eslint.config.js" />: the rules on reads</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0153" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

@@ -1,0 +1,190 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const AM = "server/src/iki_server/amounts";
+const SVC = `${AM}/services.py`;
+const ELIG = `${AM}/eligibility.py`;
+const SAMPLE = "plugins/samples/types/sample.yaml";
+
+const H = {
+  short: "Taking material for work",
+  how: "What a draw checks, the scan, samples and lot draws",
+  example: "A tube drawn for an assay",
+  rules: "Purposes, holds and draw targets in full",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "checks", label: "What a draw checks" },
+  { id: "scan", label: "Scanning the tube" },
+  { id: "samples", label: "Samples" },
+  { id: "lots", label: "Drawing from a lot" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A draw uses material up: a <code>drawn</code> movement on the tube or lot, with a purpose
+      (routine use or QA sampling) and, usually, the record it went into. Before it's written, the
+      server locks the records, checks holds and draw guards on the record and on what it follows,
+      the purpose's lab roles, a scan when the type asks for one, and the balance. A sample is a
+      portion drawn for identified work: it names its source, accepts exactly one matched draw from
+      it, and keeps a receipt of that draw. The sample has no balance of its own; the ledger is the
+      record of what was taken (<Adr n={[139, 180, 211]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <h3 id="checks">What a draw checks</h3>
+    <p>
+      <code>POST /entities/&#123;ref&#125;/amount/draw</code> needs an Editor of the record's project,
+      or a reader of it who is an Editor of the project whose container holds it, and an Editor of
+      the record it's used in. Under the locks, a draw
+      is refused while a state holds the record's amount, such as a lot's quarantine on a type that
+      says so; while one of its draw guards fails; while a record it follows is held or fails its own
+      guards; or when it asks for more than there is (<Path p={SVC} sym="def draw(" />, <Path
+        p={SVC}
+        sym="def _taking("
+      />, <Path p={ELIG} sym="def refusals(" />). A tube's own guards:
+    </p>
+    <Excerpt file="plugins/inventory/types/tube.yaml" start="^draw_guards:" />
+    <p>
+      The tube follows its <code>contents</code>, so a lot in it brings the lot's guards to the
+      bench. They read the draw's <code>purpose</code> and <code>operation</code>, so a quarantined
+      lot gives only QA sampling:
+    </p>
+    <Excerpt file="plugins/lots/types/lot.yaml" start="^draw_guards:" />
+    <p>
+      A type's <code>draw_purposes</code> names the lab roles that may draw for each purpose; the
+      lot's QA sampling needs Lot QA (<Path p={ELIG} sym="def purpose_refusals(" />). Putting a tube on
+      hold needs a reason, and an inventory trigger can put the tubes split or transferred from it on
+      hold too (<Path p="plugins/inventory/triggers/hold_derived_tubes.yaml" />).
+    </p>
+
+    <h3 id="scan">Scanning the tube</h3>
+    <p>
+      A type whose <code>storage.confirm</code> lists <code>draw</code>, as the tube's does, needs a
+      scan of the record before a draw. The code is resolved among what the caller can read: an Iki
+      label's <code>IKI:</code> code, a record link, an HRID or the vendor's barcode, and it must name
+      the record being drawn from. The code is kept on the movement as <code>confirmed</code> (<Path
+        p={SVC}
+        sym="def _confirmed("
+      />, <Path p="server/src/iki_server/storage/scan_identity.py" sym="class ScanIndex:" />).
+    </p>
+
+    <h3 id="samples">Samples</h3>
+    <p>
+      An <code>iki/samples.Sample</code> is made pending, with an immutable source, a tube or a lot,
+      and the work it's for: a record such as a request or a plate, or a run.
+      Its <code>draw_target</code> makes it take one matched draw while it awaits material, and
+      its <code>draws_received</code> field keeps the receipt (<Adr n="0211" />):
+    </p>
+    <Excerpt file={SAMPLE} start="^draw_target:" />
+    <p>
+      The draw names the sample as <code>used_in</code>. It's refused unless the sample is pending,
+      has no draw yet, and the draw is from its assigned source (<Path
+        p={SVC}
+        sym="def _check_draw_target("
+      />). In the same transaction the sample's receipt gains the movement, the debited record and its
+      revision, the source it followed and that one's revision, the amount and unit, the operator and
+      the time (<Path p={SVC} sym="def _receive_draw(" />). Setting it to Received needs that one draw;
+      testing, a signed submission and an independent signed review follow:
+    </p>
+    <Excerpt file={SAMPLE} start="^      received:" />
+    <p>
+      How a returned result on a sample counts toward a request is on <PageLink
+        to="Release and completion"
+        hash="completion"
+      />.
+    </p>
+
+    <h3 id="lots">Drawing from a lot</h3>
+    <p>
+      A sample whose source is a lot is drawn directly from the lot's balance, in the lot's own units
+      and under its own guards and purposes. A tube holding the lot is a different source: a draw from
+      it debits the tube, and the lot is the source it followed (<Adr n="0211" />, <Path
+        p="plugins/lots/types/lot.yaml"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      For an assay, a scientist draws 50 µL from a tube with <code
+        >POST /api/v1/entities/&#123;tube&#125;/amount/draw</code
+      >, naming the experiment it's used in and scanning the tube. The server locks the tube, the
+      experiment and the lot the tube follows, checks the tube's guards and the lot's, the scan and the
+      balance, and appends a <code>drawn</code> movement with its purpose and the lot as its source.
+      The experiment's own <code>draws_received</code> field records the draw, and the graph gains
+      a <code>used</code> edge from the experiment to the tube (<Adr n="0189" />, <Path
+        p="plugins/experiments/types/experiment.yaml"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Draw purposes" open>
+        <p>
+          A draw's purpose is <code>routine</code> or <code>qa_sampling</code>; the database requires
+          one on every <code>drawn</code> movement and none on any other (<Path
+            p={`${AM}/models.py`}
+            sym="class DrawPurpose("
+          />). A guard can read the purpose, and the type's <code>draw_purposes</code> narrows who may
+          draw for each.
+        </p>
+      </Rule>
+      <Rule title="What a draw follows">
+        <p>
+          <code>follows</code> names references, and the first that's set is the draw's source. A
+          record's guards are checked with those of what it follows, three levels deep, and a followed
+          record a state holds refuses the draw by name (<Path p={ELIG} sym="def followed(" />). When the
+          draw goes into a draw target or a record with <code>draws_received</code>, the followed
+          records are locked too, and a source that changed during the draw makes it retry.
+        </p>
+      </Rule>
+      <Rule title="Draw targets">
+        <p>
+          A <code>draw_target</code> names the field holding the container to draw from, optionally the
+          source it must follow, the state that means it's awaiting material, the lab roles the person drawing needs, a field
+          that must be set first, whether the container must be in storage, and a planned amount the
+          draw must match exactly (<Path p="spec/src/iki_spec/model.py" sym="class DrawTarget:" />). A
+          stability pull is the other draw target <code>iki</code> ships (<PageLink
+            to="Receipts and counts"
+            hash="pulls"
+          />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={SVC} sym="def draw(" />: the draw, its checks and its receipt</li>
+        <li><Path p={ELIG} />: holds, draw guards and purposes</li>
+        <li><Path p="server/src/iki_server/storage/scan_identity.py" />: what a scanned code names</li>
+        <li><Path p="plugins/samples" />: the sample, its draw and its review</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0139" title /></li>
+        <li><Adr n="0180" title /></li>
+        <li><Adr n="0189" title /></li>
+        <li><Adr n="0211" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

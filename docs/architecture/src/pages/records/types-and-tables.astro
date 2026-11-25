@@ -1,0 +1,146 @@
+---
+import Adr from "../../components/Adr.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const CG = "codegen/src/iki_codegen/models.py";
+const N = "spec/src/iki_spec/naming.py";
+const SYNC = "server/src/iki_server/plugins/sync.py";
+
+const toc = [
+  { id: "short", label: "A type is a table, with its history beside it" },
+  { id: "how", label: "What the build writes, and what the deploy adds" },
+  { id: "rules", label: "The details" },
+  { id: "ref", label: "Files and decisions" },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title="A type is a table, with its history beside it">
+    <p>
+      A plugin declares a type in a YAML manifest under its <code>types/</code>. Iki's code
+      generator turns it into Django models: one table per type, with a typed column per field,
+      extending <code>iki_entity</code>; an append-only history table beside it; a table per list
+      of references, files, people or rows; and, for a type with an identity, a table of its
+      registry entries. At deploy time <code>sync_plugins</code> puts the triggers on those tables
+      that hold uniqueness, references, rules and locks in the database (<Adr n={[7, 32, 33]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title="What the build writes, and what the deploy adds">
+    <p>
+      <Path p={CG} sym="def render_models(" /> renders a plugin's <code>models.py</code>. Its
+      output is deterministic: the same plugin always renders the same bytes. Each type gets:
+    </p>
+    <ul>
+      <li>
+        <strong>Its table</strong>, named <code>&lt;app&gt;_&lt;type&gt;</code> (<Path
+          p={N}
+          sym="def type_table("
+        />), extending <Path p="server/src/iki_server/entities/models.py" sym="class Entity(" /> or
+        its parent type by multi-table inheritance, with named CHECK constraints for each rule the
+        database can enforce (<Path p={N} sym="def constraint_name(" />).
+      </li>
+      <li>
+        <strong>Its history table</strong>, <code>&lt;table&gt;__history</code>, keyed on (entity,
+        revision), with every field the type ever had, removed ones included, in wide column
+        types, and no constraints or foreign keys: references, files and people are bare UUIDs, so
+        history survives whatever happens to what it pointed to. <PageLink to="Revisions and history" /> covers how it's written and read.
+      </li>
+      <li>
+        <strong>A table per list</strong> of references, files, people or rows (<code
+          >&lt;table&gt;__&lt;field&gt;</code
+        >), keyed on (entity, position), so each item has a real foreign key; a list of rows has a
+        column per row field (<Adr n="0137" />). Other lists are arrays.
+      </li>
+      <li>
+        <strong>For a type with an identity</strong>, a table of its entries (<code
+          >&lt;table&gt;__entry</code
+        >) with the identity fields and those marked <code>registry</code>. The type's own table
+        holds each project's record (<Adr n={[115, 165]} />). See <PageLink to="Identity and HRIDs" />.
+      </li>
+    </ul>
+    <p>
+      An extension, one plugin's fields on another's type, gets the same tables, keyed by the
+      extended type's <code>entity_id</code>. A <code>person</code> field is a foreign key to <code
+        >iki_user</code
+      >, which never loses a row: people are deactivated, never deleted.
+    </p>
+    <p>
+      Descriptions and units aren't in the models. <Path p={SYNC} /> writes them as table and column
+      comments at deploy time, so changing them needs no migration. It also installs, on the tables
+      that need them, the triggers each of these pages covers:
+    </p>
+    <ul>
+      <li>HRID sequences, one per prefix: <PageLink to="Identity and HRIDs" hash="hrids" />.</li>
+      <li>Unique fields and the <code>unique</code> and <code>no_overlap</code> rules: <PageLink to="Saving and validation" hash="database" />.</li>
+      <li>References' graph edges and references' types: <PageLink to="Links between records" />.</li>
+      <li>Locked records' guards: <PageLink to="Locks and corrections" />.</li>
+      <li>A request's sides, each writing only its own fields: <PageLink to="Asking and serving" />.</li>
+    </ul>
+    <p>
+      <code>migrate_deployment</code> runs it as the migrator, in the transaction that runs the
+      plugins' migrations, so nothing writes to a table whose triggers haven't caught up (<Adr
+        n="0134"
+      />). How migrations are made and versioned is on <PageLink to="Migrations and versions" />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title="The details">
+    <div class="rules">
+      <Rule title="Read-only views for analysts" open>
+        <p>
+          The sync also writes one read-only view per type in the schema <code>iki_views</code>{" "}
+          (<code>iki_views.protein_protein</code>), joining the core row, the type's table, its
+          parents', every installed extension and, for an identity, its entry's values. Lists of
+          references or files appear as arrays. The views use <code>security_invoker</code>. If{" "}
+          <code>IKI_DB_ANALYST_ROLE</code> names a role, it gets read access to the views and the
+          tables behind them, current values and history, and nothing else (<Path
+            p={SYNC}
+            sym="def _analyst_grants("
+          />).
+        </p>
+      </Rule>
+      <Rule title="Core types">
+        <p>
+          The types every deployment has are declared the same way, in <Path
+            p="spec/src/iki_spec/core/types"
+          />, and built into the app <code>iki_plugin_iki__core</code>. The <PageLink
+            to="Core types"
+          /> page lists them.
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li><Adr n="0038" /> names <code>iki_plugin_core</code>; the package is <code>iki_plugin_iki__core</code>.</li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title="Files and decisions">
+    <div class="refs">
+      <div>
+        <h3>Where</h3>
+        <ul>
+          <li><Path p={CG} /></li>
+          <li><Path p={N} /></li>
+          <li><Path p={SYNC} /></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Decisions</h3>
+        <ul>
+          <li><Adr n="0007" title /></li>
+          <li><Adr n="0032" title /></li>
+          <li><Adr n="0033" title /></li>
+          <li><Adr n="0134" title /></li>
+          <li><Adr n="0137" title /></li>
+        </ul>
+      </div>
+    </div>
+  </Layer>
+</Layout>

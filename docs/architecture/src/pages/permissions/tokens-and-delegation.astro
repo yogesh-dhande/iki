@@ -1,0 +1,215 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+import Sequence from "../../components/Sequence.astro";
+
+const PERM = "server/src/iki_server/org/permissions.py";
+const ACCESS = "server/src/iki_server/entities/access.py";
+const OAUTH = "server/src/iki_server/oauth";
+const SEC = "server/src/iki_server/api/security.py";
+
+const H = {
+  short: "A token only narrows what its person may do",
+  how: "What a token carries, and how an agent acts for a person",
+  example: "An unattended agent receiving a sample for a coordinator",
+  rules: "Scopes, projects, service accounts and MCP",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "read-seq", label: "A delegated read, step by step" },
+  { id: "example", label: H.example },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      A token can do what both its scopes and its user's roles allow: a <code>write</code> token
+      held by a Viewer still only reads (<Adr n="0028" />). A person can give a client only some of
+      their projects, and its tokens then act only in those (<Adr n="0152" />). An unattended agent
+      runs as a service account and acts for a person by delegation: every check then runs against
+      both identities, their projects and the lab roles they share (<Adr n={[73, 210]} />). Each
+      token's limits are read from the person's consent as it stands now, so narrowing or revoking a
+      consent applies to tokens already issued.
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      A request with a bearer token carries a <code>TokenLimits</code>: its scopes, the projects it
+      may touch, whether the person chose only some, and under a delegation the agent's own service
+      account, <code>alongside</code>, whose roles must allow each action too.
+    </p>
+    <Excerpt file={PERM} start="^class TokenLimits" />
+    <p>
+      <code>of()</code> builds them for every token check: the token's scopes narrowed to the
+      consent's, the consent's projects, and for a delegated token only the projects the service
+      account can see as well. It answers nothing when the consent was revoked or expired, or the
+      person or the service account was deactivated (<Path p={`${OAUTH}/access.py`} sym="def of(" />,{" "}
+      <Path p={`${OAUTH}/access.py`} sym="projects & theirs" />).
+    </p>
+
+    <h3 id="read-seq">A delegated read, step by step</h3>
+    <p>An unattended agent reads one sample, as the person who delegated to it.</p>
+    <Sequence
+      id="read-seq-dg"
+      title="A delegated agent reads GET /api/v1/entities/SAM-000012"
+      width={900}
+      actors={[
+        { id: "agent", label: "Agent", sub: "a service account's client" },
+        { id: "oauth", label: "OAuth server" },
+        { id: "api", label: "API", sub: "BearerAuth" },
+        { id: "perm", label: "Permissions" },
+        { id: "db", label: "Postgres" },
+      ]}
+      steps={[
+        { id: "exchange", from: "agent", to: "oauth", label: "token exchange: the delegation's grant" },
+        { id: "issued", from: "oauth", to: "agent", label: "the person's token, act: the client", dashed: true },
+        { id: "get", from: "agent", to: "api", label: "GET /entities/SAM-000012, bearer" },
+        { id: "limits", from: "api", to: "perm", label: "limits from the consent now; alongside: the bot" },
+        { id: "filter", from: "perm", to: "db", label: "readable projects ∩ the token's ∩ the bot's" },
+        { id: "exists", from: "db", to: "api", label: "EXISTS a link into one of them", dashed: true },
+        { id: "answer", from: "api", to: "agent", label: "200 with the entity, or 404", dashed: true },
+      ]}
+    >
+      <div slot="exchange"><p>RFC 8693 token exchange, with Iki's own <code>delegation</code> subject-token type. The client must be allowed to act for people, which is off by default; a delegation lasts at most 90 days and only people can give one (<Adr n="0073" />).</p><p><Path p={`${OAUTH}/exchange.py`} sym="DELEGATION =" />, <Path p={`${OAUTH}/services.py`} sym="MAX_DELEGATION_DAYS = 90" />, <Path p={`${OAUTH}/services.py`} sym="Only people can let an agent act for them." /></p></div>
+      <div slot="issued"><p>The response names the client as the actor in <code>act</code>, so what the agent does is recorded as the person's, through the agent (<Adr n={[72, 73]} />).</p><p><Path p={`${OAUTH}/exchange.py`} sym='token["act"]' /></p></div>
+      <div slot="get"><p>The API authenticates the bearer token on every request and attaches its limits to the user.</p><p><Path p={SEC} sym="class BearerAuth" /></p></div>
+      <div slot="limits"><p>A delegated token's projects are the person's choice intersected with what the service account can see.</p><p><Path p={`${OAUTH}/access.py`} sym="projects & theirs" /></p></div>
+      <div slot="filter"><p>Without the <code>read</code> scope the caller sees no projects at all. Org Admins skip the membership filter for seeing projects, but reading data still needs a role.</p><p><Path p={PERM} sym="def visible_projects(" />, <Path p={ACCESS} sym="my_role__isnull=False" /></p></div>
+      <div slot="exists"><p>An entity is readable when it has a project link into a readable project (<Adr n="0035" />).</p><p><Path p={ACCESS} sym="def visible_of" /></p></div>
+      <div slot="answer"><p>The lookup only ever searches what's readable, so an unreadable entity and a missing one answer the same 404 (<Adr n="0101" />).</p><p><Path p="server/src/iki_server/api/entities.py" sym="No such entity, or you can’t read it." /></p></div>
+    </Sequence>
+  </Layer>
+
+  <Layer n={3} title={H.example}>
+    <p>
+      A lab runs an agent unattended to receive samples. A scientist with the Editor role and the
+      Coordinator lab role delegates to it, and the agent's service account is an Editor holding
+      Analyst. The agent tries to move a sample to Received, which coordinators and analysts may both
+      set. It's refused: each identity holds a role that may set the state, but not the same one.
+      Once the service account is given Coordinator as well, the change goes through (<Adr
+        n="0210"
+      />). The revision names the scientist as the person and the agent's client and grant; how that's
+      recorded is on <PageLink to="Revisions and history" />.
+    </p>
+    <p>Who may set Received, in the samples plugin:</p>
+    <Excerpt file="plugins/samples/types/sample.yaml" start="^      received:" />
+    <p>
+      Under a delegation, the lab roles that count are those both identities hold. The state change
+      then needs one of the state's <code>set_by</code> roles among them:
+    </p>
+    <Excerpt file={PERM} start="^def lab_roles\(" />
+    <p>
+      The same rule applies to guards, so a guard testing <code>actor.roles</code> sees the shared
+      roles only (<Path p="server/src/iki_server/entities/states.py" sym="if not permissions.lab_roles(user, owner) & set(roles):" />),
+      and to receiving a request's tubes, drawing material and other lab-role checks. The tests walk
+      it through, refusal and success, with the test plugin's sample and with a receipt: <Path
+        p="server/tests/test_delegated_lab_roles.py"
+        sym="def test_delegated_state_changes_and_guards_use_the_same_shared_role("
+      />, <Path
+        p="server/tests/test_delegated_lab_roles.py"
+        sym="def test_receiving_requires_a_shared_service_role_and_records_both_identities("
+      />.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="Scopes" open>
+        <p>Each action maps to one scope (<Path p={PERM} sym="ACTION_SCOPES" />). The scopes a consent can grant:</p>
+        <Excerpt file={`${OAUTH}/scopes.py`} start="^SCOPES: dict" />
+        <p>
+          Webhooks have a scope of their own because they send data out of Iki. Exporting or importing
+          a bundle, and curating a registry, need <code>admin</code>.
+        </p>
+      </Rule>
+      <Rule title="Project-limited tokens">
+        <p>
+          A token the person gave only some projects acts only in them: a project outside them answers
+          404, as one the person can't see would. It takes no action on the organization, its teams or
+          its registries, and those refusals answer 403 with the code <code>token_limited_to_projects</code>{" "}
+          (<Adr n="0152" />, <Path p={PERM} sym="def beyond_projects(" />). Event streams, the inbox and
+          webhooks an app added apply the same limits: <PageLink to="What events disclose" />.
+        </p>
+      </Rule>
+      <Rule title="Service accounts and delegation">
+        <p>
+          An Org Admin makes a service account and its client credentials. Its own tokens act as the
+          service account. To act for a person, an Org Admin must allow the credential to, and the
+          person delegates to it with scopes, projects and an end date; the credential then exchanges
+          the delegation for the person's token (<Adr n={[27, 73]} />, <Path
+            p={`${OAUTH}/services.py`}
+            sym="def delegate("
+          />, <Path p={`${OAUTH}/exchange.py`} sym="GRANT_TYPE" />).
+        </p>
+        <p>
+          Every check then runs against both: the person's roles and the service account's, the
+          person's projects and the service account's, its teams and theirs, and the lab roles they
+          share (<Adr n="0210" />, <Path p={PERM} sym="def can(" />, <Path p={PERM} sym="def visible_teams(" />).
+        </p>
+      </Rule>
+      <Rule title="What no token can do">
+        <p>
+          No token can approve a run, whatever its scopes, so an agent can't approve its own request
+          (<Adr n="0050" />, <Path p="server/src/iki_server/runs/approvals.py" sym="Tokens can't, whatever their scopes" />).
+          Workflow approvals and signatures that need a person signed in to the web app still need
+          that sign-in (<Adr n="0210" />).
+        </p>
+      </Rule>
+      <Rule title="Scheduled triggers">
+        <p>
+          A scheduled trigger runs as a chosen service account, on the authority of the Admin who
+          turned it on (<Adr n="0081" />, <Path p="server/src/iki_server/runs/models.py" sym="run_as = models.ForeignKey(" />).
+          Triggers themselves are on <PageLink to="Workflows and triggers" />.
+        </p>
+      </Rule>
+      <Rule title="MCP">
+        <p>
+          MCP tools call the REST API in the same process, as the agent, so a tool can do exactly what
+          its endpoint allows. The agent's identity travels in an ASGI scope key, not a header, so no
+          client can forge it. Requests from a foreign <code>Origin</code> are refused, and tool
+          answers are fenced with a random marker (<Adr n={[13, 49]} />, <Path
+            p="server/src/iki_server/mcp/views.py"
+            sym="def _same_origin("
+          />, <Path p="server/src/iki_server/mcp/tools.py" sym="iki-data-" />, <Path
+            p={SEC}
+            sym='MCP_AGENT_KEY = "iki.mcp_agent"'
+          />). The endpoint itself is on <PageLink to="Server and APIs" />.
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${OAUTH}/access.py`} />: what a token may do now</li>
+        <li><Path p={`${OAUTH}/exchange.py`} />: token exchange for delegation</li>
+        <li><Path p="server/src/iki_server/accounts/service_accounts.py" />: service accounts</li>
+        <li><Path p="server/src/iki_server/mcp" />: the MCP endpoint and tools</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0013" title /></li>
+        <li><Adr n="0027" title /></li>
+        <li><Adr n="0028" title /></li>
+        <li><Adr n="0049" title /></li>
+        <li><Adr n="0072" title /></li>
+        <li><Adr n="0073" title /></li>
+        <li><Adr n="0152" title /></li>
+        <li><Adr n="0210" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

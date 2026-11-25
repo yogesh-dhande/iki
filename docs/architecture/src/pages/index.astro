@@ -5,30 +5,30 @@ import Inferred from "../components/Inferred.astro";
 import Layer from "../components/Layer.astro";
 import Layout from "../components/Layout.astro";
 import Path from "../components/Path.astro";
-import Rule from "../components/Rule.astro";
-import { stringTuple } from "../lib/source.ts";
+import PageLink from "../components/PageLink.astro";
+import { page } from "../lib/nav.ts";
 
-const tiers = stringTuple("server/src/iki_server/runs/models.py", "TIERS");
+const at = (label: string) => page(label).href;
 
 const boxes = [
-  { id: "browser", x: 200, y: 20, w: 180, h: 60, label: "Browser app", sub: "React, served by Django", href: "#part-browser" },
-  { id: "clients", x: 420, y: 20, w: 180, h: 60, label: "CLI, SDK and agents", sub: "OAuth 2.1 · MCP", href: "#part-identity" },
-  { id: "idp", x: 820, y: 20, w: 160, h: 60, label: "Identity provider", sub: "OIDC or SAML, SCIM", href: "#part-identity" },
-  { id: "wasm", x: 20, y: 20, w: 140, h: 60, label: "iki-wasm", sub: "CEL, parsers", href: "#part-wasm" },
-  { id: "server", x: 200, y: 150, w: 400, h: 70, label: "Django server", sub: ["/api/v1 · /worker/v1 · /mcp · /scim/v2", "web pods under ASGI"], strong: true, href: "#part-server" },
-  { id: "plugins", x: 20, y: 150, w: 140, h: 70, label: "Plugins", sub: ["YAML manifests", "to the iki/v1 spec"], href: "#part-plugins" },
-  { id: "build", x: 20, y: 265, w: 140, h: 56, label: "Deployment build", sub: "iki deploy build", href: "#part-plugins" },
-  { id: "tasks", x: 200, y: 265, w: 115, h: 56, label: "Task runner", sub: "iki-server tasks", href: "#part-postgres" },
-  { id: "provisioner", x: 342, y: 265, w: 115, h: 56, label: "Provisioner", sub: "iki-server provision", href: "#part-compute" },
-  { id: "egress", x: 485, y: 265, w: 115, h: 56, label: "Egress proxy", sub: "iki-server egress_proxy", href: "#part-egress" },
-  { id: "postgres", x: 640, y: 150, w: 160, h: 56, label: "Postgres", sub: "all structured state", href: "#part-postgres" },
-  { id: "storage", x: 640, y: 265, w: 160, h: 56, label: "Object storage", sub: "S3 or Cloud Storage", href: "#part-storage" },
-  { id: "worker", x: 200, y: 400, w: 760, h: 40, label: "iki-worker (Rust): one binary, pulls jobs over HTTPS", href: "#part-worker" },
-  { id: "backend", x: 200, y: 460, w: 140, h: 56, label: "Backend", sub: "baked pods", href: "#part-compute" },
-  { id: "container", x: 355, y: 460, w: 140, h: 56, label: "Container", sub: "a pod per run", href: "#part-compute" },
-  { id: "slurm", x: 510, y: 460, w: 140, h: 56, label: "Slurm", sub: "container-tier jobs", href: "#part-compute" },
-  { id: "vm", x: 665, y: 460, w: 140, h: 56, label: "VM", sub: "EC2, Compute Engine", href: "#part-compute" },
-  { id: "selfhosted", x: 820, y: 460, w: 140, h: 56, label: "Self-hosted", sub: "teams' machines", href: "#part-compute" },
+  { id: "browser", x: 200, y: 20, w: 180, h: 60, label: "Browser app", sub: "React, served by Django", href: at("The app's parts") },
+  { id: "clients", x: 420, y: 20, w: 180, h: 60, label: "CLI, SDK and agents", sub: "OAuth 2.1 · MCP", href: at("Server and APIs") },
+  { id: "idp", x: 820, y: 20, w: 160, h: 60, label: "Identity provider", sub: "OIDC or SAML, SCIM", href: at("Sign-in and identity") },
+  { id: "wasm", x: 20, y: 20, w: 140, h: 60, label: "iki-wasm", sub: "CEL, parsers", href: at("WebAssembly") },
+  { id: "server", x: 200, y: 150, w: 400, h: 70, label: "Django server", sub: ["/api/v1 · /worker/v1 · /mcp · /scim/v2", "web pods under ASGI"], strong: true, href: at("Server and APIs") },
+  { id: "plugins", x: 20, y: 150, w: 140, h: 70, label: "Plugins", sub: ["YAML manifests", "to the iki/v1 spec"], href: at("A plugin's life") },
+  { id: "build", x: 20, y: 265, w: 140, h: 56, label: "Deployment build", sub: "iki deploy build", href: at("Builds and deploys") },
+  { id: "tasks", x: 200, y: 265, w: 115, h: 56, label: "Task runner", sub: "iki-server tasks", href: at("Tasks and live updates") },
+  { id: "provisioner", x: 342, y: 265, w: 115, h: 56, label: "Provisioner", sub: "iki-server provision", href: at("Compute tiers") },
+  { id: "egress", x: 485, y: 265, w: 115, h: 56, label: "Egress proxy", sub: "iki-server egress_proxy", href: at("Network and secrets") },
+  { id: "postgres", x: 640, y: 150, w: 160, h: 56, label: "Postgres", sub: "all structured state", href: at("Types and tables") },
+  { id: "storage", x: 640, y: 265, w: 160, h: 56, label: "Object storage", sub: "S3 or Cloud Storage", href: at("Where data is stored") },
+  { id: "worker", x: 200, y: 400, w: 760, h: 40, label: "iki-worker (Rust): one binary, pulls jobs over HTTPS", href: at("The worker and its leases") },
+  { id: "backend", x: 200, y: 460, w: 140, h: 56, label: "Backend", sub: "baked pods", href: at("Compute tiers") },
+  { id: "container", x: 355, y: 460, w: 140, h: 56, label: "Container", sub: "a pod per run", href: at("Compute tiers") },
+  { id: "slurm", x: 510, y: 460, w: 140, h: 56, label: "Slurm", sub: "container-tier jobs", href: at("Compute tiers") },
+  { id: "vm", x: 665, y: 460, w: 140, h: 56, label: "VM", sub: "EC2, Compute Engine", href: at("Compute tiers") },
+  { id: "selfhosted", x: 820, y: 460, w: 140, h: 56, label: "Self-hosted", sub: "teams' machines", href: at("Compute tiers") },
 ];
 const edges = [
   { from: "browser", to: "server", label: "cookie + CSRF, SSE" },
@@ -51,8 +51,8 @@ const H = {
   short: "What Iki is made of",
   how: "How the parts connect",
   example: "One action, from a click to stored results",
-  rules: "What each part owns",
-  ref: "Directories, apps and decisions",
+  rules: "Where to read next",
+  ref: "Directories and decisions",
 };
 const toc = [
   { id: "short", label: H.short },
@@ -66,7 +66,8 @@ const toc = [
 <Layout toc={toc}>
   <Layer n={1} title={H.short}>
     <p>
-      Iki is one Django server in front of one Postgres database and an object store. People
+      This page answers: what are Iki's parts, how do they connect, and which page covers each? Iki
+      is one Django server in front of one Postgres database and an object store. People
       reach it through a React app the server serves, agents through MCP, scripts through the
       REST API. Everything a lab can type, run or show comes from plugins: YAML manifests that
       each deployment pins and compiles into its own server image. Work that runs code (an
@@ -104,17 +105,17 @@ const toc = [
       boxes={boxes}
       edges={edges}
       regions={regions}
-      caption="The boxed area is what the Helm chart (deploy/helm/iki) runs as Deployments; Postgres and object storage are usually the cloud's managed services. Click a box for its files and decisions; 'Its section' jumps to the part below."
+      caption="The boxed area is what the Helm chart (deploy/helm/iki) runs as Deployments; Postgres and object storage are usually the cloud's managed services. Click a box for its files and decisions; 'Its page' opens the page that covers it."
     >
       <div slot="browser">
         <p>
           A React 19 and Vite app (TanStack Router and Query). Django answers the app's URLs with
           one data-free shell page that loads the hashed entry; sign-in, setup, OAuth consent and
-          admin pages stay server-rendered (<Adr n="0029" />). It reads only <code>/api/v1</code>
+          admin pages stay server-rendered (<Adr n="0029" />). It reads only <code>/api/v1</code>{" "}
           with the session cookie and a CSRF token, and one SSE stream per tab.
         </p>
         <p>
-          <Path p="web/app/src/main.tsx" />, <Path p="server/src/iki_server/web/frontend.py" />,
+          <Path p="web/app/src/main.tsx" />, <Path p="server/src/iki_server/web/frontend.py" />,{" "}
           <Path p="server/src/iki_server/web/views.py" sym="def app(" />, <Path p="web/packages" />
         </p>
       </div>
@@ -163,7 +164,7 @@ const toc = [
       <div slot="server">
         <p>
           Django 6 with django-ninja under ASGI (<Adr n="0004" />). Two ninja APIs: the public one
-          at <code>/api/v1</code>, described by OpenAPI, and the worker's at <code>/worker/v1</code>
+          at <code>/api/v1</code>, described by OpenAPI, and the worker's at <code>/worker/v1</code>{" "}
           (<Adr n={[27, 43]} />). The long polls (<code>lease</code>, <code>watch</code>) and SSE
           streams are async views mounted before them.
         </p>
@@ -185,7 +186,7 @@ const toc = [
         <p>
           <Path p="spec/src/iki_spec/schemas" />, <Path p="spec/src/iki_spec/validate.py" />, <Path
             p="plugins"
-          />, <a href="/plugins/">A plugin's life</a>
+          />, <PageLink to="A plugin's life" />
         </p>
       </div>
       <div slot="build">
@@ -254,7 +255,7 @@ const toc = [
       <div slot="storage">
         <p>
           Bytes go straight between clients and object storage by signed URL, never through web
-          pods; an upload is re-hashed and stored once per content under <code>blobs/sha256/</code>
+          pods; an upload is re-hashed and stored once per content under <code>blobs/sha256/</code>{" "}
           (<Adr n="0036" />). S3, or Cloud Storage through Google's own client (<Adr n="0109" />);
           SeaweedFS stands in on the dev cluster (<Adr n="0022" />).
         </p>
@@ -273,9 +274,7 @@ const toc = [
           the server's schemas.
         </p>
         <p>
-          <Path p="worker/crates/iki-worker" />, <Path p="worker/crates/iki-protocol" />, <a
-            href="/runs/">A run's life</a
-          >
+          <Path p="worker/crates/iki-worker" />, <Path p="worker/crates/iki-protocol" />, <PageLink to="A run's life" />
         </p>
       </div>
       <div slot="backend">
@@ -329,235 +328,34 @@ const toc = [
 
   <Layer n={3} title={H.example}>
     <p>
-      A scientist asks Iki to find the sequence liabilities of an antibody chain. The action is <Path
-        p="plugins/antibody/actions/find_liabilities.yaml"
-        label="iki/antibody.find_liabilities"
-      />: it takes one <code>iki/protein.Protein</code>, updates three of its fields, and runs on
-      the backend tier.
+      A scientist asks Iki to find an antibody chain's sequence liabilities. The browser posts the
+      action's run to <code>/api/v1</code>; the server checks it and queues a job in Postgres; a
+      backend worker leases the job, runs the plugin's script and reports its output; the server
+      checks the output against what the action declared and writes a new revision of the protein,
+      with the run as its provenance; the browser's event stream hears the change and refetches.
+      Every step is drawn and cited on <PageLink to="A run's life" hash="example" />.
     </p>
-    <ol>
-      <li>
-        The browser posts to <code>POST /api/v1/actions/{"{name}"}/runs</code>. The server checks
-        the tier permission, the inputs and params, and that the inputs are in the run's project,
-        then writes an <code>ActionRun</code> and one <code>Job</code> and sends <code
-          >pg_notify</code
-        > on <code>iki_jobs</code> (<Path
-          p="server/src/iki_server/runs/services.py"
-          sym="def launch("
-        />).
-      </li>
-      <li>
-        A backend worker's long poll on <code>/worker/v1/lease</code> wakes, and the server hands
-        it the job with a fresh lease token (<Path
-          p="server/src/iki_server/runs/queue.py"
-          sym="def lease("
-        />).
-      </li>
-      <li>
-        The worker runs <code>python ./scripts/liabilities.py</code> with the run's input file,
-        heartbeating every 20 seconds, and posts the output to <code
-          >/worker/v1/jobs/{"{job_id}"}/complete</code
-        >.
-      </li>
-      <li>
-        The server checks that the output only updates what the action declared, then writes the
-        new revision of the protein in one transaction, recording the run as its provenance (<Path
-          p="server/src/iki_server/runs/results.py"
-        />).
-      </li>
-      <li>
-        The browser's SSE stream hears the change and refetches. Because the action is <code
-          >deterministic: true</code
-        >, the same request on the same revision later reuses this run's result instead of running
-        again (<Adr n="0057" />).
-      </li>
-    </ol>
-    <p>Each step is drawn and cited in full on <a href="/runs/">A run's life</a>.</p>
   </Layer>
 
   <Layer n={4} title={H.rules}>
-    <div class="rules">
-      <Rule title="The browser app" id="part-browser" open>
-        <p>
-          Hybrid "as GitHub does it": the app is React, but Django serves its shell page and keeps
-          sign-in, setup, OAuth consent, teams, people, org settings and the audit log
-          server-rendered (<Adr n="0029" />). The shell page holds no data; the app reads only the
-          API, with the session cookie and CSRF, and no tokens in JavaScript. The CSP stays strict:
-          <code>script-src 'self'</code>, no inline code, no <code>eval</code>, and Trusted Types
-          with no policies (<Adr n="0029" />).
-        </p>
-        <p>
-          Plugins' web components are bundled at deploy time and run in <code
-            >iframe sandbox="allow-scripts"</code
-          > frames served by digest from <code>/plugin-components/</code>, with <code
-            >connect-src 'none'</code
-          >; data goes in through a bridge and events come out over a <code>MessageChannel</code>
-          (<Adr n={[84, 102]} />). Apps are <code>core.App</code> entities composing Iki's own
-          components with expressions (<Adr n="0090" />). The layout is a sidebar on every page (<Adr
-            n="0176"
-          />).
-        </p>
-        <p>
-          Packages: <Path p="web/packages/ui" label="@ikisci/ui" /> (tokens, Inter, components), <Path
-            p="web/packages/sdk"
-            label="@ikisci/sdk"
-          /> (the TypeScript client generated from OpenAPI by <code>make client</code>), <Path
-            p="web/packages/component"
-            label="@ikisci/component"
-          /> (for plugin components) and <Path p="web/packages/science" label="@ikisci/science" />
-          (scientific components and the Wasm parsers), published by entry point (<Adr
-            n="0191"
-          />).
-        </p>
-      </Rule>
-      <Rule title="The Django server" id="part-server">
-        <p>
-          The project is <Path p="server/src/iki_server" />, run as <code>iki-server serve</code>
-          (uvicorn, <Path p="server/src/iki_server/core/management/commands/serve.py" />) by the
-          chart's web Deployment. The same image also runs <code>tasks</code>, <code>provision</code
-          >, <code>egress_proxy</code> and the migrate Job, each its own Deployment or Job in <Path
-            p="deploy/helm/iki/templates"
-          />.
-        </p>
-        <p>
-          <code>/api/v1</code> is a <code>NinjaAPI</code> with bearer and session auth, its routers
-          added module by module; errors are RFC 9457 problem details and lists use cursors (<Adr
-            n="0027"
-          />). Its OpenAPI document is checked in at <Path p="web/packages/sdk/openapi.json" />, and
-          the <a href="/routes/">route list</a> here is generated from it. The worker API
-          is a second <code>NinjaAPI</code> at <code>/worker/v1</code>, whose document generates
-          the Rust wire types (<code>make protocol</code>).
-        </p>
-        <p>
-          The Django apps under <Path p="server/src/iki_server" /> are listed in the reference below;
-          plugin apps are appended to <code>INSTALLED_APPS</code> from the generated <code
-            >iki_installed_plugins</code
-          > package, and the core plugin's app is <Path p="server/src/iki_plugin_iki__core" /> (<Adr
-            n="0038"
-          />).
-        </p>
-      </Rule>
-      <Rule title="Postgres, tasks and live updates" id="part-postgres">
-        <p>
-          Postgres holds entity tables and their history, the job queue (<code
-            >FOR UPDATE SKIP LOCKED</code
-          >, <code>LISTEN/NOTIFY</code>), system tasks, search indexes and the SSE fan-out (<Adr
-            n="0005"
-          />). Tasks use it too rather than Redis, RabbitMQ or Celery, because "Postgres is already
-          backed up, monitored and qualified" (<Adr n="0030" />).
-        </p>
-        <p>
-          Live updates: a change calls <code>pg_notify('iki_events', …)</code>; each web process
-          holds one <code>LISTEN</code> and fans events out to its open SSE streams. Events carry
-          identifiers, never content, each checked against the caller's access before it's sent;
-          the client then reads the change through the API (<Adr n="0030" />, <Path
-            p="server/src/iki_server/realtime/hub.py"
-          />).
-        </p>
-        <p>
-          Roles: the migrator owns every table and is used only by the migrate Job; the app role
-          has no DDL, no TRUNCATE, and loses UPDATE and DELETE on every append-only table. A web pod
-          whose role is too powerful never turns ready (<Adr n="0025" />, <Path
-            p="server/src/iki_server/core/db_roles.py"
-            sym="def append_only_tables("
-          />).
-        </p>
-      </Rule>
-      <Rule title="Object storage" id="part-storage">
-        <p>
-          Uploads are S3 multipart to a staging object with signed per-part URLs; the caller states
-          the size and SHA-256, a task re-hashes what arrived, and a match moves it to <code
-            >blobs/sha256/&lt;hash&gt;</code
-          > (<Adr n="0036" />). The backend is chosen by <code>IKI_FILES_BACKEND</code> (<code
-            >s3</code
-          > or <code>gcs</code>). Workers and run pods reach storage directly, by URLs the server
-          signs per job (<Adr n="0155" />). Storage and amounts get their own section in a later
-          slice.
-        </p>
-      </Rule>
-      <Rule title="The worker and its Wasm" id="part-worker">
-        <p>
-          The Rust workspace <Path p="worker/Cargo.toml" /> has three crates: <Path
-            p="worker/crates/iki-worker"
-          /> (the agent), <Path p="worker/crates/iki-protocol" /> (wire types generated from <Path
-            p="worker/crates/iki-protocol/worker-openapi.json"
-          />) and <Path p="worker/crates/iki-wasm" /> (not on the run path: compiled to Wasm for
-          the browser and the server). Standalone Wasm modules for plugins' own actions (primer
-          checks, digests, DNA annotation) live in <Path p="worker/crates/iki-wasm/standalone" />
-          and run under wasmtime inside an action (<Adr n={[200, 201, 206]} />).
-        </p>
-        <p id="part-wasm">
-          <code>scripts/build-wasm.sh</code> builds <code>iki-wasm</code> for <code
-            >wasm32-unknown-unknown</code
-          > and copies it to the web app, <code>@ikisci/science</code> and <code>iki_spec</code>.
-          In the server image it loads precompiled native code from <code>/opt/iki/wasm</code>,
-          checked against its SHA-256 (<Path p="spec/src/iki_spec/wasm.py" sym="cwasm_sha256" />).
-          Git holds only each module's SHA-256, never its bytes (<Path
-            p="plugins/plasmid/data/plasmid-tools.wasm.sha256"
-          /> is one).
-        </p>
-      </Rule>
-      <Rule title="Compute tiers" id="part-compute">
-        <p>
-          The tiers in the code are <code>{tiers.join(", ")}</code> (read from <Path
-            p="server/src/iki_server/runs/models.py"
-            sym="TIERS"
-          />), plus a <code>server</code> tier for core actions Iki's task runner carries out
-          itself. <Adr n="0009" /> named four tiers with a "client" tier; <Adr n="0112" /> made it
-          <code>self_hosted</code>, belonging to teams.
-        </p>
-        <p>
-          Plugins declare environments, admins declare compute templates in each deployment's
-          reviewed <code>compute.yaml</code>, and the smallest template that fits wins (<Adr
-            n={[9, 41]}
-          />). How each tier starts machines is on <a href="/runs/#tiers">A run's life</a>.
-        </p>
-      </Rule>
-      <Rule title="Identity" id="part-identity">
-        <p>
-          No local passwords, ever: a one-time setup link connects the identity provider (<Adr
-            n="0023"
-          />). OIDC or SAML through allauth, one provider at a time; SCIM 2.0 at <code
-            >/scim/v2/</code
-          >, whose groups do nothing until an Org Admin links them to teams (<Adr n="0026" />). A
-          first sign-in links to a provisioned account by what the provider vouches for, strongest
-          first (<Adr n="0151" />).
-        </p>
-        <p>
-          Iki is its own OAuth 2.1 authorization server on django-oauth-toolkit; the CLI and SDK
-          are first-party clients (<Adr n="0028" />). A token given some projects acts only in them
-          (<Adr n="0152" />). Agents' changes name both the person and the agent (<Adr n="0072" />).
-        </p>
-        <p>
-          Dev: <Path p="deploy/dev/manifests/keycloak.yaml" /> holds the realm; <Path
-            p="deploy/dev/sso.py"
-          /> (<code>make dev-sso</code>) runs the real setup wizard against it.
-        </p>
-      </Rule>
-      <Rule title="Plugins and the spec" id="part-plugins">
-        <p>
-          The spec is <Path p="spec" /> (Python package <code>iki_spec</code>): JSON Schemas, the
-          validator and UCUM units. <code>iki plugin build</code> (<Path p="cli" />, through <Path
-            p="codegen"
-          />) compiles a plugin into a Django app; <code>iki deploy build</code> does it for every
-          plugin a deployment's lockfile pins. Plugins are named <code>namespace/name</code>, and
-          <code>iki</code> is Iki's own namespace (<Adr n="0113" />). The whole path is on <a
-            href="/plugins/">A plugin's life</a
-          >.
-        </p>
-      </Rule>
-      <Rule title="Egress and secrets" id="part-egress">
-        <p>
-          A run's network is the hosts its action lists, through the proxy (<Adr n="0053" />); an
-          outside API is approved per project and its calls recorded one by one (<Adr n="0130" />).
-          Secrets are declared by name in the action and read from the deployment's secret manager
-          at each lease, one job at a time, never stored with the job (<Adr n="0054" />, <Path
-            p="server/src/iki_server/runs/secrets.py"
-          />). Workers and run pods reach only DNS, the server, object storage and the proxy (<Adr
-            n="0155"
-          />, <Path p="deploy/helm/iki/templates/networkpolicy.yaml" />).
-        </p>
-      </Rule>
+    <p>Each part's rules are on its own page. Start from the question you have:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>If you're asking</th><th>Read</th></tr></thead>
+        <tbody>
+          <tr><td>What is a record, and how does a save work?</td><td><PageLink to="A record's life" /></td></tr>
+          <tr><td>Who may read or change something?</td><td><PageLink to="How access is checked" /></td></tr>
+          <tr><td>Where do files go, and how are they found?</td><td><PageLink to="How Iki handles data" /></td></tr>
+          <tr><td>How does code run on data?</td><td><PageLink to="A run's life" /></td></tr>
+          <tr><td>How does a lab add its own types and actions?</td><td><PageLink to="A plugin's life" /></td></tr>
+          <tr><td>How does one team ask another for work?</td><td><PageLink to="A request's life" /></td></tr>
+          <tr><td>Where is a tube, and how much is left in it?</td><td><PageLink to="How material is tracked" /></td></tr>
+          <tr><td>What does the server run, and how do background work and live updates happen?</td><td><PageLink to="Server and APIs" />, <PageLink to="Tasks and live updates" /></td></tr>
+          <tr><td>How does the browser app work?</td><td><PageLink to="The app's parts" /></td></tr>
+          <tr><td>What has to pass before a change merges?</td><td><PageLink to="Where a change is tested" /></td></tr>
+          <tr><td>How does a release reach a lab's cluster?</td><td><PageLink to="From release to cluster" /></td></tr>
+        </tbody>
+      </table>
     </div>
   </Layer>
 
@@ -578,22 +376,6 @@ const toc = [
           <li><Path p="deploy" /> Helm, OpenTofu (AWS, GCP), the dev cluster</li>
           <li><Path p="scripts" /> builds, CI and supply-chain scripts</li>
           <li><Path p="docs" /> ADRs, runbooks, the roadmap; this site</li>
-        </ul>
-      </div>
-      <div>
-        <h3>Django apps in server/src/iki_server</h3>
-        <ul>
-          <li><Path p="server/src/iki_server/entities" label="entities" /> the Entity row, revisions, states</li>
-          <li><Path p="server/src/iki_server/runs" label="runs" /> runs, jobs, queue, provisioners</li>
-          <li><Path p="server/src/iki_server/signatures" label="signatures" /> Part 11 signatures</li>
-          <li><Path p="server/src/iki_server/audit" label="audit" /> the append-only audit log</li>
-          <li><Path p="server/src/iki_server/plugins" label="plugins" /> migrations, preflight, purge</li>
-          <li><Path p="server/src/iki_server/files" label="files" /> blobs in object storage</li>
-          <li><Path p="server/src/iki_server/org" label="org" /> teams, projects, registries</li>
-          <li><Path p="server/src/iki_server/accounts" label="accounts" />, <Path p="server/src/iki_server/scim" label="scim" />, <Path p="server/src/iki_server/oauth" label="oauth" /></li>
-          <li><Path p="server/src/iki_server/tasks" label="tasks" />, <Path p="server/src/iki_server/realtime" label="realtime" />, <Path p="server/src/iki_server/notifications" label="notifications" />, <Path p="server/src/iki_server/webhooks" label="webhooks" /></li>
-          <li><Path p="server/src/iki_server/amounts" label="amounts" />, <Path p="server/src/iki_server/storage" label="storage" />, <Path p="server/src/iki_server/searches" label="searches" />, <Path p="server/src/iki_server/graph" label="graph" />, <Path p="server/src/iki_server/spreadsheets" label="spreadsheets" />, <Path p="server/src/iki_server/bundles" label="bundles" /></li>
-          <li>Packages, not apps: <Path p="server/src/iki_server/api" label="api" />, <Path p="server/src/iki_server/mcp" label="mcp" />, <Path p="server/src/iki_server/components" label="components" />, <Path p="server/src/iki_server/expressions" label="expressions" />, <Path p="server/src/iki_server/observability" label="observability" /></li>
         </ul>
       </div>
       <div>

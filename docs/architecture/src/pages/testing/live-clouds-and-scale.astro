@@ -1,0 +1,108 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const LIVE = "deploy/live/live_runs.py";
+
+const H = {
+  short: "What's tested on real clouds and at full size",
+  how: "Live cloud tests, and the record that gates a release",
+  rules: "What makes a cloud due, and the nightly load tests",
+  ref: "Targets, workflows and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      The live tests deploy Iki to a real Google Cloud project or AWS account, check it, and tear it
+      all down: an hour or two, and a few dollars, each. So they never run in CI. Each passing run
+      is recorded in the repository, <code>make live-due</code> says which cloud's last passing run
+      is behind what it tests, and a release tag refuses to build until every cloud has passed at an
+      ancestor of it with nothing it tests changed since. Imports, the grid, the queue and files are
+      load-tested every night (<Adr n={[97, 103, 107]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>make check-gcp-live</code> and <code>make check-aws-live</code> run the live suites
+      with the project or role they're given, which is billed (<Path
+        p="deploy/gcp/tests/test_gcp_live.py"
+      />, <Path p="deploy/aws/tests/test_aws_live.py" />). A passing run of a clean tree appends an
+      entry to <Path p="deploy/live-runs.json" />: the cloud, the commit, when it began, how long it
+      took, its cost at list prices, the suite's version and the checks that passed. Nothing about
+      the account it ran in. A failed run, or one of a tree with changes, records nothing.
+    </p>
+    <p>
+      <code>make live-due</code> prints each cloud's last passing run and the relevant paths that
+      changed since (<Path p={LIVE} sym="def due(" />). The publish and release workflows both start
+      with the gate: for a tag, every cloud needs a passing run of a commit the tag descends from,
+      with no relevant change between them; any other ref only reports (<Path
+        p=".github/workflows/release.yml"
+        sym="live_runs.py gate HEAD"
+      />, <PageLink to="Releases and images" />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="What makes a cloud's live test due" open>
+        <p>
+          What every cloud's run tests: the chart, the images and what they're built from, the Wasm
+          modules' build scripts and pinned digests, the locked dependencies, the deploy build, the
+          plugins it installs, the worker's crates, and the server code the cloud decides. Each
+          cloud adds its own directory under <code>deploy/</code> and its own server modules; a test
+          fails if a module of the server that's one cloud's isn't listed for it.
+        </p>
+        <Excerpt file={LIVE} start="^RELEVANT: dict" />
+      </Rule>
+      <Rule title="Nightly scale tests">
+        <p>
+          A scheduled workflow runs four load tests every night, each building the Wasm modules it
+          loads first (<code>make test-wasm</code>): an import of ten million entities, interrupted halfway; the
+          grid at ten million rows; 32 workers leasing from 100,000 queued jobs behind a million
+          finished; and a project's Files at a million files (<Adr n="0103" />, <Path
+            p=".github/workflows/scale.yml"
+          />). The grid at a hundred million rows, a 119 GB database, is <code
+            >make check-scale-grid</code
+          > on a machine with the disk, before a release (<Path p="Makefile" sym="check-scale:" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Targets</h3>
+      <ul>
+        <li><code>make live-due</code> (<code>STRICT=1</code> exits 1 if any is due), <code>check-gcp-live</code>, <code>check-aws-live</code></li>
+        <li><code>make gcp-live-cost</code>, <code>aws-live-cost</code>: what the last run cost</li>
+        <li><code>make check-scale</code> and its four parts</li>
+      </ul>
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={LIVE} />: the record, <code>due</code> and <code>gate</code></li>
+        <li><Path p="deploy/live" />: the shared harness and its check plugin</li>
+        <li><PageLink to="Cloud infrastructure" />: what the live tests deploy</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0097" title /></li>
+        <li><Adr n="0103" title /></li>
+        <li><Adr n="0107" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

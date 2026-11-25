@@ -1,0 +1,134 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import PageLink from "../../components/PageLink.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const WEB = "server/src/iki_server/web";
+const SETTINGS = "server/src/iki_server/settings.py";
+
+const H = {
+  short: "How the app reaches the browser, and what its policy allows",
+  how: "The shell page and the static files",
+  rules: "The content security policy and Trusted Types",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Django answers every app path with one template, after the sign-in check: the CSRF token in a
+      meta tag, module preloads and the entry script, and no data. Vite builds the app into Django's
+      static files under content-hashed names, which are cached for good. The page's policy is
+      strict: scripts and styles from Iki's own origin only, nothing inline, no <code>eval</code>,
+      and Trusted Types required, with exactly one policy, which creates the app's own Web Workers
+      and nothing else (<Adr n="0029" />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      The shell is <Path p={`${WEB}/templates/web/app.html`} />, rendered by <Path
+        p={`${WEB}/views.py`}
+        sym="def app("
+      />. It carries the CSRF token, the organization's name, the shared stylesheet, the
+      entry module and the chunks worth fetching early. It's the same for everyone who's signed
+      in. When the image has no build, the shell answers 503 with a page that says the web app is
+      missing, rather than a blank page (<Path p={`${WEB}/frontend.py`} sym="def page_assets(" />).
+      In development, a header from Vite's dev server switches the shell to Vite's modules; that
+      setting is refused with HTTPS on, and the React refresh preamble is a file, since the policy
+      allows no inline script.
+    </p>
+    <p>
+      Vite builds into <code>/static/app/</code> (<Path p="web/app/vite.config.ts" sym='base: "/static/app/"' />).
+      Django's manifest storage hashes and compresses the other static files but keeps Vite's own
+      names, so chunks still import each other, and ServeStatic caches the app's files as immutable
+      (<Path p={`${WEB}/frontend.py`} sym="class StaticFilesStorage" />, <Path
+        p={`${WEB}/frontend.py`}
+        sym="class ServeStaticMiddleware"
+      />).
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="The page's content security policy" open>
+        <p>Every server page, the shell among them, gets this policy:</p>
+        <Excerpt file={SETTINGS} start="^SECURE_CSP = \{" />
+        <p>
+          Two directives depend on configuration. HTML responses also allow the identity
+          provider's origin in <code>form-action</code>, because browsers apply it to the redirect
+          after a sign-in form posts; and <code>connect-src</code> also allows the one origin
+          object storage signs upload URLs for, since browsers upload files' parts straight there
+          (<Path p={`${WEB}/csp.py`} />).
+        </p>
+      </Rule>
+      <Rule title="Trusted Types, and the workers' policy">
+        <p>
+          Trusted Types are required for scripts, with exactly one policy, <code>iki-workers</code>.
+          It allows only Iki's own worker scripts, from Iki's origin, named as Vite names them
+          (<Path p="web/app/src/reading.ts" sym='createPolicy("iki-workers"' />). A worker runs under
+          the policy of its script's response, not its page's, so worker scripts get a policy of their
+          own that lets them load and run WebAssembly from Iki's origin and nothing else (<Path
+            p={`${WEB}/static_headers.py`}
+            sym="WORKER_CSP = ("
+          />). An ESLint rule refuses <code>dangerouslySetInnerHTML</code>, which Trusted Types would
+          refuse anyway (<Path p="eslint.config.js" sym="const RAW_HTML" />).
+        </p>
+        <p>
+          Plugins' frames and Iki's own viewers have policies of their own: <PageLink
+            to="Plugin frames"
+            hash="rules"
+          />.
+        </p>
+      </Rule>
+      <Rule title="Violations are reported and tested">
+        <p>
+          Browsers post violations to <code>/csp-report/</code>, which is rate-limited per client and
+          logs the directive and the blocked and document URLs without their query strings (<Path
+            p={`${WEB}/views.py`}
+            sym="def csp_report("
+          />). The browser tests run against the production policy, with Trusted Types enforced, and
+          fail any page that breaks a rule (<PageLink to="Browser tests" />).
+        </p>
+      </Rule>
+      <Rule title="Where the ADRs and the code differ">
+        <ul>
+          <li>
+            <Adr n="0029" /> says the policy allows no Trusted Types policies (<code
+              >trusted-types 'none'</code
+            >); the code has one, for workers. Comments in <Path p="web/app/src/uploads.ts" /> and <Path
+              p="web/app/README.md"
+            /> still say workers aren't allowed.
+          </li>
+        </ul>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={`${WEB}/views.py`} />: the shell and the violation reports</li>
+        <li><Path p={`${WEB}/frontend.py`} />: the build's assets and how they're served</li>
+        <li><Path p={`${WEB}/csp.py`} />, <Path p={`${WEB}/static_headers.py`} />: the policies</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0029" title /></li>
+        <li><Adr n="0088" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>

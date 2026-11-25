@@ -1,0 +1,105 @@
+---
+import Adr from "../../components/Adr.astro";
+import Excerpt from "../../components/Excerpt.astro";
+import Layer from "../../components/Layer.astro";
+import Layout from "../../components/Layout.astro";
+import Path from "../../components/Path.astro";
+import Rule from "../../components/Rule.astro";
+
+const SC = "scripts/supply-chain";
+
+const H = {
+  short: "What a dependency has to pass to be locked",
+  how: "Age, vulnerabilities and licences, for every lockfile",
+  rules: "Each ecosystem, and the exceptions",
+  ref: "Code and decisions",
+};
+const toc = [
+  { id: "short", label: H.short },
+  { id: "how", label: H.how },
+  { id: "rules", label: H.rules },
+  { id: "ref", label: H.ref },
+];
+---
+
+<Layout toc={toc}>
+  <Layer n={1} title={H.short}>
+    <p>
+      Nothing released less than three days ago is locked, since a hijacked release is usually found
+      and pulled within days. pnpm and uv refuse such versions themselves, and a script checks every
+      lockfile, Cargo's included. OSV-Scanner checks every lockfile for known vulnerabilities and
+      for licences outside an allowlist, and cargo-deny the worker's crates. Each exception says why
+      it's safe, and a vulnerability exception expires on a date. Dependabot waits seven days before
+      proposing an update (<Adr n={[17, 19]} />).
+    </p>
+  </Layer>
+
+  <Layer n={2} title={H.how}>
+    <p>
+      <code>make check-deps</code>, which CI's dependency job runs, checks that each plugin image's
+      requirements are its <code>uv.lock</code> exported, then scans <code>uv.lock</code>, <code
+        >pnpm-lock.yaml</code
+      >, <code>worker/Cargo.lock</code>, every first-party plugin's requirements and every plugin
+      image's lock: vulnerabilities, then licences, then the Rust crates' advisories, licences,
+      bans and sources (<Path p={`${SC}/check-deps.sh`} />). The release-age check reads when each
+      locked release was published: from the lockfile for Python, and from the crates.io index for
+      Cargo, which has no such setting of its own (<Path
+        p={`${SC}/release-age.py`}
+        sym="MINIMUM_AGE = timedelta(days=3)"
+      />). On a pull request, GitHub's dependency review runs too.
+    </p>
+  </Layer>
+
+  <Layer n={4} title={H.rules}>
+    <div class="rules">
+      <Rule title="pnpm" open>
+        <p>
+          The minimum age is in minutes, and install scripts never run unless a package is listed;
+          none is:
+        </p>
+        <Excerpt file="pnpm-workspace.yaml" start="^minimumReleaseAge:" />
+        <p><Path p="pnpm-workspace.yaml" sym="onlyBuiltDependencies: []" /></p>
+      </Rule>
+      <Rule title="uv and the plugins' requirements">
+        <p>
+          uv resolves without releases less than three days old, and any exception, for one release,
+          is listed both there and in the release-age script (<Path p="pyproject.toml" sym='exclude-newer = "3 days"' />).
+          A first-party plugin's <code>requirements.txt</code> pins must be the releases <code
+            >uv.lock</code
+          > has, so its tests run what its environment installs.
+        </p>
+      </Rule>
+      <Rule title="Licences and their exceptions">
+        <p>
+          The allowlist is a file of its own: permissive licences compatible with distributing Iki
+          under Apache-2.0 (<Path p={`${SC}/allowed-licenses.txt`} />). Anything else needs a
+          reviewed, per-package exception beside the vulnerability exceptions, such as psycopg's
+          LGPL, used unmodified and dynamically imported (<Path p="osv-scanner.toml" />). The worker's
+          crates have their own in <Path p="worker/deny.toml" />.
+        </p>
+      </Rule>
+      <Rule title="Updates">
+        <p>
+          Dependabot proposes updates weekly for each ecosystem, each with a seven-day cooldown
+          (<Path p=".github/dependabot.yml" />). Workflow actions are pinned by commit, and actionlint
+          and zizmor lint the workflows (<Path p="Makefile" sym="check-workflows:" />).
+        </p>
+      </Rule>
+    </div>
+  </Layer>
+
+  <Layer n={5} title={H.ref}>
+    <div class="refs">
+      <h3>Where</h3>
+      <ul>
+        <li><Path p={SC} />: the checks and the allowlist</li>
+        <li><Path p="osv-scanner.toml" />, <Path p="worker/deny.toml" />: exceptions</li>
+      </ul>
+      <h3>Decisions</h3>
+      <ul>
+        <li><Adr n="0017" title /></li>
+        <li><Adr n="0019" title /></li>
+      </ul>
+    </div>
+  </Layer>
+</Layout>
