@@ -290,13 +290,14 @@ fields:
   registry entry, while the field is in it. A record is locked while any of
   its state fields is in a state that locks. State fields stay settable by
   their roles, which is how a record is unlocked.
-- A locking state can name the state to return to on a correction. In the
+- An unsigned locking state can name the state to return to on a correction. In the
   example, `on_edit: in_testing` means changing any record value while
   approved returns the record to testing. The editor sees the return before
   saving and supplies a reason. The editor must be allowed to edit the
   record and enter the destination, including its lab role and guards.
   The return and the value change succeed together. Earlier signatures
   remain with their revisions and the corrected values need fresh review.
+  Corrections to a signed lock require an explicit signed return first.
   A destination must be a different, live, unlocked state with `set_by`
   and no required signatures (`state-on-edit`, `unknown-state`).
 - `signatures` makes setting a state an electronic signature under 21 CFR

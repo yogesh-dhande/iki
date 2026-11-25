@@ -4,7 +4,7 @@ kind: EntityType
 name: CalibrationImpact
 label: Calibration impact
 label_plural: Calibration impacts
-schema_version: 2
+schema_version: 3
 hrid: { prefix: EQI }
 description: A result that needs a separate disposition after a failed calibration. The signed original remains part of the evidence.
 fields:
@@ -62,7 +62,6 @@ fields:
         label: Submitted
         set_by: [iki/lab_roles.engineer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
         guards:
           assessed:
@@ -74,7 +73,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           independent:

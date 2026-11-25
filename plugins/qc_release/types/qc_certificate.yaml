@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: QCCertificate
 label: Regulated certificate of analysis
-schema_version: 1
+schema_version: 2
 extends: ReleaseCertificate
 hrid: { prefix: QCA }
 exports: [{ export: signed_report, report: report, review: review, issued: [released] }]
@@ -23,7 +23,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: I submit the complete record of lot testing and investigations for independent review.
@@ -35,7 +34,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
             statement: I independently reviewed the pinned specification and all results and exception resolutions.

@@ -157,7 +157,11 @@ def test_a_signed_report_names_a_json_field_and_a_locking_signed_state(tmp_path:
     for old, bad, code in (
         ("type: json", "type: int", "export-field"),
         ("review: review", "review: report", "export-field"),
-        ("issued: [issued]", "issued: [reviewed]", "export-state"),
+        (
+            "locks: true\n        signatures: [{ meaning: approval }]",
+            "locks: false\n        signatures: [{ meaning: approval }]",
+            "export-state",
+        ),
         ("issued: [issued]", "issued: [recorded]", "export-state"),
     ):
         report.write_text(manifest.replace(old, bad), encoding="utf-8")

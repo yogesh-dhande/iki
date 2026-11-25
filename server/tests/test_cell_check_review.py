@@ -31,12 +31,10 @@ def test_lab_roles_select_the_signed_flow_at_project_setup(check_type: EntityTyp
     ]:
         target = review.states[state]
         assert target.locks
+        assert target.on_edit is None
         assert target.set_by == (f"iki/cell_lines.{role}",)
         assert [signature.meaning for signature in target.signatures] == [meaning]
-    assert review.states["submitted"].on_edit == review.states["reviewed"].on_edit == "recorded"
     assert review.states["recorded"].reason == "required"
-    assert review.states["signed_off"].on_edit is None
-    assert review.states["released"].on_edit is None
 
 
 @pytest.mark.parametrize(

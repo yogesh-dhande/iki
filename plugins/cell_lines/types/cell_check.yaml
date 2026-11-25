@@ -3,7 +3,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: CellCheck
 label: Cell bank check
-schema_version: 1
+schema_version: 2
 description: >-
   An STR authentication or a mycoplasma result for one bank. A thaw can cite
   the signed check that applied to it, even after the bank has been tested again.
@@ -79,7 +79,6 @@ fields:
         description: The analyst signed the result for independent review.
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: I recorded this bank check as observed.
@@ -91,7 +90,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
         guards:

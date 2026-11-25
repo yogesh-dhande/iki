@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: SequencingAnalysisResult
 label: Sequencing analysis result
-schema_version: 1
+schema_version: 2
 hrid: { prefix: SQA }
 description: A selected sample or repertoire in a versioned external pipeline report.
 fields:
@@ -54,7 +54,6 @@ fields:
         label: Signed off
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           research:
@@ -64,7 +63,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
         guards:
           qc:
@@ -74,7 +72,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:
@@ -89,7 +86,6 @@ fields:
         label: QA released
         set_by: [qa]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: approval, label: QA release }]
         guards:
           reviewed:

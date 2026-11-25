@@ -3,7 +3,7 @@ kind: EntityType
 name: FASTQSummary
 label: FASTQ quality summary
 label_plural: FASTQ quality summaries
-schema_version: 1
+schema_version: 2
 hrid: { prefix: FQC }
 description: Aggregate Phred+33 statistics for the exact source files inspected by the sequencing action.
 fields:
@@ -37,7 +37,6 @@ fields:
         label: Signed off
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           research:
@@ -47,7 +46,6 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
         guards:
           qc:
@@ -57,7 +55,6 @@ fields:
         label: Independently reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
         guards:
           submitted:
@@ -72,7 +69,6 @@ fields:
         label: QA released
         set_by: [qa]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: approval, label: QA release }]
         guards:
           reviewed:

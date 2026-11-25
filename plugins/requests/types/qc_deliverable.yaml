@@ -4,7 +4,7 @@ kind: EntityType
 name: QCDeliverable
 label: QC deliverable
 extends: Deliverable
-schema_version: 1
+schema_version: 2
 hrid: { prefix: QCD }
 result:
   of: request
@@ -68,7 +68,6 @@ fields:
         label: Submitted
         set_by: [iki/lab_roles.analyst]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: authorship
             statement: I recorded this deliverable and its evidence.
@@ -120,7 +119,6 @@ fields:
         label: Reviewed
         set_by: [iki/lab_roles.reviewer]
         locks: true
-        on_edit: recorded
         signatures:
           - meaning: review
             statement: I reviewed the delivery report, outcome, and supporting evidence.
