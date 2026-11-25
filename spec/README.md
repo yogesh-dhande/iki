@@ -591,6 +591,11 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+The [construct review example](../examples/plugins/construct_review/README.md)
+adds a state field to an Assembly subtype. Its guards check the current product
+comparison, who recorded the build and who edited it afterward. Its notifications
+tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
 ### Notifications
 
 A type says who is told when its records change, in Iki and by email

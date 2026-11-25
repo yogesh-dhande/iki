@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/plasmid
-version: 0.5.0
+version: 0.6.0
 title: Plasmids and vectors
 description: >-
   Plasmids and vectors by the sequence that is each one, circular or linear, with what the
@@ -19,12 +19,3 @@ dependencies:
     types:
       DNASequence: ">=4"
       Primer: ">=1"
-roles:
-  cloner:
-    label: Cloning scientist
-    description: Plans a construct, builds it, and records the sequence of what was built.
-  construct_reviewer:
-    label: Construct reviewer
-    description: >-
-      Checks that a construct's sequence is what was planned, and verifies it: someone
-      other than whoever built it.
