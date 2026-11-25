@@ -15,7 +15,8 @@ from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 from test_states import roles
 
-from iki_server.entities import services
+from iki_server.amounts import services as amounts
+from iki_server.entities import services, states
 from iki_server.entities.models import Entity
 from iki_server.files.models import Blob, File
 from iki_server.runs import catalog, queue, results
@@ -30,7 +31,7 @@ __all__ = ["database"]
 
 PLUGIN = PLUGINS / "equipment"
 PREFIX = "iki/equipment."
-LIMS = "iki/example_lims."
+
 SERVICED = {
     "performed_by": "engineer",
     "performed_at": "2026-01-05T09:00:00Z",
@@ -143,7 +144,7 @@ def test_validity_at_measurement_uses_the_selected_instrument_and_final_calibrat
     guard = type_.rules["valid_for_measurement"]
     assert guard.check is not None
     references = {
-        "iki/example_lims.Instrument": ("Instrument", {}),
+        "iki/equipment.Instrument": ("Instrument", {}),
         "iki/core.Entity": ("Entity", {}),
         PREFIX + "EquipmentService": (
             "Equipment service",
@@ -180,7 +181,9 @@ def test_validity_at_measurement_uses_the_selected_instrument_and_final_calibrat
 
 def test_recording_instrument_use_keeps_its_three_inputs(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=ROOT)
+    built = iki(
+        "plugin", "build", *build_order(PLUGIN, PLUGINS / "samples"), "--output", build, cwd=ROOT
+    )
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)
@@ -199,7 +202,7 @@ def exercise_instrument_use() -> None:
     worker = importlib.import_module("equipment")
     world = build_world()
     ready(world)
-    roles(world, editor=(LIMS + "engineer",))
+    roles(world, editor=("iki/lab_roles.engineer", "iki/lab_roles.analyst"))
     project, editor = world.project, world.users["editor"]
     environment = PREFIX + "equipment-tools"
     catalog.compute().bindings[environment] = Binding(
@@ -210,13 +213,28 @@ def exercise_instrument_use() -> None:
         saved = services.create(editor, type_name, project, values, by_run=by_run)
         return Entity.objects.get(pk=saved.entity.pk)
 
-    instrument = make(LIMS + "Instrument", name="Synthetic absorbance reader")
-    protein = make("iki/protein.Protein", sequence="ACDEFGHIK")
-    sample = make(LIMS + "Sample", protein=str(protein.entry_id))
-    aliquot = make(LIMS + "Aliquot", sample=str(sample.pk))
-    measured = make(
-        LIMS + "Result", aliquot=str(aliquot.pk), assay="Absorbance", value=0.5, unit="AU"
+    instrument = make(PREFIX + "Instrument", name="Synthetic absorbance reader")
+    tube = make("iki/inventory.Tube", name="Absorbance reference", contents=str(instrument.pk))
+    amounts.record(editor, tube, amounts.Given.of({"value": 10, "unit": "uL"}))
+    measured = make("iki/samples.Sample", source=str(tube.pk), run="RUN-000001")
+    amounts.draw(
+        editor,
+        tube,
+        amounts.Given.of({"value": 1, "unit": "uL"}),
+        used_in=measured,
+        confirm=tube.hrid,
     )
+    for status in ("received", "in_testing"):
+        measured.refresh_from_db()
+        states.set_state(editor, measured, "status", status, expected_revision=measured.revision)
+    measured.refresh_from_db()
+    services.update(
+        editor,
+        measured,
+        {"measurements": [{"method": "Absorbance", "value": "0.5", "unit": "AU"}]},
+        expected_revision=measured.revision,
+    )
+    measured.refresh_from_db()
     attachment = File.objects.create(
         blob=Blob.objects.create(sha256="a" * 64, size=12, storage_uri="s3://iki/passing"),
         name="Synthetic passing calibration.txt",

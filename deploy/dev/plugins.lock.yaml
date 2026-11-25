@@ -26,11 +26,15 @@ plugins:
   - { name: iki/sequencing, local: ../../plugins/sequencing, state: active }
   - { name: iki/sequencing_analysis, local: ../../plugins/sequencing_analysis, state: active }
   - { name: iki/plasmid_sequencing, local: ../../plugins/plasmid_sequencing, state: active }
+  - { name: iki/inventory, local: ../../plugins/inventory, state: active }
+  - { name: iki/lab_roles, local: ../../plugins/lab_roles, state: active }
+  - { name: iki/requests, local: ../../plugins/requests, state: active }
+  - { name: iki/samples, local: ../../plugins/samples, state: active }
   # Imports from the fake LIMS (manifests/fake-lims.yaml), and writes back.
-  - name: iki/example_lims
-    local: ../../plugins/example_lims
+  - name: iki/lims_connector_example
+    local: ../../plugins/lims_connector_example
     state: active
-    settings: settings/example_lims.yaml
+    settings: settings/lims_connector_example.yaml
   - { name: iki/equipment, local: ../../plugins/equipment, state: active }
   - { name: iki/cell_lines, local: ../../plugins/cell_lines, state: active }
   - { name: iki/stability, local: ../../plugins/stability, state: active }

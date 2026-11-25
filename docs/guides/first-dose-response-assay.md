@@ -11,9 +11,9 @@ projects each contain a completed example.
 
 Sign in as an admin of the assay service project with edit access to the requesting project.
 Use two active projects in the same registry with sharing enabled. If the service already takes
-requests, its intake settings must allow **Analysis request** from this requester. On a new
+requests, its intake settings must allow **Research request** or **QC request** for the selected flow from this requester. On a new
 service, the starter configures that intake. The deployment needs the `iki/plate_assays` plugin,
-its dependencies and a worker bound to `iki/plate_assays.assay-tools`.
+its dependencies, the Samples plugin and its dependencies for the example material, and a worker bound to `iki/plate_assays.assay-tools`.
 [Deploy a plugin](../../deploy/config-template/README.md#how-a-change-reaches-a-deployment)
 
 Use the project UUIDs for `ASSAY_PROJECT` and `REQUESTER_PROJECT`. For the role assignments,
@@ -28,9 +28,9 @@ iki starter list --project "$ASSAY_PROJECT"
 
 FLOW=regulated_qc    # Set to research for one sign-off.
 options=(
-  dose-response --version 1.1.0 --project "$ASSAY_PROJECT"
+  dose-response --version 1.2.0 --project "$ASSAY_PROJECT"
   --requester-project "$REQUESTER_PROJECT" --flow "$FLOW"
-  --role "iki/example_lims.coordinator=$COORDINATOR"
+  --role "iki/lab_roles.coordinator=$COORDINATOR"
   --role "iki/plate_assays.analyst=$ANALYST"
   --role "iki/plate_assays.reviewer=$REVIEWER"
 )
@@ -44,8 +44,8 @@ iki starter apply "${options[@]}" --plan "$PLAN"    # The plan the preview print
 Preview shows the example records to create and roles to grant, and ends with its plan. Apply
 applies that plan: if what applying does changed since the preview, nothing is applied, and it
 prints what applying does now and its new plan, to review. Apply returns the IDs of the
-submitted request, target enzyme sample and tube, two compound tubes, plate and reader file. Repeating the same setup reuses these IDs.
-To change flow, preview and apply again with the original requester. Existing results finish
+submitted request, its two compound tubes, and the assay project’s reagent sample, reagent tube, plate and reader file. Repeating the same setup reuses these IDs.
+To change flow, preview and apply again with the original requester. The original request retains its type. Use a new request of the matching type for subsequent fits. Existing results finish
 under their original flow. A fit still running when the flow changes may need to be run again.
 
 ## Receive the tubes and read the plate

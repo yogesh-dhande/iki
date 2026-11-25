@@ -1,5 +1,5 @@
 /**
- * A type's flow (ADR 0199) on its page and on its records' pages, drawn from example_lims'
+ * A type's flow (ADR 0199) on its page and on its records' pages, drawn from the request and sample plugins'
  * analysis results and requests (flow-fixtures.json: the plugins' own flows, as
  * `GET /entity-types/{type}/flow` serves them).
  */
@@ -41,8 +41,8 @@ function typeOf(name: string): Schemas["EntityTypeOut"] {
   };
 }
 
-const RESULT = typeOf("iki/example_lims.AnalysisResult");
-const REQUEST = typeOf("iki/example_lims.AnalysisRequest");
+const RESULT = typeOf("iki/requests.QCDeliverable");
+const REQUEST = typeOf("iki/requests.Request");
 
 /** The deployment's lab roles, and each type's flow: none for a protein. */
 function labRoles(): void {
@@ -71,13 +71,13 @@ describe("a type's page", () => {
     withTypes();
     answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
     labRoles();
-    await renderApp("/types/iki/example_lims.AnalysisResult/");
+    await renderApp("/types/iki/requests.QCDeliverable/");
     const section = await screen.findByRole("region", { name: "How records move" });
     const states = within(section).getByRole("list", { name: "Review’s states" });
     const buttons = within(states).getAllByRole("button");
     expect(buttons.map((b) => b.textContent)).toEqual([
-      "Draft, where records start. Set by Analyst, Reviewer or Sample and result QA",
-      "In review, locks it. Set by Analyst, signed: Authorship",
+      "Recorded, where records start. Set by Analyst, Reviewer or Sample and result QA",
+      "Submitted, locks it. Set by Analyst, signed: Authorship",
       "Reviewed, locks it. Set by Reviewer, signed: Review",
       "Released, locks it. Set by Sample and result QA, signed: QA release (Approval)",
     ]);
@@ -91,11 +91,13 @@ describe("a type's page", () => {
     // Those words are on the page, with what its guards say.
     const words = within(section).getByRole("list", { name: "Review’s states in words" });
     expect(
-      within(words).getByText("You reviewed this result, so someone else in QA releases it."),
+      within(words).getByText(
+        "Have someone in QA who did not create, submit, edit or review the deliverable release it.",
+      ),
     ).toBeInTheDocument();
     expect(
       within(words).getByText(
-        "QA release (Approval): “I release these results to the project that requested them.”",
+        "QA release (Approval): “I release the independently reviewed deliverable to the requesting project.”",
       ),
     ).toBeInTheDocument();
     // A key says what the marks mean: these, as the flow has them.
@@ -117,10 +119,10 @@ describe("a type's page", () => {
     withTypes();
     answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
     labRoles();
-    const { user } = await renderApp("/types/iki/example_lims.AnalysisResult/");
+    const { user } = await renderApp("/types/iki/requests.QCDeliverable/");
     const states = await screen.findByRole("list", { name: "Review’s states" });
-    const [draft, inReview, , released] = within(states).getAllByRole("button");
-    draft?.focus();
+    const [recorded, inReview, , released] = within(states).getAllByRole("button");
+    recorded?.focus();
     await user.keyboard("{ArrowRight}");
     expect(inReview).toHaveFocus();
     await user.keyboard("{End}");
@@ -138,7 +140,7 @@ describe("a type's page", () => {
     withTypes();
     answer("GET /api/v1/entity-types", [PROTEIN, REQUEST]);
     labRoles();
-    await renderApp("/types/iki/example_lims.AnalysisRequest/");
+    await renderApp("/types/iki/requests.Request/");
     const section = await screen.findByRole("region", { name: "How records move" });
     expect(
       within(section)
@@ -171,10 +173,10 @@ describe("a record's page", () => {
     labRoles();
     const result = entity({
       id: RESULT_ID,
-      hrid: "ANR-000001",
+      hrid: "QCD-000001",
       type: RESULT.name,
-      title: "ANR-000001",
-      values: { notes: "SEC run", review: "in_review" },
+      title: "QCD-000001",
+      values: { notes: "SEC run", review: "submitted" },
       locked: true,
       locked_by: ["review"],
       can: {
@@ -186,8 +188,8 @@ describe("a record's page", () => {
         states: {
           review: [
             {
-              name: "draft",
-              label: "Draft",
+              name: "recorded",
+              label: "Recorded",
               locks: false,
               reason: "required",
               allowed: true,
@@ -208,26 +210,26 @@ describe("a record's page", () => {
         },
       },
     });
-    answer("GET /api/v1/entities/ANR-000001", result);
-    answer("GET /api/v1/entities/ANR-000001/provenance", {});
-    answer("GET /api/v1/entities/ANR-000001/projects", []);
+    answer("GET /api/v1/entities/QCD-000001", result);
+    answer("GET /api/v1/entities/QCD-000001/provenance", {});
+    answer("GET /api/v1/entities/QCD-000001/projects", []);
   }
 
   it("shows where it is in its flow, and what's next for the reader, when asked", async () => {
     onResult();
-    const { user } = await renderApp("/entities/ANR-000001/");
+    const { user } = await renderApp("/entities/QCD-000001/");
     const states = await screen.findByRole("region", { name: "States" });
     const toggle = within(states).getByRole("button", { name: "How it moves" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(within(states).queryByRole("list", { name: "Review’s states" })).not.toBeInTheDocument();
     await user.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(within(states).getByText("Next for you: Draft.")).toBeInTheDocument();
+    expect(within(states).getByText("Next for you: Recorded.")).toBeInTheDocument();
     const flow = within(states).getByRole("list", { name: "Review’s states" });
     const now = within(flow).getByRole("button", { current: "step" });
-    expect(now).toHaveTextContent(/^In review/);
+    expect(now).toHaveTextContent(/^Submitted/);
     expect(now).toHaveTextContent("Now");
-    expect(within(flow).getByRole("button", { name: /^Draft/ })).toHaveTextContent("You can");
+    expect(within(flow).getByRole("button", { name: /^Recorded/ })).toHaveTextContent("You can");
     // Why not, in the words the diagram's described by.
     expect(within(flow).getByRole("button", { name: /^Reviewed/ })).toHaveAccessibleDescription(
       expect.stringContaining(
@@ -236,7 +238,7 @@ describe("a record's page", () => {
     );
     // Its arrow to the state the reader may set is marked as theirs.
     const next = [...document.querySelectorAll(".flow-edge.is-next")];
-    expect(next.map((e) => e.getAttribute("data-edge"))).toEqual(["in_review>draft"]);
+    expect(next.map((e) => e.getAttribute("data-edge"))).toEqual(["submitted>recorded"]);
     await user.click(toggle);
     expect(within(states).queryByRole("list", { name: "Review’s states" })).not.toBeInTheDocument();
   });

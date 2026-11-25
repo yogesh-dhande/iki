@@ -50,7 +50,7 @@ def schedule_input() -> dict[str, Any]:
     study["values"]["lot"] = "lot"
     study["values"]["assignments"][0]["tube"] = "tube"
     study["included"]["lot"][0].update(id="lot", material_field="of")
-    study["included"]["assignments.tube"] = [{"id": "tube", "values": {"lot": "lot"}}]
+    study["included"]["assignments.tube"] = [{"id": "tube", "values": {"contents": "lot"}}]
     return {"inputs": {"study": [study]}}
 
 
@@ -96,7 +96,7 @@ def test_a_tube_can_supply_repeated_pulls_only_under_one_storage_condition(
     for row in values["assignments"]:
         if row["condition"] == "accelerated":
             row["tube"] = "second"
-    study["included"]["assignments.tube"].append({"id": "second", "values": {"lot": "lot"}})
+    study["included"]["assignments.tube"].append({"id": "second", "values": {"contents": "lot"}})
     assert len(schedule(schedule_input)["creates"]) == 4
 
 
@@ -148,9 +148,9 @@ def exercise_stability() -> None:
         inchikey="BSYNRYMUTXBXSQ-UHFFFAOYSA-N",
     )
     lot = make("iki/lots.GenericLot", lot_number="Synthetic lot", of=str(compound.pk))
-    container = make("iki/example_lims.Box", name="Stability box", rows=1, columns=2)
-    tube = make("iki/example_lims.Tube", barcode="STUDY-001", lot=str(lot.pk))
-    wrong_tube = make("iki/example_lims.Tube", barcode="STUDY-002", lot=str(lot.pk))
+    container = make("iki/inventory.Box", name="Stability box", rows=1, columns=2)
+    tube = make("iki/inventory.Tube", barcode="STUDY-001", contents=str(lot.pk))
+    wrong_tube = make("iki/inventory.Tube", barcode="STUDY-002", contents=str(lot.pk))
     for item in [tube, wrong_tube]:
         amounts.adjust(
             editor,

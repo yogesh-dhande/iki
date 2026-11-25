@@ -10,6 +10,8 @@
   [0110](0110-a-view-shows-several-entities-each-at-its-revision.md),
   [0115](0115-registries-keep-identities-projects-keep-records.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). Inventory now demonstrates downstream holds with a withdrawn tube and its ledger splits and transfers. The former donor consent trigger has been retired.
+
 ## Context
 
 Iki recorded what depends on what in several places: a ref field names

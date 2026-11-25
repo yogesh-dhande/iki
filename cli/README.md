@@ -12,9 +12,9 @@ requesting project UUIDs, and a membership UUID from the service project for eac
 role. Repeat `--role` to assign a role to more than one member.
 
 ```sh
-iki starter preview dose-response --version 1.1.0 --flow regulated_qc \
+iki starter preview dose-response --version 1.2.0 --flow regulated_qc \
   --project "$SERVICE" --requester-project "$REQUESTER" \
-  --role "iki/example_lims.coordinator=$COORDINATOR" \
+  --role "iki/lab_roles.coordinator=$COORDINATOR" \
   --role "iki/plate_assays.analyst=$ANALYST" \
   --role "iki/plate_assays.reviewer=$REVIEWER" \
   --role "iki/plate_assays.qa=$QA"

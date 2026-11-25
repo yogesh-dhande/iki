@@ -61,7 +61,7 @@ class ConditionOut(Schema):
 class ApprovalOut(Schema):
     role: str = Field(
         description="The role an approver needs: a project role (viewer, editor, runner or "
-        "admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116)."
+        "admin, or above), or a lab role by name, such as iki/lab_roles.qa (ADR 0116)."
     )
     approver: str = Field(
         description="Who that is, as people read it: “an Editor or above”, or “someone with "

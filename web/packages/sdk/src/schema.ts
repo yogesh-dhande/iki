@@ -6176,7 +6176,7 @@ export interface components {
             instructions: string;
             /**
              * Role
-             * @description The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).
+             * @description The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/lab_roles.qa (ADR 0116).
              */
             role: string;
         };
@@ -10863,7 +10863,7 @@ export interface components {
             label: string;
             /**
              * Role
-             * @description The lab role, by name, such as iki/example_lims.qa.
+             * @description The lab role, by name, such as iki/lab_roles.qa.
              */
             role: string;
         };
@@ -10878,7 +10878,7 @@ export interface components {
             label: string;
             /**
              * Name
-             * @description Its name, such as iki/example_lims.qa.
+             * @description Its name, such as iki/lab_roles.qa.
              */
             name: string;
             /**
@@ -10920,7 +10920,7 @@ export interface components {
         LabRolesIn: {
             /**
              * Roles
-             * @description Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.
+             * @description Every lab role the grant should carry, by name (such as iki/lab_roles.qa): those it has and aren't listed are taken away.
              */
             roles: string[];
         };
@@ -11724,7 +11724,7 @@ export interface components {
             id: string;
             /**
              * Kind
-             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.
+             * @description What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
              */
             kind: string;
             /**
@@ -13264,7 +13264,7 @@ export interface components {
             id: string;
             /**
              * My Lab Roles
-             * @description The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.
+             * @description The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/lab_roles.qa: what /lab-roles describes.
              */
             my_lab_roles: string[];
             /**

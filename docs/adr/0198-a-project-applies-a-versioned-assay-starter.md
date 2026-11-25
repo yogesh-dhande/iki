@@ -30,8 +30,8 @@ authenticate and sign the revision they inspected.
 [requests](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md)
 and [signatures](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md)
 
-The first recipe is `dose-response` version `1.0.0`. It uses
-`iki/example_lims.AnalysisRequest` for receipt and delivery and
+The `dose-response` recipe version `1.2.0` uses
+`iki/requests.ResearchRequest` or `iki/requests.QCRequest` for receipt and delivery and
 `iki/plate_assays` for the plate, reader measurements and fit. The two
 projects must be distinct, share a registry and permit sharing. Creating the
 example also needs permission to edit the requesting project. The synthetic
@@ -82,10 +82,10 @@ service project's members endpoint.
 {
   "project": "<service project UUID>",
   "requester_project": "<requesting project UUID>",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "flow": "regulated_qc",
   "role_assignments": {
-    "iki/example_lims.coordinator": ["<receiving membership UUID>"],
+    "iki/lab_roles.coordinator": ["<receiving membership UUID>"],
     "iki/plate_assays.analyst": ["<analyst membership UUID>"],
     "iki/plate_assays.reviewer": ["<reviewer membership UUID>"],
     "iki/plate_assays.qa": ["<QA membership UUID>"]
@@ -103,7 +103,7 @@ Apply recomputes the plan under the projects' locks: if it differs from the
 starter first, nothing changes and it answers 409 `starter_plan_changed` with
 the plan as it is now, for review. Repeating an identical apply yields
 `changed: false` and the same example IDs. An application adds the requested grants to existing
-memberships. A switch reuses the example records. The audit trail records
+memberships. A switch reuses the original example records and their immutable request type. Subsequent requests use the selected flow. The audit trail records
 who applied the recipe and which version and flow were selected in
 `starter.applied`, alongside the project’s individual role-grant events. Applying to
 a new service configures a narrow intake for the chosen requester. When a

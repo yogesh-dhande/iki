@@ -44,7 +44,7 @@ roles:
 ```
 
 A role's qualified name is `namespace/plugin.name`, such as
-`iki/example_lims.qa`. A plugin refers to its own as `qa` and to another's
+`iki/lab_roles.qa`. A plugin refers to its own as `qa` and to another's
 as `acme/qms.release_officer`, which needs that plugin in its
 `dependencies`, so labs can share one QA role through a common plugin. The
 names `viewer`, `editor`, `runner` and `admin` are reserved for the

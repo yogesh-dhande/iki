@@ -12,6 +12,8 @@
   [0080](0080-triggers-run-actions-when-entities-change.md),
   [0116](0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The shipping sample workflow now runs from a pending material draw through recorded results. Instrument and Booking are maintained by `iki/equipment`.
+
 ## Context
 
 ADR 0118 gave each type one state and a graph of named transitions

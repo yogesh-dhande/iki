@@ -4748,7 +4748,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
 
     fixtures = json.loads(FLOW_FIXTURES.read_text())
     roles = {
-        "iki/example_lims.coordinator": ("Coordinator", "editor"),
+        "iki/lab_roles.coordinator": ("Coordinator", "editor"),
         PLATE + "analyst": ("Assay analyst", "editor"),
         PLATE + "reviewer": ("Assay reviewer", "viewer"),
         PLATE + "qa": ("Assay QA", "viewer"),

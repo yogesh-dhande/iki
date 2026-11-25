@@ -5,6 +5,7 @@ import hashlib
 from django.db import transaction
 
 from iki_server.accounts.models import User
+from iki_server.amounts import services as amounts
 from iki_server.audit.log import current_agent
 from iki_server.entities import requests, services
 from iki_server.entities.models import Entity
@@ -16,11 +17,14 @@ from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.setup import public_plate
 
-REQUEST_TYPE = "iki/example_lims.AnalysisRequest"
+REQUEST_TYPES = {
+    "research": "iki/requests.ResearchRequest",
+    "regulated_qc": "iki/requests.QCRequest",
+}
 READER_FILE = public_plate.READER_FILE
 
 
-def check_example(project: Project, requester_project: Project, *, by: User) -> None:
+def check_example(project: Project, requester_project: Project, flow: str, *, by: User) -> None:
     """Check the two projects' access and intake without writing records or files."""
     permissions.require(by, Action.PROJECT_MANAGE, project)
     permissions.require(by, Action.PROJECT_EDIT, requester_project)
@@ -32,7 +36,7 @@ def check_example(project: Project, requester_project: Project, *, by: User) -> 
         raise Refused("Both projects must allow sharing to send a request and return its result.")
     if not storage.configured():
         raise Refused(str(storage.NotConfigured()))
-    if requests.accepts(project, requester_project, REQUEST_TYPE):
+    if requests.accepts(project, requester_project, REQUEST_TYPES[flow]):
         return
     intake = requests.intake_of(project)
     if intake.types or intake.sources or intake.from_registry:
@@ -43,16 +47,22 @@ def check_example(project: Project, requester_project: Project, *, by: User) -> 
 
 
 @transaction.atomic
-def seed_example(project: Project, requester_project: Project, *, by: User) -> dict[str, str]:
-    """Prepare the compound shipment, the service’s reagent and its mapped plate on first apply.
+def seed_example(
+    project: Project, requester_project: Project, flow: str, *, by: User
+) -> dict[str, str]:
+    """Prepare the request, its two expected tubes, the service reagent and the mapped plate.
 
     The starter application holds the assay project lock and retains these IDs. The coordinator
-    receives the compound tubes. The assigned staff run and sign the fits using their own accounts.
+    receives the tubes and the assigned staff run and sign the fit using their own accounts.
     """
-    check_example(project, requester_project, by=by)
-    if not requests.accepts(project, requester_project, REQUEST_TYPE):
+    check_example(project, requester_project, flow, by=by)
+    if not requests.accepts(project, requester_project, REQUEST_TYPES[flow]):
         requests.set_intake(
-            project, types=[REQUEST_TYPE], sources=[requester_project], from_registry=False, by=by
+            project,
+            types=[REQUEST_TYPES[flow]],
+            sources=[requester_project],
+            from_registry=False,
+            by=by,
         )
     protein = services.create(
         by,
@@ -60,21 +70,12 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         project,
         {"name": "Firefly luciferase (Photinus pyralis)", "sequence": public_plate.LUCIFERASE},
     ).entity
-    sample = services.create(
+    tube = services.create(
         by,
-        "iki/example_lims.Sample",
+        "iki/inventory.Tube",
         project,
-        {
-            "protein": str(protein.pk),
-            "lot": "Firefly luciferase assay target",
-            "notes": "Target enzyme for the Tox21 flavonoid dilution series (PubChem AID 1224835).",
-        },
-    ).entity
-    reagent_tube = services.create(
-        by,
-        "iki/example_lims.Tube",
-        project,
-        {"name": "Firefly luciferase assay target", "sample": str(sample.pk)},
+        {"name": "Firefly luciferase assay target", "contents": str(protein.pk)},
+        amount={"value": 100, "unit": "uL"},
     ).entity
     compound_tubes = {}
     for key, series in public_plate.SERIES.items():
@@ -89,14 +90,14 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
         ).entity
         compound_tube = services.create(
             by,
-            "iki/example_lims.Tube",
+            "iki/inventory.Tube",
             requester_project,
-            {"name": series["name"], "lot": str(lot.pk)},
+            {"name": series["name"], "contents": str(lot.pk)},
         ).entity
         compound_tubes[key] = str(compound_tube.pk)
     saved = services.create(
         by,
-        REQUEST_TYPE,
+        REQUEST_TYPES[flow],
         requester_project,
         {
             "title": public_plate.PLATE_NAME,
@@ -132,17 +133,38 @@ def seed_example(project: Project, requester_project: Project, *, by: User) -> d
             "size": "plate_96",
             "reader_file": str(reader.pk),
             "request": str(request.pk),
-            "reagent_tube": str(reagent_tube.pk),
+            "reagent_tube": str(tube.pk),
             "assignments": public_plate.assignments(compound_tubes),
         },
     ).entity
+    sample = services.create(
+        by,
+        "iki/samples.Sample",
+        project,
+        {
+            "source": str(tube.pk),
+            "purpose": str(plate.pk),
+            "notes": (
+                "Target enzyme for PubChem AID 1224835. The stock and draw volumes are "
+                "practice quantities for this example."
+            ),
+        },
+    ).entity
+    source = Entity.objects.get(pk=tube.pk)
+    amounts.draw(
+        by,
+        source,
+        amounts.Given.of({"value": 10, "unit": "uL"}),
+        used_in=Entity.objects.get(pk=sample.pk),
+        confirm=source.hrid,
+    )
     return {
         **compound_tubes,
         "requester_project": str(requester_project.pk),
         "request": str(request.pk),
         "protein": str(protein.pk),
         "sample": str(sample.pk),
-        "tube": str(reagent_tube.pk),
+        "tube": str(tube.pk),
         "plate": str(plate.pk),
         "reader_file": str(reader.pk),
     }

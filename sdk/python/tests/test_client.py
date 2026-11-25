@@ -416,10 +416,10 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     project, core = "0190d5a4-0000-7000-8000-000000000001", "0190d5a4-0000-7000-8000-000000000002"
     listed: Any = [{"project": {"id": core, "name": "Core"}, "description": "", "types": []}]
     fake.on("GET", f"/api/v1/projects/{project}/services", listed)
-    services = client.projects.services(project, type="iki/example_lims.AnalysisRequest")
+    services = client.projects.services(project, type="iki/requests.PlainRequest")
     assert services == listed
     assert fake.sent("GET", f"/api/v1/projects/{project}/services")[0].url.params["type"] == (
-        "iki/example_lims.AnalysisRequest"
+        "iki/requests.PlainRequest"
     )
     submitted = "/api/v1/entities/REQ-000001/submit"
     fake.on("POST", submitted, entity("REQ-000001", title="Lot 12"))
@@ -433,9 +433,9 @@ def test_requests_go_to_a_service_and_come_back_with_results(fake: FakeIki, clie
     # A service's Admin chooses what it takes.
     intake = {"types": [], "from_registry": True, "projects": []}
     fake.on("PUT", f"/api/v1/projects/{core}/intake", intake)
-    client.projects.set_intake(core, types=["iki/example_lims.AnalysisRequest"], projects=[project])
+    client.projects.set_intake(core, types=["iki/requests.PlainRequest"], projects=[project])
     assert fake.body("PUT", f"/api/v1/projects/{core}/intake") == {
-        "types": ["iki/example_lims.AnalysisRequest"],
+        "types": ["iki/requests.PlainRequest"],
         "from_registry": False,
         "projects": [project],
     }
@@ -1103,7 +1103,7 @@ def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, 
                 "id": entity(h)["id"],
                 "hrid": h,
                 "title": h,
-                "type": "iki/example_lims.Aliquot",
+                "type": "iki/inventory.Tube",
                 "archived": False,
                 "entry": None,
                 "project": {"id": "p", "name": "Kinase Atlas", "slug": "k"},
@@ -1124,7 +1124,7 @@ def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, 
         for h in hrids
     ]
     return {
-        "root": entity("DNR-000001"),
+        "root": entity("TUB-000001"),
         "direction": "downstream",
         "depth": 10,
         "items": items,
@@ -1137,17 +1137,17 @@ def _walk_page(hrids: list[str], cursor: str | None, **extra: Any) -> dict[str, 
 
 
 def test_downstream_walks_a_page_at_a_time_and_sums_up(fake: FakeIki, client: Client) -> None:
-    path = "/api/v1/entities/DNR-000001/downstream"
+    path = "/api/v1/entities/TUB-000001/downstream"
     fake.on(
         "GET",
         path,
         _walk_page(["SAM-000001", "SAM-000002"], "next"),
         _walk_page(["SAM-000003"], None),
     )
-    found = client.entities.downstream("DNR-000001", type="iki/example_lims.Sample", depth=4)
+    found = client.entities.downstream("TUB-000001", type="iki/samples.Sample", depth=4)
     assert [i["entity"]["hrid"] for i in found] == ["SAM-000001", "SAM-000002", "SAM-000003"]
     first, second = fake.sent("GET", path)
-    assert first.url.params.get_list("type") == ["iki/example_lims.Sample"]
+    assert first.url.params.get_list("type") == ["iki/samples.Sample"]
     assert (first.url.params["depth"], first.url.params["limit"]) == ("4", "100")
     assert second.url.params["cursor"] == "next"
     assert found.summary()["total"] == 3
@@ -1163,12 +1163,12 @@ def test_upstream_as_a_frame_and_as_csv(fake: FakeIki, client: Client) -> None:
     assert sent.url.params.get_list("edges") == ["reference"]
     fake.on(
         "GET",
-        "/api/v1/entities/DNR-000001/downstream.csv",
+        "/api/v1/entities/TUB-000001/downstream.csv",
         httpx2.Response(
             200, text="hrid,depth\r\nSAM-000001,1\r\n", headers={"Content-Type": "text/csv"}
         ),
     )
-    assert client.entities.downstream_csv("DNR-000001", depth=2) == [
+    assert client.entities.downstream_csv("TUB-000001", depth=2) == [
         {"hrid": "SAM-000001", "depth": "1"}
     ]
 

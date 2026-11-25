@@ -4,6 +4,8 @@
 - Date: 2026-11-23
 - Builds on [0139](0139-a-records-amount-is-a-ledger-of-what-moved.md), [0179](0179-a-corrected-result-goes-back-for-review.md) and [0180](0180-where-material-is-and-how-its-received-moved-and-counted.md).
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). Stability pulls now use `iki/inventory.Tube`; its immutable contents reference identifies the study lot.
+
 ## Context
 
 A stability coordinator needs to know what to take from storage, which

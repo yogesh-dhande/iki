@@ -643,24 +643,24 @@ describe("members", () => {
     },
   ];
   const QA = {
-    name: "iki/example_lims.qa",
+    name: "iki/lab_roles.qa",
     label: "QA",
     description: "Releases reviewed samples.",
-    plugin: "iki/example_lims",
+    plugin: "iki/samples",
     uses: [
       {
         kind: "approval",
-        owner: "iki/example_lims.release",
+        owner: "iki/samples.release",
         name: "release",
         description: "approve “Release” in Release a batch",
       },
     ],
   };
   const REVIEWER = {
-    name: "iki/example_lims.reviewer",
+    name: "iki/lab_roles.reviewer",
     label: "Reviewer",
     description: "Checks another analyst’s results.",
-    plugin: "iki/example_lims",
+    plugin: "iki/samples",
     uses: [],
   };
   const granted = (role: { name: string; label: string }, declared = true) => ({
@@ -742,7 +742,7 @@ describe("members", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Ada Lovelace’s lab roles are now QA, Reviewer.")).toBeVisible();
     expect(calls("PUT")[0]?.body).toEqual({
-      roles: ["iki/example_lims.qa", "iki/example_lims.reviewer"],
+      roles: ["iki/lab_roles.qa", "iki/lab_roles.reviewer"],
     });
     expect(screen.queryByRole("dialog")).toBeNull();
   });

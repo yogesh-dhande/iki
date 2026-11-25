@@ -1,5 +1,5 @@
-# A fake LIMS for the dev cluster, with the REST API the example LIMS plugin
-# talks to (plugins/example_lims/scripts/lims.py): GET /api/v1/proteins, a
+# A fake LIMS for the dev cluster, with the REST API the example LIMS connector
+# talks to (plugins/lims_connector_example/scripts/lims.py): GET /api/v1/proteins, a
 # page at a time, and PATCH /api/v1/proteins/<id>, with the bearer token in
 # iki-run-secrets. It answers at https://fake-lims.iki.svc, with a certificate
 # from the dev CA up.sh made, so runs reach it as they would a lab's LIMS:
@@ -22,7 +22,7 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, unquote, urlsplit
 
-    TOKEN = open("/secrets/iki__example_lims.LIMS_TOKEN").read().strip()
+    TOKEN = open("/secrets/iki__lims_connector_example.LIMS_TOKEN").read().strip()
     PAGE = 2
     lock = threading.Lock()
     received = collections.deque(maxlen=200)
@@ -179,7 +179,13 @@ spec:
         - name: secrets
           secret:
             secretName: iki-run-secrets
-            items: [{ key: iki__example_lims.LIMS_TOKEN, path: iki__example_lims.LIMS_TOKEN }]
+            items:
+              [
+                {
+                  key: iki__lims_connector_example.LIMS_TOKEN,
+                  path: iki__lims_connector_example.LIMS_TOKEN,
+                },
+              ]
 ---
 apiVersion: v1
 kind: Service

@@ -17,7 +17,7 @@ import { Button, ConfirmDialog, RelativeTime, TextField, useMessages } from "../
 type Hold = Schemas["HoldOut"];
 
 /** The lab roles (ADR 0116) that review a hold, as their plugins label them: “QA”, not
- * `iki/example_lims.qa`. A role no plugin declares now is named by its own short name. */
+ * `iki/lab_roles.qa`. A role no plugin declares now is named by its own short name. */
 function roles(names: string[], declared: readonly LabRole[]): string {
   const labels = names.map(
     (n) => declared.find((r) => r.name === n)?.label ?? n.split(/[.:]/).pop() ?? n,

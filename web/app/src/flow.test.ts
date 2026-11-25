@@ -1,6 +1,6 @@
 /**
  * A type's flow as a diagram has it (ADR 0199), from the real plugins' flows as
- * `GET /entity-types/{type}/flow` serves them (ADR 0198): example_lims' analysis results,
+ * `GET /entity-types/{type}/flow` serves them (ADR 0198): QC deliverables,
  * samples and requests, lots, and plate assays' research and regulated QC results
  * (flow-fixtures.json, which a server test keeps the plugins' own).
  */
@@ -37,9 +37,9 @@ function modelOf(type: string, field: string): FlowModel {
   return flowModel(flowOf(type, field), ROLES);
 }
 
-const RESULT = "iki/example_lims.AnalysisResult";
-const SAMPLE = "iki/example_lims.Sample";
-const REQUEST = "iki/example_lims.AnalysisRequest";
+const RESULT = "iki/requests.QCDeliverable";
+const SAMPLE = "iki/samples.Sample";
+const REQUEST = "iki/requests.Request";
 const LOT = "iki/lots.Lot";
 const RESEARCH = "iki/plate_assays.ResearchAssayResult";
 const QC = "iki/plate_assays.QCAssayResult";
@@ -48,12 +48,12 @@ describe("the plugins' flows", () => {
   it("draws an analysis result's regulated review: submitted, reviewed, released", () => {
     expect(moves(flowOf(RESULT, "review"))).toEqual([
       // Returned for correction only while it waits for review or release.
-      "in_review > draft",
-      "reviewed > draft",
-      // Submitted from Draft, once its measurement is recorded.
-      "draft > in_review ?",
+      "submitted > recorded",
+      "reviewed > recorded",
+      // Submitted from Recorded, once its measurement is recorded.
+      "recorded > submitted ?",
       // Reviewed independently of who made and submitted it.
-      "in_review > reviewed ?",
+      "submitted > reviewed ?",
       // Released by QA, once reviewed.
       "reviewed > released ?",
     ]);
@@ -122,16 +122,16 @@ describe("a flow as a diagram has it", () => {
         {
           label: "QA release",
           meaning: "Approval",
-          statement: "I release these results to the project that requested them.",
+          statement: "I release the independently reviewed deliverable to the requesting project.",
           roles: ["Sample and result QA"],
         },
       ],
     });
     expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([
-      "in_review~draft",
-      "reviewed~draft",
+      "submitted~recorded",
+      "reviewed~recorded",
     ]);
-    expect(model.nodes.find((n) => n.name === "draft")).toMatchObject({
+    expect(model.nodes.find((n) => n.name === "recorded")).toMatchObject({
       initial: true,
       setters: ["Analyst", "Reviewer", "Sample and result QA"],
       reason: "required",
@@ -150,20 +150,18 @@ describe("a flow as a diagram has it", () => {
     expect(model.edges.filter((e) => e.kind === "move")).toEqual([]);
   });
 
-  it("draws a released sample's signed return to testing and its next review", () => {
+  it("draws a recorded sample's signed return to testing and its next review", () => {
     const model = modelOf(SAMPLE, "status");
-    expect(nextFrom(model, "released").map((n) => n.name)).toEqual(["retesting"]);
+    expect(nextFrom(model, "results_recorded").map((n) => n.name)).toEqual(["retesting"]);
     expect(nextFrom(model, "retesting").map((n) => n.name)).toEqual(["in_review"]);
     expect(model.nodes.find((n) => n.name === "retesting")).toMatchObject({
-      from: ["released"],
-      setters: ["Sample and result QA"],
+      from: ["in_review", "reviewed", "results_recorded"],
+      setters: ["Reviewer"],
       reason: "required",
       locks: false,
-      signatures: [{ label: "QA return to testing", meaning: "Approval" }],
+      signatures: [{ label: "Responsibility", meaning: "Responsibility" }],
     });
-    expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([
-      "approved~in_testing",
-    ]);
+    expect(model.edges.filter((e) => e.kind === "correction").map((e) => e.id)).toEqual([]);
   });
 
   it("says each state in words, with its guards' messages", () => {
@@ -173,17 +171,17 @@ describe("a flow as a diagram has it", () => {
       if (!found) throw new Error(name);
       return found;
     };
-    expect(wayIn(node("draft"), model)).toBe(
-      "Analyst, Reviewer or Sample and result QA set it from In review or Reviewed, saying why.",
+    expect(wayIn(node("recorded"), model)).toBe(
+      "Analyst, Reviewer or Sample and result QA set it from Submitted or Reviewed, saying why.",
     );
     expect(wayIn(node("released"), model)).toBe(
       "Sample and result QA sets it from Reviewed by signing it: QA release (Approval).",
     );
-    expect(whatItMeans(node("in_review"), model)).toBe(
-      "It locks the record: its values can’t change. Correcting a value returns it to Draft, with a reason.",
+    expect(whatItMeans(node("submitted"), model)).toBe(
+      "It locks the record: its values can’t change. Correcting a value returns it to Recorded, with a reason.",
     );
     expect(node("released").checks.map((c) => c.message)).toContain(
-      "You reviewed this result, so someone else in QA releases it.",
+      "Have someone in QA who did not create, submit, edit or review the deliverable release it.",
     );
     const research = modelOf(RESEARCH, "review");
     expect(wayIn(research.nodes[0] as never, research)).toBe("No one moves a record back to it.");
@@ -194,7 +192,7 @@ describe("a flow as a diagram has it", () => {
 
   it("knows where a record can go next", () => {
     const model = modelOf(RESULT, "review");
-    expect(nextFrom(model, "in_review").map((n) => n.name)).toEqual(["draft", "reviewed"]);
+    expect(nextFrom(model, "submitted").map((n) => n.name)).toEqual(["recorded", "reviewed"]);
     expect(nextFrom(model, "released")).toEqual([]);
     const lot = modelOf(LOT, "disposition");
     expect(nextFrom(lot, "released").map((n) => n.name)).toEqual([
@@ -236,17 +234,25 @@ describe("laying a flow out", () => {
         .map((m) => Number(m[0]))
         .filter((_, k) => k % 2 === 1);
     // Back: below the row.
-    for (const id of ["in_review>draft", "reviewed>draft", "in_review~draft", "reviewed~draft"]) {
+    for (const id of [
+      "submitted>recorded",
+      "reviewed>recorded",
+      "submitted~recorded",
+      "reviewed~recorded",
+    ]) {
       expect(Math.max(...ys(id))).toBeGreaterThan(nodeBottom);
     }
     // Each back arc has a lane of its own: none at the same depth.
-    const depths = ["in_review>draft", "reviewed>draft", "in_review~draft", "reviewed~draft"].map(
-      (id) => Math.max(...ys(id)),
-    );
+    const depths = [
+      "submitted>recorded",
+      "reviewed>recorded",
+      "submitted~recorded",
+      "reviewed~recorded",
+    ].map((id) => Math.max(...ys(id)));
     expect(new Set(depths).size).toBe(4);
     // The next state's a straight arrow, level with the nodes.
-    expect(new Set(ys("draft>in_review")).size).toBe(1);
-    expect(ys("draft>in_review")[0]).toBeGreaterThan(nodeTop);
+    expect(new Set(ys("recorded>submitted")).size).toBe(1);
+    expect(ys("recorded>submitted")[0]).toBeGreaterThan(nodeTop);
   });
 
   it("starts a state reached from any other at a dot of its own", () => {

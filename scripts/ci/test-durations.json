@@ -477,7 +477,7 @@
         "seconds": 169.7,
         "tests": 7
       },
-      "server/tests/test_example_lims.py": {
+      "server/tests/test_lims_connector_example.py": {
         "seconds": 19.3,
         "tests": 26
       },
@@ -553,7 +553,7 @@
         "seconds": 2.1,
         "tests": 6
       },
-      "server/tests/test_lims_hold_reasons.py": {
+      "server/tests/test_inventory_hold_reasons.py": {
         "seconds": 133.0,
         "tests": 1
       },
@@ -1891,7 +1891,7 @@
         "seconds": 263.2,
         "tests": 7
       },
-      "server/tests/test_example_lims.py": {
+      "server/tests/test_lims_connector_example.py": {
         "seconds": 4.3,
         "tests": 26
       },
@@ -1967,7 +1967,7 @@
         "seconds": 1.0,
         "tests": 6
       },
-      "server/tests/test_lims_hold_reasons.py": {
+      "server/tests/test_inventory_hold_reasons.py": {
         "seconds": 228.1,
         "tests": 1
       },

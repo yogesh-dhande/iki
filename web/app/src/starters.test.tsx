@@ -35,13 +35,13 @@ const READ_ONLY = project({
 });
 
 const PLATE = "iki/plate_assays.";
-const COORDINATOR = "iki/example_lims.coordinator";
+const COORDINATOR = "iki/lab_roles.coordinator";
 const [ANALYST, REVIEWER, QA] = [`${PLATE}analyst`, `${PLATE}reviewer`, `${PLATE}qa`];
 
 function starter(more: Partial<Schemas["StarterOut"]> = {}): Schemas["StarterOut"] {
   return {
     id: "dose-response",
-    version: "1.0.0",
+    version: "1.2.0",
     label: "Dose-response plate assay",
     description:
       "Receive an example request, map a reader file to wells, fit a curve and return the signed result to the requester.",
@@ -278,7 +278,7 @@ describe("a project's starters", () => {
     await user.click(within(qa).getByRole("checkbox", { name: "Dorothy Hodgkin" }));
     const plan = {
       starter: "dose-response",
-      version: "1.0.0",
+      version: "1.2.0",
       project: SERVICE.id,
       requester_project: ASKER.id,
       flow: "regulated_qc",
@@ -296,7 +296,7 @@ describe("a project's starters", () => {
     expect(calls("POST", "/api/v1/starters/dose-response/preview")[0]?.body).toEqual({
       project: SERVICE.id,
       requester_project: ASKER.id,
-      version: "1.0.0",
+      version: "1.2.0",
       flow: "regulated_qc",
       role_assignments: {
         [COORDINATOR]: ["m1"],
@@ -332,7 +332,7 @@ describe("a project's starters", () => {
 
   it("applies nothing that changed since its preview, and shows what applying does now", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "regulated_qc", requester_project: ASKER.id } }),
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: ASKER.id } }),
     );
     const { user } = await renderApp("/projects/assay-core/settings/starters/");
     const card = await setupCard();
@@ -343,7 +343,7 @@ describe("a project's starters", () => {
     await user.click(within(reviewers).getByRole("checkbox", { name: "Carl Woese" }));
     const reviewed = {
       starter: "dose-response",
-      version: "1.0.0",
+      version: "1.2.0",
       project: SERVICE.id,
       requester_project: ASKER.id,
       flow: "research" as const,
@@ -402,7 +402,7 @@ describe("a project's starters", () => {
 
   it("asks again after any change to what was previewed, and shows what Iki refuses", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "research", requester_project: ASKER.id } }),
+      starter({ applied: { version: "1.2.0", flow: "research", requester_project: ASKER.id } }),
     );
     const { user } = await renderApp("/projects/assay-core/settings/starters/");
     const card = await setupCard();
@@ -426,7 +426,7 @@ describe("a project's starters", () => {
     await user.click(within(qa).getByRole("checkbox", { name: "Barbara McClintock" }));
     answer("POST /api/v1/starters/dose-response/preview", {
       starter: "dose-response",
-      version: "1.0.0",
+      version: "1.2.0",
       project: SERVICE.id,
       requester_project: ASKER.id,
       flow: "regulated_qc",
@@ -466,11 +466,11 @@ describe("a project's starters", () => {
 
   it("says who can switch a flow first set up with a project this Admin can't edit", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "regulated_qc", requester_project: null } }),
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: null } }),
     );
     await renderApp("/projects/assay-core/settings/starters/");
     const card = await setupCard();
-    expect(within(card).getByText("Applied: Regulated QC, version 1.0.0")).toBeInTheDocument();
+    expect(within(card).getByText("Applied: Regulated QC, version 1.2.0")).toBeInTheDocument();
     expect(
       within(card).getByText(/Only someone who can edit that project can apply it again/),
     ).toBeInTheDocument();
@@ -487,7 +487,7 @@ describe("a project's starters", () => {
       can: { ...SERVICE.can, manage: false, edit: false },
     };
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "research", requester_project: null } }),
+      starter({ applied: { version: "1.2.0", flow: "research", requester_project: null } }),
       member,
     );
     await renderApp("/projects/assay-core/settings/starters/");
@@ -505,7 +505,7 @@ describe("a project's starters", () => {
 
   it("is linked from the project's settings, with what's applied", async () => {
     onStarters(
-      starter({ applied: { version: "1.0.0", flow: "regulated_qc", requester_project: ASKER.id } }),
+      starter({ applied: { version: "1.2.0", flow: "regulated_qc", requester_project: ASKER.id } }),
     );
     const { user } = await renderApp("/projects/assay-core/settings/");
     const list = await screen.findByRole("list", { name: "Starters" });

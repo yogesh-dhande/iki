@@ -1,21 +1,23 @@
-"""Ordinary LIMS hold flags keep the reason for a second session's edit."""
+"""Inventory hold flags keep the reason for a second session's edit."""
 
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
 from api_client import Api, problem
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from test_plugin_migrations import database, django, iki, migrate, sync
 
+from iki_server.amounts import services as amounts
+from iki_server.amounts.models import Amount
 from iki_server.entities import services
 from iki_server.entities.models import Entity
 
 __all__ = ["database"]
 
-PLUGIN = PLUGINS / "example_lims"
-LIMS = "iki/example_lims."
+PLUGIN = PLUGINS / "inventory"
 
 
 def test_shipping_hold_flags_require_the_clearing_editors_reason(
@@ -30,7 +32,8 @@ def test_shipping_hold_flags_require_the_clearing_editors_reason(
         build,
         database,
         "-c",
-        "import django; django.setup(); from test_lims_hold_reasons import exercise_hold_reasons; "
+        "import django; django.setup(); "
+        "from test_inventory_hold_reasons import exercise_hold_reasons; "
         "exercise_hold_reasons()",
     )
     assert checked.returncode == 0, checked.stdout + checked.stderr
@@ -45,16 +48,20 @@ def exercise_hold_reasons() -> None:
         made = services.create(editor, kind, world.project, fields).entity
         return Entity.objects.get(pk=made.pk)
 
-    # Synthetic specimen for exercising the application workflow.
-    protein = make("iki/protein.Protein", {"sequence": "MKV"})
-    assert protein.entry_id is not None
-    sample = make(LIMS + "Sample", {"protein": str(protein.entry_id)})
-    aliquot = make(LIMS + "Aliquot", {"sample": str(sample.pk)})
-    result = make(LIMS + "Result", {"aliquot": str(aliquot.pk), "assay": "Training measurement"})
-
     original_reason = "The label needs a second check."
-    clear_reason = "The specimen and recorded identifier match."
-    for record, cleared in ((aliquot, False), (result, None)):
+    clear_reason = "The stock and recorded identifier match."
+    material = make("iki/core.Collection", {"name": "Training reference"})
+    fields = {"name": "Training stock", "contents": str(material.pk)}
+    destination = make("iki/inventory.Tube", fields)
+    portion = amounts.Given.of({"value": 1, "unit": "uL"})
+    empty = make("iki/inventory.Tube", {"name": "Unassigned"})
+    with pytest.raises(amounts.Wrong, match="contents"):
+        amounts.record(editor, empty, portion)
+    assert not Amount.objects.filter(entity=empty).exists()
+
+    for cleared in (False, None):
+        record = make("iki/inventory.Tube", fields)
+        amounts.record(editor, record, amounts.Given.of({"value": 10, "unit": "uL"}))
         field = next(
             f
             for f in first.get(f"/entity-types/{record.type}").json()["fields"]
@@ -69,6 +76,13 @@ def exercise_hold_reasons() -> None:
             headers={"If-Match": first.get(path)["ETag"]},
         )
         assert held.status_code == 200, held.content
+        with pytest.raises(amounts.Wrong, match="on hold"):
+            amounts.draw(editor, record, portion, confirm=record.hrid)
+        with pytest.raises(amounts.Wrong, match="on hold"):
+            amounts.transfer(editor, record, destination, portion)
+        with pytest.raises(amounts.Wrong, match="on hold"):
+            amounts.split(editor, record, 1, portion)
+        assert Amount.objects.get(entity=record).value == 10
         etag = second.get(path)["ETag"]
         assert etag == held["ETag"]
         headers = {"If-Match": etag}

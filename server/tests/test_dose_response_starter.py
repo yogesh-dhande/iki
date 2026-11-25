@@ -64,7 +64,14 @@ def test_packaged_plate_preserves_the_deposited_activity_values() -> None:
 
 def test_both_flows_deliver_a_signed_fit_from_the_starter(tmp_path: Path, database: str) -> None:
     build = tmp_path / "build"
-    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
+    built = iki(
+        "plugin",
+        "build",
+        *build_order(PLUGIN, PLUGINS / "samples", PLUGINS / "protein"),
+        "--output",
+        build,
+        cwd=PLUGINS,
+    )
     assert built.returncode == 0, built.stdout + built.stderr
     (build / "iki_plugin_iki__plate_assays" / "settings.json").write_text(
         '{"review_flow":"research"}'
@@ -111,7 +118,7 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     admin = world.users["admin"]
     # A request reviewer in the service project closes the request once both fits are returned.
     LabRoleGrant.objects.create(
-        membership=project.memberships.get(user=admin), role="iki/example_lims.reviewer"
+        membership=project.memberships.get(user=admin), role="iki/lab_roles.reviewer"
     )
     asker = Project.objects.create(team=world.team, name="Requesting group")
     # The admin sets up the example. A separate member of the requester can read only
@@ -120,7 +127,7 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     ProjectMembership.objects.create(project=asker, user=admin, role=ProjectRole.EDITOR)
     ProjectMembership.objects.create(project=asker, user=requester, role=ProjectRole.VIEWER)
     roles = {
-        "iki/example_lims.coordinator": [project.memberships.get(user=admin).pk],
+        "iki/lab_roles.coordinator": [project.memberships.get(user=admin).pk],
         PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],
         PREFIX + "reviewer": [project.memberships.get(user=world.users["runner"]).pk],
     }
@@ -157,7 +164,7 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
             plan=preview.json()["plan"],
         )
     assert not Entity.objects.filter(owner_project__in=[project, asker]).exists()
-    assert not requests.accepts(project, asker, dose_response.REQUEST_TYPE)
+    assert not requests.accepts(project, asker, dose_response.REQUEST_TYPES[flow])
     body["plan"] = preview.json()["plan"]
     applied = api.post("/starters/dose-response/apply", body)
     assert applied.status_code == 200, applied.content
@@ -171,11 +178,20 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
     assert csv.read_bytes() == (PLUGIN / "tests/data/aid-1224835-activity.csv").read_bytes()
     assert hashlib.sha256(csv.read_bytes()).hexdigest() == source.blob.sha256
     request = Entity.objects.get(pk=ids["request"], owner_project=asker)
+    assert request.type == dose_response.REQUEST_TYPES[flow]
     assert requests.accepts(project, asker, request.type)
+    target_sample = Entity.objects.get(pk=ids["sample"], owner_project=project)
+    sample_values = services.current_values_of([target_sample])[target_sample.pk]
+    assert (sample_values["source"], sample_values["purpose"]) == (
+        UUID(ids["tube"]),
+        UUID(ids["plate"]),
+    )
+    [draw] = sample_values["receipt"]
+    assert (draw["record"], draw["amount"], draw["unit"]) == (ids["tube"], "10", "uL")
     other = Project.objects.create(team=world.team, name="Another asking project")
     ProjectMembership.objects.create(project=other, user=admin, role=ProjectRole.EDITOR)
     with pytest.raises(Refused, match="intake"):
-        dose_response.check_example(project, other, by=admin)
+        dose_response.check_example(project, other, flow, by=admin)
     assert not requests.accepts(project, other, request.type)
     receipt = receipts.start(admin, request)
     tube_ids = [ids[key] for key in public_plate.SERIES]
@@ -289,17 +305,20 @@ def _check_derivative_results(
     def portion(value: int) -> amounts.Given:
         return amounts.Given.of({"value": value, "unit": "uL"})
 
+    stock = services.create(
+        admin, "iki/core.Collection", asker, {"name": "Stock for testing"}
+    ).entity
     split_source = services.create(
         admin,
-        "iki/example_lims.Tube",
+        "iki/inventory.Tube",
         asker,
-        {"name": "Tube for aliquoting"},
+        {"name": "Tube for aliquoting", "contents": str(stock.pk)},
         amount={"value": 10, "unit": "uL"},
     )
     source_tube = Entity.objects.get(pk=split_source.entity.pk)
     created = services.create(
         admin,
-        dose_response.REQUEST_TYPE,
+        dose_response.REQUEST_TYPES[flow],
         asker,
         {"title": "Assay the tube derivative", "tubes": [str(source_tube.pk)]},
     )
@@ -313,23 +332,21 @@ def _check_derivative_results(
         admin, "iki/protein.Protein", other, {"name": "Separate sample protein", "sequence": "MKVL"}
     ).entity
     separate = services.create(
-        admin, "iki/example_lims.Sample", other, {"protein": str(protein.pk)}
-    )
+        admin,
+        "iki/inventory.Tube",
+        other,
+        {"name": "Separate stock", "contents": str(protein.pk)},
+        amount={"value": 10, "unit": "uL"},
+    ).entity
     requests.set_intake(
         project, types=[request.type], from_registry=False, sources=[asker, other], by=admin
     )
     second = services.create(
-        admin,
-        request.type,
-        other,
-        {"title": "Second assay request", "samples": [str(separate.entity.pk)]},
+        admin, request.type, other, {"title": "Second assay request", "tubes": [str(separate.pk)]}
     )
     second_request = Entity.objects.get(pk=second.entity.pk)
     requests.submit(admin, second_request, project, expected_revision=second_request.revision)
-    derivative = services.create(
-        admin, "iki/example_lims.Aliquot", other, {"sample": str(separate.entity.pk)}
-    )
-    unrelated = Entity.objects.get(pk=derivative.entity.pk)
+    (unrelated,) = amounts.split(admin, Entity.objects.get(pk=separate.pk), 1, portion(2)).aliquots
     services.link(admin, unrelated, project)
     layout = public_plate.assignments({key: ids[key] for key in public_plate.SERIES})
     for assignment, material in zip(

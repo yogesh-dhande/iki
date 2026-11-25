@@ -1,10 +1,10 @@
 {
   "roles": {
-    "iki/example_lims.analyst": "Analyst",
-    "iki/example_lims.coordinator": "Coordinator",
-    "iki/example_lims.engineer": "Engineer",
-    "iki/example_lims.qa": "Sample and result QA",
-    "iki/example_lims.reviewer": "Reviewer",
+    "iki/lab_roles.analyst": "Analyst",
+    "iki/lab_roles.coordinator": "Coordinator",
+    "iki/lab_roles.engineer": "Engineer",
+    "iki/lab_roles.qa": "Sample and result QA",
+    "iki/lab_roles.reviewer": "Reviewer",
     "iki/lots.qa": "Lot QA",
     "iki/lots.verification_analyst": "Verification analyst",
     "iki/lots.verification_reviewer": "Verification reviewer",
@@ -14,22 +14,22 @@
   },
   "types": [
     {
-      "type": "iki/example_lims.AnalysisResult",
-      "label": "Analysis result",
+      "type": "iki/requests.QCDeliverable",
+      "label": "QC deliverable",
       "fields": [
         {
           "name": "review",
           "label": "Review",
-          "initial": "draft",
+          "initial": "recorded",
           "states": [
             {
-              "name": "draft",
-              "label": "Draft",
-              "description": "Its analyst is recording or correcting the measurement.",
+              "name": "recorded",
+              "label": "Recorded",
+              "description": null,
               "set_by": [
-                "iki/example_lims.analyst",
-                "iki/example_lims.reviewer",
-                "iki/example_lims.qa"
+                "iki/lab_roles.analyst",
+                "iki/lab_roles.reviewer",
+                "iki/lab_roles.qa"
               ],
               "locks": false,
               "on_edit": null,
@@ -39,42 +39,44 @@
                 {
                   "name": "before_release",
                   "description": null,
-                  "check": "state.from == \"in_review\" || state.from == \"reviewed\"",
+                  "check": "state.from == \"submitted\" || state.from == \"reviewed\"",
                   "when": null,
-                  "message": "Only a result awaiting review or release can be returned for correction."
+                  "message": "Only a submitted or reviewed deliverable can return to Recorded."
                 }
               ],
               "signatures": []
             },
             {
-              "name": "in_review",
-              "label": "In review",
-              "description": "The analyst has signed the measurement and submitted it for review.",
-              "set_by": ["iki/example_lims.analyst"],
+              "name": "submitted",
+              "label": "Submitted",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.analyst"
+              ],
               "locks": true,
-              "on_edit": "draft",
+              "on_edit": "recorded",
               "holds_amount": false,
               "reason": null,
               "guards": [
                 {
-                  "name": "from_draft",
+                  "name": "recorded",
                   "description": null,
-                  "check": "state.from == \"draft\"",
+                  "check": "state.from == \"recorded\"",
                   "when": null,
-                  "message": "Submit the result from Draft."
+                  "message": "Submit the deliverable from Recorded."
                 },
                 {
                   "name": "has_sample",
                   "description": null,
-                  "check": "record.sample != null",
-                  "when": null,
+                  "check": "record.material != null && record.material.id in record.request.materials",
+                  "when": "record.analysis != null",
                   "message": "Name the sample that was measured."
                 },
                 {
                   "name": "has_result",
                   "description": null,
                   "check": "record.result != null",
-                  "when": null,
+                  "when": "record.analysis != null",
                   "message": "Record whether the sample passed or failed."
                 },
                 {
@@ -104,6 +106,27 @@
                   "check": "record.endotoxin != null",
                   "when": "record.analysis == \"endotoxin\"",
                   "message": "Record the endotoxin units per milligram of protein."
+                },
+                {
+                  "name": "active_request",
+                  "description": null,
+                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                  "when": null,
+                  "message": "Sign the deliverable while the request is open and in progress at the service."
+                },
+                {
+                  "name": "measured_scope",
+                  "description": null,
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
+                  "message": "The measurement must still answer this request for the material it sent."
+                },
+                {
+                  "name": "scope_still_matches",
+                  "description": null,
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
+                  "when": null,
+                  "message": "The protein or tube must still be on the request."
                 }
               ],
               "signatures": [
@@ -112,41 +135,59 @@
                   "meaning_label": "Authorship",
                   "verb": "Authored",
                   "label": "Authorship",
-                  "statement": "I recorded this measurement and its result as observed.",
-                  "roles": ["iki/example_lims.analyst"]
+                  "statement": "I recorded this deliverable and its evidence.",
+                  "roles": [
+                    "iki/lab_roles.analyst"
+                  ]
                 }
               ]
             },
             {
               "name": "reviewed",
               "label": "Reviewed",
-              "description": "An independent reviewer has checked the submitted measurement.",
-              "set_by": ["iki/example_lims.reviewer"],
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.reviewer"
+              ],
               "locks": true,
-              "on_edit": "draft",
+              "on_edit": "recorded",
               "holds_amount": false,
               "reason": null,
               "guards": [
                 {
                   "name": "submitted",
                   "description": null,
-                  "check": "state.from == \"in_review\"",
+                  "check": "state.from == \"submitted\"",
                   "when": null,
-                  "message": "Review the result after its analyst submits it."
+                  "message": "Review the deliverable after its analyst submits it."
                 },
                 {
-                  "name": "independent_reviewer",
+                  "name": "independent_review",
                   "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.in_review.by != actor.person",
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
                   "when": null,
-                  "message": "Someone other than the result's creator and submitting analyst must review it."
+                  "message": "Have a reviewer who did not create, submit or edit the deliverable sign it."
                 },
                 {
-                  "name": "independent_of_edits",
+                  "name": "active_request",
                   "description": null,
-                  "check": "edits.review.draft.all(e, e.by != actor.person)",
+                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
                   "when": null,
-                  "message": "You edited this result in its current review cycle, so someone else reviews it."
+                  "message": "Sign the deliverable while the request is open and in progress at the service."
+                },
+                {
+                  "name": "measured_scope",
+                  "description": null,
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
+                  "message": "The measurement must still answer this request for the material it sent."
+                },
+                {
+                  "name": "scope_still_matches",
+                  "description": null,
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
+                  "when": null,
+                  "message": "The protein or tube must still be on the request."
                 }
               ],
               "signatures": [
@@ -155,16 +196,20 @@
                   "meaning_label": "Review",
                   "verb": "Reviewed",
                   "label": "Review",
-                  "statement": "I reviewed this record and found it in order.",
-                  "roles": ["iki/example_lims.reviewer"]
+                  "statement": "I reviewed the delivery report, outcome, and supporting evidence.",
+                  "roles": [
+                    "iki/lab_roles.reviewer"
+                  ]
                 }
               ]
             },
             {
               "name": "released",
               "label": "Released",
-              "description": "QA has released the reviewed measurement to the project that asked.",
-              "set_by": ["iki/example_lims.qa"],
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -173,30 +218,37 @@
                 {
                   "name": "reviewed",
                   "description": null,
-                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"in_review\"",
+                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
                   "when": null,
-                  "message": "QA can release a result after a reviewer signs the analyst's submission."
+                  "message": "Release the submitted deliverable after its independent review."
                 },
                 {
                   "name": "independent_release",
                   "description": null,
-                  "check": "last.review.reviewed.by != actor.person",
+                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
                   "when": null,
-                  "message": "You reviewed this result, so someone else in QA releases it."
+                  "message": "Have someone in QA who did not create, submit, edit or review the deliverable release it."
                 },
                 {
-                  "name": "independent_of_analyst",
+                  "name": "active_request",
                   "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.in_review.by != actor.person",
+                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
                   "when": null,
-                  "message": "You created or submitted this result, so someone else in QA releases it."
+                  "message": "Sign the deliverable while the request is open and in progress at the service."
                 },
                 {
-                  "name": "independent_of_edits",
+                  "name": "measured_scope",
                   "description": null,
-                  "check": "edits.review.draft.all(e, e.by != actor.person)",
+                  "check": "record.analysis != null && record.request.analyses != null && record.analysis in record.request.analyses && record.material != null && record.request.materials != null && record.material.id in record.request.materials",
+                  "when": "record.analysis != null || (record.request.analyses != null && size(record.request.analyses) > 0)",
+                  "message": "The measurement must still answer this request for the material it sent."
+                },
+                {
+                  "name": "scope_still_matches",
+                  "description": null,
+                  "check": "record.request.facility_service == \"protein_production\" ? (record.protein != null && record.protein.id in record.request.records) : (record.request.facility_service != \"sequencing\" ||\n (record.material != null && record.material.id in record.request.tubes))",
                   "when": null,
-                  "message": "You edited this result in its current review cycle, so someone else in QA releases it."
+                  "message": "The protein or tube must still be on the request."
                 }
               ],
               "signatures": [
@@ -205,30 +257,32 @@
                   "meaning_label": "Approval",
                   "verb": "Approved",
                   "label": "QA release",
-                  "statement": "I release these results to the project that requested them.",
-                  "roles": ["iki/example_lims.qa"]
+                  "statement": "I release the independently reviewed deliverable to the requesting project.",
+                  "roles": [
+                    "iki/lab_roles.qa"
+                  ]
                 }
               ]
             }
           ],
           "transitions": [
             {
-              "from": "in_review",
-              "to": "draft",
+              "from": "submitted",
+              "to": "recorded",
               "conditional": false
             },
             {
               "from": "reviewed",
-              "to": "draft",
+              "to": "recorded",
               "conditional": false
             },
             {
-              "from": "draft",
-              "to": "in_review",
+              "from": "recorded",
+              "to": "submitted",
               "conditional": true
             },
             {
-              "from": "in_review",
+              "from": "submitted",
               "to": "reviewed",
               "conditional": true
             },
@@ -242,384 +296,8 @@
       ]
     },
     {
-      "type": "iki/example_lims.Sample",
-      "label": "Sample",
-      "fields": [
-        {
-          "name": "status",
-          "label": "Status",
-          "initial": "registered",
-          "states": [
-            {
-              "name": "registered",
-              "label": "Registered",
-              "description": "Logged, and on its way to the lab.",
-              "set_by": ["iki/example_lims.coordinator"],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": true,
-              "reason": "required",
-              "guards": [
-                {
-                  "name": "outside_retesting",
-                  "description": null,
-                  "check": "state.from != \"released\" && state.from != \"retesting\"",
-                  "when": null,
-                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
-                }
-              ],
-              "signatures": []
-            },
-            {
-              "name": "received",
-              "label": "Received",
-              "description": "In the lab, waiting to be tested.",
-              "set_by": ["iki/example_lims.coordinator", "iki/example_lims.analyst"],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
-                {
-                  "name": "outside_retesting",
-                  "description": null,
-                  "check": "state.from != \"released\" && state.from != \"retesting\"",
-                  "when": null,
-                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
-                }
-              ],
-              "signatures": []
-            },
-            {
-              "name": "in_testing",
-              "label": "In testing",
-              "description": "An analyst is testing it and recording the results.",
-              "set_by": [
-                "iki/example_lims.analyst",
-                "iki/example_lims.reviewer",
-                "iki/example_lims.qa"
-              ],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": "optional",
-              "guards": [
-                {
-                  "name": "outside_retesting",
-                  "description": null,
-                  "check": "state.from != \"released\" && state.from != \"retesting\"",
-                  "when": null,
-                  "message": "QA signs a return from Released, and the analyst submits from Returned to testing."
-                }
-              ],
-              "signatures": []
-            },
-            {
-              "name": "retesting",
-              "label": "Returned to testing",
-              "description": "QA returned this released sample to the analyst for retesting.",
-              "set_by": ["iki/example_lims.qa"],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": "required",
-              "guards": [
-                {
-                  "name": "previously_released",
-                  "description": null,
-                  "check": "state.from == \"released\"",
-                  "when": null,
-                  "message": "Only a released sample is returned to testing by QA."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "approval",
-                  "meaning_label": "Approval",
-                  "verb": "Approved",
-                  "label": "QA return to testing",
-                  "statement": "I return this released sample to testing for the reason recorded.",
-                  "roles": ["iki/example_lims.qa"]
-                }
-              ]
-            },
-            {
-              "name": "in_review",
-              "label": "In review",
-              "description": "Its results wait for a reviewer.",
-              "set_by": ["iki/example_lims.analyst"],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
-                {
-                  "name": "tested",
-                  "description": "It's submitted for review once it's been tested.",
-                  "check": "state.from in [\"in_testing\", \"retesting\"]",
-                  "when": null,
-                  "message": "Submit a sample for review after testing or retesting it."
-                },
-                {
-                  "name": "has_result",
-                  "description": null,
-                  "check": "record.result != null",
-                  "when": null,
-                  "message": "Record its result, pass or fail, before submitting it for review."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "authorship",
-                  "meaning_label": "Authorship",
-                  "verb": "Authored",
-                  "label": "Authorship",
-                  "statement": "I performed these tests and recorded the results as observed.",
-                  "roles": ["iki/example_lims.analyst"]
-                }
-              ]
-            },
-            {
-              "name": "approved",
-              "label": "Approved",
-              "description": "A reviewer checked its results; they can't change now.",
-              "set_by": ["iki/example_lims.reviewer"],
-              "locks": true,
-              "on_edit": "in_testing",
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
-                {
-                  "name": "reviewed",
-                  "description": "Only a sample in review is approved.",
-                  "check": "state.from == \"in_review\"",
-                  "when": null,
-                  "message": "A sample is approved from In review."
-                },
-                {
-                  "name": "four_eyes",
-                  "description": "Whoever submitted it for review doesn't approve it: a second person checks the first's work.",
-                  "check": "last.status.in_review == null || last.status.in_review.by != actor.person",
-                  "when": null,
-                  "message": "You submitted it for review, so someone else approves it."
-                },
-                {
-                  "name": "independent_measurement",
-                  "description": null,
-                  "check": "(last.status.retesting == null ? edits.status.in_testing : edits.status.retesting) .all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
-                  "when": null,
-                  "message": "You edited the test results, so someone else approves this sample."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "review",
-                  "meaning_label": "Review",
-                  "verb": "Reviewed",
-                  "label": "Review",
-                  "statement": "I reviewed this record and found it in order.",
-                  "roles": ["iki/example_lims.reviewer"]
-                }
-              ]
-            },
-            {
-              "name": "released",
-              "label": "Released",
-              "description": "QA released it, so its results can be used.",
-              "set_by": ["iki/example_lims.qa"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": "optional",
-              "guards": [
-                {
-                  "name": "approved",
-                  "description": "Only an approved sample is released.",
-                  "check": "state.from == \"approved\"",
-                  "when": null,
-                  "message": "A sample is released once it's approved."
-                },
-                {
-                  "name": "passed",
-                  "description": null,
-                  "check": "record.result == \"pass\"",
-                  "when": null,
-                  "message": "Only a sample that passed is released; reject one that failed."
-                },
-                {
-                  "name": "not_its_approver",
-                  "description": null,
-                  "check": "last.status.approved == null || last.status.approved.by != actor.person",
-                  "when": null,
-                  "message": "You approved it, so someone else in QA releases it."
-                },
-                {
-                  "name": "independent_measurement",
-                  "description": null,
-                  "check": "(last.status.retesting == null ? edits.status.in_testing : edits.status.retesting) .all(e, e.by != actor.person || !e.fields.exists(f, f in [\"purity\", \"concentration\", \"result\", \"notes\"]))",
-                  "when": null,
-                  "message": "You edited the test results, so someone else in QA releases this sample."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "approval",
-                  "meaning_label": "Approval",
-                  "verb": "Approved",
-                  "label": "QA release",
-                  "statement": "I release this sample for use.",
-                  "roles": ["iki/example_lims.qa"]
-                }
-              ]
-            },
-            {
-              "name": "rejected",
-              "label": "Rejected",
-              "description": "QA rejected it; it's kept, with its results, but not used.",
-              "set_by": ["iki/example_lims.qa"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": true,
-              "reason": "required",
-              "guards": [
-                {
-                  "name": "reviewed",
-                  "description": "QA rejects a sample once it's been reviewed.",
-                  "check": "state.from == \"approved\" || state.from == \"in_review\"",
-                  "when": null,
-                  "message": "A sample is rejected once it's in review or approved."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "responsibility",
-                  "meaning_label": "Responsibility",
-                  "verb": "Signed off",
-                  "label": "QA rejection",
-                  "statement": "I reject this sample; it isn't to be used.",
-                  "roles": ["iki/example_lims.qa"]
-                }
-              ]
-            }
-          ],
-          "transitions": [
-            {
-              "from": "received",
-              "to": "registered",
-              "conditional": false
-            },
-            {
-              "from": "in_testing",
-              "to": "registered",
-              "conditional": false
-            },
-            {
-              "from": "in_review",
-              "to": "registered",
-              "conditional": false
-            },
-            {
-              "from": "approved",
-              "to": "registered",
-              "conditional": false
-            },
-            {
-              "from": "rejected",
-              "to": "registered",
-              "conditional": false
-            },
-            {
-              "from": "registered",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "in_testing",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "in_review",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "approved",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "rejected",
-              "to": "received",
-              "conditional": false
-            },
-            {
-              "from": "registered",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
-              "from": "received",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
-              "from": "in_review",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
-              "from": "approved",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
-              "from": "rejected",
-              "to": "in_testing",
-              "conditional": false
-            },
-            {
-              "from": "released",
-              "to": "retesting",
-              "conditional": false
-            },
-            {
-              "from": "in_testing",
-              "to": "in_review",
-              "conditional": true
-            },
-            {
-              "from": "retesting",
-              "to": "in_review",
-              "conditional": true
-            },
-            {
-              "from": "in_review",
-              "to": "approved",
-              "conditional": true
-            },
-            {
-              "from": "approved",
-              "to": "released",
-              "conditional": true
-            },
-            {
-              "from": "in_review",
-              "to": "rejected",
-              "conditional": false
-            },
-            {
-              "from": "approved",
-              "to": "rejected",
-              "conditional": false
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "type": "iki/example_lims.AnalysisRequest",
-      "label": "Analysis request",
+      "type": "iki/requests.Request",
+      "label": "Request",
       "fields": [
         {
           "name": "standing",
@@ -630,7 +308,9 @@
               "name": "open",
               "label": "Open",
               "description": null,
-              "set_by": ["iki/example_lims.coordinator"],
+              "set_by": [
+                "iki/lab_roles.coordinator"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -641,8 +321,10 @@
             {
               "name": "withdrawn",
               "label": "Withdrawn",
-              "description": "The project no longer needs it; the core stops work on it.",
-              "set_by": ["iki/example_lims.coordinator"],
+              "description": "The project no longer needs it; the service stops work on it.",
+              "set_by": [
+                "iki/lab_roles.coordinator"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -672,8 +354,10 @@
             {
               "name": "submitted",
               "label": "Submitted",
-              "description": "Sent, and waiting for the core.",
-              "set_by": ["iki/example_lims.coordinator"],
+              "description": "Sent, and waiting for the service.",
+              "set_by": [
+                "iki/lab_roles.coordinator"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -684,8 +368,10 @@
             {
               "name": "accepted",
               "label": "Accepted",
-              "description": "The core will do it, and schedules it.",
-              "set_by": ["iki/example_lims.coordinator"],
+              "description": "The service will do it, and schedules it.",
+              "set_by": [
+                "iki/lab_roles.coordinator"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -696,8 +382,10 @@
             {
               "name": "in_progress",
               "label": "In progress",
-              "description": "Its analyst is testing its samples.",
-              "set_by": ["iki/example_lims.analyst"],
+              "description": "Its assignee is doing the requested work.",
+              "set_by": [
+                "iki/lab_roles.analyst"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -709,7 +397,10 @@
               "name": "delivered",
               "label": "Delivered",
               "description": "Its results are released back to the project that asked.",
-              "set_by": ["iki/example_lims.reviewer", "iki/example_lims.qa"],
+              "set_by": [
+                "iki/lab_roles.reviewer",
+                "iki/lab_roles.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -720,8 +411,10 @@
             {
               "name": "declined",
               "label": "Declined",
-              "description": "The core won't do it, and says why.",
-              "set_by": ["iki/example_lims.coordinator"],
+              "description": "The service won't do it, and says why.",
+              "set_by": [
+                "iki/lab_roles.coordinator"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -836,6 +529,251 @@
       ]
     },
     {
+      "type": "iki/samples.Sample",
+      "label": "Sample",
+      "fields": [
+        {
+          "name": "status",
+          "label": "Status",
+          "initial": "pending",
+          "states": [
+            {
+              "name": "pending",
+              "label": "Awaiting draw",
+              "description": null,
+              "set_by": [],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [],
+              "signatures": []
+            },
+            {
+              "name": "received",
+              "label": "Received",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.coordinator",
+                "iki/lab_roles.analyst"
+              ],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "drawn",
+                  "description": null,
+                  "check": "state.from == \"pending\" && size(draws) == 1",
+                  "when": null,
+                  "message": "Record the draw from the assigned source before receiving this sample."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "in_testing",
+              "label": "In testing",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.analyst"
+              ],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "received",
+                  "description": null,
+                  "check": "state.from == \"received\"",
+                  "when": null,
+                  "message": "Receive the sample before testing it."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "in_review",
+              "label": "In review",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.analyst"
+              ],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "tested",
+                  "description": null,
+                  "check": "state.from in [\"in_testing\", \"retesting\"] && record.measurements != null && size(record.measurements) > 0",
+                  "when": null,
+                  "message": "Record at least one measurement in testing before submitting for review."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "authorship",
+                  "meaning_label": "Authorship",
+                  "verb": "Authored",
+                  "label": "Authorship",
+                  "statement": "I recorded these measurements as observed.",
+                  "roles": [
+                    "iki/lab_roles.analyst"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "reviewed",
+              "label": "Reviewed",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.reviewer"
+              ],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "submitted",
+                  "description": null,
+                  "check": "state.from == \"in_review\"",
+                  "when": null,
+                  "message": "Review the signed submission."
+                },
+                {
+                  "name": "independent",
+                  "description": null,
+                  "check": "last.status.in_review.by != actor.person && (last.status.retesting == null ?\n edits.status.pending + edits.status.received + edits.status.in_testing :\n edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in [\"measurements\", \"notes\"]))",
+                  "when": null,
+                  "message": "Someone other than the submitter and measurement editors must review this testing cycle."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "review",
+                  "meaning_label": "Review",
+                  "verb": "Reviewed",
+                  "label": "Review",
+                  "statement": "I reviewed this record and found it in order.",
+                  "roles": [
+                    "iki/lab_roles.reviewer"
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "results_recorded",
+              "label": "Results recorded",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.reviewer"
+              ],
+              "locks": true,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": null,
+              "guards": [
+                {
+                  "name": "reviewed",
+                  "description": null,
+                  "check": "state.from == \"reviewed\"",
+                  "when": null,
+                  "message": "Record the results after independent signed review."
+                }
+              ],
+              "signatures": []
+            },
+            {
+              "name": "retesting",
+              "label": "Returned to testing",
+              "description": null,
+              "set_by": [
+                "iki/lab_roles.reviewer"
+              ],
+              "locks": false,
+              "on_edit": null,
+              "holds_amount": false,
+              "reason": "required",
+              "guards": [
+                {
+                  "name": "signed",
+                  "description": null,
+                  "check": "state.from in [\"in_review\", \"reviewed\", \"results_recorded\"]",
+                  "when": null,
+                  "message": "Return a submitted or reviewed sample to testing."
+                }
+              ],
+              "signatures": [
+                {
+                  "meaning": "responsibility",
+                  "meaning_label": "Responsibility",
+                  "verb": "Signed off",
+                  "label": "Responsibility",
+                  "statement": "I return these measurements to testing for the reason recorded.",
+                  "roles": [
+                    "iki/lab_roles.reviewer"
+                  ]
+                }
+              ]
+            }
+          ],
+          "transitions": [
+            {
+              "from": "pending",
+              "to": "received",
+              "conditional": true
+            },
+            {
+              "from": "received",
+              "to": "in_testing",
+              "conditional": false
+            },
+            {
+              "from": "in_testing",
+              "to": "in_review",
+              "conditional": true
+            },
+            {
+              "from": "retesting",
+              "to": "in_review",
+              "conditional": true
+            },
+            {
+              "from": "in_review",
+              "to": "reviewed",
+              "conditional": true
+            },
+            {
+              "from": "reviewed",
+              "to": "results_recorded",
+              "conditional": false
+            },
+            {
+              "from": "in_review",
+              "to": "retesting",
+              "conditional": false
+            },
+            {
+              "from": "reviewed",
+              "to": "retesting",
+              "conditional": false
+            },
+            {
+              "from": "results_recorded",
+              "to": "retesting",
+              "conditional": false
+            }
+          ]
+        }
+      ]
+    },
+    {
       "type": "iki/lots.Lot",
       "label": "Lot",
       "fields": [
@@ -848,7 +786,9 @@
               "name": "quarantined",
               "label": "Quarantined",
               "description": "Made or received, and not yet released. It can be drawn from to be tested.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": [
+                "iki/lots.qa"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": false,
@@ -868,7 +808,9 @@
               "name": "released",
               "label": "Released",
               "description": "QA released it for use. Its values can't change while it's released.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": [
+                "iki/lots.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -938,7 +880,9 @@
                   "verb": "Approved",
                   "label": "QA release",
                   "statement": "I release this lot for use: its records and certificate of analysis meet its specification.",
-                  "roles": ["iki/lots.qa"]
+                  "roles": [
+                    "iki/lots.qa"
+                  ]
                 }
               ]
             },
@@ -946,7 +890,9 @@
               "name": "on_hold",
               "label": "On hold",
               "description": "Kept from use while something is looked into, such as a deviation or a result out of its specification.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": [
+                "iki/lots.qa"
+              ],
               "locks": false,
               "on_edit": null,
               "holds_amount": true,
@@ -966,7 +912,9 @@
               "name": "rejected",
               "label": "Rejected",
               "description": "It doesn't meet its specification. It's kept, with its records, but not used.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": [
+                "iki/lots.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -979,7 +927,9 @@
                   "verb": "Signed off",
                   "label": "QA rejection",
                   "statement": "I reject this lot; it isn't to be used.",
-                  "roles": ["iki/lots.qa"]
+                  "roles": [
+                    "iki/lots.qa"
+                  ]
                 }
               ]
             },
@@ -987,7 +937,9 @@
               "name": "expired",
               "label": "Expired",
               "description": "Past its expiry or retest date. It's kept, but not used.",
-              "set_by": ["iki/lots.qa"],
+              "set_by": [
+                "iki/lots.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": true,
@@ -1104,7 +1056,9 @@
               "name": "signed",
               "label": "Signed off",
               "description": null,
-              "set_by": ["iki/plate_assays.reviewer"],
+              "set_by": [
+                "iki/plate_assays.reviewer"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -1125,7 +1079,9 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I checked the measurements, exclusions and reported fit.",
-                  "roles": ["iki/plate_assays.reviewer"]
+                  "roles": [
+                    "iki/plate_assays.reviewer"
+                  ]
                 }
               ]
             }
@@ -1177,7 +1133,9 @@
               "name": "submitted",
               "label": "Submitted",
               "description": null,
-              "set_by": ["iki/plate_assays.analyst"],
+              "set_by": [
+                "iki/plate_assays.analyst"
+              ],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -1198,7 +1156,9 @@
                   "verb": "Authored",
                   "label": "Authorship",
                   "statement": "I made this record, and what it says is accurate and complete.",
-                  "roles": ["iki/plate_assays.analyst"]
+                  "roles": [
+                    "iki/plate_assays.analyst"
+                  ]
                 }
               ]
             },
@@ -1206,7 +1166,9 @@
               "name": "reviewed",
               "label": "Independently reviewed",
               "description": null,
-              "set_by": ["iki/plate_assays.reviewer"],
+              "set_by": [
+                "iki/plate_assays.reviewer"
+              ],
               "locks": true,
               "on_edit": "recorded",
               "holds_amount": false,
@@ -1234,7 +1196,9 @@
                   "verb": "Reviewed",
                   "label": "Review",
                   "statement": "I reviewed this record and found it in order.",
-                  "roles": ["iki/plate_assays.reviewer"]
+                  "roles": [
+                    "iki/plate_assays.reviewer"
+                  ]
                 }
               ]
             },
@@ -1242,7 +1206,9 @@
               "name": "released",
               "label": "QA released",
               "description": null,
-              "set_by": ["iki/plate_assays.qa"],
+              "set_by": [
+                "iki/plate_assays.qa"
+              ],
               "locks": true,
               "on_edit": null,
               "holds_amount": false,
@@ -1270,7 +1236,9 @@
                   "verb": "Approved",
                   "label": "QA release",
                   "statement": "I approve this record.",
-                  "roles": ["iki/plate_assays.qa"]
+                  "roles": [
+                    "iki/plate_assays.qa"
+                  ]
                 }
               ]
             }

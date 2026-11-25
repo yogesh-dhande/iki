@@ -62,10 +62,10 @@ def exercise_import(project: Project) -> None:
     ProjectMembership.objects.create(project=project, user=analyst, role=ProjectRole.EDITOR)
     env = "iki/plate_assays.assay-tools"
     catalog.compute().bindings[env] = Binding(environment=env, templates=(("backend-small", 0),))
-    protein = entities.create(analyst, "iki/protein.Protein", project, {"sequence": "GGS"}).entity
-    sample = entities.create(
-        analyst, "iki/example_lims.Sample", project, {"protein": str(protein.pk)}
+    reference = entities.create(
+        analyst, "iki/inventory.Tube", project, {"name": "Reference"}
     ).entity
+    sample = entities.create(analyst, "iki/inventory.Tube", project, {"name": "Test series"}).entity
     # The synthetic series in mars-96-series.csv. A9 is an undosed sample and
     # A10 a reference control, both retained by the same reader commit.
     layout: list[dict[str, Any]] = [
@@ -79,7 +79,7 @@ def exercise_import(project: Project) -> None:
         for i, dose in enumerate([1, 2, 4, 8, 16, 32, 64, 128])
     ]
     layout += [
-        {"well": "A9", "sample": str(protein.pk), "replicate": 2},
+        {"well": "A9", "sample": str(reference.pk), "replicate": 2},
         {"well": "A10", "control": "Reference", "replicate": 1},
     ]
     made = entities.create(

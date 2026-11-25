@@ -417,7 +417,7 @@ class Entities(_Part):
         DataFrame's ``held`` and ``breaks`` columns name the rules::
 
             iki.entities.search(
-                "iki/example_lims.Sample",
+                "iki/samples.Sample",
                 where={"field": "held", "op": "eq", "value": "purity_in_specification"},
             ).to_pandas()[["held", "purity"]]
         """
@@ -618,7 +618,7 @@ class Entities(_Part):
         the records its ``sends`` fields name, such as its samples. ``revision`` as for
         :meth:`update`::
 
-            core = iki.projects.services("kinase-atlas", type="iki/example_lims.AnalysisRequest")[0]
+            core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
             iki.entities.submit("REQ-000003", core["project"], revision=1, reason="Lot 12")
         """
         return cast(
@@ -826,7 +826,7 @@ class Entities(_Part):
         refers to it, what runs made from it, and on: what a recall or a donor's consent
         withdrawal affects::
 
-            iki.entities.downstream("DNR-000001", type="iki/example_lims.Aliquot").to_pandas()
+            iki.entities.downstream("TUB-000001", type="iki/inventory.Tube").to_pandas()
         """
         return self._walk("downstream", ref, depth, edges, type, archived, project, page_size)
 
@@ -952,7 +952,7 @@ class Work(_Part):
 
             client = iki.client()
             for item in client.work.mine(
-                type="iki/example_lims.Sample", state={"status": "in_review"}
+                type="iki/samples.Sample", state={"status": "in_review"}
             ):
                 print(item["entity"]["hrid"], item["due"])
         """
@@ -1043,9 +1043,9 @@ class Notifications(_Part):
         ``None`` follows your choice everywhere again::
 
             client = iki.client()
-            client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+            client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
             client.notifications.choose(
-                {"iki/example_lims.Sample.in_review": "off"}, project="stability"
+                {"iki/samples.Sample.in_review": "off"}, project="stability"
             )
         """
         client = self._client

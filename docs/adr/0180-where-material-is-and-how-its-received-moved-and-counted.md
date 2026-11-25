@@ -9,6 +9,8 @@
   [0123](0123-queries-walk-the-graph-of-what-depends-on-what.md),
   [0129](0129-types-declare-their-notifications.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). Freezer, Shelf, Rack, Box and Tube now belong to `iki/inventory`. Tube follows its contents. The shipment list and coordinator receipt belong to `iki/requests.Request`.
+
 ## Context
 
 A lab keeps its material in freezers, on shelves, in racks and in boxes, and

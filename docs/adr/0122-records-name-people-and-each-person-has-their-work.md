@@ -11,6 +11,8 @@
   [0031](0031-signed-webhooks.md),
   [0026](0026-saml-and-scim-provisioning.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The shared analyst and reviewer roles now come from `iki/lab_roles`. The sample reviewer is assigned for In review.
+
 ## Context
 
 A lab's records say who does what: a sample has its analyst, its reviewer
