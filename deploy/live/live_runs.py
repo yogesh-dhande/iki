@@ -98,6 +98,7 @@ RELEVANT: dict[str, tuple[str, ...]] = {
         *SHARED,
         "deploy/gcp/",
         "server/src/iki_server/files/gcs.py",
+        "server/src/iki_server/google_http.py",
         "server/src/iki_server/runs/gce.py",
         "server/src/iki_server/runs/gce_fleet.py",
         "server/src/iki_server/runs/gce_volumes.py",
