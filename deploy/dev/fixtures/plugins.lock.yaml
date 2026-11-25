@@ -7,10 +7,10 @@ plugins:
     local: ../../../plugins/lims_connector_example
     state: active
     settings: settings/lims_connector_example.yaml
-  # Calls the fake FoldCloud (../manifests/fake-foldcloud.yaml), an outside API.
-  - name: iki/example_models
-    local: ../../../plugins/example_models
+  # Calls the fake FoldCloud (fake-foldcloud.yaml), an outside API.
+  - name: lab/hosted_models
+    local: ../../../examples/plugins/hosted_models
     state: active
-    settings: settings/example_models.yaml
+    settings: settings/hosted_models.yaml
   # The plugin template, for its container-tier action (ADR 0061).
   - { name: acme/example, local: ../../../plugin-template, state: active }

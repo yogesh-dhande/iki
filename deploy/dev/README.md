@@ -56,7 +56,10 @@ The latter adds the [fixture plugin pins](fixtures/plugins.lock.yaml),
 [compute bindings](fixtures/compute.yaml) and [Helm values](fixtures/values.yaml).
 The server and worker builds both pass `--test-only` for this overlay.
 It includes the template's container and storage checks, the LIMS import and
-write-back, and FoldCloud jobs and callbacks. Each run backs up the seeded
+write-back, and the [hosted-model recipe](../../examples/plugins/hosted_models).
+The [FoldCloud fixture](fixtures/fake-foldcloud.yaml) accepts a cancelled job
+and delivers a signed callback for a completed one. The seed checks the resumed
+run's structure, provenance and billed usage. Each run backs up the seeded
 database and checks the restored records and files.
 
 To work on those integrations interactively, run `IKI_DEV_FIXTURES=1 make dev-up`,

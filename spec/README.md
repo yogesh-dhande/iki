@@ -1324,7 +1324,8 @@ An API with `jobs` lets a command submit, then park: its output is
 The run waits, holding no worker, while Iki polls the job, or the API calls
 back (`IKI_API_FOLDCLOUD_CALLBACK_URL`, signed). Once the job's done, the
 command runs again with `resume` in its input: the job, its `state` and the
-API's last answer. `plugins/example_models` is a complete example.
+API's last answer. The [hosted-model author example](../examples/plugins/hosted_models/README.md)
+exercises this contract against a fictional provider.
 
 Runs whose machine went away (`worker_lost`, `interrupted`) are retried twice
 by default. Actions that reach the network aren't retried unless they say so,
@@ -2083,7 +2084,7 @@ unit of each usage the API reports, in the same currency.
 ```yaml
 apiVersion: iki/v1
 kind: ApiPrice
-api: iki/example_models.foldcloud
+api: lab/hosted_models.foldcloud
 per_call: 0.01
 usage: { gpu_seconds: 0.0011 }
 currency: USD

@@ -141,7 +141,7 @@ fi
 if [[ "$fixtures" == 1 ]]; then
   # A certificate authority for the dev cluster's fake services that runs reach
   # over HTTPS (the fake LIMS, manifests/fake-lims.yaml, and the fake FoldCloud,
-  # manifests/fake-foldcloud.yaml): runs check TLS end to end, through the egress
+  # fixtures/fake-foldcloud.yaml): runs check TLS end to end, through the egress
   # proxy, as they would a lab's LIMS with a certificate from its internal CA.
   # Workers and the egress proxy trust iki-dev-ca's bundle: the public CAs
   # (certifi's, from the project's environment) and this one.
@@ -187,8 +187,8 @@ if [[ "$fixtures" == 1 ]]; then
         -p "{\"stringData\":{\"$key\":\"$value\"}}" >/dev/null
     fi
   }
-  ensure_run_secret iki__example_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
-  ensure_run_secret iki__example_models.FOLDCLOUD_WEBHOOK_SECRET \
+  ensure_run_secret lab__hosted_models.FOLDCLOUD_API_KEY "$(rand 32 32)"
+  ensure_run_secret lab__hosted_models.FOLDCLOUD_WEBHOOK_SECRET \
     "whsec_$(openssl rand -base64 32)"
 fi
 # The egress proxy's key for calling outside APIs (egressProxy.gatewayKey, ADR 0130).

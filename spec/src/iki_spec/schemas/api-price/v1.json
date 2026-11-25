@@ -10,7 +10,7 @@
     "apiVersion": { "const": "iki/v1" },
     "kind": { "const": "ApiPrice" },
     "api": {
-      "description": "The plugin and its API, such as `iki/example_models.fold`.",
+      "description": "The plugin and its API, such as `lab/hosted_models.foldcloud`.",
       "type": "string",
       "maxLength": 200,
       "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[a-z][a-z0-9_]{0,62}$"

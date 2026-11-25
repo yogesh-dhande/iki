@@ -5,14 +5,17 @@ start a new plugin, the [plugin template](../../plugin-template/README.md)
 includes a sample storage workflow, action tests and a GitHub Actions build.
 Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 
+- [Automatic calibration impact tracing](calibration_tracing/README.md) opens
+  impact cases for affected measurements when an engineer marks an instrument's
+  calibration as failed.
+- [Hosted model adapter](hosted_models/README.md) submits a job to a fictional
+  provider and imports its result when the job finishes. Use it to adapt an
+  asynchronous service your lab has approved.
 - [Independent construct review](construct_review/README.md) adds a reviewed Assembly
   for labs that require someone other than the builder or a later editor to verify a
   matching comparison and lock the record.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
-- [Automatic calibration impact tracing](calibration_tracing/README.md) opens
-  impact cases for affected measurements when an engineer marks an instrument's
-  calibration as failed.
 
 ## Copy and name a plugin
 
