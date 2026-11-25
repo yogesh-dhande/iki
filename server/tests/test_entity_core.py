@@ -280,9 +280,11 @@ def test_linking_is_audited_and_the_owner_project_cant_be_unlinked(lab: dict[str
 
 
 def test_extension_fields_get_their_own_row_and_history(lab: dict[str, Any]) -> None:
-    from iki_server.files.models import Blob, File
+    from scan_fixtures import clean_blob
 
-    blob = Blob.objects.create(sha256="a" * 64, size=1, storage_uri="s3://b/a")
+    from iki_server.files.models import File
+
+    blob = clean_blob(sha256="a" * 64, size=1, storage_uri="s3://b/a")
     pdb = File.objects.create(
         blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=lab["first"]
     )

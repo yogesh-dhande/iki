@@ -31,7 +31,7 @@ import {
   Time,
   useMessages,
 } from "../ui";
-import { sendParts, sha256Of, uploadError, type Progress } from "../uploads";
+import { progressLabel, sendParts, sha256Of, uploadError, type Progress } from "../uploads";
 import { useProject } from "./project-overview";
 
 type Import = Schemas["ImportOut"];
@@ -39,6 +39,9 @@ type Planned = Schemas["ImportEntityOut"];
 type Action = Planned["action"];
 
 const STATES: Record<Import["state"], string> = {
+  scanning: "Scanning",
+  quarantined: "Quarantined",
+  not_scanned: "Not scanned",
   uploading: "Uploading",
   planning: "Checking…",
   planned: "Planned",
@@ -77,7 +80,9 @@ function importsQuery(projectId: string) {
         }),
       ).items,
     refetchInterval: (query) =>
-      query.state.data?.some((i) => i.state === "planning" || i.state === "applying")
+      query.state.data?.some(
+        (i) => i.state === "scanning" || i.state === "planning" || i.state === "applying",
+      )
         ? 2000
         : false,
   });
@@ -96,6 +101,7 @@ function importQuery(id: string) {
     refetchInterval: (query) =>
       query.state.data?.state === "planning" ||
       query.state.data?.state === "uploading" ||
+      query.state.data?.state === "scanning" ||
       query.state.data?.state === "applying"
         ? 2000
         : false,
@@ -262,17 +268,13 @@ export function Imports({ project }: { project: Project }) {
       {file && progress ? (
         <div className="upload">
           <p className="visually-hidden" role="status">
-            {progress.phase === "hashing"
-              ? `Reading ${file.name}`
-              : progress.phase === "sending"
-                ? `Uploading ${file.name}`
-                : `Checking ${file.name}`}
+            {progressLabel(progress, file.name)}
           </p>
           <p aria-hidden="true">
             <UploadStatus name={file.name} progress={progress} />
           </p>
-          {progress.phase === "checking" ? (
-            <progress aria-label={`Checking ${file.name}`} />
+          {progress.phase === "checking" || progress.phase === "scanning" ? (
+            <progress aria-label={progressLabel(progress, file.name)} />
           ) : (
             <>
               <progress
@@ -416,6 +418,7 @@ export function ImportPage() {
       <h2>
         Import of {made.name} <Badge muted={made.state !== "planned"}>{STATES[made.state]}</Badge>
       </h2>
+      {made.state === "scanning" ? <Loading label="Scanning the bundle…" /> : null}
       {made.state === "uploading" || made.state === "planning" ? (
         <Loading label="Iki is checking the bundle and planning the import…" />
       ) : null}

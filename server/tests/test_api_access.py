@@ -15,6 +15,7 @@ from api_client import Api
 from ninja import NinjaAPI
 from org_world import PRINCIPALS, World, build_world
 from pydantic import BaseModel
+from test_files import run_tasks
 
 from iki_server.accounts import service_accounts
 from iki_server.api.v1 import api
@@ -463,7 +464,7 @@ def bundle_export(suffix: str = "") -> Build:
             w.users["admin"], w.project, reason="For production", entities=[_entity(w).hrid]
         )
         BundleExport.objects.filter(pk=made.pk).update(
-            state="ready", sha256="0" * 64, size=1, references=made.picked
+            state="ready", sha256="0" * 64, size=1, references=made.picked, scanned_blobs=[]
         )
         return f"/bundles/{made.pk}{suffix}", None
 
@@ -928,6 +929,7 @@ def _workbook(w: World) -> Any:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     return upload.file
 
@@ -1041,7 +1043,7 @@ def registration() -> Build:
 
 
 def file(suffix: str = "") -> Build:
-    """An empty file, which is ready as soon as it's added."""
+    """An empty file, ready to use after scanning."""
 
     def build(w: World) -> tuple[Any, ...]:
         from iki_server.files import services as files
@@ -1055,6 +1057,7 @@ def file(suffix: str = "") -> Build:
             size=0,
             sha256=EMPTY_SHA256,
         )
+        run_tasks()
         added.refresh_from_db()
         return f"/files/{added.file_id}{suffix}", None
 
@@ -1820,6 +1823,16 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("GET", "/uploads", fixed("/uploads"), row(200)),
+    ("GET", "/quarantine", fixed("/quarantine"), row(403, quarantine_admin=200)),
+    (
+        "POST",
+        "/quarantine/{decision_id}/release",
+        fixed(
+            "/quarantine/00000000-0000-0000-0000-000000000001/release",
+            {"reason": "Matched the independently verified original."},
+        ),
+        row(403, quarantine_admin=404),
+    ),
     ("GET", "/uploads/{upload_id}", upload(), row(404, editor=200)),
     ("POST", "/uploads/{upload_id}/parts", upload("/parts", {}), row(404, editor=200)),
     (

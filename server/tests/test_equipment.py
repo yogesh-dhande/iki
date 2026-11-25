@@ -11,6 +11,7 @@ from django.db import transaction
 from django.utils import timezone
 from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
 from org_world import build_world
+from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import ready, signed
 from test_states import roles
@@ -18,7 +19,7 @@ from test_states import roles
 from iki_server.amounts import services as amounts
 from iki_server.entities import services, states
 from iki_server.entities.models import Entity
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
 from iki_server.runs.models import ActionRun, EffectKind, Job, Lineage, RunEffect
@@ -236,7 +237,7 @@ def exercise_instrument_use() -> None:
     )
     measured.refresh_from_db()
     attachment = File.objects.create(
-        blob=Blob.objects.create(sha256="a" * 64, size=12, storage_uri="s3://iki/passing"),
+        blob=clean_blob(sha256="a" * 64, size=12, storage_uri="s3://iki/passing"),
         name="Synthetic passing calibration.txt",
         media_type="text/plain",
         project=project,

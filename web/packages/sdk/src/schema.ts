@@ -3346,6 +3346,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List held file scan decisions
+         * @description For Quarantine Admins. Newest first, across the deployment. Each entry identifies the
+         *     held bytes and the finding. A source can have several project files that share its scan.
+         */
+        get: operations["iki_server_api_files_list_quarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quarantine/{decision_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release an infected file after reviewing its finding
+         * @description For Quarantine Admins. The given reason and the reviewer are recorded in the audit log.
+         *     All files covered by this decision become usable and keep their original finding.
+         */
+        post: operations["iki_server_api_files_release_quarantine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}": {
         parameters: {
             query?: never;
@@ -3644,8 +3686,8 @@ export interface paths {
         /**
          * Register a file where it is
          * @description Pins one version of an object in an approved, versioned bucket. Iki reads it to learn
-         *     its SHA-256 (202), then it's ready. An object version registered before is ready at once
-         *     (201).
+         *     its SHA-256 and scan it (202). A version with a completed registration can be reused
+         *     immediately (201). Its file says whether it is usable.
          */
         post: operations["iki_server_api_files_register_file"];
         delete?: never;
@@ -4898,7 +4940,7 @@ export interface paths {
         put?: never;
         /**
          * Start adding a file
-         * @description Answers with the parts to send. An empty file needs none, and is ready at once.
+         * @description Answers with the parts to send. An empty file needs none.
          */
         post: operations["iki_server_api_files_start_upload"];
         delete?: never;
@@ -4940,7 +4982,8 @@ export interface paths {
         /**
          * Finish an upload
          * @description Once every part has arrived. Iki then checks the bytes (202), and the upload becomes
-         *     ready, or fails if they don't match its SHA-256. Finishing it again changes nothing.
+         *     ready after its malware scan, or fails if its bytes don't match the SHA-256.
+         *     Finishing it again returns its current state.
          */
         post: operations["iki_server_api_files_complete_upload"];
         delete?: never;
@@ -9137,6 +9180,8 @@ export interface components {
              * @description The samples it belongs to that you can read.
              */
             samples: components["schemas"]["SampleOut"][];
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9314,6 +9359,8 @@ export interface components {
             name: string;
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9372,6 +9419,8 @@ export interface components {
             name: string;
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /** @description The deployment's malware scan of the file's bytes. */
+            scan: components["schemas"]["FileScanOut"];
             /** Sha256 */
             sha256: string;
             /**
@@ -9380,6 +9429,49 @@ export interface components {
              */
             size: number;
             used_by: components["schemas"]["UsedByCountOut"];
+        };
+        /** FileScanOut */
+        FileScanOut: {
+            /**
+             * Decision Id
+             * @description The immutable scan decision, once recorded.
+             */
+            decision_id: string | null;
+            /**
+             * Reason
+             * @description The finding or reason the file could not be scanned.
+             */
+            reason: string;
+            /**
+             * Released
+             * @description A Quarantine Admin released this infected decision.
+             */
+            released: boolean;
+            /**
+             * Scanned At
+             * @description When the decision was recorded.
+             */
+            scanned_at: string | null;
+            /**
+             * Scanner
+             * @description Scanner identity, when known.
+             */
+            scanner: string;
+            /**
+             * Signature Version
+             * @description Signatures used by the scanner, when available.
+             */
+            signature_version: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "clean" | "infected" | "not_scanned";
+            /**
+             * Usable
+             * @description Whether the scan decision allows this file to be used.
+             */
+            usable: boolean;
         };
         /** FileSignatureOut */
         FileSignatureOut: {
@@ -9862,6 +9954,41 @@ export interface components {
             revision: number;
             /** Rule */
             rule: string;
+        };
+        /** HeldScanOut */
+        HeldScanOut: {
+            /**
+             * Id
+             * Format: uuid
+             * @description The decision ID for releasing a confirmed false positive.
+             */
+            id: string;
+            /**
+             * Reason
+             * @description What was found or why an inspection could not finish.
+             */
+            reason: string;
+            /**
+             * Scanned At
+             * Format: date-time
+             */
+            scanned_at: string;
+            /** Scanner */
+            scanner: string;
+            /** Sha256 */
+            sha256: string;
+            /** Signature Version */
+            signature_version: string;
+            /**
+             * Size
+             * @description Bytes.
+             */
+            size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "infected" | "not_scanned";
         };
         /** HelmGroupMemberOut */
         HelmGroupMemberOut: {
@@ -10467,7 +10594,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
             /**
              * Trusted As
              * @description The trusted deployment its signature is from.
@@ -10654,7 +10781,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "uploading" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "planning" | "planned" | "refused" | "applying" | "applied" | "failed" | "discarded";
             /**
              * Trusted As
              * @description The trusted deployment its signature is from.
@@ -11282,6 +11409,11 @@ export interface components {
              */
             manage_org: boolean;
             /**
+             * Manage Quarantine
+             * @description Review held file scans and release false positives.
+             */
+            manage_quarantine: boolean;
+            /**
              * Manage Webhooks
              * @description The organization's webhooks.
              */
@@ -11340,7 +11472,7 @@ export interface components {
             /** Name */
             name: string;
             /** Org Roles */
-            org_roles: ("org_admin" | "compute_admin" | "auditor")[];
+            org_roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** MessageOut */
         MessageOut: {
@@ -11980,12 +12112,12 @@ export interface components {
         /** OrgRolesIn */
         OrgRolesIn: {
             /** Roles */
-            roles: ("org_admin" | "compute_admin" | "auditor")[];
+            roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** OrgRolesOut */
         OrgRolesOut: {
             /** Roles */
-            roles: ("org_admin" | "compute_admin" | "auditor")[];
+            roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** OriginFileOut */
         OriginFileOut: {
@@ -12233,6 +12365,16 @@ export interface components {
         Page_FiringOut_: {
             /** Items */
             items: components["schemas"]["FiringOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
+        /** Page[HeldScanOut] */
+        Page_HeldScanOut_: {
+            /** Items */
+            items: components["schemas"]["HeldScanOut"][];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -14140,7 +14282,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "checking" | "ready" | "failed";
+            state: "checking" | "scanning" | "ready" | "failed";
             /** Uri */
             uri: string;
             /**
@@ -14175,7 +14317,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "checking" | "ready" | "failed";
+            state: "checking" | "scanning" | "ready" | "failed";
         };
         /** RegistryCan */
         RegistryCan: {
@@ -14365,6 +14507,14 @@ export interface components {
              * @description The kinds of edge it walks; empty for all.
              */
             edges: ("reference" | "run" | "file" | "aliquot" | "transfer" | "used")[];
+        };
+        /** ReleaseQuarantineIn */
+        ReleaseQuarantineIn: {
+            /**
+             * Reason
+             * @description Why the finding is false.
+             */
+            reason: string;
         };
         /** ReproduceIn */
         ReproduceIn: {
@@ -15002,6 +15152,8 @@ export interface components {
              * @description Where the command wrote it, relative to its output directory.
              */
             path: string;
+            /** @description The scan decision for a verified upload. */
+            scan: components["schemas"]["FileScanOut"] | null;
             /**
              * Sha256
              * @description Of its bytes, as hex.
@@ -15014,10 +15166,10 @@ export interface components {
             size: number;
             /**
              * State
-             * @description `kept` while it can be downloaded; `deleted` once its retention is over (its record stays); `failed` if its upload didn't finish.
+             * @description Whether the artifact can be downloaded, is still uploading or scanning, is held, or has expired.
              * @enum {string}
              */
-            state: "uploading" | "kept" | "failed" | "deleted";
+            state: "uploading" | "scanning" | "quarantined" | "not_scanned" | "kept" | "failed" | "deleted";
         };
         /** RunAttemptOut */
         RunAttemptOut: {
@@ -16330,7 +16482,7 @@ export interface components {
             /** Name */
             name: string;
             /** Org Roles */
-            org_roles: ("org_admin" | "compute_admin" | "auditor")[];
+            org_roles: ("org_admin" | "compute_admin" | "auditor" | "quarantine_admin")[];
         };
         /** ServiceAccountPatch */
         ServiceAccountPatch: {
@@ -17695,7 +17847,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /** StarterApplyIn */
         StarterApplyIn: {
@@ -18834,7 +18986,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /**
          * UploadStatusOut
@@ -18868,7 +19020,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+            state: "pending" | "checking" | "scanning" | "ready" | "failed" | "cancelled" | "expired";
         };
         /** UsedByCountOut */
         UsedByCountOut: {
@@ -24572,6 +24724,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WebhookCreated"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_list_quarantine: {
+        parameters: {
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_HeldScanOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_release_quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                decision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseQuarantineIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileScanOut"];
                 };
             };
         };

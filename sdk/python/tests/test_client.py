@@ -757,6 +757,26 @@ def test_a_failed_registration_reports_the_verifiers_reason(fake: FakeIki, clien
     assert len(fake.sent("POST", "/api/v1/registrations")) == 1
 
 
+def test_registration_waits_for_the_scan_and_returns_a_held_files_finding(
+    fake: FakeIki, client: Client
+) -> None:
+    checking = {"id": "r1", "name": "run.csv", "state": "checking", "file": None}
+    file = {"id": "f1", "scan": {"state": "infected", "usable": False, "reason": "Test finding"}}
+    fake.on("POST", "/api/v1/registrations", checking)
+    fake.on(
+        "GET",
+        "/api/v1/registrations/r1",
+        {**checking, "state": "scanning"},
+        {**checking, "state": "ready", "file": file},
+    )
+    registered = client.files.register("s3://lab-data/runs/run.csv", project=PROJECT)
+    assert registered["id"] == "f1"
+    assert registered["scan"]["state"] == "infected"
+    assert not registered["scan"]["usable"]
+    assert registered["scan"]["reason"] == "Test finding"
+    assert len(fake.sent("GET", "/api/v1/registrations/r1")) == 2
+
+
 def test_registration_timeout_leaves_the_version_being_checked(
     fake: FakeIki, client: Client
 ) -> None:
@@ -874,7 +894,13 @@ def test_upload_sends_parts_to_storage_and_renews_an_expired_part(
     fake.on("POST", "/api/v1/uploads/u1/parts", [{**second, "url": f"{target}?part=2&sig=fresh"}])
     checking = {"id": "u1", "state": "checking", "file": None}
     fake.on("POST", "/api/v1/uploads/u1/complete", checking)
-    fake.on("GET", "/api/v1/uploads/u1", checking, {**checking, "state": "ready", "file": record})
+    fake.on(
+        "GET",
+        "/api/v1/uploads/u1",
+        checking,
+        {**checking, "state": "scanning"},
+        {**checking, "state": "ready", "file": record},
+    )
 
     assert client.files.upload(stream, name="run.bin", project=PROJECT) == record
     assert not stream.closed
@@ -911,7 +937,12 @@ def test_a_finished_upload_reports_lost_file_access(fake: FakeIki, client: Clien
     offer_one_part(fake)
     fake.on("PUT", "/staging/u1", httpx2.Response(200))
     fake.on("POST", "/api/v1/uploads/u1/complete", {"state": "checking"})
-    fake.on("GET", "/api/v1/uploads/u1", {"state": "ready", "file": None, "error": ""})
+    fake.on(
+        "GET",
+        "/api/v1/uploads/u1",
+        {"state": "scanning", "file": None, "error": ""},
+        {"state": "ready", "file": None, "error": ""},
+    )
     with pytest.raises(iki.IkiError, match=r"finished.*no longer have access"):
         client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.bin")
 

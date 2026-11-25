@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { field, KINASE, PROTEIN, renderApp, STRUCTURE } from "./entity-fixtures";
 import { acquiredText, filterOf, searchOf, spanText, usedByText } from "./files";
-import { answer, calls, page, project, signedIn } from "./test-server";
+import { answer, calls, CLEAN_SCAN, page, project, signedIn } from "./test-server";
 
 type Row = Schemas["FileRowOut"];
 
@@ -25,6 +25,7 @@ function file(id: string, name: string, overrides: Partial<Row> = {}): Row {
     agent: null,
     created_at: "2026-11-11T09:00:00Z",
     external: false,
+    scan: CLEAN_SCAN,
     acquired: null,
     used_by: { records: 0, runs: 0 },
     ...overrides,
@@ -37,7 +38,7 @@ const C = file("3", "3def.pdb");
 
 const EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-/** An empty file is a file as soon as it's started: no parts to send or check. */
+/** An empty file that already has a scan decision has no parts to send. */
 function answerUpload(name: string) {
   answer("POST /api/v1/uploads", {
     id: "00000000-0000-7000-8000-0000000a0001",
@@ -319,6 +320,23 @@ describe("a project's Files", () => {
     await renderApp("/projects/kinase-atlas/files/");
     await screen.findByRole("table", { name: "Files in Kinase Atlas" });
     expect(screen.queryByRole("button", { name: "Upload files" })).toBeNull();
+  });
+
+  it("shows that a pending file is scanning with no download action", async () => {
+    signedIn();
+    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/projects", page([KINASE]));
+    answer(`GET /api/v1/files/${A.id}`, {
+      ...A,
+      scan: { state: "pending", usable: false },
+      origin: { kind: "upload" },
+      samples: [],
+    });
+    answer(`GET /api/v1/files/${A.id}/records`, page([]));
+    answer(`GET /api/v1/files/${A.id}/runs`, page([]));
+    await renderApp(`/files/${A.id}/`);
+    expect(await screen.findByText("Scanning…")).toBeVisible();
+    expect(screen.queryByRole("link", { name: "Download" })).toBeNull();
   });
 
   it("shows a file: what it is, when its data was acquired, and what uses it", async () => {

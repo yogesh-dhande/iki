@@ -660,6 +660,23 @@ def rest_api(admin: requests.Session) -> None:
     if not atlas:
         fail("alice's Atlas project isn't listed as hers")
     project_id = atlas[-1]["id"]
+    # EICAR's harmless antivirus test file exercises the deployed clamd and its signatures.
+    eicar = rb"X5O!P%@AP[4\PZX54(P^)7CC)7}" + b"$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    held = upload(
+        alice, atlas[-1], "eicar.com", eicar, "application/octet-stream", expected_scan="infected"
+    )
+    evidence = api_call(alice, "GET", f"/files/{held}").json()["scan"]
+    if (
+        not evidence["scanner"].startswith("ClamAV ")
+        or not evidence["signature_version"]
+        or "eicar" not in evidence["reason"].lower()
+    ):
+        fail(f"EICAR has incomplete scanner evidence: {evidence}")
+    refused_url = api_call(alice, "GET", f"/files/{held}/content-url")
+    if refused_url.status_code != 409 or refused_url.json().get("code") != "file_quarantined":
+        fail(f"a quarantined file's content URL answered HTTP {refused_url.status_code}")
+    ok("ClamAV detected the EICAR test file and Iki quarantined it")
+
     granted = api_call(
         alice,
         "PUT",
@@ -6257,6 +6274,8 @@ def upload(
     name: str,
     data: bytes,
     media_type: str = "chemical/x-pdb",
+    *,
+    expected_scan: str = "clean",
 ) -> str:
     """A file added as the web app adds one: its parts sent to the URLs Iki signs, then
     checked. Returns its ID."""
@@ -6291,8 +6310,11 @@ def upload(
     while time.monotonic() < deadline:
         made = api_call(alice, "GET", f"/uploads/{made['id']}").json()
         if made["state"] == "ready":
+            scan = made["file"]["scan"]
+            if scan["state"] != expected_scan or scan["usable"] != (expected_scan == "clean"):
+                fail(f"unexpected scan decision for {name}: {scan}")
             return str(made["file"]["id"])
-        if made["state"] != "checking":
+        if made["state"] not in ("checking", "scanning"):
             fail(f"the upload of {name} is {made['state']}")
         time.sleep(1)
     fail(f"the upload of {name} wasn't checked within a minute")

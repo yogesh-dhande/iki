@@ -10,6 +10,8 @@ from api_client import Api, problem
 from django.db import connection, transaction
 from django.db.utils import DatabaseError
 from org_world import World, build_world
+from scan_fixtures import clean_blob
+from test_files import run_tasks
 from test_runs import launch, world
 from test_workers import keep_connection
 
@@ -18,7 +20,7 @@ from iki_server.entities import services
 from iki_server.entities.models import Entity
 from iki_server.files import listing
 from iki_server.files import services as files
-from iki_server.files.models import Blob, File, Upload
+from iki_server.files.models import File, Upload
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs.models import ActionRun, RunFile
 
@@ -48,7 +50,7 @@ def add(
 ) -> File:
     """A file, as an upload or an import leaves one (its bytes aren't needed here)."""
     n = next(_blobs)
-    blob = Blob.objects.create(sha256=f"{n:064x}", size=size, storage_uri=f"s3://iki/{n}")
+    blob = clean_blob(sha256=f"{n:064x}", size=size, storage_uri=f"s3://iki/{n}")
     return File.objects.create(
         blob=blob,
         name=name,
@@ -403,6 +405,7 @@ def test_files_a_runs_worker_uploads_are_made_by_the_run(world: World, s3: Any) 
         sha256=files.EMPTY_SHA256,
     )
     assert started.status_code == 201, started.content
+    run_tasks()
     made = Upload.objects.get(pk=started.json()["id"]).file
     assert made is not None
     viewer = api_as(world, "viewer")
@@ -517,6 +520,7 @@ def test_whoever_adds_a_file_may_say_when_its_data_was_acquired(world: World, s3
         sha256=files.EMPTY_SHA256,
         acquired_at="2026-03-14 09:21",
     )
+    run_tasks()
     upload.refresh_from_db()
     assert upload.file is not None
     assert (upload.file.acquired_on, upload.file.acquired_at, upload.file.acquired_from) == (
@@ -598,6 +602,7 @@ def test_unknown_stays_unknown_never_the_time_it_was_added(world: World, s3: Any
         size=0,
         sha256=files.EMPTY_SHA256,
     )
+    run_tasks()
     upload.refresh_from_db()
     assert upload.file is not None and upload.file.acquired_on is None
     assert api_as(world, "viewer").get(f"/files/{upload.file.pk}").json()["acquired"] is None

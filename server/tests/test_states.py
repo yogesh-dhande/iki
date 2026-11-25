@@ -13,6 +13,7 @@ from org_world import PRINCIPALS, World, build_world
 from test_api_entities import api_as, create, patch
 from test_audit import as_app_role
 from test_bulk_imports import finished, lines, upload
+from test_files import run_tasks
 from test_lab_roles import give, membership
 from test_run_imports import SHA
 from test_run_results import done, output
@@ -519,6 +520,7 @@ def imported_values(world: World, *rows: dict[str, Any]) -> dict[str, Any]:
         size=0,
         sha256=EMPTY_SHA256,
     )
+    run_tasks()
     upload_.refresh_from_db()
     file_id = str(upload_.file_id)
     run = launch(api_as(world), world.project, {}, IMPORT_SAMPLES, params={"file": file_id})

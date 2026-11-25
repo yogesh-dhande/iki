@@ -11,6 +11,7 @@ import pytest
 import requests
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create
 from test_files import run_tasks
@@ -21,6 +22,9 @@ from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.entities import services
 from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.files import scan_state
+from iki_server.files import services as files
+from iki_server.files.models import Blob, Upload
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import imports
 from iki_server.runs.models import (
@@ -31,6 +35,7 @@ from iki_server.runs.models import (
     JobState,
     RunImport,
 )
+from iki_server.tasks.models import TaskRecord
 from iki_server.webhooks.models import Delivery
 
 pytestmark = pytest.mark.django_db
@@ -908,6 +913,58 @@ def test_an_import_goes_on_from_where_it_was_interrupted(
         Entity.objects.filter(type="acme/protein.Protein", owner_project__isnull=False).count()
         == 20
     )
+
+
+@pytest.mark.parametrize("infected", [False, True])
+def test_a_staged_import_waits_for_its_first_scan(
+    world: World, monkeypatch: pytest.MonkeyPatch, infected: bool
+) -> None:
+    # A pre-upgrade worker could upload a creates file and stage lines with no scan record.
+    read_scan = scan_state.status_for
+
+    def previous_worker(source: Blob | Upload) -> scan_state.ScanStatus:
+        return scan_state.ScanStatus(state="clean") if source.size else read_scan(source)
+
+    with monkeypatch.context() as old:
+        old.setattr(scan_state, "status_for", previous_worker)
+        run, _ = started(world, lambda f: lines(*(protein(s, s, f) for s in KINASES)))
+        imported = RunImport.objects.get(run_id=run["id"])
+        old.setattr(imports, "CHUNK_LINES", 1)
+        old.setattr(imports, "STEP_FOR", 0)
+        assert imports._advance(imported.pk) is False
+    blob = imported.file.blob
+    assert scan_state.status_for(blob).state == "pending"
+    run_tasks()
+    imported.refresh_from_db()
+    assert (imported.staged, imported.failures) == (1, 0)
+    assert "being scanned" in imported.job.progress_message
+    assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+
+    # Even if the queue exhausts its attempts during an outage, housekeeping
+    # recovers the same staged import and preserves its failure budget.
+    retry = TaskRecord.objects.get(args=[str(imported.pk)], status="READY")
+    assert retry.run_after > timezone.now()
+    retry.delete()
+    RunImport.objects.filter(pk=imported.pk).update(
+        updated_at=timezone.now() - imports.STALLED_AFTER
+    )
+    assert imports.recover() == 1
+    imported.refresh_from_db()
+    assert imported.failures == 0
+
+    if infected:
+        scan_state.record_result(
+            blob, state="infected", scanner="test", signature_version="1", reason="Test-Finding"
+        )
+    else:
+        assert files.scan_source(blob).state == "clean"
+    body = finished(world, run)
+    if infected:
+        assert body["status"] == "failed" and "quarantined" in body["error"]["message"]
+        assert not body["effects"]
+    else:
+        assert body["status"] == "succeeded", body
+        assert len(body["effects"]) == len(KINASES)
 
 
 def test_an_import_that_keeps_failing_gives_up(

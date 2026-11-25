@@ -29,6 +29,7 @@ PRINCIPALS = (
     "org_admin",
     "compute_admin",
     "auditor",
+    "quarantine_admin",
     "viewer",
     "editor",
     "runner",
@@ -86,6 +87,7 @@ def build_world(prefix: str = "") -> World:
         ("org_admin", OrgRole.ORG_ADMIN),
         ("compute_admin", OrgRole.COMPUTE_ADMIN),
         ("auditor", OrgRole.AUDITOR),
+        ("quarantine_admin", OrgRole.QUARANTINE_ADMIN),
         ("inactive", OrgRole.ORG_ADMIN),
     ):
         OrgRoleAssignment.objects.create(user=users[name], role=role)

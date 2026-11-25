@@ -13,6 +13,7 @@ import pytest
 from api_client import Api, problem
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from org_world import World, build_world
+from scan_fixtures import clean_blob
 from test_api_entities import create, patch
 from test_audit import as_app_role
 from test_signatures import begin, evidence, past_the_triggers, ready, signed
@@ -22,7 +23,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Request
 from iki_server.entities.values import shape
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
 from iki_server.org import permissions
 from iki_server.org.models import (
     LabRoleGrant,
@@ -1199,7 +1200,7 @@ def test_a_service_that_doesnt_share_cant_release(lab: Lab) -> None:
 
 def a_file(project: Project, name: str) -> File:
     digest = hashlib.sha256(name.encode()).hexdigest()
-    blob = Blob.objects.create(sha256=digest, size=10, storage_uri=f"s3://iki/{name}")
+    blob = clean_blob(sha256=digest, size=10, storage_uri=f"s3://iki/{name}")
     return File.objects.create(blob=blob, name=name, media_type="application/pdf", project=project)
 
 

@@ -111,14 +111,15 @@ def wait_for_file(
     timeout: float | None,
     poll: float,
 ) -> FileOut:
-    """Wait until Iki has checked the bytes and issued a file record."""
+    """Wait for verification and a scan decision, including a decision to hold the file."""
     deadline = None if timeout is None else time.monotonic() + timeout
-    while status["state"] in ("pending", "checking"):
+    while status["state"] in ("pending", "checking", "scanning"):
         delay = poll
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimedOut(f"Iki is still checking {name} after {timeout} s. See {path}.")
+                phase = "scanning" if status["state"] == "scanning" else "checking"
+                raise TimedOut(f"Iki is still {phase} {name} after {timeout} s. See {path}.")
             delay = min(delay, remaining)
         client._sleep(delay)
         status = cast(UploadStatusOut | RegistrationStatusOut, client.request("GET", path))

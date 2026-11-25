@@ -3271,8 +3271,9 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
     import hashlib
 
     import boto3
+    from scan_fixtures import clean_blob
 
-    from iki_server.files.models import Blob, File
+    from iki_server.files.models import File
 
     data = path.read_bytes()
     sha256 = hashlib.sha256(data).hexdigest()
@@ -3284,9 +3285,7 @@ def _stored_file(world: World, s3_endpoint: str, bucket: str, path: Path, media_
         aws_access_key_id=S3_ACCESS_KEY,
         aws_secret_access_key=S3_SECRET_KEY,
     ).put_object(Bucket=bucket, Key=key, Body=data)
-    blob, _ = Blob.objects.get_or_create(
-        sha256=sha256, defaults={"size": len(data), "storage_uri": f"s3://{bucket}/{key}"}
-    )
+    blob = clean_blob(sha256=sha256, size=len(data), storage_uri=f"s3://{bucket}/{key}")
     return File.objects.create(
         blob=blob,
         name=path.name,

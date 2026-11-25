@@ -29,6 +29,7 @@ from iki_server.accounts.models import UserSession
 from iki_server.amounts import stock_alerts
 from iki_server.bundles import exports as bundle_exports
 from iki_server.entities import app_drafts
+from iki_server.files import scan_recovery
 from iki_server.files import services as files
 from iki_server.oauth import maintenance as oauth_maintenance
 from iki_server.plugins import purge
@@ -56,6 +57,7 @@ class Command(BaseCommand):
         lapsed_webhooks = webhook_maintenance.lapse()
         uploads = files.expire()
         registrations = files.expire_registrations()
+        scans = scan_recovery.recover()
         approvals_expired = approvals.expire()
         artifacts_deleted = artifacts.delete_expired()
         checkpoints_deleted = checkpoints.delete_stale()
@@ -73,6 +75,7 @@ class Command(BaseCommand):
             finished_tasks=tasks,
             old_webhook_deliveries=deliveries,
             lapsed_app_webhooks=lapsed_webhooks,
+            queued_file_scans=scans,
             abandoned_uploads=uploads,
             stalled_registrations=registrations,
             expired_run_approvals=approvals_expired,
@@ -97,5 +100,5 @@ class Command(BaseCommand):
             f"draft(s), deleted {bundles} expired bundle(s), discarded {sheets} abandoned "
             f"spreadsheet import(s), ended {detached} run(s) of detached plugins, and tombstoned "
             f"{tombstoned} entit{'y' if tombstoned == 1 else 'ies'} of purged plugins. "
-            f"Sent {alerts} low-stock notification(s)."
+            f"Sent {alerts} low-stock notification(s) and queued {scans} outstanding file scan(s)."
         )

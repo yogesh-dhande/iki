@@ -41,13 +41,14 @@ from collections.abc import Generator
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import structlog
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from iki_server.api.problems import Problem
 from iki_server.audit import log as audit
 from iki_server.entities import (
     access,
@@ -74,7 +75,7 @@ from iki_server.entities.values import (
     shape,
     to_db,
 )
-from iki_server.files import storage
+from iki_server.files import scan_state, storage
 from iki_server.files.models import File
 from iki_server.org.models import registry_of
 from iki_server.runs import live, makings, results
@@ -146,6 +147,7 @@ def start(job: Job, run: ActionRun, file_id: uuid.UUID) -> RunImport:
     from iki_server.runs import tasks
 
     file = File.objects.select_related("blob").get(pk=file_id)
+    scan_state.require_usable(file.blob)
     imported = RunImport.objects.create(
         run=run, job=job, file=file, size=file.blob.size, schema=_schema()
     )
@@ -289,6 +291,10 @@ def step(import_id: str) -> str:
         if _failed(uuid.UUID(import_id), error):
             return "gave up"
         raise Retry(f"The import failed for now: {error}") from error
+    if done == "scanning":
+        # Normal queue backoff. Housekeeping also resumes an import whose task ran
+        # out of attempts while waiting, without counting the wait as an import failure.
+        raise Retry("Waiting for the creates file's malware scan.")
     if done:
         return "ended"
     with transaction.atomic():
@@ -303,14 +309,22 @@ def recover() -> int:
 
     moved = 0
     with transaction.atomic():
-        stalled = RunImport.objects.select_for_update(skip_locked=True).filter(
-            ~Q(phase=ImportPhase.ENDED), updated_at__lt=timezone.now() - STALLED_AFTER
-        )[:100]
+        stalled = (
+            RunImport.objects.select_for_update(skip_locked=True, of=("self",))
+            .filter(~Q(phase=ImportPhase.ENDED), updated_at__lt=timezone.now() - STALLED_AFTER)
+            .annotate(
+                waiting=Q(file__blob__scan_result__isnull=True)
+                | Q(run__cancel_requested_at__isnull=False)
+            )[:100]
+        )
         for imported in stalled:
-            imported.failures += 1
+            # A pending scan or a requested cancellation still needs its step to run.
+            # A lost task in either state is no evidence that staging or writing failed.
+            if not imported.waiting:
+                imported.failures += 1
             imported.updated_at = timezone.now()
             imported.save(update_fields=["failures", "updated_at"])
-            if imported.failures >= MAX_FAILURES:
+            if not imported.waiting and imported.failures >= MAX_FAILURES:
                 _give_up(imported, "Its runner stopped, again and again.")
             else:
                 tasks.import_creates.enqueue(str(imported.pk))
@@ -356,8 +370,8 @@ def _give_up(imported: RunImport, why: str) -> None:
     )
 
 
-def _advance(import_id: uuid.UUID) -> bool:
-    """True once the import has ended; False if there's more to do."""
+def _advance(import_id: uuid.UUID) -> bool | Literal["scanning"]:
+    """True once finished, False for immediate work, or scanning when it needs a later step."""
     deadline = time.monotonic() + STEP_FOR
     reader: Reader | None = None
     try:
@@ -378,8 +392,26 @@ def _advance(import_id: uuid.UUID) -> bool:
                 run = ActionRun.objects.select_related("project", "requested_by").get(
                     pk=imported.run_id
                 )
-                if run.cancel_requested_at is not None or imported.phase == ImportPhase.WRITING:
-                    # Writing (or cancelling) locks the job and its run, as cancelling does.
+                if run.cancel_requested_at is not None:
+                    return _finish(imported)
+                try:
+                    scan_state.require_usable(imported.file.blob)
+                except Problem as error:
+                    # An import could already be queued or staged when scanning is enabled.
+                    if error.code == "file_scanning":
+                        imported.updated_at = timezone.now()
+                        imported.save(update_fields=["updated_at"])
+                        changed = (
+                            Job.objects.filter(pk=imported.job_id)
+                            .exclude(progress_message=error.detail)
+                            .update(progress_message=error.detail)
+                        )
+                        if changed:
+                            live.changed(run.pk, run.batch_id)
+                        return "scanning"
+                    _give_up(imported, error.detail)
+                    return True
+                if imported.phase == ImportPhase.WRITING:
                     return _finish(imported)
                 if imported.offset >= imported.size or len(imported.errors) >= MAX_ERRORS:
                     _checked(imported, run)

@@ -136,6 +136,12 @@ function Origin({ file }: { file: FileDetail }) {
   }
 }
 
+function scanLabel(scan: FileDetail["scan"]): string {
+  if (scan.state === "pending") return "Scanning…";
+  if (scan.state === "infected") return scan.released ? "Released from quarantine" : "Quarantined";
+  return scan.reason === "too_large" ? "Not scanned: too large" : "Not scanned";
+}
+
 /** A file: what it is, when its data was acquired, where it came from, and what uses it. */
 export function FilePage() {
   const { id } = useParams({ from: "/files/$id" });
@@ -168,12 +174,20 @@ export function FilePage() {
         ]}
         title={file.name}
         actions={
-          <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
-            Download
-          </a>
+          file.scan.usable ? (
+            <a className={buttonClass("primary")} href={downloadHref(file.id)} download={file.name}>
+              Download
+            </a>
+          ) : undefined
         }
       />
       <dl className="summary file-facts">
+        {file.scan.state !== "clean" ? (
+          <>
+            <dt>Malware scan</dt>
+            <dd role="status">{scanLabel(file.scan)}</dd>
+          </>
+        ) : null}
         <dt>Format</dt>
         <dd>
           {media.named(file.media_type)} <span className="muted">{file.media_type}</span>

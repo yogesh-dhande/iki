@@ -6,7 +6,7 @@ deployed with the same Helm chart as production (`deploy/helm/iki`).
 
 ## Requirements
 
-- Docker, with about 6 GB of memory available to it
+- Docker, with about 10 GB of memory available to it
 - `kind`, `kubectl`, `helm` (v4) and `tilt`. On macOS:
   `brew install kind kubernetes-cli helm tilt-dev/tap/tilt`
 - `jq`, `curl` and [`uv`](https://docs.astral.sh/uv/) for the end-to-end checks
@@ -73,6 +73,7 @@ its data.
 | Migrations (`iki-migrate`)       | n/a                                  | Job; web pods turn ready only once it has finished                                        |
 | Backend worker (`iki-worker`)    | n/a                                  | Runs backend actions; reaches the web Service over plain HTTP (dev only)                  |
 | Postgres 18 (`iki-db`)           | n/a                                  | CloudNativePG, TLS verified with its own CA                                               |
+| ClamAV (`iki-clamd`)             | cluster only                         | Scans files using the chart's pinned signatures and FreshClam updates                     |
 | SeaweedFS (S3)                   | <http://localhost:8333>              | Bucket `iki`; signed requests only (ADR 0022)                                             |
 | Keycloak                         | <http://keycloak.iki.localhost:8080> | Realm `iki` includes `alice`, `bob` and `carol`, OIDC client `iki-web` and a SAML client  |
 | Mailpit (email)                  | <http://localhost:8025>              | Catches every email Iki and Keycloak send; nothing leaves the cluster                     |

@@ -104,10 +104,11 @@ def migrate(build: Path, database: str, *args: str) -> str:
 
 WORLD = """
 from iki_server.org.models import Project, Team
-from iki_server.files.models import Blob, File
+from iki_server.files.models import File
+from scan_fixtures import clean_blob
 team = Team.objects.create(name="Biologics")
 project = Project.objects.create(team=team, name="Antibodies")
-blob = Blob.objects.create(sha256="a" * 64, size=10,
+blob = clean_blob(sha256="a" * 64, size=10,
                            storage_uri="s3://iki/a")
 pdb = File.objects.create(blob=blob, name="a.pdb", media_type="chemical/x-pdb", project=project)
 
