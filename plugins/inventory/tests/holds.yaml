@@ -1,0 +1,46 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: withdraw_derived_stock
+action: hold_withdrawn
+inputs:
+  source: [{ hrid: TUB-000123, values: { on_hold: true, hold_reason: "Label mismatch" } }]
+  tubes:
+    - { values: { on_hold: false } }
+    - { values: { on_hold: true, hold_reason: "Damaged label" } }
+expect:
+  output:
+    updates:
+      source:
+        - entity: 00000000-0000-7000-8003-000000000001
+          require_unchanged: true
+          values: { hold_reason: "Label mismatch" }
+      tubes:
+        - entity: 00000000-0000-7000-8003-000000000002
+          require_unchanged: true
+          values: { on_hold: true, hold_reason: "Withdrawn stock TUB-000123: Label mismatch" }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: replay_after_derived_tube_was_held
+action: hold_withdrawn
+inputs:
+  source: [{ values: { on_hold: true, hold_reason: "Label mismatch" } }]
+  tubes: [{ values: { on_hold: true, hold_reason: "Existing hold" } }]
+expect: { output: { updates: {} } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: source_hold_cleared
+action: hold_withdrawn
+inputs:
+  source: [{ values: { on_hold: false } }]
+  tubes: [{ values: { on_hold: false } }]
+expect: { output: { updates: {} } }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: no_derived_stock
+action: hold_withdrawn
+inputs:
+  source: [{ values: { on_hold: true, hold_reason: "Withdrawn" } }]
+expect: { output: { updates: {} } }

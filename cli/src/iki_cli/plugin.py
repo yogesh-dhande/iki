@@ -266,7 +266,8 @@ def run_makemigrations(args: argparse.Namespace) -> int:
         if loaded is None:
             return 1
         assert loaded.plugin is not None  # noqa: S101 - _load returns loaded plugins
-        if not any((dependency / "migrations").glob("0*.py")):
+        has_models = bool(loaded.plugin.types or loaded.plugin.extensions)
+        if has_models and not any((dependency / "migrations").glob("0*.py")):
             sys.stderr.write(
                 f"error: {loaded.plugin.name} has no migrations. Run "
                 f"`iki plugin makemigrations` in {dependency} first.\n"

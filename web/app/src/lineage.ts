@@ -144,7 +144,7 @@ export function validateLineageSearch(search: Record<string, unknown>): LineageS
 /**
  * A step, in words: what depends on what, and how. ``prev`` is where the step starts,
  * nearer the root: downstream, the step's entity depends on it; upstream, it depends on
- * the step's entity. "ALQ-000002’s sample is SAM-000001"; "RUN-000004 made PRT-000003
+ * the step's entity. "SAM-000002’s source is TUB-000001"; "RUN-000004 made PRT-000003
  * from PRT-000001 (its protein, at revision 2)".
  */
 export function stepWords(step: WalkStep, prev: string, direction: Direction): string {

@@ -1674,13 +1674,13 @@ LIMS_RECORDS = ("LIMS-0001", "LIMS-0002", "LIMS-0003")
 
 
 def lims() -> None:
-    """The example LIMS plugin against the fake LIMS: an import that reaches it over HTTPS,
+    """Run the example connector against the fake LIMS, importing records over HTTPS,
     through the egress proxy, at the host the deployment's settings give, then again,
     matching each record to its protein, and a write-back."""
     alice = sign_in_as("alice")
     mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
     project = next(p for p in mine if p["name"] == "Atlas")
-    action = "iki/example_lims.import_from_lims"
+    action = "iki/lims_connector_example.import_from_lims"
     run = launch(alice, project, action, {})
     if run["network"] != ["fake-lims.iki.svc"]:
         fail(f"{run['hrid']} may reach {run['network']}, not the host lims_host gives")
@@ -1709,7 +1709,9 @@ def lims() -> None:
         fail(f"importing again ({again['hrid']}) gave {again['effects']}, not the same three")
     ok(f"importing again matched each record to its protein, unchanged ({again['hrid']})")
     first = found[LIMS_RECORDS[0]]
-    sent = launch(alice, project, "iki/example_lims.send_to_lims", {"proteins": [first["id"]]})
+    sent = launch(
+        alice, project, "iki/lims_connector_example.send_to_lims", {"proteins": [first["id"]]}
+    )
     deadline = time.monotonic() + 30
     while True:
         patched = [
@@ -1725,7 +1727,7 @@ def lims() -> None:
     kept = api_call(alice, "GET", f"/runs/{sent['hrid']}/artifacts").json()
     if [a["path"] for a in kept] != ["sent.json"]:
         fail(f"{sent['hrid']} kept {kept}, not what it sent")
-    ok(f"iki/example_lims.send_to_lims wrote {first['hrid']} to {LIMS_RECORDS[0]} ({sent['hrid']})")
+    ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
     bookings(alice, project)
     signatures(alice, project, first)
     stability_study(alice, project)
@@ -2358,9 +2360,13 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         alice,
         project,
         plugin + "CellVial",
-        {"bank": bank["id"], "barcode": f"SYNTHETIC-{secrets.token_hex(4)}"},
+        {
+            "bank": bank["id"],
+            "contents": bank["id"],
+            "barcode": f"SYNTHETIC-{secrets.token_hex(4)}",
+        },
     )
-    box = created(alice, project, LIMS_TYPE + "Box", {"name": "Synthetic cell bank"})
+    box = created(alice, project, INVENTORY + "Box", {"name": "Synthetic cell bank"})
     moved(alice, [(vial, box, "A1")], "Synthetic working bank deposit")
     location = api_call(alice, "GET", f"/entities/{vial['id']}/location").json()
     if [(step["id"], step["position"]) for step in location["path"]] != [(box["id"], "A1")]:
@@ -2470,6 +2476,23 @@ def certify_dev_signatures(admin: requests.Session) -> None:
             fail(f"recording the certification answered HTTP {certified.status_code}")
 
 
+def assign_reviewer(
+    alice: requests.Session, witness: requests.Session, project: dict[str, Any], role: str
+) -> str:
+    person: str = api_call(witness, "GET", "/me").json()["id"]
+    grants = f"/projects/{project['id']}/members"
+    grant = api_call(alice, "PUT", f"{grants}/users/{person}", {"role": "editor"})
+    if grant.status_code != 200:
+        fail(f"granting the witness access answered HTTP {grant.status_code}: {grant.text}")
+    roles = {r["role"] for r in grant.json()["lab_roles"]} | {role}
+    assigned = api_call(
+        alice, "PUT", f"{grants}/{grant.json()['id']}/lab-roles", {"roles": sorted(roles)}
+    )
+    if assigned.status_code != 200:
+        fail(f"assigning the witness answered HTTP {assigned.status_code}: {assigned.text}")
+    return person
+
+
 def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
     """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
     there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
@@ -2478,24 +2501,29 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     give_lab_roles(
         alice,
         project,
-        "iki/example_lims.analyst",
-        "iki/example_lims.reviewer",
-        "iki/example_lims.qa",
+        "iki/lab_roles.analyst",
+        "iki/lab_roles.reviewer",
+        "iki/lab_roles.qa",
     )
-    made = api_call(
+    tube = created(
+        alice,
+        project,
+        "iki/inventory.Tube",
+        {"name": "Signature demonstration", "contents": protein["id"]},
+        {"value": 10, "unit": "uL"},
+    )
+    work = created(alice, project, "iki/requests.PlainRequest", {"title": "Training measurement"})
+    sample = created(
+        alice, project, "iki/samples.Sample", {"source": tube["id"], "purpose": work["id"]}
+    )
+    draw = api_call(
         alice,
         "POST",
-        "/entities",
-        {
-            "type": "iki/example_lims.Sample",
-            "project": project["id"],
-            # Its guards submit it for review once its result is recorded (ADR 0128).
-            "values": {"protein": entry_of(protein), "lot": "DEV-1", "result": "pass"},
-        },
+        f"/entities/{tube['id']}/amount/draw",
+        {"amount": {"value": 1, "unit": "uL"}, "used_in": sample["id"], "confirm": tube["hrid"]},
     )
-    if made.status_code != 201:
-        fail(f"making a sample answered HTTP {made.status_code}: {made.text[:300]}")
-    sample = made.json()
+    if draw.status_code != 200:
+        fail(f"Drawing for {sample['hrid']} answered HTTP {draw.status_code}: {draw.text[:300]}")
     for state, reason in (("received", ""), ("in_testing", "Start testing the example sample")):
         etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
         moved = api_call(
@@ -2507,6 +2535,15 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
         )
         if moved.status_code != 200:
             fail(f"setting {sample['hrid']} {state} answered HTTP {moved.status_code}")
+    measured = api_call(
+        alice,
+        "PATCH",
+        f"/entities/{sample['id']}",
+        {"values": {"measurements": [{"method": "Training observation", "value": "clear"}]}},
+        {"If-Match": api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]},
+    )
+    if measured.status_code != 200:
+        fail(f"Recording measurements answered HTTP {measured.status_code}: {measured.text[:300]}")
     # A signed state is set only by signing for it, whoever asks.
     etag = api_call(alice, "GET", f"/entities/{sample['id']}").headers["ETag"]
     direct = api_call(
@@ -2530,13 +2567,32 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if not signature["verification"]["valid"]:
         fail(f"{sample['hrid']}'s signature doesn't verify: {signature['verification']}")
     ok(f"{sample['hrid']}: {signature['manifestation']} (signed in again at Keycloak, verified)")
-    # Rejecting it, which alice may (approving it is someone else's: she submitted it).
+    # Returning a signed submission to testing requires a fresh sign-in by the same reviewer.
     refused = signing(
-        alice, sample, "rejected", "bob", someone_else=True, reason="Contaminated in transit"
+        alice,
+        sample,
+        "retesting",
+        "bob",
+        someone_else=True,
+        reason="Repeat the training observation",
     )
     if refused["status"] != "failed" or "Someone else" not in refused["message"]:
         fail(f"signing in at Keycloak as bob to sign as alice gave {refused}")
     ok(f"signing in at Keycloak as bob gave no signature of alice's: {refused['message']}")
+    assign_reviewer(alice, bob, project, "iki/lab_roles.reviewer")
+    review = signing(bob, sample, "reviewed", "bob")
+    if not review["set"]:
+        fail(f"Independent review of {sample['hrid']} failed: {review}")
+    path = f"/entities/{sample['id']}"
+    recorded = api_call(
+        bob,
+        "POST",
+        f"{path}/states/status",
+        {"state": "results_recorded"},
+        {"If-Match": api_call(bob, "GET", path).headers["ETag"]},
+    )
+    if recorded.status_code != 200 or not recorded.json()["locked"]:
+        fail(f"Recording {sample['hrid']} failed: {recorded.text[:300]}")
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
@@ -2582,7 +2638,7 @@ def analytical_core(
             analyst,
             "PUT",
             f"{path}/members/{grant.json()['id']}/lab-roles",
-            {"roles": [f"iki/example_lims.{lab_role}"]},
+            {"roles": [f"iki/lab_roles.{lab_role}"]},
         )
         if given.status_code != 200:
             fail(f"giving core lab roles answered HTTP {given.status_code}: {given.text[:300]}")
@@ -2590,11 +2646,42 @@ def analytical_core(
         analyst,
         "PUT",
         f"{path}/intake",
-        {"types": ["iki/example_lims.AnalysisRequest"], "projects": [asking["id"]]},
+        {"types": ["iki/requests.Request"], "projects": [asking["id"]]},
     )
     if intake.status_code != 200:
         fail(f"setting the core's intake answered HTTP {intake.status_code}: {intake.text[:300]}")
+    give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
     return core
+
+
+def start_service_work(
+    analyst: requests.Session, core: dict[str, Any], request: dict[str, Any]
+) -> str:
+    """Send a request to the service and move it into the analyst's queue."""
+    path = f"/entities/{request['id']}"
+    sent = api_call(
+        analyst,
+        "POST",
+        f"{path}/submit",
+        {"service": core["id"]},
+        {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+    )
+    if sent.status_code != 200:
+        fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
+    for state in ("accepted", "in_progress"):
+        advanced = api_call(
+            analyst,
+            "POST",
+            f"{path}/states/status",
+            {"state": state, "reason": ""},
+            {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+        )
+        if advanced.status_code != 200:
+            fail(
+                f"setting {request['hrid']} {state} gave {advanced.status_code}: "
+                f"{advanced.text[:200]}"
+            )
+    return path
 
 
 def analysis_result(
@@ -2609,34 +2696,31 @@ def analysis_result(
     request = created(
         analyst,
         asking,
-        "iki/example_lims.AnalysisRequest",
-        {"title": "SEC purity", "samples": [sample["id"]], "analyses": ["sec_purity"]},
+        "iki/requests.QCRequest",
+        {"title": "SEC purity", "materials": [sample["id"]], "analyses": ["sec_purity"]},
     )
-    path = f"/entities/{request['id']}"
-    sent = api_call(
-        analyst,
-        "POST",
-        f"{path}/submit",
-        {"service": core["id"]},
-        {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
+    path = start_service_work(analyst, core, request)
+    report = upload(
+        analyst, core, "measurement.txt", b"Synthetic training measurement.", "text/plain"
     )
-    if sent.status_code != 200:
-        fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
     measurement = {
-        "sample": sample["id"],
+        "material": sample["id"],
         "analysis": "sec_purity",
         "purity": 98.5,
         "result": "pass",
     }
     result = created(
-        analyst, core, "iki/example_lims.AnalysisResult", {"request": request["id"], **measurement}
+        analyst,
+        core,
+        "iki/requests.QCDeliverable",
+        {"request": request["id"], "report": report, "outcome": "fulfilled", **measurement},
     )
     result_path = f"/entities/{result['hrid']}"
     requester = cli_read_token(analyst, project=asking["id"])
 
     def submit_and_review() -> dict[str, Any]:
         for session, name, state in (
-            (analyst, "alice", "in_review"),
+            (analyst, "alice", "submitted"),
             (reviewer, "bob", "reviewed"),
         ):
             signed = signing(session, result, state, name, field="review")
@@ -2655,7 +2739,7 @@ def analysis_result(
         {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
         {"If-Match": f'"{first_review["revision"]}"'},
     )
-    if edit.status_code != 200 or edit.json()["values"]["review"] != "draft":
+    if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
         fail(
             f"editing reviewed {result['hrid']} answered HTTP {edit.status_code}: {edit.text[:300]}"
         )
@@ -2704,6 +2788,15 @@ def analysis_result(
         )
     ):
         fail(f"{result['hrid']} did not return the reviewed measurement with QA's signature")
+    completed = api_call(
+        reviewer,
+        "POST",
+        f"{path}/states/status",
+        {"state": "delivered"},
+        {"If-Match": api_call(reviewer, "GET", path).headers["ETag"]},
+    )
+    if completed.status_code != 200 or completed.json()["values"]["status"] != "delivered":
+        fail(f"{request['hrid']} could not close after QA release: {completed.text[:300]}")
     ok(f"{result['hrid']}: QA released corrected revision {review['revision']} to the requester")
 
 
@@ -2715,8 +2808,8 @@ def core_facility_requests(
     core: dict[str, Any],
 ) -> None:
     """The working core returns production and sequencing deliverables through Requests."""
-    give_lab_roles(analyst, core, LIMS_TYPE + "coordinator")
-    example = Path(__file__).resolve().parents[2] / "plugins" / "example_lims" / "examples"
+    give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
+    example = Path(__file__).resolve().parents[2] / "plugins" / "requests" / "examples"
     # The production transaction is simulated; only the registered UniProt identity is public.
     fasta = (example / "P00330.fasta").read_text().splitlines()
     protein = created(
@@ -2730,7 +2823,7 @@ def core_facility_requests(
         },
     )
     # The tube handoff is simulated; the public ENA run is for yeast isolate CEY652.
-    tube = created(analyst, asking, LIMS_TYPE + "Tube", {"name": "Training CEY652"})
+    tube = created(analyst, asking, INVENTORY + "Tube", {"name": "Training CEY652"})
     requester = cli_read_token(analyst, project=asking["id"])
     for prefix, filename, values, evidence, steps in (
         (
@@ -2739,10 +2832,10 @@ def core_facility_requests(
             {
                 "title": "Training: ADH1 production",
                 "facility_service": "protein_production",
-                "protein": entry_of(protein),
+                "records": [protein["id"]],
                 "requested_mass": 1,
             },
-            {"protein": entry_of(protein), "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
+            {"protein": protein["id"], "lot_number": "TRAINING-ADH1-01", "delivered_mass": 0.8},
             ((reviewer, "bob", "signed_off"),),
         ),
         (
@@ -2754,7 +2847,7 @@ def core_facility_requests(
                 "sequencing_method": "long_read",
                 "tubes": [tube["id"]],
             },
-            {"tube": tube["id"], "run_accession": "ERR13376132"},
+            {"material": tube["id"], "run_accession": "ERR13376132"},
             (
                 (analyst, "alice", "submitted"),
                 (reviewer, "bob", "reviewed"),
@@ -2762,35 +2855,13 @@ def core_facility_requests(
             ),
         ),
     ):
-        request = created(analyst, asking, f"{LIMS_TYPE}{prefix}CoreRequest", values)
-        path = f"/entities/{request['id']}"
-        sent = api_call(
-            analyst,
-            "POST",
-            f"{path}/submit",
-            {"service": core["id"]},
-            {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
-        )
-        if sent.status_code != 200:
-            fail(f"sending {request['hrid']} answered HTTP {sent.status_code}: {sent.text[:300]}")
-        for state in ("accepted", "in_progress"):
-            advanced = api_call(
-                analyst,
-                "POST",
-                f"{path}/states/status",
-                {"state": state, "reason": ""},
-                {"If-Match": api_call(analyst, "GET", path).headers["ETag"]},
-            )
-            if advanced.status_code != 200:
-                fail(
-                    f"setting {request['hrid']} {state} gave {advanced.status_code}: "
-                    f"{advanced.text[:200]}"
-                )
+        request = created(analyst, asking, f"iki/requests.{prefix}Request", values)
+        path = start_service_work(analyst, core, request)
         report = upload(analyst, core, filename, (example / filename).read_bytes(), "text/plain")
         delivery = created(
             analyst,
             core,
-            f"{LIMS_TYPE}{prefix}CoreDeliverable",
+            f"iki/requests.{prefix}Deliverable",
             {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
         )
         if bearer_call(requester, "GET", f"/files/{report}").status_code != 404:
@@ -2809,7 +2880,11 @@ def core_facility_requests(
             f"with {len(steps)} signatures"
         )
         if prefix == "Research":
-            work_and_deliverable(analyst, reviewer, requester, core, request, report, evidence)
+            plain = created(
+                analyst, asking, "iki/requests.PlainRequest", {"title": "Training handoff"}
+            )
+            start_service_work(analyst, core, plain)
+            work_and_deliverable(analyst, reviewer, requester, core, plain, report)
 
 
 def work_and_deliverable(
@@ -2819,13 +2894,12 @@ def work_and_deliverable(
     service: dict[str, Any],
     request: dict[str, Any],
     report: str,
-    evidence: dict[str, Any],
 ) -> None:
     """Seed the work that stays with the service and the result the asking team receives."""
     work = created(
         analyst,
         service,
-        LIMS_TYPE + "WorkItem",
+        "iki/requests.WorkItem",
         {
             "request": request["id"],
             "priority": "high",
@@ -2843,8 +2917,8 @@ def work_and_deliverable(
     result = created(
         analyst,
         service,
-        LIMS_TYPE + "Deliverable",
-        {"request": request["id"], "report": report, "outcome": "fulfilled", **evidence},
+        "iki/requests.PlainDeliverable",
+        {"request": request["id"], "report": report, "outcome": "fulfilled"},
     )
     path = f"/entities/{result['id']}"
     if bearer_call(requester, "GET", path).status_code != 404:
@@ -2865,8 +2939,7 @@ def work_and_deliverable(
     )
 
 
-#: Example LIMS types (ADR 0180).
-LIMS_TYPE = "iki/example_lims."
+INVENTORY = "iki/inventory."
 
 
 def moved(
@@ -2903,7 +2976,7 @@ def bench_material(
     freezer = created(
         alice,
         project,
-        f"{LIMS_TYPE}Freezer",
+        f"{INVENTORY}Freezer",
         {
             "name": "-80 °C freezer 3",
             "asset_tag": f"FRZ-{tag}",
@@ -2911,12 +2984,12 @@ def bench_material(
             "room": "B2.14",
         },
     )
-    shelf = created(alice, project, f"{LIMS_TYPE}Shelf", {"name": "Shelf 2"})
-    rack = created(alice, project, f"{LIMS_TYPE}Rack", {"name": "Rack C"})
+    shelf = created(alice, project, f"{INVENTORY}Shelf", {"name": "Shelf 2"})
+    rack = created(alice, project, f"{INVENTORY}Rack", {"name": "Rack C"})
     box = created(
         alice,
         project,
-        f"{LIMS_TYPE}Box",
+        f"{INVENTORY}Box",
         {"name": "Kinase retains", "rows": 9, "columns": 9, "contents": "Lot release retains"},
     )
     # A lot in quarantine, which only QA samples; one past its expiry, which nobody draws from.
@@ -2951,8 +3024,8 @@ def bench_material(
         created(
             alice,
             project,
-            f"{LIMS_TYPE}Tube",
-            {"name": name, "barcode": f"{tag}{i:04}", **({"lot": lot["id"]} if lot else {})},
+            f"{INVENTORY}Tube",
+            {"name": name, "barcode": f"{tag}{i:04}", "contents": (lot or protein)["id"]},
             {"value": 200, "unit": "uL"},
         )
         for i, (name, lot) in enumerate(named)
@@ -2980,7 +3053,7 @@ def bench_material(
     ok(f"{tubes[2]['hrid']} is in freezer 3, shelf 2, rack slot 3, at A3, where nothing else goes")
     # A draw scans the tube, and names what it went into.
     experiment = created(
-        alice, project, f"{LIMS_TYPE}AnalysisRequest", {"title": "Kinase SEC, run 12"}
+        alice, project, "iki/requests.PlainRequest", {"title": "Kinase SEC, run 12"}
     )
     draw = f"/entities/{tubes[0]['id']}/amount/draw"
     body = {"amount": {"value": 20, "unit": "uL"}, "reason": "SEC", "used_in": experiment["id"]}
@@ -3042,14 +3115,14 @@ def receive_at_core(
     tubes: list[dict[str, Any]],
 ) -> None:
     """Tubes sent with a request, received at the core against it, put away and counted."""
-    give_lab_roles(alice, core, f"{LIMS_TYPE}coordinator")
+    give_lab_roles(alice, core, "iki/lab_roles.coordinator")
     incoming = created(
-        alice, core, f"{LIMS_TYPE}Box", {"name": "Incoming", "rows": 2, "columns": 5}
+        alice, core, f"{INVENTORY}Box", {"name": "Incoming", "rows": 2, "columns": 5}
     )
     request = created(
         alice,
         project,
-        f"{LIMS_TYPE}AnalysisRequest",
+        "iki/requests.PlainRequest",
         {"title": "Kinase intact mass", "tubes": [t["id"] for t in tubes]},
     )
     path = f"/entities/{request['id']}"
@@ -3203,17 +3276,17 @@ def receive_at_core(
 
 
 #: Where the booking calendar's places get their bookings (ADR 0117).
-CALENDAR = "/components/iki/example_lims.booking_calendar/entities"
+CALENDAR = "/components/iki/equipment.booking_calendar/entities"
 
 
 def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
-    """The example LIMS plugin's booking calendar (ADR 0117): each of its places gets the
+    """The equipment plugin's booking calendar (ADR 0117): each of its places gets the
     bookings its search finds, computed by the server as the person may read them, with
     only the fields it reads; a refinement only narrows; an app can place it; and someone
     outside the project gets nothing."""
 
     def made(kind: str, values: dict[str, Any]) -> dict[str, Any]:
-        body = {"type": f"iki/example_lims.{kind}", "project": project["id"], "values": values}
+        body = {"type": f"iki/equipment.{kind}", "project": project["id"], "values": values}
         response = api_call(alice, "POST", "/entities", body)
         if response.status_code != 201:
             fail(f"making a {kind} answered HTTP {response.status_code}: {response.text[:300]}")
@@ -3280,12 +3353,12 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
             {
                 "id": "instruments",
                 "component": "iki.entities",
-                "props": {"type": "iki/example_lims.Instrument", "sort": "name"},
+                "props": {"type": "iki/equipment.Instrument", "sort": "name"},
             },
             {
                 "id": "calendar",
                 "title": "Bookings",
-                "component": "iki/example_lims.booking_calendar",
+                "component": "iki/equipment.booking_calendar",
                 "props": {"entity": "{{ instruments.selection }}"},
             },
         ],
@@ -3984,7 +4057,7 @@ def apply_plate_starter(
     catalogue = api_call(alice, "GET", f"/starters?project={core['id']}").json()
     starter = next(st for st in catalogue if st["id"] == "dose-response")
     assignments = {
-        "iki/example_lims.coordinator": [members["alice"]],
+        "iki/lab_roles.coordinator": [members["alice"]],
         "iki/plate_assays.analyst": [members["alice"]],
         "iki/plate_assays.reviewer": [members["bob"]],
     }
@@ -4209,17 +4282,7 @@ def linked_experiment(
             {"experiment": experiment["id"], "results": [result]},
         )
     witness = sign_in_as("bob")
-    person = api_call(witness, "GET", "/me").json()["id"]
-    grants = f"/projects/{project['id']}/members"
-    grant = api_call(alice, "PUT", f"{grants}/users/{person}", {"role": "editor"})
-    if grant.status_code != 200:
-        fail(f"granting the witness access answered HTTP {grant.status_code}: {grant.text}")
-    roles = {r["role"] for r in grant.json()["lab_roles"]} | {prefix + "reviewer"}
-    assigned = api_call(
-        alice, "PUT", f"{grants}/{grant.json()['id']}/lab-roles", {"roles": sorted(roles)}
-    )
-    if assigned.status_code != 200:
-        fail(f"assigning the witness answered HTTP {assigned.status_code}: {assigned.text}")
+    person = assign_reviewer(alice, witness, project, prefix + "reviewer")
     experiment = record(witness, experiment["id"])
     if experiment["values"]["review"] == "recorded":
         signed = signing(witness, experiment, "witnessed", "bob", field="review")
@@ -4466,11 +4529,11 @@ def equipment_calibration(
 ) -> None:
     """Trace a synthetic calibration failure to an already signed measurement."""
     prefix = "iki/equipment."
-    give_lab_roles(alice, project, "iki/example_lims.engineer", prefix + "qa")
+    give_lab_roles(alice, project, "iki/lab_roles.engineer", prefix + "qa")
     engineer = api_call(alice, "GET", "/me").json()["id"]
     result = record(alice, measured["id"])
     instrument = created(
-        alice, project, "iki/example_lims.Instrument", {"name": "Example luminescence plate reader"}
+        alice, project, "iki/equipment.Instrument", {"name": "Example luminescence plate reader"}
     )
     now = datetime.now(UTC).replace(microsecond=0)
     performed = now - timedelta(days=3)
@@ -4640,13 +4703,13 @@ def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
         {"lot_number": f"Stability demo {token}", "of": entry_of(material)},
     )
     box = created(
-        alice, project, LIMS_TYPE + "Box", {"name": "Stability study", "rows": 1, "columns": 1}
+        alice, project, INVENTORY + "Box", {"name": "Stability study", "rows": 1, "columns": 1}
     )
     tube = created(
         alice,
         project,
-        LIMS_TYPE + "Tube",
-        {"barcode": f"DEMO-STABILITY-{token}", "lot": lot["id"]},
+        INVENTORY + "Tube",
+        {"barcode": f"DEMO-STABILITY-{token}", "contents": lot["id"]},
         amount={"value": "100", "unit": "uL"},
     )
     moved(alice, [(tube, box, "A1")], "Store study tube at its assigned position.")

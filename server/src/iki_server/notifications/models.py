@@ -23,7 +23,7 @@ class Notification(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
     )
     #: A kind (see ``kinds.py``), such as ``project.added``, or a type's declared one,
-    #: such as ``iki/example_lims.Sample.in_review``.
+    #: such as ``iki/samples.Sample.in_review``.
     kind = models.CharField(max_length=200)
     title = models.CharField(max_length=300)
     body = models.TextField(blank=True)

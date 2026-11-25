@@ -1,12 +1,8 @@
 # Equipment service
 
-Install `iki/equipment` alongside `iki/example_lims`. Keep using the LIMS
-Instrument and Booking records. Under the instrument's **Service schedule**
-tab, schedule Calibration or Maintenance, with a due date and the lab's
-written procedure revision. Edit the scheduled date to reschedule the work.
-An engineer can cancel an unperformed appointment with a reason. Use the
-project’s equipment engineer role
-(`iki/example_lims.engineer`) for the people who can perform and sign this work.
+Instrument and Booking share a calendar with the instrument's service and calibration history.
+The calendar shows bookings by instrument, project or person and can narrow its search to a month.
+Project members can open a booking from the calendar. Instrument maintenance and use are recorded alongside it.
 
 Set the deployment's `review_flow` to `research` or `regulated_qc` during
 setup. The scheduling action copies that choice onto each new appointment.
@@ -29,7 +25,7 @@ returns the record to Scheduled and starts a new review cycle.
    instrument. Select the measured record, the signed passing calibration
    and the measurement timestamp with a time zone. Iki checks the match and
    pins the result and calibration revisions. The Instrument evidence tab
-   shows that evidence at the instrument and at a LIMS Analysis result.
+   shows that evidence on the instrument and on the QC deliverable.
    For an identity-bearing measured record, the immutable record UUID still
    identifies the exact project record the run read.
 

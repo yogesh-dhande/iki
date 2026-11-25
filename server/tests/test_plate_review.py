@@ -29,7 +29,8 @@ __all__ = ["database"]
 
 PLUGIN = PLUGINS / "plate_assays"
 PREFIX = "iki/plate_assays."
-REQUEST = "iki/example_lims.AnalysisRequest"
+RESEARCH = "iki/requests.ResearchRequest"
+QC = "iki/requests.QCRequest"
 
 
 def test_both_plate_review_flows_deliver_the_signed_result(tmp_path: Path, database: str) -> None:
@@ -72,22 +73,28 @@ def _check_inherited_flows(world: World) -> None:
     }
 
 
-def _request(world: World) -> tuple[Entity, Entity]:
+def _requests(world: World) -> tuple[Entity, Entity, Entity]:
     asking = Project.objects.create(team=world.team, name="Project requesting an assay")
     editor = world.users["editor"]
     ProjectMembership.objects.create(project=asking, user=editor, role=ProjectRole.EDITOR)
     requests.set_intake(
-        world.project, types=[REQUEST], from_registry=True, sources=[], by=world.users["admin"]
+        world.project, types=[RESEARCH, QC], from_registry=True, sources=[], by=world.users["admin"]
     )
-    sample = services.create(
-        editor, "iki/example_lims.Tube", asking, {"name": "Review tube"}
-    ).entity
-    saved = services.create(
-        editor, REQUEST, asking, {"title": "Synthetic plate review", "tubes": [str(sample.pk)]}
+    sample = services.create(editor, "iki/inventory.Tube", asking, {"name": "Review tube"}).entity
+
+    def send(type_name: str, tubes: list[str]) -> Entity:
+        saved = services.create(
+            editor, type_name, asking, {"title": "Synthetic plate review", "tubes": tubes}
+        )
+        request = Entity.objects.get(pk=saved.entity.pk)
+        requests.submit(editor, request, world.project, expected_revision=request.revision)
+        return request
+
+    return (
+        send(RESEARCH, [str(sample.pk)]),
+        send(QC, [str(sample.pk)]),
+        Entity.objects.get(pk=sample.pk),
     )
-    request = Entity.objects.get(pk=saved.entity.pk)
-    requests.submit(editor, request, world.project, expected_revision=request.revision)
-    return request, Entity.objects.get(pk=sample.pk)
 
 
 def _sign(world: World, who: str, record: Entity, to: str) -> Signature:
@@ -113,7 +120,7 @@ def exercise_reviews() -> None:
         for role in held:
             LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
 
-    request, sample = _request(world)
+    request, qc_request, sample = _requests(world)
     editor = world.users["editor"]
     read_id = _read_evidence(world, str(sample.pk))
 
@@ -121,7 +128,7 @@ def exercise_reviews() -> None:
         fields = {
             "read": read_id,
             "sample": str(sample.pk),
-            "request": str(request.pk),
+            "request": str(qc_request.pk if type_name == "RequestedQCAssayResult" else request.pk),
             "review_flow": flow,
             "fit_version": "4PL-OLS/1",
             "fit_status": "unreportable",
@@ -137,7 +144,7 @@ def exercise_reviews() -> None:
         project=world.project,
         requester_project=asking,
         starter="dose-response",
-        version="1.0.0",
+        version="1.2.0",
         flow="research",
         applied_by=world.users["admin"],
     )
@@ -173,6 +180,8 @@ def exercise_reviews() -> None:
     assert refused.signature_id is None and "sample or tube" in refused.message
     assert not ProjectLink.objects.filter(entity=research, via_request=request).exists()
     assert states.values_of(research)["review"] == "recorded"
+    qc_request.refresh_from_db()
+    services.update(editor, qc_request, {"tubes": []}, expected_revision=qc_request.revision)
     with pytest.raises(Invalid, match="sample or tube"):
         result("RequestedQCAssayResult", "regulated_qc")
     request.refresh_from_db()
@@ -188,6 +197,10 @@ def exercise_reviews() -> None:
         states.set_state(
             editor, research, "review", "recorded", expected_revision=research.revision
         )
+    qc_request.refresh_from_db()
+    services.update(
+        editor, qc_request, {"tubes": [str(sample.pk)]}, expected_revision=qc_request.revision
+    )
     qc = result("RequestedQCAssayResult", "regulated_qc")
     with pytest.raises(Invalid):
         services.update(editor, qc, {"review_flow": "research"}, expected_revision=qc.revision)
@@ -213,7 +226,7 @@ def exercise_reviews() -> None:
         with pytest.raises(Refused):
             begin(world, author, str(qc.pk), "reviewed", field="review")
     first_review = _sign(world, "runner", qc, "reviewed")
-    assert not ProjectLink.objects.filter(entity=qc, via_request=request).exists()
+    assert not ProjectLink.objects.filter(entity=qc, via_request=qc_request).exists()
 
     previous_revision = qc.revision
     correction = "Checked the retained reader export"
@@ -245,7 +258,7 @@ def exercise_reviews() -> None:
     assert json.loads(first_review.content)["values"]["notes"] == "Checked dilution labels"
     assert qc.released_review_revision == review.revision
     assert (
-        ProjectLink.objects.get(entity=qc, via_request=request).project_id
+        ProjectLink.objects.get(entity=qc, via_request=qc_request).project_id
         == request.owner_project_id
     )
 

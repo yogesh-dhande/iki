@@ -2,7 +2,7 @@
 
 Use `iki/strains` to register microbial strains and track the glycerol stocks
 made from them. It uses the plasmid registry and the cryoboxes and racks in
-`iki/example_lims`. The plugin's records use the standard entity forms, storage
+`iki/inventory`. The plugin's records use the standard entity forms, storage
 map, amount ledger and lineage graph.
 
 ## Register base strains

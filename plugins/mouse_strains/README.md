@@ -18,4 +18,4 @@ The following identifiers and observations describe a synthetic local inventory 
 4. If the laboratory tracks suspension volume, enter a measured opening amount in µL. For a withdrawal, scan the carrier, record the measured volume and select the resulting record in **Used in**. The ledger shows the remaining volume and the graph links the result to the physical carrier. The embryo count at banking remains a historical observation.
 5. Open **Upstream** on the result to trace it to the carrier, its strain, any recorded genotype and the registered alleles. **Downstream** on a strain finds the material and data made from it. The project's **Files** view can filter by a cryostock or genotype holding an original file.
 
-The plugin uses the standard record, storage, amount and graph screens. Its storage dependency is the box type in `iki/example_lims`.
+The plugin uses the standard record, storage, amount and graph screens. Its storage dependency is the box type in `iki/inventory`.

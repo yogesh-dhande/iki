@@ -417,9 +417,9 @@ class Entities(_Part):
         DataFrame's ``held`` and ``breaks`` columns name the rules::
 
             iki.entities.search(
-                "iki/example_lims.Sample",
-                where={"field": "held", "op": "eq", "value": "purity_in_specification"},
-            ).to_pandas()[["held", "purity"]]
+                "iki/lots.OligoLot",
+                where={"field": "held", "op": "eq", "value": "mass_within_tolerance"},
+            ).to_pandas()[["held", "measured_mass"]]
         """
         client = self._client
         body: dict[str, Any] = {
@@ -618,7 +618,7 @@ class Entities(_Part):
         the records its ``sends`` fields name, such as its samples. ``revision`` as for
         :meth:`update`::
 
-            core = iki.projects.services("kinase-atlas", type="iki/example_lims.AnalysisRequest")[0]
+            core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
             iki.entities.submit("REQ-000003", core["project"], revision=1, reason="Lot 12")
         """
         return cast(
@@ -739,7 +739,10 @@ class Entities(_Part):
         for all or a list, one each::
 
             iki.entities.split(
-                "SMP-000003", 3, (20, "uL"), values=[{"label": f"S-1.{n}"} for n in (1, 2, 3)]
+                "TUB-000003",
+                3,
+                (20, "uL"),
+                values=[{"name": f"Stock portion {n}"} for n in (1, 2, 3)],
             )
         """
         body: dict[str, Any] = {"count": count, "each": _quantity(each), "reason": reason}
@@ -806,7 +809,7 @@ class Entities(_Part):
         Each item's ``path`` says how it was reached; ``summary()["hidden"]`` counts trails
         into entities you can't read::
 
-            for item in iki.entities.upstream("RES-000004"):
+            for item in iki.entities.upstream("SAM-000004"):
                 print(item["depth"], item["entity"]["hrid"])
         """
         return self._walk("upstream", ref, depth, edges, type, archived, project, page_size)
@@ -823,10 +826,9 @@ class Entities(_Part):
         page_size: int = 100,
     ) -> Walk:
         """Everything derived from it that you can read (ADR 0123), nearest first: what
-        refers to it, what runs made from it, and on: what a recall or a donor's consent
-        withdrawal affects::
+        refers to it, what runs made from it, and on: what a stock withdrawal affects::
 
-            iki.entities.downstream("DNR-000001", type="iki/example_lims.Aliquot").to_pandas()
+            iki.entities.downstream("TUB-000001", type="iki/inventory.Tube").to_pandas()
         """
         return self._walk("downstream", ref, depth, edges, type, archived, project, page_size)
 
@@ -951,9 +953,7 @@ class Work(_Part):
         ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
             client = iki.client()
-            for item in client.work.mine(
-                type="iki/example_lims.Sample", state={"status": "in_review"}
-            ):
+            for item in client.work.mine(type="iki/samples.Sample", state={"status": "in_review"}):
                 print(item["entity"]["hrid"], item["due"])
         """
         return self._list("/me/work", project, type, state, sort, page_size)
@@ -1043,9 +1043,9 @@ class Notifications(_Part):
         ``None`` follows your choice everywhere again::
 
             client = iki.client()
-            client.notifications.choose({"iki/example_lims.Sample.in_review": "in_app"})
+            client.notifications.choose({"iki/samples.Sample.in_review": "in_app"})
             client.notifications.choose(
-                {"iki/example_lims.Sample.in_review": "off"}, project="stability"
+                {"iki/samples.Sample.in_review": "off"}, project="stability"
             )
         """
         client = self._client

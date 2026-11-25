@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Pull
 label: Stability pull
-schema_version: 1
+schema_version: 2
 hrid: { prefix: STP }
 due: due_on
 sample: true
@@ -19,7 +19,7 @@ fields:
   study: { type: ref, to: Study, required: true, immutable: true, indexed: true }
   study_revision: { type: int, min: 1, computed: true }
   lot: { type: ref, to: iki/lots.Lot, required: true, immutable: true }
-  tube: { type: ref, to: iki/example_lims.Tube, required: true, immutable: true }
+  tube: { type: ref, to: iki/inventory.Tube, required: true, immutable: true }
   volume_ul:
     {
       type: quantity,

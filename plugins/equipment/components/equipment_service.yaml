@@ -25,7 +25,7 @@ entities:
   limit: 1000
 slots:
   - slot: entity.tab
-    type: iki/example_lims.Instrument
+    type: Instrument
     search:
       where: { field: instrument, op: eq, value: "{{ entity }}" }
       sort: due_on

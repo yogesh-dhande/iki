@@ -820,12 +820,12 @@ def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
         return None
     return DrawTarget(
         from_field=data["from"],
-        source=data["source"],
+        source=data.get("source"),
         state_field=data["state"]["field"],
         state=data["state"]["is"],
-        by=tuple(lab_role_name(role, plugin) for role in data["by"]),
-        ready=data["ready"],
-        amount=data["amount"],
+        by=tuple(lab_role_name(role, plugin) for role in data.get("by", [])),
+        ready=data.get("ready"),
+        amount=data.get("amount"),
         stored=data.get("stored", False),
     )
 
@@ -1574,6 +1574,8 @@ class _Semantics:
             ("source", target.source, "ref"),
             ("amount", target.amount, "quantity"),
         ):
+            if name is None:
+                continue
             field = fields.get(name)
             if field is None or field.type != kind or not field.immutable or not field.required:
                 self.add(
@@ -1590,8 +1592,9 @@ class _Semantics:
                 source,
                 ("draw_target", "state"),
             )
-        prepared = fields.get(target.ready)
-        if prepared is None or not prepared.computed:
+        if target.ready is not None and (
+            target.ready not in fields or not fields[target.ready].computed
+        ):
             self.add(
                 "invalid-draw-target",
                 f"`{target.ready}` must be a computed field set when preparing the record.",
@@ -2527,17 +2530,17 @@ class _Semantics:
     ) -> None:
         found = every.get(name)
         f = found[0] if found is not None else None
-        if f is None or f.removed or f.type != "ref" or not (f.required and f.immutable):
+        if f is None or f.removed or f.type != "ref" or not f.immutable:
             self.add(
                 "amount-material",
-                f"`material` names a required, immutable reference of the type, to what its "
+                f"`material` names an immutable reference of the type, to what its "
                 f"amount is of, and `{name}` "
                 + (
                     "isn't one."
                     if f is None or f.removed
                     else f"is a {f.type} field."
                     if f.type != "ref"
-                    else "isn't both required and immutable: what a record is of can't change."
+                    else "isn't immutable: what a record is of can't change."
                 ),
                 source,
                 ("amount", "material"),

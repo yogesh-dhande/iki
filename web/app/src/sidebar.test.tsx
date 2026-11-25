@@ -108,15 +108,15 @@ describe("what it lists", () => {
     answer("GET /api/v1/entities/counts", {
       types: [
         { type: "acme/example.Sample", label: "Sample", count: 6 },
-        { type: "iki/example_lims.Sample", label: "Sample", count: 2 },
+        { type: "iki/samples.Sample", label: "Sample", count: 2 },
         { type: "iki/dna.Plasmid", label: "Plasmid", count: 3 },
       ],
       total: 11,
     });
     leftOpen();
     await renderApp("/projects/");
-    const lims = await within(nav()).findByRole("link", { name: "Sample iki/example_lims 2" });
-    expect(lims.querySelector(".type-plugin")).toHaveTextContent("iki/example_lims");
+    const lims = await within(nav()).findByRole("link", { name: "Sample iki/samples 2" });
+    expect(lims.querySelector(".type-plugin")).toHaveTextContent("iki/samples");
     expect(within(nav()).getByRole("link", { name: "Sample acme/example 6" })).toBeVisible();
     expect(within(nav()).getByRole("link", { name: "Plasmid 3" })).toBeVisible();
   });

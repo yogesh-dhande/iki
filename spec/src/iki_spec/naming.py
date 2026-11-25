@@ -117,7 +117,11 @@ FIRST_PARTY = frozenset(
         "iki/sequencing_analysis",
         "iki/stability",
         "iki/equipment",
-        "iki/example_lims",
+        "iki/inventory",
+        "iki/samples",
+        "iki/requests",
+        "iki/lab_roles",
+        "iki/lims_connector_example",
         "iki/example_models",
     }
 )

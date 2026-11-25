@@ -17,7 +17,7 @@ interval. [21 CFR 211.160(b)(4)][cfr], [NIST calibration interval guidance][nist
 
 ## Decision
 
-`iki/equipment` uses the existing LIMS Instrument and Booking. An
+`iki/equipment` owns Instrument and Booking alongside the booking calendar. An
 EquipmentService records a scheduled date, service kind and local procedure
 revision. An assigned engineer in the instrument's project records the
 as-found outcome, performed time, report and next due time for successful

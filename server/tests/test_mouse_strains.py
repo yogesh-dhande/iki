@@ -80,7 +80,7 @@ def test_banked_germplasm_traces_to_its_catalogue_and_data(tmp_path: Path, datab
 
         box = make("MouseCryobox", {"name": "Example box", "rows": 2, "columns": 2})
         rack = services.create(
-            user, "iki/example_lims.Rack", project, {"name": "Example rack"},
+            user, "iki/inventory.Rack", project, {"name": "Example rack"},
         ).entity
         storage.move(user, [storage.Wanted(box, rack, "1"), storage.Wanted(sperm, box, "A1"),
                             storage.Wanted(embryos, box, "B2")], reason="Banked")

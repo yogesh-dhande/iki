@@ -8,6 +8,8 @@
   [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0120](0120-a-state-can-lock-a-record-and-the-database-holds-the-lock.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The shipping Request and Deliverable families and the private WorkItem now live in `iki/requests`. Each returned record references its matching concrete request.
+
 ## Context
 
 A lab rarely does all its own work. A discovery team sends samples to an

@@ -373,7 +373,7 @@ class ApprovalOut(TypedDict):
     approver: str
     #: What the approver checks; empty if nothing's said.
     instructions: str
-    #: The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).
+    #: The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/lab_roles.qa (ADR 0116).
     role: str
 
 
@@ -2578,7 +2578,7 @@ class LabRoleGrantOut(TypedDict):
     granted_by: UserOut | None
     #: What people call it, such as QA: with its plugin's title after it where another plugin's role has the same label, such as QA (Lots).
     label: str
-    #: The lab role, by name, such as iki/example_lims.qa.
+    #: The lab role, by name, such as iki/lab_roles.qa.
     role: str
 
 
@@ -2586,7 +2586,7 @@ class LabRoleOut(TypedDict):
     description: str | None
     #: What people call it: its label, and where another plugin's role has the same one, its plugin's title after it, such as QA (Lots).
     label: str
-    #: Its name, such as iki/example_lims.qa.
+    #: Its name, such as iki/lab_roles.qa.
     name: str
     #: The plugin that declares it.
     plugin: str
@@ -2606,7 +2606,7 @@ class LabRoleUseOut(TypedDict):
 
 
 class LabRolesIn(TypedDict):
-    #: Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.
+    #: Every lab role the grant should carry, by name (such as iki/lab_roles.qa): those it has and aren't listed are taken away.
     roles: list[str]
 
 
@@ -2991,7 +2991,7 @@ class NotificationOut(TypedDict):
     count: int
     created_at: str
     id: str
-    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.
+    #: What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.
     kind: str
     #: What people's settings call its kind.
     kind_label: str
@@ -3764,7 +3764,7 @@ class ProjectOut(TypedDict):
     created_at: str
     description: str
     id: str
-    #: The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.
+    #: The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/lab_roles.qa: what /lab-roles describes.
     my_lab_roles: list[str]
     #: Your role, from your own grant or your teams'; null if you have none.
     my_role: Literal['viewer', 'editor', 'runner', 'admin'] | None

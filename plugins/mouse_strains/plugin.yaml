@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/mouse_strains
-version: 0.1.0
+version: 0.2.0
 title: Mouse strains
 description: >-
   Register mouse strains and alleles by MGI accession, look up JAX stocks and
@@ -11,4 +11,4 @@ license: Apache-2.0
 iki: ">=0.1"
 homepage: https://ikisci.org/plugins/mouse_strains
 dependencies:
-  iki/example_lims: { types: { Box: ">=1" } }
+  iki/inventory: { types: { Box: ">=1" } }

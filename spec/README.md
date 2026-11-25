@@ -62,13 +62,10 @@ installed together: `acme/assays` and `globex/assays` are different plugins
 parts are 2 to 30 lower-case letters, digits and single underscores, starting
 with a letter. The namespace is your lab's or company's.
 
-- The namespace `iki` is Iki's own: `iki/core`, `iki/dna`, `iki/protein`,
-  `iki/antibody`, `iki/small_molecule`, `iki/oligo`, `iki/plasmid`,
-  `iki/complex`, `iki/conjugate`, `iki/polymer`, `iki/cell_lines`, `iki/lots`,
-  `iki/plate_assays`, `iki/experiments`, `iki/reagents`, `iki/qc_release`,
-  `iki/stability`, `iki/equipment` and `iki/example_lims`. No other plugin may use
-  it, or a namespace starting with `iki_` (`reserved-namespace`), and a
-  lockfile takes an `iki/...` plugin only from Iki's repository.
+- The namespace `iki` is reserved for the core and the plugins in Iki's
+  [first-party name list](src/iki_spec/naming.py). Namespaces starting with
+  `iki_` are also reserved (`reserved-namespace`). A lockfile takes an
+  `iki/...` plugin only from Iki's repository.
 - A plugin names its own types, actions and the rest without its namespace
   (`Protein`, or in full, `acme/proteins.Protein`). Anything of another
   plugin's is named in full: `iki/dna.DNASequence`, `iki/protein.translate`,
@@ -101,7 +98,7 @@ roles:
 
 Names are lower-case letters, digits and single underscores; `viewer`,
 `editor`, `runner` and `admin` are the project roles'. A role is known in
-full as `namespace/plugin.name` (`iki/example_lims.qa`). A plugin names its
+full as `namespace/plugin.name` (`iki/lab_roles.qa`). A plugin names its
 own by the short name, and another plugin's in full, which needs that plugin
 under `dependencies` (`undeclared-dependency`), so several plugins can share
 one QA role. Naming a role nobody declares is `unknown-role`; two roles with
@@ -619,6 +616,8 @@ back to the asking project, for good. Until then that project can't see it.
 request:
   service_fields: [status, priority, analyst, core_notes]
   sends: [samples]
+  materials: [samples]
+  completed: { field: status, state: delivered }
 fields:
   title: { type: string, required: true, max_length: 200 }
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 50 }
@@ -636,9 +635,11 @@ fields:
 # types/analysis_result.yaml
 result:
   of: request
+  material: sample
   released: { field: review, states: [released] }
 fields:
   request: { type: ref, to: AnalysisRequest, required: true, immutable: true }
+  sample: { type: ref, to: Sample, immutable: true }
   purity: { type: float, min: 0, max: 100 }
   review:
     type: state
@@ -658,6 +659,17 @@ fields:
 - `sends` names references, or lists of them (`unknown-field`,
   `request-sends-not-a-reference`), and none of the service's
   (`request-sends-service-field`).
+- `request.materials` names the sent fields that identify the subjects of the work.
+  A result's `material` names the immutable reference to its subject. Iki checks
+  the subject when the result is recorded and again when it is released.
+  State guards can read `covered_subjects`, the IDs of commissioned records covered
+  by this result's material through any depth of recorded aliquots. For example,
+  `covered_subjects.exists(id, id in record.request.tubes)` checks sequencing
+  evidence against the tubes currently requested.
+- `request.completed` names the service state that closes the request. Completing
+  it requires at least one returned result, all recorded results returned, and
+  coverage of every commissioned subject by a returned result for that subject
+  or its recorded aliquot. Repeated results for one subject count toward that subject.
 - A request or a result is one project's record, so it has no `identity`
   (`request-with-identity`, `result-with-identity`), and a type isn't both
   (`result-is-a-request`). A subtype of a request type is one, with its
@@ -737,8 +749,8 @@ fields:
   split from, and a record transferred into depends on what was moved into
   it. A draw with `used_in` links the receiving record to the stock it used.
   Lineage walks can follow or filter these edges as `aliquot`, `transfer`, or `used`.
-- `material` names a required, immutable reference of the type to what its
-  amount is of, such as a lot's molecule (`amount-material`). A transfer
+- `material` names an immutable reference of the type to what its
+  amount is of, such as a lot's molecule (`amount-material`). An empty container can identify its contents when first filled. A positive balance requires an identified material. A transfer
   into one of its records takes only material of that entity, from a record
   whose type says so too (a reference to a registry entry and one to a
   project's record of it are the same entity), and its aliquots are of it
@@ -747,6 +759,10 @@ fields:
 - A transfer into a record that a state locks, such as a released lot,
   takes only material from a record in that same state, so nothing that
   wasn't released becomes part of what was.
+- A destination can declare `draw_target: {from: source, state: {field: status, is: pending}}`.
+  One draw can be recorded against the assigned source while the destination is pending.
+  The debit and the destination receipt commit together. A prepared draw can additionally
+  pin the upstream material, planned quantity, readiness field and authorized roles.
 - A destination type can declare `draws_received: material_draws` with
   `material_draws: { type: json, computed: true }` among its fields.
   Each draw with this destination as `used_in` appends the movement ID,

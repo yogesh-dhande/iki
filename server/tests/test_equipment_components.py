@@ -71,7 +71,7 @@ USE_ROW: dict[str, Any] = {
         "calibration_revision": 4,
         "measurement_at": "2026-04-02T10:30:00Z",
     },
-    "refs": {INSTRUMENT: {"hrid": "INS-000001"}, RESULT: {"hrid": "ANR-000001"}},
+    "refs": {INSTRUMENT: {"hrid": "INS-000001"}, RESULT: {"hrid": "QCD-000001"}},
 }
 IMPACT_ROW: dict[str, Any] = {
     "hrid": "EQI-000001",
@@ -87,7 +87,7 @@ IMPACT_ROW: dict[str, Any] = {
     "refs": {
         FAILURE: {"hrid": CALIBRATION["hrid"]},
         EVIDENCE: {"hrid": USE_ROW["hrid"]},
-        RESULT: {"hrid": "ANR-000001"},
+        RESULT: {"hrid": "QCD-000001"},
     },
 }
 
@@ -150,7 +150,7 @@ def test_equipment_evidence_fits_a_phone_and_opens_the_record(
         opened = CALIBRATION
     elif element == IMPACT:
         give(page, element, [IMPACT_ROW])
-        assert page.get_by_text("ANR-000001", exact=True).is_visible()
+        assert page.get_by_text("QCD-000001", exact=True).is_visible()
         assert page.get_by_text("EQS-000002 · revision 5").is_visible()
         assert page.get_by_text("Pending disposition").is_visible()
         released = {**IMPACT_ROW, "values": {**IMPACT_ROW["values"], "review": "released"}}
@@ -160,7 +160,7 @@ def test_equipment_evidence_fits_a_phone_and_opens_the_record(
         opened = IMPACT_ROW
     else:
         give(page, element, [USE_ROW])
-        assert page.get_by_text("ANR-000001 · revision 7").is_visible()
+        assert page.get_by_text("QCD-000001 · revision 7").is_visible()
         assert page.get_by_text("Unavailable reference · revision 4").is_visible()
         assert page.get_by_text(PASSING, exact=True).count() == 0
         opened = USE_ROW

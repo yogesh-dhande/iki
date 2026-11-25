@@ -17,7 +17,7 @@ from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from test_api_entities import patch
-from test_plate_review import _read_evidence, _request
+from test_plate_review import _read_evidence, _requests
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
@@ -154,7 +154,7 @@ def exercise_qc() -> None:
     # A submitted request covers only its tube. Even the right procedure cannot
     # deliver a fit on this other lot to that requester. Internal QC may use it
     # for its own lot release only under the procedure revision in the specification.
-    request, _ = _request(world)
+    _, request, _ = _requests(world)
     control = make(
         "iki/small_molecule.Compound",
         name="Water",

@@ -3,8 +3,8 @@ kind: EntityType
 name: RequestedQCAssayResult
 label: Requested QC assay result
 extends: QCAssayResult
-schema_version: 2
+schema_version: 3
 hrid: { prefix: QSF }
 result: { of: request, material: sample, released: { field: review, states: [released] } }
 fields:
-  request: { type: ref, to: iki/example_lims.AnalysisRequest, required: true, immutable: true }
+  request: { type: ref, to: iki/requests.QCRequest, required: true, immutable: true }

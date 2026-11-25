@@ -1,0 +1,139 @@
+apiVersion: iki/v1
+kind: EntityType
+name: Sample
+label: Sample
+schema_version: 1
+hrid: { prefix: SAM }
+sample: true
+description: A portion drawn from one tube or lot for identified work, with its measurements and signed review.
+draw_target: { from: source, state: { field: status, is: pending } }
+draws_received: receipt
+due: due_on
+fields:
+  source: { type: ref, to: [iki/inventory.Tube, iki/lots.Lot], required: true, immutable: true }
+  purpose:
+    type: ref
+    to: iki/core.Entity
+    immutable: true
+    description: The request, plate or other work this sample was taken for.
+  run:
+    type: string
+    label: Run
+    pattern: "^RUN-[0-9]+$"
+    immutable: true
+    description: The run this sample was taken for, when the work is an action run.
+  receipt: { type: json, computed: true, label: Material draw }
+  measurements:
+    type: list
+    max_items: 200
+    items:
+      type: row
+      fields:
+        method: { type: string, required: true, max_length: 150 }
+        value:
+          {
+            type: string,
+            required: true,
+            max_length: 250,
+            description: The observation as reported.,
+          }
+        unit: { type: string, max_length: 40 }
+        notes: { type: text }
+  notes: { type: text }
+  due_on: { type: date }
+  analyst:
+    type: person
+    role: iki/lab_roles.analyst
+    assignment: { field: status, states: [received, in_testing, retesting] }
+  reviewer:
+    type: person
+    role: iki/lab_roles.reviewer
+    assignment: { field: status, states: [in_review] }
+  status:
+    type: state
+    initial: pending
+    states:
+      pending: { label: Awaiting draw }
+      received:
+        label: Received
+        set_by: [iki/lab_roles.coordinator, iki/lab_roles.analyst]
+        guards:
+          drawn:
+            check: state.from == "pending" && size(draws) == 1
+            message: Record the draw from the assigned source before receiving this sample.
+      in_testing:
+        label: In testing
+        set_by: [iki/lab_roles.analyst]
+        guards:
+          received:
+            check: state.from == "received"
+            message: Receive the sample before testing it.
+      in_review:
+        label: In review
+        set_by: [iki/lab_roles.analyst]
+        locks: true
+        signatures: [{ meaning: authorship, statement: I recorded these measurements as observed. }]
+        guards:
+          tested:
+            check: state.from in ["in_testing", "retesting"] && record.measurements != null && size(record.measurements) > 0
+            message: Record at least one measurement in testing before submitting for review.
+      reviewed:
+        label: Reviewed
+        set_by: [iki/lab_roles.reviewer]
+        locks: true
+        signatures: [{ meaning: review }]
+        guards:
+          submitted:
+            check: state.from == "in_review"
+            message: Review the signed submission.
+          independent:
+            check: >-
+              last.status.in_review.by != actor.person &&
+              (last.status.retesting == null ?
+               edits.status.pending + edits.status.received + edits.status.in_testing :
+               edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in ["measurements", "notes"]))
+            message: Someone other than the submitter and measurement editors must review this testing cycle.
+      results_recorded:
+        label: Results recorded
+        set_by: [iki/lab_roles.reviewer]
+        locks: true
+        guards:
+          reviewed:
+            check: state.from == "reviewed"
+            message: Record the results after independent signed review.
+      retesting:
+        label: Returned to testing
+        set_by: [iki/lab_roles.reviewer]
+        reason: required
+        signatures:
+          [
+            {
+              meaning: responsibility,
+              statement: I return these measurements to testing for the reason recorded.,
+            },
+          ]
+        guards:
+          signed:
+            check: state.from in ["in_review", "reviewed", "results_recorded"]
+            message: Return a submitted or reviewed sample to testing.
+rules:
+  awaiting_testing:
+    when: record.status in ["pending", "received"]
+    check: record.measurements == null || size(record.measurements) == 0
+    message: Receive the draw and start testing before entering measurements.
+    fields: [measurements]
+  identified_work:
+    check: (record.purpose != null) != (record.run != null)
+    message: Identify the work with either a record or a run.
+    fields: [purpose, run]
+  independent_assignment:
+    when: record.reviewer != null && record.analyst != null
+    check: record.reviewer != record.analyst
+    message: Assign a different reviewer and analyst.
+    fields: [reviewer]
+notifications:
+  in_review:
+    label: Sample ready for review
+    when: { field: status, to: in_review }
+    tell: { watchers: true }
+    message: { title: "{{ hrid }} is ready for review" }

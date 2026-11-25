@@ -1,0 +1,7 @@
+apiVersion: iki/v1
+kind: EntityType
+name: PlainRequest
+label: Plain request
+extends: Request
+schema_version: 1
+hrid: { prefix: REQ }

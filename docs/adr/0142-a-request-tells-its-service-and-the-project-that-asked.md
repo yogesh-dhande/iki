@@ -72,5 +72,5 @@ its event has none; it names the agent that sent it, if one did.
 - Iki adds no kinds of its own for requests: a plugin that declares
   neither tells nobody, as before, and people turn each off in their
   settings unless it's `required`.
-- `iki/example_lims` tells a core's coordinators of each analysis
+- `iki/requests` tells a service's coordinators of each
   request, and its maker and watchers of each result released.

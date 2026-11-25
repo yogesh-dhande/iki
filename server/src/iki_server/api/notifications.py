@@ -56,7 +56,7 @@ class NotificationOut(Schema):
     id: UUID
     kind: str = Field(
         description="What it's about, such as project.added, or a type's notification "
-        "(ADR 0129), such as iki/example_lims.Sample.in_review."
+        "(ADR 0129), such as iki/samples.Sample.in_review."
     )
     kind_label: str = Field(description="What people's settings call its kind.")
     title: str

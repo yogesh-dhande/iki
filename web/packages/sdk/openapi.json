@@ -1426,7 +1426,7 @@
             "type": "string"
           },
           "role": {
-            "description": "The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/example_lims.qa (ADR 0116).",
+            "description": "The role an approver needs: a project role (viewer, editor, runner or admin, or above), or a lab role by name, such as iki/lab_roles.qa (ADR 0116).",
             "title": "Role",
             "type": "string"
           }
@@ -11235,7 +11235,7 @@
             "type": "string"
           },
           "role": {
-            "description": "The lab role, by name, such as iki/example_lims.qa.",
+            "description": "The lab role, by name, such as iki/lab_roles.qa.",
             "title": "Role",
             "type": "string"
           }
@@ -11269,7 +11269,7 @@
             "type": "string"
           },
           "name": {
-            "description": "Its name, such as iki/example_lims.qa.",
+            "description": "Its name, such as iki/lab_roles.qa.",
             "title": "Name",
             "type": "string"
           },
@@ -11339,7 +11339,7 @@
       "LabRolesIn": {
         "properties": {
           "roles": {
-            "description": "Every lab role the grant should carry, by name (such as iki/example_lims.qa): those it has and aren't listed are taken away.",
+            "description": "Every lab role the grant should carry, by name (such as iki/lab_roles.qa): those it has and aren't listed are taken away.",
             "items": {
               "type": "string"
             },
@@ -13033,7 +13033,7 @@
             "type": "string"
           },
           "kind": {
-            "description": "What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/example_lims.Sample.in_review.",
+            "description": "What it's about, such as project.added, or a type's notification (ADR 0129), such as iki/samples.Sample.in_review.",
             "title": "Kind",
             "type": "string"
           },
@@ -16838,7 +16838,7 @@
             "type": "string"
           },
           "my_lab_roles": {
-            "description": "The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/example_lims.qa: what /lab-roles describes.",
+            "description": "The lab roles you hold here (ADR 0116), from your own grant or your teams', by name, such as iki/lab_roles.qa: what /lab-roles describes.",
             "items": {
               "type": "string"
             },
@@ -34380,7 +34380,7 @@
     },
     "/api/v1/entities/search": {
       "post": {
-        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"DNR-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"DNR-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"purity_in_specification\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
+        "description": "Entities you can read that match every filter given: a type (with its subtypes), a\nproject, archived or not, text in their HRID or title (``q``), membership of a\n``collection``, and ``where``, conditions on the type's fields. Sorted by ``sort``\n(then by ID), oldest first without one.\n\nEach kind of field takes its own operators, and every field takes ``is_set``:\n\n- string: ``eq``, ``ne``, ``in``, ``contains``, ``starts_with`` (any case); a sequence\n  (a ``dna_sequence``, ``rna_sequence`` or ``protein_sequence``, its field's ``format``)\n  also ``motif`` (ADR 0175): its bases or residues in IUPAC codes, as ``GAATTY``, each\n  matching a residue it certainly is (Y matches C, T and Y; a record's N only N), found\n  on a duplex's other strand as its reverse complement, and across a circle's origin, as\n  the record's strands and topology say\n- text: ``contains``, ``matches`` (its words: ``\"kinase -fragment\"``, ``\"\"active site\"\"``)\n- enum, reference: ``eq``, ``ne``, ``in`` (references by ID or HRID)\n- int, float, quantity, date, datetime: ``eq``, ``ne``, ``in``, ``lt``, ``lte``, ``gt``,\n  ``gte`` (quantities in the field's unit, or in another by its UCUM code, as\n  ``{\"value\": 50, \"unit\": \"ku\"}`` for 50 kDa)\n- bool: ``eq``; file: ``eq``, ``ne``; list: ``has``\n\n``ne`` matches entities without a value too. Every entity also has ``hrid``, ``type``,\n``owner_project``, ``created_by``, ``created_at``, ``updated_at`` and ``archived_at``,\nand ``made``, how it was made (ADR 0106): ``has`` an object of ``software``,\n``version``, ``kind`` (``experimental``, ``computational``) and ``by`` (``iki``, Iki's\nrecord of its run; ``source``, an imported record's word), all matching one making,\nas ``{\"software\": \"AlphaFold\", \"by\": \"iki\"}``; ``is_set``, made in any way it records.\nA state field (ADR 0125) is searched as an enum of its states, by name.\n``upstream`` and ``downstream`` (ADR 0123) take ``of``: what an entity (by ID or\nHRID) was derived from, or what was derived from it, through references and runs, as\n``{\"field\": \"downstream\", \"op\": \"of\", \"value\": \"TUB-000001\"}``, or with a ``depth``\nand ``edges``: ``{\"entity\": \"TUB-000001\", \"depth\": 5, \"edges\": [\"reference\"]}``; and\n``is_set``, whether anything you can read is that way.\n``held`` and ``breaks`` (ADR 0127) find what plugins' rules caught: records a rule holds\nfor review now, and records that break a rule they were saved before (one its plugin\nadded or changed since, or one a bundle brought). They take a rule's name with ``eq``,\n``ne`` and ``in``, as ``{\"field\": \"held\", \"op\": \"eq\", \"value\": \"mass_within_tolerance\"}``,\nand ``is_set``, held or breaking any rule. Each result's ``holds`` and ``breaches``\nsay which, and why.\nA search may run for 15 seconds: conditions on indexed fields keep it fast.",
         "operationId": "iki_server_api_entities_search_entities",
         "parameters": [],
         "requestBody": {

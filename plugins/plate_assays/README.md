@@ -11,7 +11,8 @@ retain those identifiers for comparison with the approved release criterion.
 ## Set up review
 
 Install `iki/plate_assays` with its declared dependencies and bind
-`iki/plate_assays.assay-tools` to a backend worker. Apply the dose-response
+`iki/plate_assays.assay-tools` to a backend worker. For the dose-response starter, also install
+`iki/samples` with its dependencies to provide the example stock and materials. Apply the
 starter in the assay project to choose Research or Regulated QC, assign lab
 roles and fit apigenin and daidzein against firefly luciferase. The example plate holds three
 replicates at eleven concentrations per compound, plus positive and negative controls. The
@@ -31,7 +32,7 @@ Each result keeps the flow selected when it was created.
    concentrations of samples in a series. **Assign a dilution series** fills
    an empty block from its starting well, nominal concentration, fold dilution
    and number of concentrations. Replicates occupy parallel rows or columns.
-   If the assay answers a request, select the submitted analysis request.
+   If the assay answers a request, select the submitted Research or QC request matching the review flow.
 2. Attach a BMG LABTECH MARS endpoint CSV, exported with the absorbance display
    set to OD, or attach a matrix headed `Normalized activity (%)`. Choose **Preview** and inspect the measured and assigned wells.
    Resolve missing, repeated and unassigned wells, then commit the preview.

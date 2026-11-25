@@ -25,9 +25,11 @@ from iki_server.setup.models import StarterApplication
 
 
 class Examples(Protocol):
-    def check_example(self, project: Project, requester_project: Project, *, by: User) -> None: ...
+    def check_example(
+        self, project: Project, requester_project: Project, flow: str, *, by: User
+    ) -> None: ...
     def seed_example(
-        self, project: Project, requester_project: Project, *, by: User
+        self, project: Project, requester_project: Project, flow: str, *, by: User
     ) -> dict[str, str]: ...
 
 
@@ -51,13 +53,13 @@ class Starter:
 
 
 PLATE = "iki/plate_assays."
-COORDINATOR = "iki/example_lims.coordinator"
+COORDINATOR = "iki/lab_roles.coordinator"
 ANALYST, REVIEWER, QA = PLATE + "analyst", PLATE + "reviewer", PLATE + "qa"
 FLOW_LABELS = {"research": "Research", "regulated_qc": "Regulated QC"}
 
 DOSE_RESPONSE = Starter(
     id="dose-response",
-    version="1.1.0",
+    version="1.2.0",
     label="Dose-response plate assay",
     description="Receive an example request, map a reader file to wells, fit a curve and return "
     "the signed result to the requester.",
@@ -73,9 +75,9 @@ DOSE_RESPONSE = Starter(
         "iki/protein.Protein",
         "iki/small_molecule.Compound",
         "iki/lots.GenericLot",
-        "iki/example_lims.Sample",
-        "iki/example_lims.Tube",
-        "iki/example_lims.AnalysisRequest",
+        "iki/samples.Sample",
+        "iki/inventory.Tube",
+        *dose_response.REQUEST_TYPES.values(),
         PLATE + "AssayPlate",
         PLATE + "PlateRead",
         PLATE + "WellMeasurement",
@@ -306,7 +308,7 @@ def _plan(
         current.version != version and not set(recipe.example_keys).issubset(current.examples)
     )
     if new_examples:
-        recipe.examples.check_example(project, requester_project, by=by)
+        recipe.examples.check_example(project, requester_project, flow, by=by)
     selected = {role: set(ids) for role, ids in role_assignments.items()}
     members = _members(project, recipe, flow, selected)
     held = {key: {g.role for g in m.lab_roles.all()} for key, m in members.items()}
@@ -396,7 +398,9 @@ def apply(
             project=project, requester_project=requester_project, starter=starter
         )
     if result["examples_to_create"]:
-        current.examples = planned.starter.examples.seed_example(project, requester_project, by=by)
+        current.examples = planned.starter.examples.seed_example(
+            project, requester_project, flow, by=by
+        )
     current.version, current.flow, current.applied_by = version, flow, by
     current.save()
     result["examples"] = dict(current.examples)

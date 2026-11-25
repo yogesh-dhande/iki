@@ -101,9 +101,9 @@ def exercise_history() -> None:
     with pytest.raises(Invalid, match="master bank of this cell line"):
         make("CellBank", **{**working_values, "name": "Wrong line", "line": str(line.pk)})
 
-    vial = make("CellVial", name="Example vial", bank=str(working.pk))
+    vial = make("CellVial", name="Example vial", bank=str(working.pk), contents=str(working.pk))
     box = services.create(
-        editor, "iki/example_lims.Box", world.project, {"name": "Example box"}
+        editor, "iki/inventory.Box", world.project, {"name": "Example box"}
     ).entity
     assert isinstance(box, Entity)
     [placed] = storage.move(editor, [storage.Wanted(vial, box, "B3")], reason="Banked")

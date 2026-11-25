@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: PlainDeliverable
+label: Plain deliverable
+extends: Deliverable
+schema_version: 1
+hrid: { prefix: DLV }
+description: A result the service project can return to the team that asked without a signature.
+result:
+  of: request
+  material: material
+  released: { field: status, states: [delivered] }
+fields:
+  request:
+    type: ref
+    to: PlainRequest
+    required: true
+    immutable: true
+    description: The request this deliverable answers.
+  status:
+    type: state
+    initial: recorded
+    states:
+      recorded:
+        label: Recorded
+      delivered:
+        label: Delivered
+        set_by: [iki/lab_roles.reviewer]
+        locks: true
+        guards:
+          recorded:
+            check: state.from == "recorded"
+            message: Deliver a recorded result.
+          active_request:
+            check: record.request.standing == "open" && record.request.status == "in_progress"
+            message: Deliver while the request is open and in progress.
+          scope_still_matches:
+            check: >-
+              record.request.facility_service == "protein_production" ?
+              (record.protein != null && record.protein.id in record.request.records) :
+              (record.request.facility_service != "sequencing" ||
+               covered_subjects.exists(id, id in record.request.tubes))
+            message: The returned evidence must match the current request.
+rules:
+  production_evidence:
+    when: record.request.facility_service == "protein_production"
+    check: >-
+      record.protein != null && record.protein.id in record.request.records &&
+      record.material == null && record.run_accession == null &&
+      (record.data_files == null || size(record.data_files) == 0) &&
+      (record.outcome == "unsuccessful" ||
+        (record.lot_number != null && record.lot_number != "" &&
+         record.delivered_mass != null && record.delivered_mass > 0))
+    message: Name the requested protein and give a lot number and positive mass for a successful delivery.
+    fields: [protein, lot_number, delivered_mass, material, run_accession, data_files, outcome]
+  sequencing_evidence:
+    when: record.request.facility_service == "sequencing"
+    check: >-
+      record.material != null &&
+      record.protein == null && record.lot_number == null && record.delivered_mass == null &&
+      (record.outcome == "unsuccessful" || record.run_accession != null ||
+        (record.data_files != null && size(record.data_files) > 0))
+    message: Name a tube on the request and attach files or a public run accession for a successful delivery.
+    fields: [material, data_files, run_accession, protein, lot_number, delivered_mass, outcome]

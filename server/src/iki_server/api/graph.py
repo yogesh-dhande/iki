@@ -344,8 +344,7 @@ _VERBS = {
 
 
 def _path_text(root: dict[str, Any], path: list[dict[str, Any]], direction: str) -> str:
-    """A path as a line people read: ``SAM-000002 (donor) DNR-000001``, nearest the root
-    first, each step saying why."""
+    """Render each step from the root, e.g. ``SAM-000002 → [reference: source] TUB-000001``."""
     parts = [root["hrid"]]
     for step in path:
         why = step["field"] or step["kind"]

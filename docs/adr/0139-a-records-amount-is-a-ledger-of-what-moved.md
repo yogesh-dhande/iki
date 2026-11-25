@@ -6,6 +6,8 @@
   [0123](0123-queries-walk-the-graph-of-what-depends-on-what.md),
   [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). Stock is now held in `iki/inventory.Tube`. Core aliquots split stock into tube records. A sample receives a ledger draw from its source tube or lot.
+
 ## Context
 
 A lab keeps track of how much of each thing it has: a sample's volume, a

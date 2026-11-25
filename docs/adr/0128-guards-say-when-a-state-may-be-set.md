@@ -7,6 +7,8 @@
   [0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md),
   [0116](0116-lab-roles-are-declared-by-plugins-and-given-per-project.md)
 
+Updated by [ADR 0211](0211-lots-inventory-samples-and-requests.md). The sample analyst signs submission, and an independent reviewer signs the measured results. Lot disposition and QA release live with the lot.
+
 ## Context
 
 ADR 0125 left workflow policy to plugins. A state says which lab roles may
