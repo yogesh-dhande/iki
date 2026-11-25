@@ -5,6 +5,7 @@
 
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Fragment } from "react";
 
 import { problemOf } from "../api";
 import { formatSize, typeLabel, typesQuery } from "../entities";
@@ -17,8 +18,10 @@ import {
   fileRecordsQuery,
   fileRunsQuery,
   filterOf,
+  readGroupColumns,
   searchOf,
   spanText,
+  statedFacts,
   usedByText,
   type FileDetail,
   type UsingRun,
@@ -201,6 +204,14 @@ export function FilePage() {
             </span>
           )}
         </dd>
+        {statedFacts(file.facts).map((fact) => (
+          <Fragment key={fact.key}>
+            <dt>{fact.label}</dt>
+            <dd>
+              {fact.value} <span className="muted">from {fact.statedIn}</span>
+            </dd>
+          </Fragment>
+        ))}
         <dt>Added</dt>
         <dd>
           <Time value={file.created_at} />
@@ -221,9 +232,60 @@ export function FilePage() {
           </>
         ) : null}
       </dl>
+      {file.read_groups.length ? <ReadGroups file={file} /> : null}
       <FilePreviewSection file={file} />
       <UsedBy file={file} />
     </>
+  );
+}
+
+/** A SAM or BAM file's read groups (ADR 0224): a column for each tag any of them gives. */
+function ReadGroups({ file }: { file: FileDetail }) {
+  const columns = readGroupColumns(file.read_groups);
+  return (
+    <section className="file-read-groups" aria-labelledby="read-groups">
+      <h2 className="section-title" id="read-groups">
+        Read groups <span className="muted">{file.read_groups.length.toLocaleString()}</span>
+      </h2>
+      <p className="muted">As the file’s header gives them, in its @RG lines.</p>
+      {/* Many tags can be wider than the page: its box scrolls, by keyboard too. */}
+      <div
+        className="list-table-box"
+        role="region"
+        aria-label={`Read groups in ${file.name}`}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable table
+        tabIndex={0}
+      >
+        <table className="list-table">
+          <caption className="visually-hidden">Read groups in {file.name}</caption>
+          <thead>
+            <tr>
+              {columns.map(([tag, label]) => (
+                <th scope="col" key={tag} title={`@RG ${tag}`}>
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {file.read_groups.map((group) => (
+              <tr key={group.ID}>
+                {columns.map(([tag]) => (
+                  <td
+                    key={tag}
+                    className={
+                      tag === "ID" ? "grid-id" : group[tag] === undefined ? "muted" : undefined
+                    }
+                  >
+                    {group[tag] ?? "—"}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

@@ -68,6 +68,7 @@ from iki_server.entities.services import (
 )
 from iki_server.entities.values import Shape, shape
 from iki_server.entities.values import is_list_table as _is_list
+from iki_server.files import metadata as stated
 from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
@@ -472,6 +473,13 @@ class _Writer:
             # When its data was acquired, and how that was known, as the deployment it came
             # from had it (ADR 0177).
             when = f.get("acquired") or {}
+            # What it states (ADR 0224), checked as a reader's would be: a bundle is
+            # another deployment's word, and its file's bytes aren't read again here.
+            try:
+                facts = stated.clean_stored(f.get("facts"))
+                groups = stated.clean_read_groups(f.get("read_groups"))
+            except ValueError as error:
+                raise reading.BundleError(f"A file's stated facts aren't valid: {error}") from None
             File.objects.create(
                 id=f["id"],
                 blob_id=blob_id,
@@ -484,6 +492,9 @@ class _Writer:
                 acquired_on=when.get("on"),
                 acquired_at=when.get("at", ""),
                 acquired_from=when.get("source", ""),
+                facts=facts,
+                read_groups=groups,
+                stated_text=stated.search_text(facts, groups),
             )
             self.counts["files"] += 1
 

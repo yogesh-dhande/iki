@@ -1,0 +1,71 @@
+apiVersion: iki/v1
+kind: ActionTest
+name: failed_calibration_traces_through_recovery
+action: trace_failed_calibrations
+description: A synthetic failure. The window includes its start and ends before recovery.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer } }]
+  calibrations:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: signed_off
+        review_flow: research
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: in_tolerance
+        review: released
+        performed_at: "2026-01-15T09:00:00Z"
+  uses:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000010
+        measurement_at: "2026-01-08T09:59:59Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000011
+        measurement_at: "2026-01-08T10:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000012
+        measurement_at: "2026-01-13T10:00:00Z"
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        result: 00000000-0000-7000-8003-000000000013
+        measurement_at: "2026-01-15T09:00:00Z"
+expect:
+  output:
+    creates:
+      - type: iki/equipment.CalibrationImpact
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000002
+          - 00000000-0000-7000-8003-000000000005
+        values:
+          failure: 00000000-0000-7000-8003-000000000002
+          failure_revision: 1
+          use: 00000000-0000-7000-8003-000000000005
+          result: 00000000-0000-7000-8003-000000000011
+          review_flow: research
+      - type: iki/equipment.CalibrationImpact
+        values:
+          result: 00000000-0000-7000-8003-000000000012
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: failure_flag_before_signature
+action: trace_failed_calibrations
+description: An observed failure awaiting signature remains in the service history for follow-up.
+inputs:
+  instrument: [{ values: { name: Spectrophotometer } }]
+  calibrations:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: scheduled
+expect: { error: Select at least one signed out-of-tolerance calibration for the trace. }

@@ -47,6 +47,15 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
         add(world.project, "control.pdb", acquired="2026-03-14")
         add(world.project, "Plate-D.pdb", acquired="2026-04-01")
         add(world.project, "Plate-F.pdb", acquired="2026-03-13")
+        add(
+            world.project,
+            "Tube_003.fcs",
+            "application/vnd.isac.fcs",
+            facts={
+                "instrument": {"value": "LSRFortessa X-20", "stated_in": "FCS keyword $CYT"},
+                "operator": {"value": "Priya Raman", "stated_in": "FCS keyword $OP"},
+            },
+        )
         add(world.archived, "Plate-E.pdb", acquired="2026-03-14")
         holder = structure(world, trace)
         structure(world, trace)
@@ -126,6 +135,15 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
     )
     assert next_records["records"] == {"items": records[1:], "next_cursor": None}
     assert next_records["runs"] == detail["runs"]
+
+    # What a file states is found and read as the browser does (ADR 0224).
+    stating = data(await tool(token, "find_files", q="fortessa"))
+    assert stating["items"] == (await browser("/files", q="fortessa"))["items"]
+    (tube,) = stating["items"]
+    assert tube["facts"]["operator"] == {"value": "Priya Raman", "stated_in": "FCS keyword $OP"}
+    read = data(await tool(token, "get_file", file_id=tube["id"]))
+    assert read["file"] == await browser(f"/files/{tube['id']}")
+    assert read["file"]["facts"]["instrument"]["value"] == "LSRFortessa X-20"
 
 
 async def test_file_tools_respect_project_membership_and_the_grant(

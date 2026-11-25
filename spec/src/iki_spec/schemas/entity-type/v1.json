@@ -502,7 +502,7 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "material": {
-          "description": "An immutable reference naming what the amount is of. A positive stock balance requires a value. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
+          "description": "An immutable reference naming what the amount is of, or id when this record is the material. A positive stock balance requires an identified material. A transfer into one of its records takes only the same entity's, and its aliquots are that entity's too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
         "follows": {

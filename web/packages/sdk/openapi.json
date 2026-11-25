@@ -1350,19 +1350,6 @@
             "title": "Flow",
             "type": "string"
           },
-          "requester_project": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Original requester for an assay project Admin who may edit that project.",
-            "title": "Requester Project"
-          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -1370,8 +1357,7 @@
         },
         "required": [
           "version",
-          "flow",
-          "requester_project"
+          "flow"
         ],
         "title": "AppliedStarterOut",
         "type": "object"
@@ -7087,6 +7073,7 @@
           },
           "q": {
             "default": "",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -7612,6 +7599,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -7638,6 +7629,14 @@
               }
             ],
             "description": "Where it was added. Null if you can't see it."
+          },
+          "read_groups": {
+            "description": "A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.",
+            "items": {
+              "$ref": "#/components/schemas/ReadGroupOut"
+            },
+            "title": "Read Groups",
+            "type": "array"
           },
           "samples": {
             "description": "The samples it belongs to that you can read.",
@@ -7672,7 +7671,9 @@
           "created_at",
           "external",
           "acquired",
+          "facts",
           "used_by",
+          "read_groups",
           "origin",
           "samples"
         ],
@@ -7720,6 +7721,99 @@
           "features"
         ],
         "title": "FileExportOut",
+        "type": "object"
+      },
+      "FileFactsOut": {
+        "description": "What the file says about where its data came from (ADR 0224), read when it was\nadded. Each is null when the file doesn't say, or doesn't say clearly.",
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's model, such as Aurora or Orbitrap Eclipse."
+          },
+          "instrument_name": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The name the instrument was given, such as an AB1 trace's MCHN."
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made the instrument."
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who operated the instrument."
+          },
+          "protocol": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's protocol, such as a plate reader's test."
+          },
+          "serial": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The instrument's serial number."
+          },
+          "software": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatedOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The software that recorded the data, and its version where given."
+          }
+        },
+        "required": [
+          "instrument",
+          "manufacturer",
+          "serial",
+          "instrument_name",
+          "operator",
+          "software",
+          "protocol"
+        ],
+        "title": "FileFactsOut",
         "type": "object"
       },
       "FileFilters": {
@@ -7816,7 +7910,7 @@
           },
           "q": {
             "default": "",
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "maxLength": 255,
             "title": "Q",
             "type": "string"
@@ -8011,6 +8105,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8056,7 +8154,8 @@
           "agent",
           "created_at",
           "external",
-          "acquired"
+          "acquired",
+          "facts"
         ],
         "title": "FileOut",
         "type": "object"
@@ -8158,6 +8257,10 @@
             "title": "External",
             "type": "boolean"
           },
+          "facts": {
+            "$ref": "#/components/schemas/FileFactsOut",
+            "description": "Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224)."
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -8207,6 +8310,7 @@
           "created_at",
           "external",
           "acquired",
+          "facts",
           "used_by"
         ],
         "title": "FileRowOut",
@@ -17996,6 +18100,72 @@
         "title": "QuotaScopeOut",
         "type": "object"
       },
+      "ReadGroupOut": {
+        "description": "A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),\nby their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).",
+        "properties": {
+          "BC": {
+            "title": "Bc",
+            "type": "string"
+          },
+          "CN": {
+            "title": "Cn",
+            "type": "string"
+          },
+          "DS": {
+            "title": "Ds",
+            "type": "string"
+          },
+          "DT": {
+            "title": "Dt",
+            "type": "string"
+          },
+          "FO": {
+            "title": "Fo",
+            "type": "string"
+          },
+          "ID": {
+            "title": "Id",
+            "type": "string"
+          },
+          "KS": {
+            "title": "Ks",
+            "type": "string"
+          },
+          "LB": {
+            "title": "Lb",
+            "type": "string"
+          },
+          "PG": {
+            "title": "Pg",
+            "type": "string"
+          },
+          "PI": {
+            "title": "Pi",
+            "type": "string"
+          },
+          "PL": {
+            "title": "Pl",
+            "type": "string"
+          },
+          "PM": {
+            "title": "Pm",
+            "type": "string"
+          },
+          "PU": {
+            "title": "Pu",
+            "type": "string"
+          },
+          "SM": {
+            "title": "Sm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ID"
+        ],
+        "title": "ReadGroupOut",
+        "type": "object"
+      },
       "ReadIn": {
         "properties": {
           "read": {
@@ -26897,15 +27067,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -26916,7 +27080,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -26930,7 +27094,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments",
           "plan"
@@ -26961,7 +27124,7 @@
             "type": "array"
           },
           "result_type": {
-            "description": "Qualified type for a requested result in this flow.",
+            "description": "Qualified result type for new fits in this flow.",
             "title": "Result Type",
             "type": "string"
           }
@@ -27081,15 +27244,9 @@
             "type": "string"
           },
           "project": {
-            "description": "The assay service project. Requires its Admin role.",
+            "description": "The assay project. Requires its Admin role.",
             "format": "uuid",
             "title": "Project",
-            "type": "string"
-          },
-          "requester_project": {
-            "description": "A different project in which the caller can create the example request.",
-            "format": "uuid",
-            "title": "Requester Project",
             "type": "string"
           },
           "role_assignments": {
@@ -27100,7 +27257,7 @@
               },
               "type": "array"
             },
-            "description": "Each qualified lab role and the service project membership IDs receiving it.",
+            "description": "Each qualified lab role and the assay project membership IDs receiving it.",
             "title": "Role Assignments",
             "type": "object"
           },
@@ -27114,7 +27271,6 @@
         "required": [
           "version",
           "project",
-          "requester_project",
           "flow",
           "role_assignments"
         ],
@@ -27127,23 +27283,6 @@
             "description": "Whether applying this choice would change anything (preview), or did (apply).",
             "title": "Changed",
             "type": "boolean"
-          },
-          "examples": {
-            "additionalProperties": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "description": "IDs of example records already present at preview or available after setup.",
-            "title": "Examples",
-            "type": "object"
-          },
-          "examples_to_create": {
-            "description": "Names of examples missing when the setup was checked.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Examples To Create",
-            "type": "array"
           },
           "flow": {
             "enum": [
@@ -27175,11 +27314,6 @@
             "title": "Project",
             "type": "string"
           },
-          "requester_project": {
-            "format": "uuid",
-            "title": "Requester Project",
-            "type": "string"
-          },
           "result_type": {
             "title": "Result Type",
             "type": "string"
@@ -27208,14 +27342,11 @@
           "starter",
           "version",
           "project",
-          "requester_project",
           "flow",
           "result_type",
           "changed",
           "role_assignments",
           "grants_to_add",
-          "examples_to_create",
-          "examples",
           "plan"
         ],
         "title": "StarterSetupOut",
@@ -27416,6 +27547,26 @@
           "signatures"
         ],
         "title": "StateOut",
+        "type": "object"
+      },
+      "StatedOut": {
+        "properties": {
+          "stated_in": {
+            "description": "Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.",
+            "title": "Stated In",
+            "type": "string"
+          },
+          "value": {
+            "description": "As the file gives it.",
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "stated_in"
+        ],
+        "title": "StatedOut",
         "type": "object"
       },
       "StepBatchOut": {
@@ -28612,7 +28763,7 @@
                 "type": "null"
               }
             ],
-            "description": "Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.",
+            "description": "The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.",
             "title": "Material"
           },
           "unit": {
@@ -38367,7 +38518,7 @@
     },
     "/api/v1/files": {
       "get": {
-        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name, format, when acquired,\nsample and run; newest first unless ``sort`` says otherwise. Each says how many records\nand runs you can read use it.",
+        "description": "A project's files, or every file you can read: those added to the projects, and\nthose their records hold (ADR 0177). Found by part of the name or of what the file\nstates (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``\nsays otherwise. Each says how many records and runs you can read use it.",
         "operationId": "iki_server_api_files_list_files",
         "parameters": [
           {
@@ -38422,13 +38573,13 @@
             }
           },
           {
-            "description": "Part of its name, in any case.",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
-              "description": "Part of its name, in any case.",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38629,11 +38780,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -38800,11 +38953,13 @@
             }
           },
           {
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
               "default": "",
+              "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
               "maxLength": 255,
               "title": "Q",
               "type": "string"
@@ -46886,7 +47041,7 @@
     },
     "/api/v1/starters/{starter}/apply": {
       "post": {
-        "description": "Apply the plan a preview returned: create the examples and grant the chosen roles.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
+        "description": "Apply the reviewed flow and role grants to the assay project.\nIf what applying does changed since the preview, as when another Admin removed a grant or\napplied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,\nwhat applying would do now, for review (ADR 0207). Reapplying a setup that's in place\nchanges nothing. Changing the flow selects the result type for future fits. Existing\nresults keep their flow.",
         "operationId": "iki_server_api_starters_apply_starter",
         "parameters": [
           {
@@ -46937,7 +47092,7 @@
     },
     "/api/v1/starters/{starter}/preview": {
       "post": {
-        "description": "Check the installed version, projects, roles and flow without changing either project.",
+        "description": "Preview the version, review flow and role grants for the assay project.",
         "operationId": "iki_server_api_starters_preview_starter",
         "parameters": [
           {

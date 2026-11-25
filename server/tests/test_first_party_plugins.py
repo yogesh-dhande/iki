@@ -22,7 +22,6 @@ from first_party_dependencies import (
 )
 from test_plugin_migrations import database, iki, migrate, orm, query, sync
 
-from iki_spec import rules
 from iki_spec.identity import Kind, identity_hash
 from iki_spec.model import amount_of
 from iki_spec.naming import app_label
@@ -70,25 +69,6 @@ def test_lab_stock_lot_inherits_its_material_declaration() -> None:
     types = {**loaded.plugin.types, subtype.qualified_name: subtype}
     amount = amount_of(subtype.qualified_name, types)
     assert amount is not None and amount.material == "item"
-
-
-def test_the_reviewer_is_independent_of_post_build_edits() -> None:
-    plugin = PLUGINS / "plasmid"
-    loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
-    assert loaded.plugin is not None
-    assembly = loaded.plugin.types["iki/plasmid.Assembly"]
-    status = assembly.fields["status"]
-    guard = status.states["verified"].guards["independent_verifier"]
-    schema = rules.record_schema(assembly.label, assembly.fields, None)
-    variables = rules.guard_variables(schema, {"status": status}, [], status)
-    for editor in ("reviewer", "other"):
-        context = {
-            "actor": {"person": "reviewer"},
-            "edits": {"status": {"built": [{"by": editor, "fields": ["product"]}]}},
-        }
-        ((outcome,),) = rules.evaluate(variables, [(guard.check, rules.CONDITION)], [context])
-        assert outcome.error is None
-        assert outcome.value is (editor != "reviewer")
 
 
 def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, database: str) -> None:

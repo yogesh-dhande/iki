@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: GlycerolStock
+label: Glycerol stock
+label_plural: Glycerol stocks
+extends: iki/inventory.Tube
+schema_version: 1
+sample: true
+description: One physical vial of a strain isolate, with a storage position, barcode and volume balance.
+hrid: { prefix: GST }
+fields:
+  isolate:
+    type: ref
+    to: StrainIsolate
+    required: true
+    immutable: true
+rules:
+  isolate_contents:
+    check: record.contents != null && record.contents.id == record.isolate.id
+    message: Select this vial's isolate lot as its contents.
+    fields: [contents, isolate]
+display:
+  title: "{{ name or barcode or hrid }}"

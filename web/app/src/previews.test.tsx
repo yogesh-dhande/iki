@@ -10,7 +10,7 @@ import type { Schemas } from "@ikisci/sdk";
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { entity, renderApp, withTypes } from "./entity-fixtures";
+import { entity, NO_FACTS, renderApp, withTypes } from "./entity-fixtures";
 import { summarise, sequenceLines } from "./previews/chromatogram-viewer";
 import { highest, lowerBound, sortSeries, tickLabel, ticks } from "./previews/plot";
 import { OPEN_WITH_PAGE } from "./previews/preview-places";
@@ -106,6 +106,8 @@ function detail(overrides: Partial<Detail> = {}): Detail {
     used_by: { records: 0, runs: 0 },
     origin: { kind: "upload", run: null, uri: null, version: null },
     samples: [],
+    facts: NO_FACTS,
+    read_groups: [],
     ...overrides,
   };
 }

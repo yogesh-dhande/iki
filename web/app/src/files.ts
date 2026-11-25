@@ -13,6 +13,8 @@ export type FileDetail = Schemas["FileDetailOut"];
 export type HoldingRecord = Schemas["HoldingRecordOut"];
 export type UsingRun = Schemas["UsingRunOut"];
 export type FileSort = NonNullable<Schemas["FileFilters"]["sort"]>;
+export type FileFacts = Schemas["FileFactsOut"];
+export type ReadGroup = Schemas["ReadGroupOut"];
 
 export const FILES = ["files"] as const;
 
@@ -177,6 +179,63 @@ export function acquiredText(at: string): string {
   if (!match) return at;
   const [, day, time, offset] = match;
   return [day, time, offset === "Z" ? "UTC" : offset].filter(Boolean).join(" ");
+}
+
+/** What a file can state about where its data came from (ADR 0224), in the order its page
+ * shows them. */
+export const FACTS: readonly (readonly [keyof FileFacts, string])[] = [
+  ["instrument", "Instrument"],
+  ["manufacturer", "Manufacturer"],
+  ["serial", "Serial number"],
+  ["instrument_name", "Instrument name"],
+  ["operator", "Operator"],
+  ["software", "Software"],
+  ["protocol", "Protocol"],
+];
+
+/** The facts a file states, each with its label, leaving out what it doesn't state. */
+export function statedFacts(
+  facts: FileFacts,
+): { key: keyof FileFacts; label: string; value: string; statedIn: string }[] {
+  return FACTS.flatMap(([key, label]) => {
+    const fact = facts[key];
+    return fact ? [{ key, label, value: fact.value, statedIn: fact.stated_in }] : [];
+  });
+}
+
+/** "Aurora · N0354 · Admin": a Files list row's instrument, serial number and operator,
+ * where its file states them, or "" when it states none. */
+export function factsLine(facts: FileFacts): string {
+  const instrument = facts.instrument ?? facts.instrument_name;
+  return [instrument, facts.serial, facts.operator]
+    .flatMap((fact) => (fact ? [fact.value] : []))
+    .join(" · ");
+}
+
+/** The SAM specification's @RG tags (section 1.3), as a lab would name each. */
+export const READ_GROUP_TAGS: readonly (readonly [keyof ReadGroup, string])[] = [
+  ["ID", "ID"],
+  ["SM", "Sample"],
+  ["LB", "Library"],
+  ["PL", "Platform"],
+  ["PM", "Platform model"],
+  ["PU", "Platform unit"],
+  ["BC", "Barcode"],
+  ["CN", "Sequencing centre"],
+  ["DT", "Run date"],
+  ["PI", "Insert size"],
+  ["PG", "Program"],
+  ["KS", "Key sequence"],
+  ["FO", "Flow order"],
+  ["DS", "Description"],
+];
+
+/** The tags any of the read groups gives, in {@link READ_GROUP_TAGS} order: its table's
+ * columns. */
+export function readGroupColumns(
+  groups: readonly ReadGroup[],
+): (readonly [keyof ReadGroup, string])[] {
+  return READ_GROUP_TAGS.filter(([tag]) => groups.some((group) => group[tag] !== undefined));
 }
 
 /** "2 records · 1 run", "Not used", for a file's Used by. */

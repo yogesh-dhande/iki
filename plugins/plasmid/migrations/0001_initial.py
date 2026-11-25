@@ -40,7 +40,6 @@ class Migration(migrations.Migration):
                 ('simulated_length', iki_server.entities.fields.QuantityField(null=True, unit='{bp}')),
                 ('matches_product', models.BooleanField(null=True)),
                 ('junctions', models.JSONField(null=True)),
-                ('status', models.TextField(null=True)),
             ],
             options={
                 'db_table': 'iki__plasmid_assembly__history',
@@ -116,7 +115,6 @@ class Migration(migrations.Migration):
                 ('simulated_length', iki_server.entities.fields.QuantityField(null=True, unit='{bp}')),
                 ('matches_product', models.BooleanField(null=True)),
                 ('junctions', models.JSONField(null=True)),
-                ('status', iki_server.entities.fields.StateField(db_comment='A state field (ADR 0125): one of planned, checked, built, verified, abandoned.', db_default='planned', locking=['verified'], states=['planned', 'checked', 'built', 'verified', 'abandoned'])),
                 ('backbone', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__dna.dnasequence_entry')),
                 ('product', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki__dna.dnasequence_entry')),
             ],
@@ -242,10 +240,6 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='assembly',
             constraint=models.CheckConstraint(condition=models.Q(('simulated_length__gte', 0)), name='iki__plasmid_assembly__simulated_length__min'),
-        ),
-        migrations.AddConstraint(
-            model_name='assembly',
-            constraint=models.CheckConstraint(condition=models.Q(('status__in', ['planned', 'checked', 'built', 'verified', 'abandoned'])), name='iki__plasmid_assembly__status__known'),
         ),
         migrations.AddConstraint(
             model_name='assembly_inserts',

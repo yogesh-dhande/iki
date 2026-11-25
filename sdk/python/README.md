@@ -240,27 +240,34 @@ iki.runs.cancel("RUN-000045", reason="Wrong pH")
 
 An action that sends data to an outside API, such as a hosted model, says
 what it sends and where in its `apis`. Starting it needs your agreement, as
-`consent`, and an Org Admin's approval of the API for the project
-([ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)):
+`consent`, and an Org Admin's approval of the API for the project. [ADR 0130](../../docs/adr/0130-outside-apis-are-approved-per-project-and-called-through-the-proxy.md)
+
+This example assumes a test deployment with the
+[hosted-model author example](../../examples/plugins/hosted_models/README.md)
+and its fictional FoldCloud service. For a lab-owned provider, use the
+action name from its manifest.
 
 ```python
 try:
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "lab/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
     )
 except iki.ConsentRequired as refused:
     for statement in refused.statements:
-        print(statement["statement"])  # "This sends your data to FoldCloud (...)..."
+        print(statement["statement"])
+    if input("Send the listed data? [y/N] ").strip().lower() != "y":
+        raise SystemExit("Run cancelled")
     run = iki.run(
-        "iki/example_models.predict_structure",
+        "lab/hosted_models.predict_structure",
         project="kinase-atlas",
         inputs={"protein": "PRT-000123"},
         consent=refused.apis,
     )
 except iki.NotApproved as refused:
     print(refused.detail, refused.approvers)  # who can approve it, in Iki's web app
+    raise
 
 for call in iki.runs.api_calls(run):  # the model and version that answered, and hashes
     print(call["model"], call["version"], call["response_sha256"])
@@ -296,7 +303,9 @@ if first is not None:
         print(run["hrid"], run["roles"])
 ```
 
-`q` matches part of the name, ignoring case. `format` accepts an installed
+`q` matches part of the name, or of what the file states about itself (its
+instrument, serial number, operator, software, protocol or read groups), ignoring
+case. `format` accepts an installed
 format ID such as `iki/core.csv`, a media type, a family such as `image/*`, or
 a list of these. Both acquisition dates are inclusive and accept Python
 dates or ISO date strings. `sample` and `run`
@@ -307,8 +316,13 @@ or `acquired_oldest`) and `page_size` (1–100). The default order is newest
 added first. `acquired` puts the latest acquisition first. Both acquisition
 sorts put unknown dates last.
 
-`get` returns an `iki.file_types.FileWithUses` dictionary with file metadata, `origin`,
-readable `samples` and the two **Used by** pages. For a registration,
+`get` returns an `iki.file_types.FileWithUses` dictionary with the file's
+`facts`, `read_groups`, `origin`, readable `samples` and the two **Used by** pages.
+`facts` holds what the file's format says of where its data came from, read when the
+file was added: `instrument`, `manufacturer`, `serial`, `instrument_name`, `operator`,
+`software` and `protocol`, each `None` or a `value` with where in the file it's stated
+(`stated_in`, such as `FCS keyword $CYT`). A SAM or BAM file's `read_groups` are its
+`@RG` lines' standard tags, such as `ID`, `SM` and `LB`. For a registration,
 `origin["uri"]` and `origin["version"]` identify the object. Each page has
 its own `next_cursor`. Pass these to `get(file_id, records_cursor=...,
 runs_cursor=...)` to continue the corresponding page. Set `page_size` to

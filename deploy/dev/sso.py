@@ -1,8 +1,8 @@
 """Sets up sign-in on the dev cluster through the real wizard and Keycloak.
 
-    uv run python deploy/dev/sso.py                     # set up SSO, bob becomes admin
-    uv run python deploy/dev/sso.py --check             # exercise sign-in and product scenarios
-    uv run python deploy/dev/sso.py --check --fixtures  # also exercise the dev-ci overlay
+    uv run python -m deploy.dev.sso                     # set up SSO, bob becomes admin
+    uv run python -m deploy.dev.sso --check             # exercise sign-in and product scenarios
+    uv run python -m deploy.dev.sso --check --fixtures  # also exercise the dev-ci overlay
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -36,8 +36,7 @@ from uuid import UUID
 
 import requests
 import urllib3.util.connection
-
-from iki_server.setup import public_plate
+from examples.dose_response import public_plate, tutorial
 
 IKI = "http://localhost:8000"
 #: The web workload to exec into and read logs from (``--web``).
@@ -52,6 +51,7 @@ RECEIVER = {"url": "http://127.0.0.1:8090"}
 RECEIVER_IN_CLUSTER = "http://webhook-receiver.iki.svc:8080"
 #: The fake LIMS's list of the requests it took (Tilt's port-forward).
 LIMS = {"url": "http://127.0.0.1:8091"}
+FOLDCLOUD_REQUESTS = {"url": "http://127.0.0.1:8092/requests"}
 CONTEXT = "kind-iki"
 NAMESPACE = "iki"
 
@@ -1315,7 +1315,7 @@ def strain_stocks(
     alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
 ) -> None:
     """A catalogue strain, a local transformant and the data from a scanned stock draw."""
-    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/data/atcc.csv"
+    catalogue = Path(__file__).resolve().parents[2] / "plugins/strains/tests/data/atcc.csv"
     file_id = upload(alice, project, "atcc.csv", catalogue.read_bytes(), "text/csv")
     imported = launch(alice, project, "iki/strains.import_base_strains", {}, {"file": file_id})
     entries = [
@@ -1336,15 +1336,28 @@ def strain_stocks(
     again = created(alice, project, "iki/strains.TransformedStrain", identity)
     if not again["reused"] or again["id"] != strain["id"]:
         fail(f"Registering {strain['hrid']}'s base and plasmid again created another strain")
+    transformation = created(
+        alice, project, "iki/experiments.Experiment", {"title": "Synthetic transformation"}
+    )
+    isolate = created(
+        alice,
+        project,
+        "iki/lots.StrainIsolate",
+        {
+            "strain": entry_of(strain),
+            "isolate_label": "Synthetic clone A",
+            "transformation": transformation["id"],
+        },
+    )
     barcode = f"SYNTHETIC-{secrets.token_hex(4)}"
     stock = created(
         alice,
         project,
-        "iki/strains.GlycerolStock",
-        {"strain": entry_of(strain), "barcode": barcode},
+        "iki/lots.GlycerolStock",
+        {"isolate": isolate["id"], "contents": isolate["id"], "barcode": barcode},
         {"value": 100, "unit": "uL"},
     )
-    box = created(alice, project, "iki/strains.StrainBox", {"name": "Synthetic glycerol stocks"})
+    box = created(alice, project, "iki/inventory.Box", {"name": "Synthetic glycerol stocks"})
     moved(alice, [(stock, box, "A1")], "Synthetic inventory example")
     location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
     if [(step["hrid"], step["position"]) for step in location["path"]] != [(box["hrid"], "A1")]:
@@ -1358,6 +1371,7 @@ def strain_stocks(
             "bases": "".join(secrets.choice("ACGT") for _ in range(32)),
         },
     )
+    give_lab_roles(alice, project, "iki/lots.qa")
     drawn = api_call(
         alice,
         "POST",
@@ -1365,7 +1379,8 @@ def strain_stocks(
         {
             "amount": {"value": 10, "unit": "uL"},
             "used_in": read["id"],
-            "reason": "Synthetic sequencing example",
+            "reason": "Synthetic isolate check",
+            "purpose": "qa_sampling",
             "confirm": barcode,
         },
     )
@@ -1378,13 +1393,23 @@ def strain_stocks(
         or movement["confirmed"] != barcode
     ):
         fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
-    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=5&down=0")
     if ancestry.status_code != 200:
         fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
     graph = ancestry.json()
     ancestors = {entity["id"] for entity in graph["entities"]}
-    if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
-        fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
+    if (
+        not {
+            stock["id"],
+            isolate["id"],
+            transformation["id"],
+            strain["id"],
+            base["id"],
+            plasmid["id"],
+        }
+        <= ancestors
+    ):
+        fail(f"{read['hrid']}'s lineage is missing its stock, isolate or strain ancestry")
     ok(f"{read['hrid']} traces to {strain['hrid']} through the draw from {stock['hrid']} at A1")
 
 
@@ -2808,7 +2833,7 @@ def core_facility_requests(
 ) -> None:
     """The working core returns production and sequencing deliverables through Requests."""
     give_lab_roles(analyst, core, "iki/lab_roles.coordinator")
-    example = Path(__file__).resolve().parents[2] / "plugins" / "requests" / "examples"
+    example = Path(__file__).resolve().parents[2] / "examples" / "core-facility-requests"
     # The production transaction is simulated; only the registered UniProt identity is public.
     fasta = (example / "P00330.fasta").read_text().splitlines()
     protein = created(
@@ -3450,9 +3475,9 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
     antibodies(alice, project)
 
 
-#: The example models plugin's outside API (plugins/example_models), and where the dev
-#: cluster's settings point it: the fake FoldCloud (manifests/fake-foldcloud.yaml).
-FOLDCLOUD = "iki/example_models.foldcloud"
+#: The example models plugin's outside API (examples/plugins/hosted_models), and where the dev
+#: cluster's settings point it: the fake FoldCloud (fixtures/fake-foldcloud.yaml).
+FOLDCLOUD = "lab/hosted_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
 #: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
@@ -3476,7 +3501,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
-    action = "iki/example_models.predict_structure"
+    action = "lab/hosted_models.predict_structure"
     body = {"project": project["id"], "inputs": {"protein": protein["id"]}, "params": {}}
     refused = api_call(alice, "POST", f"/actions/{action}/runs", {**body, "consent": [FOLDCLOUD]})
     if refused.status_code != 409 or refused.json().get("code") != "outside_api_not_approved":
@@ -3499,6 +3524,23 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
         park = run["park"] or {}
         if park.get("api") != "foldcloud" or park.get("outcome") != "done":
             fail(f"{run['hrid']} didn't park on FoldCloud's job and resume: {park}")
+        # The request log is written once Iki answers the callback.
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            callbacks = requests.get(FOLDCLOUD_REQUESTS["url"], timeout=5).json()
+            if any(
+                event["method"] == "CALLBACK"
+                and event["job"] == park["job"]
+                and 200 <= event["status"] < 300
+                for event in callbacks
+            ):
+                break
+            time.sleep(0.5)
+        else:
+            fail(f"FoldCloud did not deliver the signed callback for {park['job']}")
+        attempts = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        if [(a["attempt"], a["state"]) for a in attempts] != [(1, "parked"), (2, "succeeded")]:
+            fail(f"{run['hrid']}'s attempts did not park and resume: {attempts}")
         me = api_call(alice, "GET", "/me").json()
         consent = run["consent"] or {}
         if (
@@ -3556,8 +3598,51 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
             f"({run['hrid']}): parked on {park['job']}, woke on its webhook after "
             f"{park['polls']} poll(s), made by fold-2 2.1.0, costing {cost['apis']} USD"
         )
+        cancel_foldcloud(alice, action, body)
     finally:
         api_call(bob, "DELETE", f"{approvals}/{project['id']}")
+
+
+def cancel_foldcloud(alice: requests.Session, action: str, body: dict[str, Any]) -> None:
+    """Cancel a second job after it parks and check what the provider received."""
+    # The fixture spends five seconds on each recycle. A longer job leaves time to
+    # observe the park and cancel it through the same API the Runs page uses.
+    launched = api_call(
+        alice,
+        "POST",
+        f"/actions/{action}/runs",
+        {**body, "params": {"num_recycles": 20}, "consent": [FOLDCLOUD]},
+    )
+    if launched.status_code != 201:
+        fail(f"launching {action} for cancellation answered {launched.status_code}")
+    path = f"/runs/{launched.json()['id']}"
+    deadline = time.monotonic() + 180
+    while time.monotonic() < deadline:
+        run = api_call(alice, "GET", path).json()
+        if run["status"] == "parked":
+            break
+        if run["finished_at"]:
+            fail(f"{run['hrid']} ended before cancellation: {run['status']}")
+        time.sleep(1)
+    else:
+        fail(f"{path} did not park for cancellation")
+    job = run["park"]["job"]
+    cancelled = api_call(alice, "POST", f"{path}/cancel", {"reason": "Fixture cancellation check"})
+    if cancelled.status_code != 200 or cancelled.json()["status"] != "cancelled":
+        fail(f"cancelling {run['hrid']} answered {cancelled.status_code}: {cancelled.text[:300]}")
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        ended = api_call(alice, "GET", path).json()
+        if ended["park"]["outcome"] == "cancelled":
+            break
+        time.sleep(1)
+    else:
+        fail(f"{run['hrid']}'s park did not record its cancellation")
+    calls = api_call(alice, "GET", f"{path}/api-calls").json()["items"]
+    sent = [(c["method"], c["path"], c["status"]) for c in calls if c["kind"] == "cancel"]
+    if sent != [("POST", f"/v1/predictions/{job}/cancel", 200)] or ended["effects"]:
+        fail(f"{run['hrid']}'s cancellation recorded {sent} and effects {ended['effects']}")
+    ok(f"{action} cancelled {job} at FoldCloud without importing a structure")
 
 
 #: Aspirin, its standard InChIKey, and its sodium salt.
@@ -4010,18 +4095,51 @@ def fit_assay_plate(
     return fits
 
 
-def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> None:
-    """Two cores choose different flows for the same assay and return the signed result."""
+class TutorialApi:
+    """Run the same tutorial as a lab, through Alice's browser session and upload URLs."""
+
+    def __init__(self, session: requests.Session) -> None:
+        self.session = session
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> Any:  # noqa: ANN401 - parsed API response
+        response = api_call(self.session, method, path, json, headers)
+        if not 200 <= response.status_code < 300:
+            fail(f"{method} {path} answered HTTP {response.status_code}: {response.text[:300]}")
+        return response.json() if response.content else None
+
+    def upload(self, project: str, path: Path) -> str:
+        return upload(self.session, {"id": project}, path.name, path.read_bytes(), "text/csv")
+
+
+def dose_response_tutorial(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Run the Tox21 tutorial in each review flow and return the signed fits to its requester."""
     bob, carol = sign_in_as("bob"), sign_in_as("carol")
     people = {
         name: api_call(s, "GET", "/me").json()["id"]
         for name, s in (("alice", alice), ("bob", bob), ("carol", carol))
     }
-    requester = cli_read_token(alice, project=asking["id"])
-    for flow, name in (("research", "Research plate assays"), ("regulated_qc", "QC plate assays")):
-        core = core_project(alice, asking, name)
-        example = apply_plate_starter(alice, core, asking, flow, people)
-        receive_starter_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
+    api = TutorialApi(alice)
+    team = project["team"]["id"]
+    for flow in ("research", "regulated_qc"):
+        example = tutorial.prepare(
+            api,
+            team=team,
+            flow=flow,
+            state=tutorial.state_path(IKI, team, flow),
+            analyst=people["alice"],
+            reviewer=people["bob"],
+            qa=people["carol"] if flow == "regulated_qc" else None,
+        )
+        core = api.request("GET", f"/projects/{example['project']}")
+        requester = cli_read_token(alice, project=example["requester_project"])
+        receive_tutorial_tubes(alice, example["request"], [example[k] for k in public_plate.SERIES])
         plate = record(alice, example["plate"])
         if plate["values"]["reagent_tube"] != example["tube"]:
             fail("the example plate lost its luciferase reagent tube")
@@ -4035,66 +4153,11 @@ def dose_response_starters(alice: requests.Session, asking: dict[str, Any]) -> N
                 or plate["values"]["reader_file"] != example["reader_file"]
             ):
                 fail(f"{result['hrid']} failed to retain the starter flow, source or request")
-            sign_starter_result(result, example["request"], requester, alice, bob, carol, people)
-        ok(f"{name} returned both signed flavonoid IC50s to {asking['name']}")
+            sign_tutorial_result(result, example["request"], requester, alice, bob, carol, people)
+        ok(f"{core['name']} returned both signed flavonoid IC50s to its tutorial requester")
 
 
-def apply_plate_starter(
-    alice: requests.Session,
-    core: dict[str, Any],
-    asking: dict[str, Any],
-    flow: str,
-    people: dict[str, str],
-) -> dict[str, str]:
-    name = core["name"]
-    members = {}
-    for user, user_id in people.items():
-        grant = api_call(
-            alice,
-            "PUT",
-            f"/projects/{core['id']}/members/users/{user_id}",
-            {"role": "admin" if user == "alice" else "editor"},
-        )
-        if grant.status_code != 200:
-            fail(f"adding {user} to {name} answered HTTP {grant.status_code}: {grant.text}")
-        members[user] = grant.json()["id"]
-    catalogue = api_call(alice, "GET", f"/starters?project={core['id']}").json()
-    starter = next(st for st in catalogue if st["id"] == "dose-response")
-    assignments = {
-        "iki/lab_roles.coordinator": [members["alice"]],
-        "iki/plate_assays.analyst": [members["alice"]],
-        "iki/plate_assays.reviewer": [members["bob"]],
-    }
-    if flow == "regulated_qc":
-        assignments["iki/plate_assays.qa"] = [members["carol"]]
-    setup = {
-        "version": starter["version"],
-        "project": core["id"],
-        "requester_project": asking["id"],
-        "flow": flow,
-        "role_assignments": assignments,
-    }
-    path = f"/starters/{starter['id']}"
-    # Applying names the plan its preview returned: what was reviewed (ADR 0207).
-    for operation in ("preview", "apply"):
-        response = api_call(alice, "POST", f"{path}/{operation}", setup)
-        if response.status_code != 200:
-            fail(f"{operation} for {name} answered HTTP {response.status_code}: {response.text}")
-        setup = {**setup, "plan": response.json()["plan"]}
-    installed = response.json()
-    again = api_call(alice, "POST", f"{path}/apply", setup)
-    if (
-        again.status_code != 200
-        or again.json()["changed"]
-        or (again.json()["examples"] != installed["examples"])
-    ):
-        fail(f"applying the starter twice in {name} gave {again.status_code}: {again.text}")
-
-    examples: dict[str, str] = installed["examples"]
-    return examples
-
-
-def sign_starter_result(
+def sign_tutorial_result(
     result: dict[str, Any],
     request: str,
     requester: str,
@@ -4140,7 +4203,7 @@ def sign_starter_result(
         fail(f"{result['hrid']} did not return the signed fit and its release revision")
 
 
-def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
+def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: list[str]) -> None:
     """Scan all the labelled tubes once, even if the dev check is being run again."""
     path = f"/entities/{request_id}/receipts"
     prior = api_call(alice, "GET", path).json()["receipts"]
@@ -4185,14 +4248,14 @@ def receive_starter_tubes(alice: requests.Session, request_id: str, tube_ids: li
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
         completed = [done.json()]
     if len(completed) != 1:
-        fail(f"the starter request has {len(completed)} completed receipts")
+        fail(f"the tutorial request has {len(completed)} completed receipts")
     received = read_completed_receipt(alice, completed[0]["id"])
     if {
         line["entity"]
         for line in received["lines"]
         if line["outcome"] == "matched" and line["received_unplaced"] and line["put_away"] is None
     } != set(tube_ids) or len(received["lines"]) != len(tube_ids):
-        fail(f"the starter tubes were not received in unplaced custody: {received['lines']}")
+        fail(f"the tutorial tubes were not received in unplaced custody: {received['lines']}")
 
 
 def linked_experiment(
@@ -4619,16 +4682,6 @@ def equipment_calibration(
             "suspect_since": performed.isoformat(),
         },
     )
-    configured = api_call(
-        alice,
-        "POST",
-        f"/projects/{project['id']}/triggers/{prefix}trace_failed_instrument/enable",
-        {},
-    )
-    if configured.status_code != 200 or not configured.json()["enabled"]:
-        fail(
-            f"enabling the calibration trigger answered {configured.status_code}: {configured.text}"
-        )
     for field, state in (("service", "out_of_service"), ("calibration", "failed")):
         change(
             instrument,
@@ -4636,26 +4689,18 @@ def equipment_calibration(
             {"state": state, "reason": "Synthetic calibration failure"},
             method="POST",
         )
-    deadline = time.monotonic() + 120
-    while time.monotonic() < deadline:
-        cases = api_call(
-            alice,
-            "POST",
-            "/entities/search",
-            {
-                "type": prefix + "CalibrationImpact",
-                "project": project["id"],
-                "where": {"field": "failure", "op": "eq", "value": failure["id"]},
-            },
-        )
-        if cases.status_code != 200:
-            fail(f"reading calibration impacts answered HTTP {cases.status_code}: {cases.text}")
-        if cases.json()["items"]:
-            break
-        time.sleep(2)
-    else:
-        fail(f"the calibration trigger did not find {use['hrid']} for {failure['hrid']}")
-    [impact] = cases.json()["items"]
+    traced = launch(
+        alice,
+        project,
+        prefix + "trace_failed_calibrations",
+        {
+            "instrument": instrument["id"],
+            "calibrations": [passing["id"], failure["id"]],
+            "uses": [use["id"]],
+        },
+    )
+    [case] = [effect["entity"] for effect in traced["effects"]]
+    impact = record(alice, case)
     if (
         impact["values"]["use"] != use["id"]
         or impact["values"]["failure_revision"] != failure["revision"]
@@ -4854,18 +4899,11 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     another origin on the other strand finding the entries it has already; a plasmid under
     a material transfer agreement having to name it (ADR 0127); and a cloning plan that
     puts pUC19's own polylinker back between its EcoRI and HindIII sites making pUC19
-    again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
-    which its construct states then follow, up to the four-eyes guard that won't let
-    whoever built it verify it (ADR 0128)."""
-    give_lab_roles(alice, project, "iki/plasmid.cloner", "iki/plasmid.construct_reviewer")
-    # A trigger is off until a project Admin turns it on, and then its runs are launched as
-    # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
-    # before alice turns these on herself.
+    again — the same molecule, so the registry gives back the entry it has (ADR 0138)."""
     annotating = "iki/plasmid.annotate_new_plasmid"
-    for trigger in (annotating, "iki/plasmid.check_stated_product"):
-        on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{trigger}/enable", {})
-        if on.status_code != 200 or not on.json().get("enabled"):
-            fail(f"turning {trigger} on answered HTTP {on.status_code}: {on.text[:300]}")
+    on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{annotating}/enable", {})
+    if on.status_code != 200 or not on.json().get("enabled"):
+        fail(f"turning {annotating} on answered HTTP {on.status_code}: {on.text[:300]}")
     action = "iki/plasmid.register_plasmid"
     run, plasmid = register_puc19(alice, project)
     kinds = {e["type"]: e["kind"] for e in run["effects"]}
@@ -4948,8 +4986,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
         f"reused ({run['hrid']})"
     )
     read_bases(alice, project, plasmid)
-    plan = assembled(alice, project, plasmid)
-    constructs(alice, project, plan)
+    assembled(alice, project, plasmid)
     strain_stocks(alice, project, plasmid)
 
 
@@ -5073,9 +5110,7 @@ def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[s
     )
 
 
-def assembled(
-    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
-) -> dict[str, Any]:
+def assembled(alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]) -> None:
     """A cloning plan, worked out: pUC19 cut with EcoRI and HindIII keeps its 2,635 bp
     fragment, and its polylinker goes back in as the 51 bp piece between the two sites, so
     the plan makes 2,686 bp — pUC19 again, which the registry recognises. Then the clone is
@@ -5160,42 +5195,6 @@ def assembled(
     ok(
         f"{assembly['hrid']}: the clone's sequence stated, and the trigger's check found "
         f"the plan makes it (2686 bp, the same molecule from any origin and either strand)"
-    )
-    return assembly
-
-
-def constructs(alice: requests.Session, project: dict[str, Any], assembly: dict[str, Any]) -> None:
-    """A construct's states: Checked only once the plan matches its product, Built from
-    Checked, and Verified by someone other than whoever built it (ADR 0128)."""
-    for state in ("checked", "built"):
-        etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-        moved = api_call(
-            alice,
-            "POST",
-            f"/entities/{assembly['id']}/states/status",
-            {"state": state, "reason": ""},
-            {"If-Match": etag},
-        )
-        if moved.status_code != 200:
-            fail(
-                f"setting {assembly['hrid']} {state} answered HTTP {moved.status_code}: "
-                f"{moved.text[:300]}"
-            )
-    etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-    refused = api_call(
-        alice,
-        "POST",
-        f"/entities/{assembly['id']}/states/status",
-        {"state": "verified", "reason": ""},
-        {"If-Match": etag},
-    )
-    if refused.status_code != 409 or refused.json().get("code") != "guard_refused":
-        fail(
-            f"verifying her own construct answered HTTP {refused.status_code}: {refused.text[:300]}"
-        )
-    ok(
-        f"{assembly['hrid']} is Checked and Built, and alice may not verify what she built: "
-        f"{refused.json()['detail']}"
     )
 
 
@@ -6908,7 +6907,7 @@ def product_scenarios(alice: requests.Session, project: dict[str, Any]) -> None:
     stability_study(alice, project)
     plate_assay(alice, project)
     reagent_stock(alice, project)
-    dose_response_starters(alice, project)
+    dose_response_tutorial(alice, project)
     qc_release(alice, project)
     sequencing(alice, project)
     sequencing_analysis(alice, project)
@@ -6928,6 +6927,7 @@ def main() -> None:
     parser.add_argument("--mailpit-port", type=int, default=8025)
     parser.add_argument("--webhook-port", type=int, default=8090)
     parser.add_argument("--lims-port", type=int, default=8091)
+    parser.add_argument("--foldcloud-port", type=int, default=8092)
     parser.add_argument(
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
@@ -6938,6 +6938,7 @@ def main() -> None:
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
     LIMS["url"] = f"http://127.0.0.1:{args.lims_port}"
+    FOLDCLOUD_REQUESTS["url"] = f"http://127.0.0.1:{args.foldcloud_port}/requests"
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:

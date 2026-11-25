@@ -314,6 +314,8 @@ def test_this_repositorys_record_is_well_formed() -> None:
 SHARED_SERVER_MODULES = {
     # Turns the storage backend's errors into API responses; nothing cloud-specific.
     "server/src/iki_server/api/v1.py",
+    # Reports the storage backend's errors while a bundle's files are checked, as v1.py does.
+    "server/src/iki_server/bundles/applying.py",
     # The provisioner's command: it runs whichever fleets are configured.
     "server/src/iki_server/runs/management/commands/provision.py",
 }

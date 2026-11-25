@@ -1,13 +1,13 @@
 # Bacterial and yeast strains
 
-Use `iki/strains` to register microbial strains and track the glycerol stocks
-made from them. It uses the plasmid registry and the cryoboxes and racks in
-`iki/inventory`. The plugin's records use the standard entity forms, storage
-map, amount ledger and lineage graph.
+Use `iki/strains` to register microbial strains. A base strain has a collection
+accession. A transformed strain has a base and a set of registered plasmids.
+With `iki/lots` installed, the lab can trace individual isolates and the
+glycerol stocks made from them.
 
 ## Register base strains
 
-Run **Import a strain catalogue** with the [example CSV](data/atcc.csv) to
+Run **Import a strain catalogue** with the [example CSV](tests/data/atcc.csv) to
 register two base strains and their species. The examples are the bacterial
 strain MG1655 and the yeast strain BY4741. Their designations and genotypes
 come from [ATCC 700926](https://www.atcc.org/products/700926) and
@@ -36,20 +36,27 @@ carries. Plasmids are entries from `iki/plasmid`. Select each once. Entering
 the same base and the same plasmids in another order finds the same strain.
 A different base or a different plasmid set identifies another strain.
 
-## Store a vial and trace its use
+## Track isolates and stocks
 
-1. Create one **Glycerol stock** per vial, referring to its base or transformed
-   strain. Enter the initial volume and its barcode when available.
-2. Create a **Strain stock box**, place it in a rack, and use Storage to place
-   each stock at a position. The box map and the vial's location history show
-   where it is and where it has been.
-3. On the stock's amount ledger, draw the volume used, confirm the barcode
-   or HRID, and choose the existing result or experiment under **Used in**.
-   Iki records the draw against that vial. Transfers between stocks require
-   the same strain.
-4. Open the result's **Lineage** page and follow **Upstream** to the stock and
-   its strain, then to the base and plasmids of a transformed strain.
-   **Downstream** from the strain finds results made using its stocks.
+1. In Lots, create a **Strain isolate lot** for each clone of interest. Choose its
+   base or transformed strain and enter the label on the isolate. Link the
+   transformation record or the parent stock when known. Attach the verification
+   evidence for that isolate. A project that tracks strains without distinguishing
+   clones can use one isolate lot per strain.
+2. Create a **Glycerol stock** for each physical vial. Select the same isolate
+   for **Isolate** and **Contents**. Record the vial's starting volume and its
+   barcode when available. If you recorded a bulk volume on the isolate, choose
+   **Split into aliquots** on its ledger to fill new vials and debit that volume once.
+3. Place the stock in an Inventory **Box** at its labeled position. The same
+   box can also hold ordinary tubes. The stock's location history records
+   each move.
+4. When you use a stock, scan its barcode or HRID and select the result or
+   experiment under **Used in**. The lot's disposition governs the draw.
+   Stocks of two separately tracked isolates have different material identities,
+   even if their strains are identical.
+5. Open **Lineage** on the result. Follow **Upstream** to the vial, its
+   isolate and the strain. A transformed strain also links to its base and
+   its plasmids.
 
-The registry and stock design is documented in
-[ADR 0185](../../docs/adr/0185-strain-identity-and-physical-stocks.md).
+[Strain identity](../../docs/adr/0185-strain-identity-and-physical-stocks.md) ·
+[Isolates and stocks](../../docs/adr/0221-strain-isolates-and-their-glycerol-stocks.md)

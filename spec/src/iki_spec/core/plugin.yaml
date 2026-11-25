@@ -134,6 +134,7 @@ formats:
     media_types: [application/x-czi]
     extensions: [.czi]
     signatures: [{ hex: "5a495352415746494c45" }]
+    reader: czi
   tiff:
     label: TIFF
     media_types: [image/tiff]
@@ -160,6 +161,8 @@ formats:
     label: CSV
     media_types: [text/csv]
     extensions: [.csv]
+    # A plate reader's export header: BMG LABTECH MARS's user and test (ADR 0224).
+    reader: csv
     viewer: table-csv
   tsv:
     label: TSV

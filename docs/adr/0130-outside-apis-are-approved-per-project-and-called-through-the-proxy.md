@@ -113,7 +113,7 @@ An action's catalog entry carries each API's consent statement: "This sends
 your data to FoldCloud (api.foldcloud.example): each Protein's sequence and
 the model param. Predicts protein structures with FoldCloud's hosted
 models." The web app's launch form shows it with a box to tick, and launching
-needs it: `consent: ["iki/example_models.foldcloud"]` in the request, or 409
+needs it: `consent: ["lab/hosted_models.foldcloud"]` in the request, or 409
 `consent_required` with the statements. The SDKs take `consent=` and raise
 with the statements. Each launch's consent is kept, append-only, with the
 statement as shown, who gave it and how (including the agent, ADR 0072), and
@@ -133,7 +133,7 @@ The command calls the API at its real address, `https://api.foldcloud.example`
 key. For a host that's an API of the attempt's action, the egress proxy
 doesn't tunnel: it ends the TLS connection itself, reads each HTTP/1.1
 request, checks the project's approval, adds the credential header from the
-run secrets (`iki__example_models.FOLDCLOUD_API_KEY`, read at each call, so
+run secrets (`lab__hosted_models.FOLDCLOUD_API_KEY`, read at each call, so
 rotation is immediate), and makes the call over TLS it verifies. The key
 never enters the worker's machine, and it can only ever be sent to its API's
 host.
@@ -234,16 +234,14 @@ with the provider's message.
 
 ### The example
 
-A new first-party plugin, `iki/example_models`, has `predict_structure`: it
-submits a protein's sequence to FoldCloud, a hosted structure-prediction API
-at the host its `fold_api_host` setting names, parks, and on resume imports
-the predicted structure, naming the model that made it. CI runs its script
-against a stand-in FoldCloud on localhost over HTTPS, and tests the whole
-path with a fixture plugin's API: approval, consent, the proxy's credential
-injection and records, parking, a signed webhook, polling, resuming, cost and
-the bundle's provenance. The dev cluster runs it against a fake FoldCloud
-(`deploy/dev/manifests/fake-foldcloud.yaml`). No test calls a real outside
-API.
+The original implementation shipped the fictional FoldCloud provider as a
+first-party plugin. Its current home is the
+[hosted-model author example](../../examples/plugins/hosted_models/README.md),
+under `lab/hosted_models` ([ADR 0218](0218-first-party-plugins-and-author-examples.md)).
+The test deployment supplies the fake host and test credentials. The action
+submits a job, parks, then imports the result with its model provenance.
+The tests exercise project approval, launch consent, proxy calls, callback,
+polling, cancellation, resume and billing.
 
 ## Consequences
 

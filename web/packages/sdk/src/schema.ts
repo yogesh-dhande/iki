@@ -2048,9 +2048,9 @@ export interface paths {
         /**
          * Files you can read
          * @description A project's files, or every file you can read: those added to the projects, and
-         *     those their records hold (ADR 0177). Found by part of the name, format, when acquired,
-         *     sample and run; newest first unless ``sort`` says otherwise. Each says how many records
-         *     and runs you can read use it.
+         *     those their records hold (ADR 0177). Found by part of the name or of what the file
+         *     states (ADR 0224), format, when acquired, sample and run; newest first unless ``sort``
+         *     says otherwise. Each says how many records and runs you can read use it.
          */
         get: operations["iki_server_api_files_list_files"];
         put?: never;
@@ -4496,7 +4496,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a starter to a project
-         * @description Apply the plan a preview returned: create the examples and grant the chosen roles.
+         * @description Apply the reviewed flow and role grants to the assay project.
          *     If what applying does changed since the preview, as when another Admin removed a grant or
          *     applied it first, nothing changes and it answers 409 `starter_plan_changed` with `plan`,
          *     what applying would do now, for review (ADR 0207). Reapplying a setup that's in place
@@ -4521,7 +4521,7 @@ export interface paths {
         put?: never;
         /**
          * Preview a starter choice
-         * @description Check the installed version, projects, roles and flow without changing either project.
+         * @description Preview the version, review flow and role grants for the assay project.
          */
         post: operations["iki_server_api_starters_preview_starter"];
         delete?: never;
@@ -6153,11 +6153,6 @@ export interface components {
              * @enum {string}
              */
             flow: "research" | "regulated_qc";
-            /**
-             * Requester Project
-             * @description Original requester for an assay project Admin who may edit that project.
-             */
-            requester_project: string | null;
             /** Version */
             version: string;
         };
@@ -8904,6 +8899,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9120,6 +9116,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9132,6 +9130,11 @@ export interface components {
             origin: components["schemas"]["FileOriginOut"];
             /** @description Where it was added. Null if you can't see it. */
             project: components["schemas"]["ProjectRef"] | null;
+            /**
+             * Read Groups
+             * @description A SAM or BAM file's read groups, each @RG line as it gives it (ADR 0224): every one, or none when any can't be read as the specification defines.
+             */
+            read_groups: components["schemas"]["ReadGroupOut"][];
             /**
              * Samples
              * @description The samples it belongs to that you can read.
@@ -9168,6 +9171,27 @@ export interface components {
              * @description The field it's written from: a string field with a DNA or RNA format, or a reference to a record of a type that exports a sequence.
              */
             sequence: string;
+        };
+        /**
+         * FileFactsOut
+         * @description What the file says about where its data came from (ADR 0224), read when it was
+         *     added. Each is null when the file doesn't say, or doesn't say clearly.
+         */
+        FileFactsOut: {
+            /** @description The instrument's model, such as Aurora or Orbitrap Eclipse. */
+            instrument: components["schemas"]["StatedOut"] | null;
+            /** @description The name the instrument was given, such as an AB1 trace's MCHN. */
+            instrument_name: components["schemas"]["StatedOut"] | null;
+            /** @description Who made the instrument. */
+            manufacturer: components["schemas"]["StatedOut"] | null;
+            /** @description Who operated the instrument. */
+            operator: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's protocol, such as a plate reader's test. */
+            protocol: components["schemas"]["StatedOut"] | null;
+            /** @description The instrument's serial number. */
+            serial: components["schemas"]["StatedOut"] | null;
+            /** @description The software that recorded the data, and its version where given. */
+            software: components["schemas"]["StatedOut"] | null;
         };
         /** FileFilters */
         FileFilters: {
@@ -9214,7 +9238,7 @@ export interface components {
             project?: string | null;
             /**
              * Q
-             * @description Part of its name, in any case.
+             * @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.
              * @default
              */
             q: string;
@@ -9303,6 +9327,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -9361,6 +9387,8 @@ export interface components {
              * @description Registered where it already was, rather than uploaded.
              */
             external: boolean;
+            /** @description Its instrument, serial number, operator, software and protocol, where its format records them (ADR 0224). */
+            facts: components["schemas"]["FileFactsOut"];
             /**
              * Id
              * Format: uuid
@@ -13714,6 +13742,41 @@ export interface components {
              */
             team_id: string | null;
         };
+        /**
+         * ReadGroupOut
+         * @description A SAM or BAM file's @RG line: the SAM specification's tags it gives (section 1.3),
+         *     by their two-letter names, such as ID, SM (sample), LB (library) and PU (platform unit).
+         */
+        ReadGroupOut: {
+            /** Bc */
+            BC?: string;
+            /** Cn */
+            CN?: string;
+            /** Ds */
+            DS?: string;
+            /** Dt */
+            DT?: string;
+            /** Fo */
+            FO?: string;
+            /** Id */
+            ID: string;
+            /** Ks */
+            KS?: string;
+            /** Lb */
+            LB?: string;
+            /** Pg */
+            PG?: string;
+            /** Pi */
+            PI?: string;
+            /** Pl */
+            PL?: string;
+            /** Pm */
+            PM?: string;
+            /** Pu */
+            PU?: string;
+            /** Sm */
+            SM?: string;
+        };
         /** ReadIn */
         ReadIn: {
             /** Read */
@@ -17712,18 +17775,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17750,7 +17807,7 @@ export interface components {
             required_roles: string[];
             /**
              * Result Type
-             * @description Qualified type for a requested result in this flow.
+             * @description Qualified result type for new fits in this flow.
              */
             result_type: string;
         };
@@ -17802,18 +17859,12 @@ export interface components {
             /**
              * Project
              * Format: uuid
-             * @description The assay service project. Requires its Admin role.
+             * @description The assay project. Requires its Admin role.
              */
             project: string;
             /**
-             * Requester Project
-             * Format: uuid
-             * @description A different project in which the caller can create the example request.
-             */
-            requester_project: string;
-            /**
              * Role Assignments
-             * @description Each qualified lab role and the service project membership IDs receiving it.
+             * @description Each qualified lab role and the assay project membership IDs receiving it.
              */
             role_assignments: {
                 [key: string]: string[];
@@ -17831,18 +17882,6 @@ export interface components {
              * @description Whether applying this choice would change anything (preview), or did (apply).
              */
             changed: boolean;
-            /**
-             * Examples
-             * @description IDs of example records already present at preview or available after setup.
-             */
-            examples: {
-                [key: string]: string;
-            };
-            /**
-             * Examples To Create
-             * @description Names of examples missing when the setup was checked.
-             */
-            examples_to_create: string[];
             /**
              * Flow
              * @enum {string}
@@ -17865,11 +17904,6 @@ export interface components {
              * Format: uuid
              */
             project: string;
-            /**
-             * Requester Project
-             * Format: uuid
-             */
-            requester_project: string;
             /** Result Type */
             result_type: string;
             /** Role Assignments */
@@ -17979,6 +18013,19 @@ export interface components {
              * @description The electronic signatures setting it needs (ADR 0126): it's set by the last of them, once they're all given on the same revision, never directly. Empty for a state set directly.
              */
             signatures: components["schemas"]["WantedSignatureOut"][];
+        };
+        /** StatedOut */
+        StatedOut: {
+            /**
+             * Stated In
+             * @description Where in the file it's stated, such as ``FCS keyword $CYT``, to check it by.
+             */
+            stated_in: string;
+            /**
+             * Value
+             * @description As the file gives it.
+             */
+            value: string;
         };
         /** StepBatchOut */
         StepBatchOut: {
@@ -18551,7 +18598,7 @@ export interface components {
             label: string;
             /**
              * Material
-             * @description Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+             * @description The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.
              */
             material: string | null;
             /**
@@ -22734,7 +22781,7 @@ export interface operations {
                 limit?: number;
                 /** @description Its files; every one you can read if left out. */
                 project?: string | null;
-                /** @description Part of its name, in any case. */
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 /** @description Format IDs, media types such as application/x-abi, or image/* for any image. */
                 format?: string[];
@@ -22774,6 +22821,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;
@@ -22804,6 +22852,7 @@ export interface operations {
         parameters: {
             query?: {
                 project?: string | null;
+                /** @description Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case. */
                 q?: string;
                 acquired_from?: string | null;
                 acquired_to?: string | null;
