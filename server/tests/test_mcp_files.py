@@ -1,7 +1,9 @@
 """Agents use the Files list and read its files as the person who granted access."""
 
 import hashlib
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -15,20 +17,26 @@ from asgiref.sync import sync_to_async
 from mcp import Client as McpClient
 from mcp.client.streamable_http import streamable_http_client
 from org_world import World
-from real_server import Server
+from real_server import Server, app_role, serve, server_env
 from test_mcp import data, error, mcp_running, token_for, tool, world
 from test_oauth import signed_in_token
 from test_project_files import add, api_as, protein, sample, structure
 from test_registrations import CSV, register, run_tasks
 from test_runs import launch
-from test_worker_e2e import server
 
 from iki_server.audit.models import AuditEvent
 from iki_server.oauth.models import Consent
 from iki_server.org.models import Project
 
 pytestmark = pytest.mark.django_db(transaction=True)
-__all__ = ["mcp_running", "server", "world"]
+__all__ = ["mcp_running", "world"]
+
+
+@pytest.fixture
+def mcp_server(transactional_db: None, tmp_path: Path) -> Iterator[Server]:
+    """Serve the MCP client's HTTP requests. The registration test runs its own task queue."""
+    with app_role() as role, serve(server_env(role, tmp_path)) as server:
+        yield server
 
 
 async def test_find_files_matches_the_files_list_and_counts(world: World) -> None:
@@ -119,7 +127,7 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
 
 
 async def test_file_tools_respect_project_membership_and_the_grant(
-    world: World, server: Server
+    world: World, mcp_server: Server
 ) -> None:
     other = await Project.objects.acreate(team=world.team, name="Assays")
     allowed = await sync_to_async(add)(world.project, "day.csv", "text/csv")
@@ -131,7 +139,7 @@ async def test_file_tools_respect_project_membership_and_the_grant(
     token = await token_for(world, "viewer", scope="read", projects=[world.project])
     async with (
         httpx2.AsyncClient(headers={"Authorization": f"Bearer {token}"}) as http,
-        McpClient(streamable_http_client(f"{server.url}/mcp", http_client=http)) as agent,
+        McpClient(streamable_http_client(f"{mcp_server.url}/mcp", http_client=http)) as agent,
     ):
 
         async def call(name: str, **args: Any) -> dict[str, Any]:
@@ -161,7 +169,9 @@ async def test_a_file_link_reads_the_registered_version_until_expiry_and_names_i
         started = register(api, world, uri, version=version)
         assert started.status_code == 202, started.content
         run_tasks()
-        return str(api.get(f"/registrations/{started.json()['id']}").json()["file"]["id"])
+        result = api.get(f"/registrations/{started.json()['id']}").json()
+        assert result["state"] == "ready", result
+        return str(result["file"]["id"])
 
     file_id = await registered_file()
     gcs.write(bucket, key, b"new measurements\n", "text/csv")
