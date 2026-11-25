@@ -4840,18 +4840,11 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     another origin on the other strand finding the entries it has already; a plasmid under
     a material transfer agreement having to name it (ADR 0127); and a cloning plan that
     puts pUC19's own polylinker back between its EcoRI and HindIII sites making pUC19
-    again — the same molecule, so the registry gives back the entry it has (ADR 0138) —
-    which its construct states then follow, up to the four-eyes guard that won't let
-    whoever built it verify it (ADR 0128)."""
-    give_lab_roles(alice, project, "iki/plasmid.cloner", "iki/plasmid.construct_reviewer")
-    # A trigger is off until a project Admin turns it on, and then its runs are launched as
-    # them: nothing annotates a plasmid, or checks a plan against the clone's sequence,
-    # before alice turns these on herself.
+    again — the same molecule, so the registry gives back the entry it has (ADR 0138)."""
     annotating = "iki/plasmid.annotate_new_plasmid"
-    for trigger in (annotating, "iki/plasmid.check_stated_product"):
-        on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{trigger}/enable", {})
-        if on.status_code != 200 or not on.json().get("enabled"):
-            fail(f"turning {trigger} on answered HTTP {on.status_code}: {on.text[:300]}")
+    on = api_call(alice, "POST", f"/projects/{project['id']}/triggers/{annotating}/enable", {})
+    if on.status_code != 200 or not on.json().get("enabled"):
+        fail(f"turning {annotating} on answered HTTP {on.status_code}: {on.text[:300]}")
     action = "iki/plasmid.register_plasmid"
     run, plasmid = register_puc19(alice, project)
     kinds = {e["type"]: e["kind"] for e in run["effects"]}
@@ -4934,8 +4927,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
         f"reused ({run['hrid']})"
     )
     read_bases(alice, project, plasmid)
-    plan = assembled(alice, project, plasmid)
-    constructs(alice, project, plan)
+    assembled(alice, project, plasmid)
     strain_stocks(alice, project, plasmid)
 
 
@@ -5059,9 +5051,7 @@ def read_bases(alice: requests.Session, project: dict[str, Any], plasmid: dict[s
     )
 
 
-def assembled(
-    alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]
-) -> dict[str, Any]:
+def assembled(alice: requests.Session, project: dict[str, Any], plasmid: dict[str, Any]) -> None:
     """A cloning plan, worked out: pUC19 cut with EcoRI and HindIII keeps its 2,635 bp
     fragment, and its polylinker goes back in as the 51 bp piece between the two sites, so
     the plan makes 2,686 bp — pUC19 again, which the registry recognises. Then the clone is
@@ -5146,42 +5136,6 @@ def assembled(
     ok(
         f"{assembly['hrid']}: the clone's sequence stated, and the trigger's check found "
         f"the plan makes it (2686 bp, the same molecule from any origin and either strand)"
-    )
-    return assembly
-
-
-def constructs(alice: requests.Session, project: dict[str, Any], assembly: dict[str, Any]) -> None:
-    """A construct's states: Checked only once the plan matches its product, Built from
-    Checked, and Verified by someone other than whoever built it (ADR 0128)."""
-    for state in ("checked", "built"):
-        etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-        moved = api_call(
-            alice,
-            "POST",
-            f"/entities/{assembly['id']}/states/status",
-            {"state": state, "reason": ""},
-            {"If-Match": etag},
-        )
-        if moved.status_code != 200:
-            fail(
-                f"setting {assembly['hrid']} {state} answered HTTP {moved.status_code}: "
-                f"{moved.text[:300]}"
-            )
-    etag = api_call(alice, "GET", f"/entities/{assembly['id']}").headers["ETag"]
-    refused = api_call(
-        alice,
-        "POST",
-        f"/entities/{assembly['id']}/states/status",
-        {"state": "verified", "reason": ""},
-        {"If-Match": etag},
-    )
-    if refused.status_code != 409 or refused.json().get("code") != "guard_refused":
-        fail(
-            f"verifying her own construct answered HTTP {refused.status_code}: {refused.text[:300]}"
-        )
-    ok(
-        f"{assembly['hrid']} is Checked and Built, and alice may not verify what she built: "
-        f"{refused.json()['detail']}"
     )
 
 

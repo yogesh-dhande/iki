@@ -1,0 +1,93 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: ReviewedAssembly
+label: Reviewed assembly
+label_plural: Reviewed assemblies
+extends: iki/plasmid.Assembly
+schema_version: 1
+description: An assembly whose current product comparison is independently reviewed before locking.
+hrid: { prefix: RASM }
+fields:
+  status:
+    type: state
+    initial: planned
+    label: Status
+    states:
+      planned:
+        label: Planned
+        description: Designed, not yet checked against a product.
+      checked:
+        label: Checked
+        set_by: [cloner, construct_reviewer]
+        description: What the plan makes is the sequence the clone has.
+        guards:
+          the_plan_matches:
+            check: record.matches_product == true
+            message: >-
+              Check the plan against its product first (Check an assembly), and it has to
+              match: what the plan makes isn't the product's sequence.
+      built:
+        label: Built
+        set_by: [cloner, construct_reviewer]
+        description: Transformed, picked and grown.
+        guards:
+          checked_first:
+            check: state.from == "checked"
+            message: An assembly is built from Checked, once its plan matches its product.
+          the_plan_still_matches:
+            check: record.matches_product == true
+            message: >-
+              The plan no longer matches its product: the last check didn't find that
+              what the plan makes is the product's sequence. Check it again (Check an
+              assembly) before recording it as built.
+      verified:
+        label: Verified
+        set_by: [construct_reviewer]
+        locks: true
+        reason: optional
+        description: >-
+          Someone other than whoever built it has seen that the clone's sequence is the
+          plan's product.
+        guards:
+          built_first:
+            check: state.from == "built"
+            message: An assembly is verified from Built.
+          four_eyes:
+            check: last.status.built == null || last.status.built.by != actor.person
+            message: You built it, so someone else verifies it.
+          independent_verifier:
+            check: edits.status.built.all(e, e.by != actor.person)
+            message: You edited the record after it was built, so someone else verifies it.
+          # Verified locks the record, so what it attests must hold at that moment: a
+          # plan edited after it was checked is rechecked, and a check that found a
+          # mismatch, or couldn't reach a result, leaves nothing to verify.
+          the_plan_still_matches:
+            check: record.matches_product == true
+            message: >-
+              The plan no longer matches its product: the last check didn't find that
+              what the plan makes is the product's sequence. Verified locks the record,
+              so check the plan again (Check an assembly) first.
+      abandoned:
+        label: Abandoned
+        set_by: [cloner, construct_reviewer]
+        reason: required
+        description: "Given up on: it didn't clone, or the design changed."
+notifications:
+  plan_doesnt_match:
+    label: The plan doesn't make the product
+    description: >-
+      Whoever recorded the plan hears when a check finds that what it makes isn't the
+      sequence the clone has.
+    when: { field: matches_product, to: false }
+    tell: { creator: true, watchers: true }
+    message:
+      title: "{{ hrid }}: the plan doesn't make its product"
+      body: "{{ name or 'The assembly' }} makes another molecule than {{ product }}."
+  verified:
+    label: Verified
+    description: Whoever recorded the plan hears when a reviewer verifies the construct.
+    when: { field: status, to: verified }
+    tell: { creator: true, watchers: true }
+display:
+  title: "{{ name or hrid }}"
