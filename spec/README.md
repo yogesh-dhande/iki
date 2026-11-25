@@ -1393,7 +1393,7 @@ Write an initial `$` as `$$` in a literal string.
 ```yaml
 apiVersion: iki/v1
 kind: Workflow
-name: translate_and_characterize # examples/protein_translation.translate_and_characterize
+name: translate_and_characterize # acme/protein_translation.translate_and_characterize
 label: Translate and characterize
 inputs:
   sequence: { type: iki/dna.DNASequence, schema: ">=1" } # as an action's inputs

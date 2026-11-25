@@ -40,7 +40,7 @@ the protein created by the first step.
 ## Adapt and deploy a lab copy
 
 1. Copy this directory to a repository your lab owns. In `plugin.yaml`,
-   change `examples/protein_translation` to your own namespace and plugin
+   change `acme/protein_translation` to your own namespace and plugin
    name. Keep `iki/dna` and `iki/protein` as dependencies so your projects
    use the existing registry types.
 2. Set the workflow’s defaults to match the sequences you accept. To offer

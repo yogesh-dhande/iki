@@ -105,7 +105,7 @@ describe("a workflow run's page", () => {
       "/batches/BAT-000001/",
     );
     expect(steps).toHaveTextContent(
-      "examples/protein_translation.compute_properties for each protein · BAT-000001, 1 of 3 runs finished",
+      "acme/protein_translation.compute_properties for each protein · BAT-000001, 1 of 3 runs finished",
     );
   });
 

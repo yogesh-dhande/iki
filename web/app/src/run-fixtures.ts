@@ -259,14 +259,14 @@ export const WORKFLOW = {
 
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
 
-/** WF-000001: examples/protein_translation.translate_and_characterize, translated, characterizing. */
+/** WF-000001: acme/protein_translation.translate_and_characterize, translated, characterizing. */
 export function workflowRun(
   overrides: Partial<Schemas["WorkflowRunOut"]> = {},
 ): Schemas["WorkflowRunOut"] {
   return {
     id: WORKFLOW_ID,
     hrid: "WF-000001",
-    workflow: "examples/protein_translation.translate_and_characterize",
+    workflow: "acme/protein_translation.translate_and_characterize",
     label: "Translate and characterize",
     plugin_version: "1.2.0",
     project: KINASE.id,
@@ -289,7 +289,7 @@ export function workflowRun(
       {
         id: "translate",
         label: "Translate",
-        action: "examples/protein_translation.translate",
+        action: "acme/protein_translation.translate",
         after: [],
         each: null,
         when: [],
@@ -309,7 +309,7 @@ export function workflowRun(
       {
         id: "properties",
         label: "Properties",
-        action: "examples/protein_translation.compute_properties",
+        action: "acme/protein_translation.compute_properties",
         after: ["translate"],
         each: null,
         when: [],

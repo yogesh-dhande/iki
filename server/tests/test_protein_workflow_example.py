@@ -21,7 +21,7 @@ from iki_spec.compute import Binding
 __all__ = ["database"]
 
 EXAMPLE = ROOT / "examples" / "plugins" / "protein_translation"
-PLUGIN = "examples/protein_translation"
+PLUGIN = "acme/protein_translation"
 
 
 def test_translated_protein_keeps_both_steps_provenance(tmp_path: Path, database: str) -> None:

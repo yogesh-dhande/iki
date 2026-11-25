@@ -187,7 +187,7 @@ def test_the_example_workflows_are_valid() -> None:
     assert lesson.problems == []
     assert lesson.plugin is not None
     flow_ = lesson.plugin.workflows["translate_and_characterize"]
-    assert flow_.qualified_name == "examples/protein_translation.translate_and_characterize"
+    assert flow_.qualified_name == "acme/protein_translation.translate_and_characterize"
     assert flow_.inputs["sequence"].type == "iki/dna.DNASequence"
     assert flow_.order() == ["translate", "properties"]
     created = "$steps.translate.created.iki/protein.Protein"
