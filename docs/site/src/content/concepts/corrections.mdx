@@ -36,24 +36,29 @@ and everything that refers to it.
 
 ### Correcting a locked record
 
-A state that locks a record can name where a correction returns it, such as Recorded for a
-reviewed QC deliverable. When the record is in that state, editing a value is a correction:
+A locked record is corrected by first setting it back to a state that doesn't lock, as its plugin
+allows, with a reason, and then editing it. In the Requests plugin, an analyst, reviewer or QA
+returns a submitted or reviewed QC deliverable to Recorded, saying why; in the Samples plugin, a
+reviewer returns a sample whose results are recorded to testing, which takes a signature and a
+reason. The analyst then corrects the values and submits the record again.
+
+The record goes through its review again. The signatures given before stay with the revisions
+they signed, and still verify: they attest to what the record said then, not to the corrected
+value. A guard can read who edited the record since it returned, so that whoever corrected a
+result doesn't review it.
+
+A locking state that isn't signed for can instead name where a correction returns the record. When
+the record is in that state, editing a value is the correction:
 
 1. The form says where saving will take the record, such as "Saving these changes will return
-   Review from Reviewed to Recorded", and asks why.
+   Status from Approved to In testing", and asks why.
 2. Iki checks that the editor may edit the record and may set it to that state, its lab roles and
    guards included.
 3. The return and the edit are saved together, as two revisions in that order, each with the
    editor and the reason. If either is refused, neither is saved.
 
-The record is then unlocked, in the earlier state, and goes through its review again. The
-signatures given before stay with the revisions they signed, and still verify: they attest to what
-the record said then, not to the corrected value. A guard can read who edited the record since it
-returned, so that whoever corrected a result doesn't review it.
-
-A locking state that names no return is corrected by setting the record to another state, as
-its plugin allows. In the Samples plugin, a reviewer returns a sample whose results are recorded to
-testing, which takes a signature and a reason; the analyst then corrects and resubmits it.
+A state that takes signatures can't name such a return, so a signed record is always returned on
+its own first, by someone its plugin allows.
 
 ### Corrections with histories of their own
 
@@ -74,12 +79,11 @@ testing, which takes a signature and a reason; the analyst then corrects and res
 
 The QC deliverable `QCD-000012`, a SEC purity result of 97.8%, was reviewed on 18 November 2026.
 On 19 November, Priya Natarajan, its analyst, finds that the chromatography report gives 97.3%:
-she typed it wrongly. The deliverable is locked by its Review (Reviewed), and Reviewed returns a
-correction to Recorded.
+she typed it wrongly. The deliverable is locked by its Review (Reviewed), so she can't edit it as
+it is.
 
-Priya edits the purity. The form tells her that saving will return its Review from Reviewed to
-Recorded, and she gives the reason "Transcription error: the chromatography report gives 97.3%."
-Saving makes two revisions:
+Priya sets its Review back to Recorded, with the reason "Transcription error: the chromatography
+report gives 97.3%." The deliverable is unlocked, and she corrects the purity:
 
 | Revision | Kind          | Change                          | By              | Reason                                                       |
 | -------- | ------------- | ------------------------------- | --------------- | ------------------------------------------------------------ |
@@ -100,10 +104,13 @@ on 20 Nov". The ledger keeps the earlier movements, and the adjustment of −2,9
 
 ### Corrections of locked records
 
-- A correction is offered only while every state field locking the record is in a state that names
+- A return to an earlier state is a state change like any other: it takes one of that state's lab
+  roles, passes its guards, and keeps the reason, which the state can require.
+- A correction made by editing is offered only while every state field locking the record is in a state that names
   a return. The API says so in the record's `can.correct`.
 - A correction needs a reason, up to 2,000 characters. Without one, the save is refused.
-- The return's destination is a live state that doesn't lock and isn't signed for. The editor must
+- A state that takes signatures can't name a return. The return's destination is a live state that
+  doesn't lock and isn't signed for. The editor must
   hold one of its lab roles, and its guards must pass. If several state fields return, they return
   in the order the type declares them, and each guard sees the returns before it.
 - The return and the edit are saved in one transaction, under the record's lock, against the

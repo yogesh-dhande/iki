@@ -4,6 +4,7 @@
 import { getCollection, render } from "astro:content";
 
 import ItemLink from "../../components/ItemLink.astro";
+import SeriesNav from "../../components/usecase/SeriesNav.astro";
 import Doc from "../../layouts/Doc.astro";
 import { itemOf } from "../../lib/site.ts";
 
@@ -17,6 +18,17 @@ export async function getStaticPaths() {
 const { entry } = Astro.props;
 const { Content } = await render(entry);
 const { data } = entry;
+// The other parts of its series, if it's in one.
+const series = data.series
+  ? (await getCollection("useCases"))
+      .filter((other) => other.data.series?.name === data.series?.name)
+      .map((other) => ({
+        title: other.data.title,
+        href: `/use-cases/${other.id}/`,
+        part: other.data.series?.part ?? 0,
+      }))
+      .sort((a, b) => a.part - b.part)
+  : [];
 ---
 
 <Doc
@@ -32,6 +44,7 @@ const { data } = entry;
   <h1 class="doc-title">{data.title}</h1>
   <p class="lede">{data.description}</p>
   <Content />
+  {data.series && <SeriesNav name={data.series.name} parts={series} current={data.series.part} />}
   <aside slot="aside" class="side" aria-label="Related">
     {data.concepts.length > 0 && (
       <div class="side-box">

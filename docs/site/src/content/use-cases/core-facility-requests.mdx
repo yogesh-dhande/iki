@@ -5,6 +5,7 @@ audience: bench
 topic: Requests
 category: collaboration
 order: 10
+series: { name: Core facility requests, part: 1 }
 prerequisites:
   plugins:
     - { name: iki/requests }
@@ -16,17 +17,21 @@ prerequisites:
     - { role: Analyst, needs: "In the core's project: does the work and keeps its work items" }
     - { role: Reviewer, needs: "In the core's project: delivers each result and completes the request" }
   compute: none
+concepts:
+  - { label: What Iki keeps of every record, href: /concepts/what-iki-keeps-of-every-record/ }
+  - { label: "States, locks and signatures", href: /concepts/states-locks-and-signatures/ }
 reference:
   - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
   - { label: iki/requests.WorkItem, href: /reference/plugins/requests/#WorkItem }
   - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
+  - { label: iki/inventory.Tube, href: /reference/plugins/inventory/#Tube }
+  - { label: "POST /entities/{ref}/submit", href: /reference/api/post-entities-ref-submit/ }
   - { label: "EntityType: request", href: /reference/plugin-spec/entity-type/#request }
   - { label: "EntityType: result", href: /reference/plugin-spec/entity-type/#result }
 ---
 
 import ExampleUses from "../../components/ExampleUses.astro";
-import RecordCard from "../../components/RecordCard.astro";
-import RequestFlow from "../../components/usecase/RequestFlow.astro";
+import UserJourney from "../../components/usecase/UserJourney.astro";
 
 ## In short
 
@@ -37,110 +42,108 @@ A sequencing core serves three research projects. With this setup:
 - The core sees exactly what was sent with a request, and nothing else of the project's.
 - Each project sees only its own requests, and none of the core's own records of the work.
 - Results come back attached to the request, one for each tube, and the request can't be closed
-  until every tube has one. Every change to any of these records is kept in its history.
+  until every tube has one.
 
 The same request types serve any team asking another for work: a lot sent for testing, a protein
 to be produced, data to be analysed.
 
-<RequestFlow />
+## From the request to its results
+
+Lena Fischer, in the AAV capsid engineering project, needs six miniprep clones checked by Sanger
+sequencing. At the sequencing core, Sam Adeyemi coordinates, Maya Okafor runs the sequencer and
+Tomás Herrera reviews what goes back.
+
+<UserJourney
+  caption="Clones 3 to 8 insert check, from the request to its results"
+  lanes={{ asking: "Requester", service: "Sequencing core" }}
+  steps={[
+    {
+      lane: "asking",
+      who: "Lena Fischer, Project Editor",
+      title: "Asks for sequencing",
+      text: "Makes a Plain request in her project: Sequencing, Sanger, and the six tubes of miniprep DNA at 100 ng/µL. She sends it to the sequencing core from its page, and the core's coordinators hear it arrived.",
+      records: [
+        { id: "REQ-000031", type: "Plain request", state: "Submitted" },
+        { id: "TUB-000412 to TUB-000417", type: "6 tubes", state: "Sent with it" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Accepts it",
+      text: "Finds it in the core's Requests queue, under Sent to us, with the project that asked. He accepts it, or declines it with a reason, and sets its priority, scheduled date and analyst, which Lena can read but not change.",
+      records: [{ id: "REQ-000031", type: "Plain request", state: "Accepted" }],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Receives the tubes",
+      text: "From the request's page he receives what it sent: he scans each tube against the list and puts each in a box. Iki tells Lena of any tube missing, extra, damaged or rejected, with his note.",
+      records: [{ id: "TUB-000412 to TUB-000417", type: "6 tubes", state: "Matched, in BOX-000021" }],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Does the work",
+      text: "Sets the request In progress, and keeps the run in a work item: its instrument, the date it's scheduled and internal notes.",
+      records: [
+        { id: "REQ-000031", type: "Plain request", state: "In progress" },
+        { id: "WKI-000019", type: "Work item", state: "Running", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Records a result for each tube",
+      text: "Makes a Plain deliverable for each tube, with its outcome, a report and its forward and reverse traces. Until it's delivered, it's the core's alone.",
+      records: [
+        { id: "DLV-000052 to DLV-000057", type: "6 Plain deliverables", state: "Recorded", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Delivers each result",
+      text: "Checks each deliverable and sets it Delivered. It goes to Lena's project, for good, and she hears the request has results.",
+      records: [{ id: "DLV-000052 to DLV-000057", type: "6 Plain deliverables", state: "Delivered" }],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Closes the request",
+      text: "Sets the request Delivered. Iki refuses until every tube has a delivered result and nothing recorded for the request is still waiting. Delivered locks the request for both sides.",
+      records: [{ id: "REQ-000031", type: "Plain request", state: "Delivered" }],
+    },
+    {
+      lane: "asking",
+      who: "Lena Fischer",
+      title: "Sees the results",
+      text: "Reads the six results on the request's page, each with its report and traces. The work item, and anything else the core keeps, she never sees.",
+      records: [{ id: "REQ-000031", type: "Plain request", state: "6 results" }],
+    },
+  ]}
+  note="While the request is open, a Coordinator in Lena's project can withdraw it, saying why. The core can't deliver results on a withdrawn request."
+/>
+
+Every change along the way is a revision of its record, with who made it, through what and when,
+and a decline or a withdrawal keeps its reason: see
+[What Iki keeps of every record](/concepts/what-iki-keeps-of-every-record/).
 
 <ExampleUses
   prerequisites={frontmatter.prerequisites}
   intro="A lab installs three of Iki's plugins and writes none of its own: Requests, with Inventory for the tubes and Lab roles for the roles. The core's project takes Plain requests from the three research projects, and people get the lab roles below. Nothing in this flow runs code, so it needs no compute."
->
-
-The project that asks writes a **request** and sends it to the core. The core sets its own fields
-on it, which the project can read but not change.
-
-<RecordCard
-  label="Plain request"
-  name="iki/requests.PlainRequest"
-  href="/reference/plugins/requests/#PlainRequest"
-  fields={[
-    { name: "Title", type: "text", value: "Clones 3-8 insert check" },
-    { name: "Service requested", type: "choice", value: "Sequencing" },
-    { name: "Sequencing method", type: "choice", value: "Sanger" },
-    { name: "Tubes", type: "list of tubes", value: "TUB-000412, TUB-000413" },
-    {
-      name: "Standing",
-      type: "state",
-      value: "Open",
-      note: "Set by the requesting project: Open, or Withdrawn with a reason.",
-    },
-    {
-      name: "Status",
-      type: "state",
-      value: "In progress",
-      note: "Set by the core: Submitted, Accepted, In progress, Delivered, or Declined with a reason.",
-    },
-    { name: "Analyst", type: "person", value: "Maya Okafor" },
-  ]}
-  rules={[
-    "A sequencing request names its method and the tubes the core will receive, or it can't be saved.",
-    "It can be set to Delivered only once every tube on it has a delivered result, for the tube or for an aliquot the core split from it, and no recorded result is still waiting.",
-  ]}
 />
-
-The core plans and tracks its work in a **work item** in its own project. The project that asked
-never sees it, and no other project can link to it.
-
-<RecordCard
-  label="Work item"
-  name="iki/requests.WorkItem"
-  href="/reference/plugins/requests/#WorkItem"
-  fields={[
-    { name: "Request", type: "request", value: "REQ-000031" },
-    { name: "Priority", type: "choice", value: "High" },
-    { name: "Scheduled date", type: "date", value: "2026-12-03" },
-    { name: "Instrument", type: "text", value: "3730xl capillary sequencer" },
-    { name: "Internal notes", type: "text", value: "Rerun the TUB-000413 reverse read" },
-    {
-      name: "Status",
-      type: "state",
-      value: "Running",
-      note: "Queued, then Scheduled, Running and Done in that order, or Cancelled with a reason, each set by an Analyst.",
-    },
-  ]}
-/>
-
-For each tube the core records a **deliverable**: the outcome, a report and the sequencing files.
-The requesting project sees it once a Reviewer sets it to Delivered.
-
-<RecordCard
-  label="Plain deliverable"
-  name="iki/requests.PlainDeliverable"
-  href="/reference/plugins/requests/#PlainDeliverable"
-  fields={[
-    { name: "Request", type: "request", value: "REQ-000031" },
-    {
-      name: "Material",
-      type: "record",
-      value: "TUB-000412",
-      note: "A tube on the request, or an aliquot the core split from it.",
-    },
-    { name: "Outcome", type: "choice", value: "Fulfilled" },
-    { name: "Report", type: "file", value: "TUB-000412-report.pdf" },
-    { name: "Sequencing files", type: "list of files", value: "TUB-000412_F.ab1, TUB-000412_R.ab1" },
-    {
-      name: "Status",
-      type: "state",
-      value: "Delivered",
-      note: "Recorded, then Delivered, which a Reviewer sets without a signature while the request is open and in progress.",
-    },
-  ]}
-/>
-
-</ExampleUses>
-
-## What Iki records along the way
-
-- Every change to a request, work item or deliverable is a revision: who made it, through what,
-  when, and which values changed. Earlier values stay in the record's history.
-- A declined, withdrawn or cancelled record keeps the reason it was given.
-- Each record's audit trail can be exported as CSV.
 
 ## Variations of the workflow
 
+- Return everything the core records, and keep no records of its own:
+  [Return everything a core records to the project that asked](/use-cases/return-everything-to-the-requesting-project/).
+- Keep the core's working records, raw data and notes in its own project, and send back only the
+  results: [Keep a core's working records private](/use-cases/keep-a-cores-working-records-private/).
+- Run the core with one person, who accepts, does and delivers the work:
+  [Run a core facility with one person](/use-cases/run-a-core-facility-with-one-person/).
+- Have a coordinator order the core's work and book its instruments, and analysts do it:
+  [Schedule a core's work across several people](/use-cases/schedule-a-cores-work-across-several-people/).
 - Require a signed review before a result goes back: use the
   [Research request](/reference/plugins/requests/#ResearchRequest) and
   [Research deliverable](/reference/plugins/requests/#ResearchDeliverable), where a Reviewer signs

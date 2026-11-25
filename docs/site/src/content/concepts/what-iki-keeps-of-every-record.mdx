@@ -1,0 +1,92 @@
+---
+title: What Iki keeps of every record
+description: "The history Iki keeps of every record, whatever plugin declares it: each change with who made it, through what, when and why, the agent and the person it acted for, signatures, and an audit trail to export."
+audience: bench
+topic: Records
+order: 5
+useCases:
+  - { label: A core facility that takes requests from other teams, href: /use-cases/core-facility-requests/ }
+  - {
+      label: Release a lot with a certificate of analysis,
+      href: /use-cases/release-a-lot-with-a-certificate-of-analysis/,
+    }
+---
+
+## In short
+
+Every record in Iki, of whatever type and in whatever process, keeps the same history. A use case
+doesn't have to set any of this up:
+
+- **Every change is a revision**, numbered, with who made it, through what, when, which fields it
+  changed, and why if they said.
+- **A reason, wherever the process asks for one.** A declined or withdrawn request, a cancelled
+  work item and an instrument taken out of service each keep the reason they were given.
+- **The person behind an agent.** A change an AI agent or an app makes names both the agent and
+  the person whose access it acted with.
+- **Signatures bound to what they sign**, which anyone who can read the record can check again.
+- **Nothing is deleted or rewritten.** A correction adds to the history; a record is archived, not
+  deleted.
+- **An audit trail to take away**, as CSV.
+
+## How it works
+
+### Every change is a revision
+
+A revision says what kind of change it was: the record created, edited, set to a state, archived,
+restored, or changed by a plugin's upgrade. It keeps the fields it changed, the person who made it,
+how the change came (the web app, the API, an agent through MCP, the CLI, an action's run, or Iki
+itself during an upgrade), the time, and the reason when one was given. Iki can show the record as
+it was at any revision, and for each value, the revision that set it.
+
+Revisions are append-only for every role, Iki's own database role included. More in
+[Records and revisions](/concepts/records-and-revisions/).
+
+### A reason where the process asks for one
+
+A plugin's state can require a reason from whoever sets it, and Iki refuses the change without
+one. The reason is kept on the revision, up to 2,000 characters. In Iki's own plugins:
+
+- a core declines a request, and a project withdraws its own, with a reason
+  ([Requests](/reference/plugins/requests/#PlainRequest));
+- an analyst cancels a work item with a reason
+  ([Work item](/reference/plugins/requests/#WorkItem));
+- whoever finds an instrument broken sets it out of service, saying why
+  ([Instrument](/reference/plugins/equipment/#Instrument)).
+
+A correction of a locked record always takes a reason: see [Corrections](/concepts/corrections/).
+
+### The agent and the person it acted for
+
+A person can let an agent, such as an AI assistant through Iki's MCP server, act with their access.
+Each revision the agent makes names the person and the agent: its client, the person's grant it
+acted under, and the software and model it said it is. A run's revisions name whoever launched it.
+Agents, apps and service accounts never sign: only a person, signing in again, does.
+
+### Signatures
+
+A state can take electronic signatures, each with a meaning such as review or approval, and a
+statement its signer attests to. Each signature names its signer, the time, the reason and the
+revision it signs, with a hash of the record's content then, and the deployment signs it with its
+own key. A signature is never deleted: one that lapses or is withdrawn stays, marked so. More in
+[States, locks and signatures](/concepts/states-locks-and-signatures/).
+
+### What crosses between projects
+
+When a request is sent, each side's audit log records it: sent in the project that asked, received
+in the core's. Receiving its tubes, and releasing each result back, are recorded too. A record a
+request brings into a project goes no further.
+
+### The audit trail
+
+A record's page shows its revisions, the values at each, and where each value came from. Anyone
+who can read the record can download its audit trail as CSV, from the web app or the REST API.
+Webhooks and the organization's audit log hear of each revision without its values, which a
+receiver reads through the API with its own access.
+
+## Reference
+
+- A record's revisions: [GET /entities/\{ref\}/revisions](/reference/api/get-entities-ref-revisions/)
+  and [its audit trail as CSV](/reference/api/get-entities-ref-revisions-csv/)
+- Where each value came from: [GET /entities/\{ref\}/provenance](/reference/api/get-entities-ref-provenance/)
+- Its signatures: [GET /entities/\{ref\}/signatures](/reference/api/get-entities-ref-signatures/)
+- A state's reason: [states](/reference/plugin-spec/field/#states)

@@ -1,0 +1,156 @@
+---
+title: Keep a core's working records private
+description: A sequencing core plans and tracks its work, keeps its raw run data and notes in its own project, and releases a separate result for each tube to the project that asked.
+audience: bench
+topic: Requests
+category: collaboration
+order: 12
+series: { name: Core facility requests, part: 3 }
+prerequisites:
+  plugins:
+    - { name: iki/requests }
+    - { name: iki/inventory }
+    - { name: iki/lab_roles }
+  roles:
+    - { role: Requester, needs: "Project Editor in the project that asks" }
+    - { role: Coordinator, needs: "Project Editor and lab role Coordinator in the core's project" }
+    - { role: Analyst, needs: "Project Editor and lab role Analyst in the core's project" }
+    - { role: Reviewer, needs: "Project Editor and lab role Reviewer in the core's project" }
+  compute: none
+concepts:
+  - { label: What Iki keeps of every record, href: /concepts/what-iki-keeps-of-every-record/ }
+reference:
+  - { label: iki/requests.WorkItem, href: /reference/plugins/requests/#WorkItem }
+  - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
+  - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
+  - { label: "EntityType: work_item", href: /reference/plugin-spec/entity-type/#work_item }
+---
+
+import ExampleUses from "../../components/ExampleUses.astro";
+import UserJourney from "../../components/usecase/UserJourney.astro";
+
+## In short
+
+A core's own records of the work are rarely the requester's business. A Sanger plate holds
+samples from several projects; a run folder lists them all; an analyst's notes say which reaction
+was set up again and why. With this setup the core keeps all of that in its own project, and sends
+back a separate, deliberate record for each tube:
+
+- **A work item** is the core's private record of its work on a request: its own priority, the
+  date it's scheduled, the instrument, internal notes and where the work is. Only the core's
+  project can keep or refer to it, even for someone who is in both projects.
+- **Files the core uploads** stay in its project. The requester can read a file only once a
+  delivered result carries it.
+- **A deliverable for each tube** is what goes back, with that tube's report and traces alone.
+
+<ExampleUses
+  prerequisites={frontmatter.prerequisites}
+  intro="The lab installs Requests, Inventory and Lab roles. The core takes Plain requests from the projects it serves, and its Admins allow its records to be shared with other projects, so delivered results can go back."
+/>
+
+## The journey
+
+Wei Chen, in the yeast strain engineering project, needs four colony PCR products sequenced to
+confirm a promoter swap. The core runs them on a 96-well plate with samples from two other
+projects.
+
+<UserJourney
+  caption="Promoter swap check for four colonies, with the core's work kept in its project"
+  lanes={{ asking: "Requester", service: "Sequencing core" }}
+  steps={[
+    {
+      lane: "asking",
+      who: "Wei Chen",
+      title: "Asks for sequencing",
+      text: "Sends a Plain request for Sanger sequencing of four colony PCR products, in four tubes.",
+      records: [
+        { id: "REQ-000052", type: "Plain request", state: "Submitted" },
+        { id: "TUB-000601 to TUB-000604", type: "4 tubes", state: "Sent with it" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Accepts it and receives the tubes",
+      text: "Accepts the request, names Maya as its analyst, and receives the four tubes against it.",
+      records: [{ id: "REQ-000052", type: "Plain request", state: "Accepted" }],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Plans the work in a work item",
+      text: "Makes a work item for the request with the instrument, the 3730xl, and a note: plate SQ-1203-A, wells A1 to A4. She sets it Scheduled, and the request In progress.",
+      records: [
+        { id: "WKI-000027", type: "Work item", state: "Scheduled", private: true },
+        { id: "REQ-000052", type: "Plain request", state: "In progress" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Runs the plate and keeps its raw data",
+      text: "Sets the work item Running, then Done. She uploads the plate's run folder and sample sheet to the core's Files. They name other projects' samples, so they stay there.",
+      records: [
+        { id: "WKI-000027", type: "Work item", state: "Done", private: true },
+        { id: "SQ-1203-A", type: "Run folder and sample sheet, in the core's Files", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Records a separate result for each tube",
+      text: "Makes a Plain deliverable for each tube with that tube's report and its trace alone, taken from the run.",
+      records: [
+        { id: "DLV-000081 to DLV-000084", type: "4 Plain deliverables", state: "Recorded", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Delivers them and closes the request",
+      text: "Sets each deliverable Delivered, and then the request. Only the deliverables, and the files on them, go to Wei's project.",
+      records: [
+        { id: "DLV-000081 to DLV-000084", type: "4 Plain deliverables", state: "Delivered" },
+        { id: "REQ-000052", type: "Plain request", state: "Delivered" },
+      ],
+    },
+    {
+      lane: "asking",
+      who: "Wei Chen",
+      title: "Sees the four results",
+      text: "Reads each deliverable, its report and its trace. The work item, Maya's note and the run folder aren't there for him, nor any other project's wells.",
+      records: [{ id: "REQ-000052", type: "Plain request", state: "4 results" }],
+    },
+  ]}
+/>
+
+## What stays and what goes
+
+<div class="table" tabindex="0" role="region" aria-label="What the core keeps and what goes back">
+  <table>
+    <caption class="sr-only">What the core keeps and what goes back</caption>
+    <thead>
+      <tr><th scope="col">Record</th><th scope="col">The core's project</th><th scope="col">The project that asked</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>The request, with the core's fields: status, priority, scheduled date, analyst, service notes</td><td>Reads it and sets its own fields</td><td>Owns it; reads the core's fields</td></tr>
+      <tr><td>A work item, with its own priority, schedule, instrument and notes</td><td>Keeps it</td><td>Never sees it</td></tr>
+      <tr><td>A file uploaded to the core's Files</td><td>Keeps it</td><td>Reads it only if a delivered deliverable carries it</td></tr>
+      <tr><td>A deliverable</td><td>Keeps it until it's delivered</td><td>Sees it once it's delivered, for good</td></tr>
+    </tbody>
+  </table>
+</div>
+
+A work item's priority is the core's own, with a High between Routine and Urgent; the request's
+priority, Routine or Urgent, is the one the requester reads.
+
+## What Iki checks
+
+- A work item refers to a request sent to the core's project, and no other project can keep it or
+  refer to it.
+- Its status moves Queued, Scheduled, Running, Done in that order, each set by an Analyst, or it's
+  Cancelled with a reason while the work is still pending or running.
+- A work item has no release: nothing makes it go back to the project that asked.
+
+Every change to a work item is a revision of it, with who, through what and when: see
+[What Iki keeps of every record](/concepts/what-iki-keeps-of-every-record/).

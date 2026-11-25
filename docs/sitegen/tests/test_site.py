@@ -41,16 +41,20 @@ FIELD = "/reference/plugin-spec/field/"
 STATE_FIELDS = "/guides/write-a-plugin/states/"
 LOTS = "/reference/plugins/lots/"
 CLI = "/reference/cli/"
+REQUESTS = "/use-cases/core-facility-requests/"
+SCHEDULE = "/use-cases/schedule-a-cores-work-across-several-people/"
 
 #: Every kind of page: the home page, a use case with a viewer's frame, a use case with
-#: the live plate, a concept, the API's overview, a call and a schema, the plugin spec's
-#: overview and a kind's keys, a plugin's types and actions, a written reference page, a
-#: page of a guide in several pages, the sections' indexes, and the page a host serves for a
-#: missing path.
+#: the live plate, use cases with a user journey and a series, a concept, the API's
+#: overview, a call and a schema, the plugin spec's overview and a kind's keys, a plugin's
+#: types and actions, a written reference page, a page of a guide in several pages, the
+#: sections' indexes, and the page a host serves for a missing path.
 PAGES = [
     "/",
     PREP,
     ASSAY,
+    REQUESTS,
+    SCHEDULE,
     STATES,
     "/reference/",
     "/reference/api/",

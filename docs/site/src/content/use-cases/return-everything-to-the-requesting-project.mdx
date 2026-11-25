@@ -1,0 +1,134 @@
+---
+title: Return everything a core records to the project that asked
+description: A sequencing core keeps no records of its own for a request. What it says about the work is on the request, and every result it records goes back before the request can close.
+audience: bench
+topic: Requests
+category: collaboration
+order: 11
+series: { name: Core facility requests, part: 2 }
+prerequisites:
+  plugins:
+    - { name: iki/requests }
+    - { name: iki/inventory }
+    - { name: iki/lab_roles }
+  roles:
+    - { role: Requester, needs: "Project Editor in the project that asks" }
+    - { role: Coordinator, needs: "Project Editor and lab role Coordinator in the core's project" }
+    - { role: Analyst, needs: "Project Editor and lab role Analyst in the core's project" }
+    - { role: Reviewer, needs: "Project Editor and lab role Reviewer in the core's project" }
+  compute: none
+concepts:
+  - { label: What Iki keeps of every record, href: /concepts/what-iki-keeps-of-every-record/ }
+reference:
+  - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
+  - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
+  - { label: "EntityType: request", href: /reference/plugin-spec/entity-type/#request }
+  - { label: "EntityType: result", href: /reference/plugin-spec/entity-type/#result }
+---
+
+import ExampleUses from "../../components/ExampleUses.astro";
+import UserJourney from "../../components/usecase/UserJourney.astro";
+
+## In short
+
+The simplest way to run a core: everything it records about a request goes to the project that
+asked. The core writes two kinds of thing, and the requester reads both:
+
+- **Its fields on the request**: its status, priority, scheduled date, analyst and service notes.
+  The requester reads them on the request as the core sets them, and can't change them.
+- **A result for each tube**, a Plain deliverable. Each is the core's until a Reviewer delivers it,
+  and Iki won't let the request close while one it recorded hasn't gone back.
+
+The core keeps no work items, notes or files of its own for the request. When it needs those, see
+[Keep a core's working records private](/use-cases/keep-a-cores-working-records-private/).
+
+<ExampleUses
+  prerequisites={frontmatter.prerequisites}
+  intro="The lab installs Requests, Inventory and Lab roles. The core's Admins choose, under its project's settings, to take Plain requests from the projects it serves, and allow its records to be shared with other projects, or results can't go back."
+/>
+
+## The journey
+
+Arjun Mehta, in the genome editing project, has eight knock-in clones and needs the junction PCR
+products checked by Sanger sequencing before he expands any of them.
+
+<UserJourney
+  caption="Knock-in junctions for eight HEK293T clones, from the request to its results"
+  lanes={{ asking: "Requester", service: "Sequencing core" }}
+  steps={[
+    {
+      lane: "asking",
+      who: "Arjun Mehta",
+      title: "Asks for sequencing",
+      text: "Makes a Plain request: Sequencing, Sanger, the eight tubes of purified PCR product, needed by 4 December, with the primer in its instructions. He sends it to the sequencing core.",
+      records: [
+        { id: "REQ-000040", type: "Plain request", state: "Submitted" },
+        { id: "TUB-000530 to TUB-000537", type: "8 tubes", state: "Sent with it" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Accepts it and says when",
+      text: "Accepts it, sets its scheduled date to 3 December and writes a service note: results are usually ready the next morning. Arjun reads all three on his request.",
+      records: [{ id: "REQ-000040", type: "Plain request", state: "Accepted · Scheduled 3 Dec" }],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Receives the tubes",
+      text: "Scans the eight tubes against the request and puts them in the core's intake box. All eight match, so Arjun isn't told of any discrepancy.",
+      records: [{ id: "TUB-000530 to TUB-000537", type: "8 tubes", state: "Matched" }],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Runs them",
+      text: "Sets the request In progress and runs the eight reactions.",
+      records: [{ id: "REQ-000040", type: "Plain request", state: "In progress" }],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor, Analyst",
+      title: "Records a result for each tube",
+      text: "Seven read cleanly: each gets a Fulfilled deliverable with its report and trace. TUB-000534 gave no usable signal, so its deliverable is Unsuccessful, and its report says the product measured 3 ng/µL.",
+      records: [
+        { id: "DLV-000071 to DLV-000077", type: "7 Plain deliverables", state: "Recorded", private: true },
+        { id: "DLV-000078", type: "Plain deliverable, Unsuccessful", state: "Recorded", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Delivers all eight",
+      text: "Sets each deliverable Delivered, the unsuccessful one too. Each goes to Arjun's project as it's delivered.",
+      records: [{ id: "DLV-000071 to DLV-000078", type: "8 Plain deliverables", state: "Delivered" }],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Closes the request",
+      text: "Sets the request Delivered. Had any recorded deliverable not been delivered, or any tube had none, Iki would have refused and said why, naming any tube without a result.",
+      records: [{ id: "REQ-000040", type: "Plain request", state: "Delivered" }],
+    },
+    {
+      lane: "asking",
+      who: "Arjun Mehta",
+      title: "Reads everything the core recorded",
+      text: "Seven traces to align against his donor design, and a report saying why the eighth failed, so he can send it again on a new request.",
+      records: [{ id: "REQ-000040", type: "Plain request", state: "8 results" }],
+    },
+  ]}
+/>
+
+## What Iki checks
+
+- A sequencing request names its method and at least one tube, or it can't be saved.
+- A deliverable names a tube on the request, or an aliquot the core split from one, and a
+  successful one has its sequencing files or a public read archive accession.
+- A deliverable is delivered only while the request is open and in progress.
+- The request is set Delivered only once each of its tubes has a delivered result and every
+  deliverable recorded for it has been delivered. After that, no deliverable can be added.
+
+Each of these changes is a revision of its record: see
+[What Iki keeps of every record](/concepts/what-iki-keeps-of-every-record/).

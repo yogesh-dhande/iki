@@ -1,0 +1,165 @@
+---
+title: Run a core facility with one person
+description: One person runs a small plasmid sequencing service, accepting each request, doing the work and delivering the results, with the project and lab roles that takes.
+audience: bench
+topic: Requests
+category: collaboration
+order: 13
+series: { name: Core facility requests, part: 4 }
+prerequisites:
+  plugins:
+    - { name: iki/requests }
+    - { name: iki/inventory }
+    - { name: iki/lab_roles }
+  roles:
+    - { role: Requester, needs: "Project Editor in the project that asks" }
+    - {
+        role: The core's one person,
+        needs: "Project Admin of the core's project, with lab roles Coordinator, Analyst and Reviewer there",
+      }
+  compute: none
+concepts:
+  - { label: What Iki keeps of every record, href: /concepts/what-iki-keeps-of-every-record/ }
+  - { label: "States, locks and signatures", href: /concepts/states-locks-and-signatures/ }
+reference:
+  - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
+  - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
+  - { label: iki/lab_roles, href: /reference/plugins/lab-roles/ }
+  - {
+      label: "PUT /projects/{project_id}/intake",
+      href: /reference/api/put-projects-project-id-intake/,
+    }
+---
+
+import ExampleUses from "../../components/ExampleUses.astro";
+import UserJourney from "../../components/usecase/UserJourney.astro";
+
+## In short
+
+Many cores are one person. Nadia Rahman runs whole-plasmid sequencing on a nanopore sequencer for
+the institute's research projects: she takes each request, runs it, and sends back the results.
+In Iki each step of a request is set by a lab role, so she holds all three that the Plain request
+and Plain deliverable use, in the core's project:
+
+- **Coordinator**, to accept or decline requests and receive their tubes;
+- **Analyst**, to set a request In progress, and to be named its analyst;
+- **Reviewer**, to deliver each result and close the request.
+
+Plain requests and deliverables take no signatures and don't ask for a second person, so one
+person can take every step. Every step is still a revision that names her.
+
+<ExampleUses
+  prerequisites={frontmatter.prerequisites}
+  intro="The lab installs Requests, Inventory and Lab roles. Nadia is the Admin of the core's project, so she sets it up herself."
+/>
+
+## Setting up the core
+
+As the project's Admin, Nadia does three things once, in the core's project settings:
+
+1. Chooses what it takes: Plain requests, from the projects she serves.
+2. Allows its records to be shared with other projects. Without it, results can't go back.
+3. Gives herself the lab roles Coordinator, Analyst and Reviewer. Lab roles are given in each
+   project, so these hold only in the core's.
+
+## The journey
+
+Lena Fischer, in the AAV capsid engineering project, sends three plasmid preps to check their
+whole sequence before packaging.
+
+<UserJourney
+  caption="Whole-plasmid sequencing of three AAV transfer plasmids, one person at the core"
+  lanes={{ asking: "Requester", service: "Plasmid sequencing core" }}
+  steps={[
+    {
+      lane: "asking",
+      who: "Lena Fischer",
+      title: "Asks for whole-plasmid sequencing",
+      text: "Sends a Plain request: Sequencing, Long read, and three tubes of plasmid DNA, 30 µL each at 50 ng/µL. Nadia hears it arrived, as the core's only Coordinator.",
+      records: [
+        { id: "REQ-000061", type: "Plain request", state: "Submitted" },
+        { id: "TUB-000700 to TUB-000702", type: "3 tubes", state: "Sent with it" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Nadia Rahman, as Coordinator",
+      title: "Accepts it and names herself",
+      text: "Accepts the request and names herself its analyst, which puts it on her My work. She schedules it for the week's run.",
+      records: [{ id: "REQ-000061", type: "Plain request", state: "Accepted" }],
+    },
+    {
+      lane: "service",
+      who: "Nadia Rahman, as Coordinator",
+      title: "Receives the tubes",
+      text: "Scans the three tubes in. One arrived cracked: she records it damaged with a note, and Iki tells Lena.",
+      records: [{ id: "TUB-000700 to TUB-000702", type: "3 tubes", state: "2 matched, 1 damaged" }],
+    },
+    {
+      lane: "service",
+      who: "Nadia Rahman, as Analyst",
+      title: "Runs the samples",
+      text: "Sets the request In progress, barcodes the three preps and runs them on one flow cell.",
+      records: [{ id: "REQ-000061", type: "Plain request", state: "In progress" }],
+    },
+    {
+      lane: "service",
+      who: "Nadia Rahman, as Analyst",
+      title: "Records a result for each tube",
+      text: "Makes a Plain deliverable for each plasmid, with its report, its consensus sequence and its reads. For the damaged tube the report says how much was recovered.",
+      records: [
+        { id: "DLV-000090 to DLV-000092", type: "3 Plain deliverables", state: "Recorded", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Nadia Rahman, as Reviewer",
+      title: "Delivers them and closes the request",
+      text: "Sets each deliverable Delivered, then the request.",
+      records: [
+        { id: "DLV-000090 to DLV-000092", type: "3 Plain deliverables", state: "Delivered" },
+        { id: "REQ-000061", type: "Plain request", state: "Delivered" },
+      ],
+    },
+    {
+      lane: "asking",
+      who: "Lena Fischer",
+      title: "Sees the results",
+      text: "Reads the three results, and compares each consensus with her plasmid map.",
+      records: [{ id: "REQ-000061", type: "Plain request", state: "3 results" }],
+    },
+  ]}
+/>
+
+## Who sets what
+
+<div class="table" tabindex="0" role="region" aria-label="What each step takes in the core's project">
+  <table>
+    <caption class="sr-only">What each step takes in the core's project</caption>
+    <thead>
+      <tr><th scope="col">Step</th><th scope="col">What it takes in the core's project</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Choose what the core takes, allow sharing, give lab roles</td><td>Project Admin</td></tr>
+      <tr><td>Accept or decline a request</td><td>Lab role Coordinator</td></tr>
+      <tr><td>Receive its tubes</td><td>Lab role Coordinator</td></tr>
+      <tr><td>Set its priority, scheduled date and service notes</td><td>Project Editor (an Admin is one)</td></tr>
+      <tr><td>Be named its analyst</td><td>Lab role Analyst</td></tr>
+      <tr><td>Set it In progress</td><td>Lab role Analyst</td></tr>
+      <tr><td>Record a deliverable</td><td>Project Editor</td></tr>
+      <tr><td>Deliver a deliverable</td><td>Lab role Reviewer</td></tr>
+      <tr><td>Set the request Delivered</td><td>Lab role Reviewer, or Sample and result QA</td></tr>
+    </tbody>
+  </table>
+</div>
+
+A project role, Admin included, never sets a state by itself: each state takes its lab role.
+
+## When one person isn't enough
+
+Some labs' procedures need a second person to check a result before it goes back. Plain types
+don't ask for one. The [QC request](/reference/plugins/requests/#QCRequest) and
+[QC deliverable](/reference/plugins/requests/#QCDeliverable) do: the analyst signs the deliverable
+Submitted, a reviewer who didn't create, submit or edit it signs it Reviewed, and QA, someone else
+again, signs it Released. A one-person core can't release a QC deliverable alone. With more than
+one person, see [Schedule a core's work across several people](/use-cases/schedule-a-cores-work-across-several-people/).

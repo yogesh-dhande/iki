@@ -1,0 +1,179 @@
+---
+title: Schedule a core's work across several people
+description: A sequencing core's coordinator orders the requests from three projects by hand and books instrument time for each, its analysts run them, and a reviewer delivers the results.
+audience: bench
+topic: Requests
+category: collaboration
+order: 14
+series: { name: Core facility requests, part: 5 }
+prerequisites:
+  plugins:
+    - { name: iki/requests }
+    - { name: iki/inventory }
+    - { name: iki/lab_roles }
+    - { name: iki/equipment }
+  roles:
+    - { role: Requesters, needs: "Project Editor, each in their own project" }
+    - {
+        role: Coordinator,
+        needs: "Project Editor and lab role Coordinator in the core's project: accepts, orders and books the work",
+      }
+    - {
+        role: Analysts,
+        needs: "Project Editor and lab role Analyst in the core's project: run the work and record its results",
+      }
+    - {
+        role: Reviewer,
+        needs: "Project Editor and lab role Reviewer in the core's project: delivers the results",
+      }
+  compute: none
+concepts:
+  - { label: What Iki keeps of every record, href: /concepts/what-iki-keeps-of-every-record/ }
+reference:
+  - { label: iki/requests.PlainRequest, href: /reference/plugins/requests/#PlainRequest }
+  - { label: iki/equipment.Booking, href: /reference/plugins/equipment/#Booking }
+  - { label: iki/equipment.Instrument, href: /reference/plugins/equipment/#Instrument }
+  - { label: iki/requests.PlainDeliverable, href: /reference/plugins/requests/#PlainDeliverable }
+---
+
+import ExampleUses from "../../components/ExampleUses.astro";
+import UserJourney from "../../components/usecase/UserJourney.astro";
+
+## In short
+
+In a core with several people, one of them usually decides what runs when. Here Sam Adeyemi
+coordinates a sequencing core with a NextSeq 2000 for short reads and a GridION for long reads,
+and two analysts run them. Deciding the order is Sam's judgement, made by hand. Iki gives him what
+he needs to make it, and keeps the result straight:
+
+- The core's Requests queue shows each request with the project that asked, and filters by it.
+- Each request has the date its project needs it by, and the core's own fields: its **priority**,
+  Routine or Urgent, which the core decides, its **scheduled date** and its **analyst**.
+- Each instrument has a calendar of bookings, and Iki refuses two bookings of one instrument that
+  overlap, or a booking of an instrument that's out of service.
+
+Iki doesn't order the queue for him, or hold a policy of which project goes first.
+
+<ExampleUses
+  prerequisites={frontmatter.prerequisites}
+  intro="The lab installs Requests, Inventory, Lab roles and Equipment service. The core takes Plain requests from the three projects it serves, and keeps its two sequencers as Instrument records in its project."
+/>
+
+## The queue
+
+On Monday 30 November, the core's **Requests** tab, under **Sent to us**, lists three new
+requests. Sam filters it by status Submitted and sorts it by **Needed by**:
+
+<div class="table" tabindex="0" role="region" aria-label="The core's queue on 30 November">
+  <table>
+    <caption class="sr-only">The core's queue on 30 November</caption>
+    <thead>
+      <tr><th scope="col">Request</th><th scope="col">Asked by</th><th scope="col">Sequencing</th><th scope="col">Needed by</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>REQ-000044 Capsid library, selection round 3</td><td>AAV capsid engineering</td><td>Short read</td><td>2 Dec</td></tr>
+      <tr><td>REQ-000045 Off-target amplicons, guide g7</td><td>Genome editing</td><td>Short read</td><td>12 Dec</td></tr>
+      <tr><td>REQ-000046 Strain YS-112 genome</td><td>Yeast strain engineering</td><td>Long read</td><td>15 Dec</td></tr>
+    </tbody>
+  </table>
+</div>
+
+The capsid library goes into an animal study the following week, so Sam makes it Urgent and runs
+it first. The other two are Routine. He gives the genome its own run on the GridION, and the
+amplicons the next free NextSeq run.
+
+## The journey
+
+<UserJourney
+  caption="Three projects' requests, ordered and booked by the core's coordinator"
+  lanes={{ asking: "Requesting projects", service: "Sequencing core" }}
+  steps={[
+    {
+      lane: "asking",
+      who: "Lena Fischer, Arjun Mehta and Wei Chen, each in their own project",
+      title: "Each project asks",
+      text: "Each sends a Plain request for sequencing with its tubes: twelve barcoded libraries for the capsid selection. None of them sees the others' requests.",
+      records: [
+        { id: "REQ-000044", type: "Plain request", state: "Submitted" },
+        { id: "REQ-000045", type: "Plain request", state: "Submitted" },
+        { id: "REQ-000046", type: "Plain request", state: "Submitted" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Reads the queue and accepts",
+      text: "Sees who asked for what, and by when, in the core's queue. He accepts all three, and receives each request's tubes against it as they arrive.",
+      records: [{ id: "REQ-000044 to REQ-000046", type: "3 Plain requests", state: "Accepted" }],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Orders the work",
+      text: "Sets each request's priority, scheduled date and analyst: the capsid library Urgent on 1 December with Maya, the genome Routine on 3 December with Jonas, the amplicons Routine on 4 December with Maya. Each project reads these on its request.",
+      records: [
+        { id: "REQ-000044", type: "Plain request", state: "Urgent, 1 Dec" },
+        { id: "REQ-000046", type: "Plain request", state: "Routine, 3 Dec" },
+        { id: "REQ-000045", type: "Plain request", state: "Routine, 4 Dec" },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Sam Adeyemi, Coordinator",
+      title: "Books the instruments",
+      text: "Books each run on its instrument's calendar, for the analyst who'll run it, naming the request in its purpose. When he first tries the amplicons on 1 December, while the capsid run holds the NextSeq, Iki refuses the overlap.",
+      records: [
+        { id: "BKG-000143", type: "NextSeq 2000", state: "1 Dec 09:00 to 2 Dec 09:00", private: true },
+        { id: "BKG-000144", type: "GridION", state: "3 Dec 10:00 to 5 Dec 10:00", private: true },
+        { id: "BKG-000145", type: "NextSeq 2000", state: "4 Dec 09:00 to 5 Dec 09:00", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Maya Okafor and Jonas Berg, Analysts",
+      title: "Run their work in order",
+      text: "Each finds their requests on My work, soonest needed first, and their runs on the instruments' calendars. Each sets a request In progress on its day, runs it and records a deliverable for each tube.",
+      records: [
+        { id: "REQ-000044", type: "Plain request", state: "In progress" },
+        { id: "DLV-000101 to DLV-000112", type: "12 Plain deliverables", state: "Recorded", private: true },
+      ],
+    },
+    {
+      lane: "service",
+      who: "Tomás Herrera, Reviewer",
+      title: "Delivers each request's results",
+      text: "Delivers each request's deliverables as its run is done, and closes the request.",
+      records: [{ id: "REQ-000044", type: "Plain request", state: "Delivered" }],
+    },
+    {
+      lane: "asking",
+      who: "Each requester",
+      title: "Sees their own request",
+      text: "Each project reads its request's priority, scheduled date and, once delivered, its results. The bookings, and the other projects' requests, stay at the core.",
+      records: [{ id: "REQ-000044", type: "Plain request", state: "12 results" }],
+    },
+  ]}
+  note="If an Engineer or an Analyst sets an instrument out of service, everyone it's booked for, with a booking that hasn't ended, is told, so the coordinator can book another."
+/>
+
+## What Iki does and doesn't do
+
+- It shows the asking project as a column of the core's queue, and filters by it, by status, by
+  priority, and by any other field of the request; it sorts by needed-by or scheduled date.
+- It puts a request on its analyst's My work while it's Accepted or In progress, soonest needed
+  first. An Accepted request with no analyst is open to every Analyst of the core, who can take it.
+- It refuses a booking that overlaps another of the same instrument, unless one is cancelled, and
+  a booking of an instrument that isn't in service.
+- It doesn't link a booking to a request: the coordinator names the request in the booking's
+  purpose.
+- It doesn't decide the order. Priority is a field the core sets, and the order is the
+  coordinator's.
+
+## Variations
+
+- Rank the projects a core serves and set each request's rank as it arrives.
+- Keep the core's notes on each run private, in a work item: see
+  [Keep a core's working records private](/use-cases/keep-a-cores-working-records-private/).
+- Release results only after an independent review and QA: use the
+  [QC request](/reference/plugins/requests/#QCRequest) and
+  [QC deliverable](/reference/plugins/requests/#QCDeliverable).

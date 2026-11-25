@@ -55,6 +55,9 @@ export const collections = {
       concepts: z.array(link).default([]),
       reference: z.array(link),
       aside: z.object({ title: z.string(), text: z.string(), href: z.string() }).optional(),
+      /** A set of use cases read in order, each a step more complex: its name, and this
+       * page's place in it. Each page links to the one before and after. */
+      series: z.object({ name: z.string(), part: z.number().int().min(1) }).optional(),
     }),
   }),
   /** Written reference pages, such as the CLI's commands. The API, the plugin spec and the

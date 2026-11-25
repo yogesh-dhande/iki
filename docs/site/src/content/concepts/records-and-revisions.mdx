@@ -44,6 +44,7 @@ A revision is one of these kinds:
 | ----------------- | ------------------------------------------------------------------- |
 | **Created**       | The record was made, with the values it was given.                  |
 | **Edited**        | Some of its values changed.                                         |
+| **Migrated**      | A plugin's upgrade set some of its values, saying why.              |
 | **State changed** | One of its state fields was set: Released, Approved, In review.     |
 | **Archived**      | It was archived: it keeps its history, and can't change.            |
 | **Restored**      | It was restored from the archive, and can change again.             |
@@ -137,8 +138,9 @@ her change on it if it's still needed.
 - Every change to a record's values, states or archive makes exactly one revision, numbered one
   after its previous.
 - A revision names the person, and the agent if one acted for them. A run's revisions name whoever
-  launched it, through the run. A plugin's upgrade that moves records out of a state it removed
-  makes revisions by no one, through the system, saying why.
+  launched it, through the run. A plugin's upgrade that sets values on existing records, or moves
+  them out of a state it removed, makes revisions by no one, through the system: a migrated
+  revision names the plugin, its version, the migration and its author's reason.
 - Revisions and history are append-only for every role, including Iki's own database role.
 - An edit that names a revision older than the record's is refused, with the record's current
   revision.
