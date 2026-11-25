@@ -105,12 +105,14 @@
       "7f35189845edf381a118b665f2632533aeb4468a"
     ],
     "iki/inventory": [
+      "b4cca08ffdc0fdcabf46c5543dd41a8a09094075",
       "e7f6773993968f2b856707af7e7e473c9582d968"
     ],
     "iki/lab_roles": [
       "c955bd40d3e006f643b385d5c7d53a00387f49f1"
     ],
     "iki/lims_connector_example": [
+      "423067770dfe04fd480350f09a7f991bf852ae32",
       "eb06be14c9a48e5bb3cfc5843aa3e1525659f78d"
     ],
     "iki/lots": [
@@ -247,10 +249,12 @@
       "f292f6ca2072e01c3e5c31de06097104633b0b83"
     ],
     "iki/requests": [
+      "08687690fdb72012b82e1ed469fb323557895d1d",
       "aaa7cc254f85a34f7ba3152121d60166ef858eff",
       "a2c0a3e409226c05bbafd348c33e4c6f6025f771"
     ],
     "iki/samples": [
+      "5890be3d58157dc7ac2949073b1fe613621560c0",
       "cbed6e2b90a1af6f6a9794a8dde8a790e46a5a72",
       "bbbf97be39fb38a4185b39453756de92c1c48879"
     ],

@@ -70,12 +70,17 @@ had.**
 - **The same code from another commit.** The tree is listed, so the build
   takes it: the code is Iki's, which is what `iki/` promises.
 
-The list only ever grows. `make first-party` adds each plugin's current
+Keep every historical tree of each supported plugin. `make first-party` adds its current
 tree, and a test fails while one is missing, so every commit of Iki's
 repository lists its own plugins' trees. A commit of Iki's newer than the
 site's `iki-cli` needs that newer `iki-cli`, which is the release a
 regulated site would take anyway. A fetch from Iki's own repository isn't
 checked against the list, since that repository is the origin.
+
+Keep old hashes as inactive history when a plugin moves into examples. The
+pre-M1 example LIMS cutover explicitly retired its tree list on a fresh
+database with no deployed pins to support. It also removed the name from
+`FIRST_PARTY`, so current lockfile validation refuses it before fetching. [ADR 0211](0211-lots-inventory-samples-and-requests.md)
 
 **git's config can't send Iki's repository somewhere quietly.** The build
 asks git where its config sends each URL (`git ls-remote --get-url`). For
