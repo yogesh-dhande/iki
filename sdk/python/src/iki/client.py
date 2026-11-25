@@ -417,9 +417,9 @@ class Entities(_Part):
         DataFrame's ``held`` and ``breaks`` columns name the rules::
 
             iki.entities.search(
-                "iki/samples.Sample",
-                where={"field": "held", "op": "eq", "value": "purity_in_specification"},
-            ).to_pandas()[["held", "purity"]]
+                "iki/lots.OligoLot",
+                where={"field": "held", "op": "eq", "value": "mass_within_tolerance"},
+            ).to_pandas()[["held", "measured_mass"]]
         """
         client = self._client
         body: dict[str, Any] = {
@@ -953,9 +953,7 @@ class Work(_Part):
         ``due``. ``state`` keeps those whose state fields are in these states, by field::
 
             client = iki.client()
-            for item in client.work.mine(
-                type="iki/samples.Sample", state={"status": "in_review"}
-            ):
+            for item in client.work.mine(type="iki/samples.Sample", state={"status": "in_review"}):
                 print(item["entity"]["hrid"], item["due"])
         """
         return self._list("/me/work", project, type, state, sort, page_size)

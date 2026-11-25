@@ -108,11 +108,11 @@ nothing a caller sends is in it.
 
 - Search: `upstream` and `downstream` are fields of every entity, with
   `of` (an ID or HRID, or `{entity, depth, edges}`) and `is_set`, so they
-  combine with any condition: "every Sample downstream of DNR-000001 not
-  yet released". An identity's HRID starts at its entry, so it covers
+  combine with any condition: "every Sample drawn from TUB-000001 still
+  awaiting results". An identity's HRID starts at its entry, so it covers
   every project's record you read. A search may have three such
-  conditions. In the web app's search box, `downstream:DNR-000001` and
-  `upstream:RES-000004` say it.
+  conditions. In the web app's search box, `downstream:TUB-000001` and
+  `upstream:SAM-000004` say it.
 - The API: `GET /entities/{ref}/upstream` and `…/downstream`, paged, and
   each `.csv` for everything at once (at most 100,000 rows, with each
   path as text and spreadsheet formulas escaped); `GET

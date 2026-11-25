@@ -11,7 +11,7 @@ against one making at a time, ``{"software": "AlphaFold", "by": "iki"}``.
 A state field (ADR 0125) is searched as an enum of its states, by name.
 ``upstream`` and ``downstream`` (ADR 0123) find what an entity was derived from, or what
 was derived from it, through references and runs: ``{"field": "downstream", "op": "of",
-"value": "DNR-000001"}``, or with ``{"entity": …, "depth": …, "edges": […]}``; ``is_set``
+"value": "TUB-000001"}``, or with ``{"entity": …, "depth": …, "edges": […]}``; ``is_set``
 finds entities with anything that way, or nothing.
 ``held`` and ``breaks`` (ADR 0127, ADR 0135) find what plugins' rules caught: records held
 for review by a rule, and records that break a rule they were saved before, by the rule's

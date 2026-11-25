@@ -76,7 +76,9 @@ found.to_pandas(limit=1000)  # a DataFrame, indexed by HRID
 
 abl1 = iki.entities.get("PRT-000123")
 # By a unique field, such as the ID a LIMS gives its record: one per project, at most.
-[sample] = iki.entities.lookup("lab.Sample", "lims_id", "S-0042", project="kinase-atlas")
+[protein] = iki.entities.lookup(
+    "iki/protein.Protein", "lims_id", "LIMS-0042", project="kinase-atlas"
+)
 
 made = iki.entities.create(
     "iki/protein.Protein",
@@ -148,7 +150,7 @@ client.notifications.watch("SAM-000013")  # or "muted", or "default"
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
 # with the samples it names. The core writes its own fields; you write yours.
 core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
-lot = {"title": "Lot 12", "materials": ["<sample UUID>"]}
+lot = {"title": "Lot 12", "materials": [sample["id"]]}
 asked = iki.entities.create("iki/requests.PlainRequest", lot, project="kinase-atlas")
 iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
 iki.entities.request(asked["hrid"])["results"]  # what the core released back
