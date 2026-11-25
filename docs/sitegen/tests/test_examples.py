@@ -56,13 +56,13 @@ def test_the_fit_with_a4_excluded_is_the_guides(dose: dict[str, object]) -> None
     assert len(readings) == 10
 
 
-def test_puc19_is_checked_as_the_concept_page_says() -> None:
+def test_puc19_is_checked_as_the_prep_use_case_says() -> None:
     result = examples.puc19_reads()
     values = result["values"]
     assert (values["reads_total"], values["reads_aligned"]) == (41, 37)
     assert values["agreement"] == "differs"
-    assert (values["mean_depth"], values["least_depth"]) == (55.0, 46)
-    assert values["called_percent"] == 99.96
+    assert (values["mean_depth"], values["least_depth"]) == (35.9, 33)
+    assert values["called_percent"] == 99.89
     differences = values["differences"]
     assert [d["hgvs"][:12] for d in differences] == [
         "o.413_418del",
@@ -70,12 +70,15 @@ def test_puc19_is_checked_as_the_concept_page_says() -> None:
         "o.423T>A",
         "o.887del",
         "o.1446del",
-        "o.2043del",
     ]
     # The multiple cloning site's three are in no feature; the others are in runs of 6 or 7.
     assert [d["features"] for d in differences[:3]] == [[], [], []]
-    assert [d["homopolymer"] for d in differences[3:]] == [6, 7, 6]
-    assert result["uncalled"] == [{"position": 1134, "base": "C", "run": 6}]
+    assert [d["homopolymer"] for d in differences[3:]] == [6, 7]
+    assert result["uncalled"] == [
+        {"position": 1134, "base": "C", "run": 6},
+        {"position": 2043, "base": "A", "run": 6},
+        {"position": 2602, "base": "C", "run": 4},
+    ]
 
 
 def test_the_same_code_and_data_write_the_same_bytes(tmp_path: Path) -> None:

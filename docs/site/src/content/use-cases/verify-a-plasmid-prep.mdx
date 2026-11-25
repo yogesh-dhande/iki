@@ -36,7 +36,8 @@ import Viewer from "../../components/Viewer.astro";
 import { puc19 } from "../../lib/examples.ts";
 
 export const v = puc19.values;
-export const uncalled = puc19.uncalled[0];
+export const uncalled = puc19.uncalled;
+export const substitution = v.differences.find((d) => d.kind === "substitution");
 export const mcs = v.differences.filter((d) => d.features.length === 0);
 export const runs = v.differences.filter((d) => d.homopolymer >= 6);
 export const percent = (d) => `${Math.round(d.fraction * 100)}%`;
@@ -93,15 +94,16 @@ The alignment's summary for the pUC19 reads:
   ]}
 />
 
-{v.reads_total - v.reads_aligned} short reads align nowhere. One base, at {uncalled.position} in a
-run of {uncalled.run} {uncalled.base}s, has no majority and is left uncalled. The alignment names
+{v.reads_total - v.reads_aligned} short reads align nowhere. {uncalled.length} bases have no majority
+and are left uncalled, each in a run of one base:{" "}
+{uncalled.map((u) => `${u.position} in a run of ${u.run} ${u.base}s`).join(", ")}. The alignment names
 {v.differences.length} differences:
 
 <Differences differences={v.differences} caption="The differences the alignment names" />
 
 The first {mcs.length} sit in the multiple cloning site, which the record doesn't annotate as a
 feature: this prep's plasmid differs there from {puc19.data.accession}. Every read supports the
-deletion and the substitution. The last {runs.length} are one-base deletions in runs of six or
+deletion and the insertion, and {percent(substitution)} the substitution. The last {runs.length} are one-base deletions in runs of six or
 seven bases, a typical nanopore error, each supported by only part of the reads
 ({runs.map(percent).join(", ")}).
 

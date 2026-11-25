@@ -207,7 +207,7 @@ def test_the_prep_use_case_draws_the_plugins_own_map_in_its_theme(
     viewer = page.locator("iframe[data-viewer]")
     viewer.scroll_into_view_if_needed()
     # The plasmid sequencing plugin's Map tab, on the alignment the build ran.
-    expect(frame.get_by_role("button", name="Differences (6)")).to_be_visible()
+    expect(frame.get_by_role("button", name="Differences (5)")).to_be_visible()
     expect(frame.get_by_text("o.887del").first).to_be_attached()
     # The page sizes the frame to what it drew, so it never scrolls on its own.
     inner = frame.locator("html")
