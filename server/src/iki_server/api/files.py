@@ -30,6 +30,7 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
+from iki_server.audit import log as audit
 from iki_server.entities import access
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
@@ -815,40 +816,45 @@ def file_runs(request: HttpRequest, file_id: UUID, params: Query[PageParams]) ->
     return result
 
 
-@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
-def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
-    """Redirects to a signed URL that works for five minutes. It downloads the file under
-    its name, rather than opening it in the browser."""
-    me = caller(request)
-    found = _file(me, file_id)
-    _storage()
-    blob = found.blob
-    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
-    response = HttpResponse(status=302)
-    response["Location"] = url
-    response["Cache-Control"] = "no-store"
-    return response
-
-
 class ContentUrlOut(Schema):
     url: str = Field(description="A signed URL that reads the file, for five minutes.")
     expires_at: datetime
     sha256: str = Field(description="What the bytes it reads hash to: check them against it.")
 
 
-@router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
-def file_content_url(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
-    """For pages that read a file themselves, such as the structure viewer: the store
-    lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
-    offer, since a redirect to another origin hides who's asking."""
-    me = caller(request)
+def _download_link(me: User, file_id: UUID) -> ContentUrlOut:
     found = _file(me, file_id)
     _storage()
     blob = found.blob
-    return {
-        "url": storage.download_url(
-            blob.storage_uri, blob.object_version, found.name, found.media_type
-        ),
-        "expires_at": timezone.now() + timedelta(seconds=storage.DOWNLOAD_URL_SECONDS),
-        "sha256": blob.sha256,
-    }
+    expires_at = timezone.now().replace(microsecond=0) + timedelta(
+        seconds=storage.DOWNLOAD_URL_SECONDS
+    )
+    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
+    audit.record(
+        "file.download_link_issued",
+        actor=me,
+        target=found,
+        project=found.project,
+        data={"sha256": blob.sha256, "expires_at": expires_at.isoformat()},
+    )
+    return ContentUrlOut(url=url, expires_at=expires_at, sha256=blob.sha256)
+
+
+@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
+def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
+    """Redirects to a signed URL that works for five minutes. It downloads the file under
+    its name, rather than opening it in the browser."""
+    link = _download_link(caller(request), file_id)
+    response = HttpResponse(status=302)
+    response["Location"] = link.url
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
+def file_content_url(request: HttpRequest, file_id: UUID, response: HttpResponse) -> ContentUrlOut:
+    """For pages that read a file themselves, such as the structure viewer: the store
+    lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
+    offer, since a redirect to another origin hides who's asking."""
+    response["Cache-Control"] = "no-store"
+    return _download_link(caller(request), file_id)

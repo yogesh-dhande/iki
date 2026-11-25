@@ -94,6 +94,7 @@ ACTIONS: dict[str, str] = {
     "bundle.imported": "Imported a bundle's entities, with their history, from another deployment",
     "bundle.import_failed": "Tried to import a bundle from another deployment, and nothing changed",
     "file.added": "Added a file",
+    "file.download_link_issued": "Issued a file download link",
     "spreadsheet.imported": "Imported a spreadsheet's rows as records",
     "spreadsheet_mapping.saved": "Saved a mapping of a spreadsheet's columns",
     "spreadsheet_mapping.changed": "Changed a saved mapping of a spreadsheet's columns",
