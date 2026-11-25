@@ -42,6 +42,9 @@ def test_valid_compiled_manifest_preserves_the_candidate_digest(name: str) -> No
     ("path", "value"),
     [
         (["name"], "acme/other"),
+        (["formats", "acme/protein.model-pdb", "reader"], "unknown-reader"),
+        (["formats", "acme/protein.model-pdb", "media_types"], ["text/csv"]),
+        (["formats", "acme/protein.model-pdb", "id"], "acme/other.model-pdb"),
         (["types", "acme/protein.Batch", "plugin"], "acme/other"),
         (["types", "acme/protein.Batch", "extends"], "acme/protein.Batch"),
         (["types", "acme/protein.Batch", "extends"], "acme/protein.Missing"),

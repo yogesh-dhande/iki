@@ -212,6 +212,32 @@ describe("a run's page", () => {
     );
   });
 
+  it("keeps a place for each unreadable input and included reference", async () => {
+    onRun(
+      () =>
+        run({
+          inputs: [{ name: "protein", entity: null, hrid: null, revision: null }],
+          included: [
+            {
+              input: "protein",
+              position: 0,
+              field: "encoded_by",
+              index: 0,
+              entity: null,
+              hrid: null,
+              revision: null,
+            },
+          ],
+        }),
+      () => [attempt()],
+    );
+    withLog(() => "");
+    await renderApp("/runs/RUN-000001/");
+    const inputs = await screen.findByRole("region", { name: "Inputs" });
+    expect(within(inputs).getAllByText("An entity you can’t read")).toHaveLength(2);
+    expect(inputs.querySelector('a[href^="/entities/"]')).toBeNull();
+  });
+
   it("names an import's file, and the plugin settings it ran with", async () => {
     const FILE = "00000000-0000-7000-8000-00000000f001";
     const HIDDEN = "00000000-0000-7000-8000-00000000f002";

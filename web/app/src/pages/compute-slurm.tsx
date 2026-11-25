@@ -401,7 +401,7 @@ function AccountDialog({
       ),
     [COMPUTE],
   );
-  const form = useForm(save.error);
+  const form = useForm(save.error, save.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

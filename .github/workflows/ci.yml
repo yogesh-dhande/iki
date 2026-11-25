@@ -97,16 +97,11 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
-      - name: actionlint
-        run: |
-          uvx --from actionlint-py==1.7.12.25 actionlint -color
-          # The plugin template's workflow, which plugin repositories start from.
-          uvx --from actionlint-py==1.7.12.25 actionlint -color plugin-template/.github/workflows/*.yml
-      - name: zizmor (workflow security audit)
+      - name: Check Iki, template and example workflows
         env:
           # Read-only token so zizmor can also check actions against known advisories.
           GH_TOKEN: ${{ github.token }}
-        run: uvx zizmor==1.32.0 --persona=auditor --format=github .github/ plugin-template/.github/
+        run: make check-workflows
 
   python-checks:
     name: Python ${{ matrix.python }} lint and types
@@ -239,6 +234,11 @@ jobs:
         if: matrix.kind == 'worker'
         working-directory: worker
         run: cargo build --locked -p iki-worker
+      - name: Validate and run the author examples with their dependencies
+        if: matrix.kind == 'worker'
+        env:
+          IKI_WORKER: ${{ github.workspace }}/worker/target/debug/iki-worker
+        run: uv run --no-sync python scripts/ci/check_plugin_examples.py
       - name: Build and check the web app, package stories, docs site and accessibility assets
         if: matrix.kind == 'browser'
         run: |
@@ -764,11 +764,15 @@ jobs:
         run: tail -n 100 .pytest_cache/slurm-e2e/logs/* || true
 
   dev-cluster:
-    name: Dev cluster end to end (kind + Tilt)
+    name: Dev cluster end to end (${{ matrix.target }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [dev-product-ci, dev-ci]
     permissions:
       contents: read
     steps:
@@ -818,7 +822,9 @@ jobs:
           path: ~/.cache/ci-apt
           key: ${{ steps.apt-chromium.outputs.cache-primary-key }}
       - name: Bring up the dev cluster and run end-to-end checks
-        run: make dev-ci
+        env:
+          DEV_TARGET: ${{ matrix.target }}
+        run: make "$DEV_TARGET"
       - name: Diagnostics on failure
         if: failure()
         run: |

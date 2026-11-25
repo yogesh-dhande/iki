@@ -22,7 +22,11 @@ def test_has_staging_and_production() -> None:
 
 @pytest.mark.parametrize("deployment", DEPLOYMENTS)
 def test_lockfiles_are_valid(deployment: str) -> None:
-    result = load_lock(TEMPLATE / "deployments" / deployment / "plugins.lock.yaml")
+    directory = TEMPLATE / "deployments" / deployment
+    values = yaml.safe_load((directory / "values.yaml").read_text())
+    result = load_lock(
+        directory / "plugins.lock.yaml", mirrors=values.get("plugins", {}).get("mirrors", [])
+    )
     assert result.problems == []
     assert result.lock is not None
     assert not result.lock.has_local
@@ -97,7 +101,16 @@ def run_build_job(tmp_path: Path, secrets: dict[str, str]) -> dict[str, str]:
     bin_dir, answers = tmp_path / "bin", tmp_path / "answers"
     for directory in (bin_dir, answers, tmp_path / "home"):
         directory.mkdir()
-    for name, script in {"yq": "#!/bin/sh\n", "uvx": ASKS}.items():
+    yq = """#!/bin/sh
+if [ "$2" = '(.plugins.mirrors // [])[]' ] && [ "$3" = "$DEPLOYMENT/values.yaml" ]; then
+  echo https://git.lab.example/iki.git
+  echo git@git.other.example:releases/iki.git
+fi
+"""
+    uvx = '#!/bin/sh\nprintf "%s\\n" "$@" > "$ANSWERS/build-arguments"\n' + ASKS.removeprefix(
+        "#!/bin/sh\n"
+    )
+    for name, script in {"yq": yq, "uvx": uvx}.items():
         (bin_dir / name).write_text(script)
         (bin_dir / name).chmod(0o755)
     base = {
@@ -149,3 +162,18 @@ def test_without_the_token_git_is_given_no_password(tmp_path: Path) -> None:
     """Public plugins need no token: git gets no empty password to fail with."""
     answers = run_build_job(tmp_path, {})
     assert set(answers.values()) == {"none\n"}
+
+
+def test_build_uses_production_policy_and_configured_mirrors(tmp_path: Path) -> None:
+    run_build_job(tmp_path, {})
+    args = (tmp_path / "answers" / "build-arguments").read_text().splitlines()
+    assert args[args.index("deploy") : args.index("--output")] == [
+        "deploy",
+        "build",
+        "deployments/staging",
+        "--mirror",
+        "https://git.lab.example/iki.git",
+        "--mirror",
+        "git@git.other.example:releases/iki.git",
+    ]
+    assert "--test-only" not in args

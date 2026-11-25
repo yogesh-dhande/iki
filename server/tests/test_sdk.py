@@ -5,7 +5,7 @@ waiting for it, downloading a file, and renewing and ending the sign-in."""
 import hashlib
 import re
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import date, timedelta
 from importlib import import_module
 from io import BytesIO
 from pathlib import Path
@@ -17,10 +17,12 @@ from django.apps import apps as django_apps
 from django.utils import timezone
 from oauth2_provider.models import get_access_token_model, get_refresh_token_model
 from org_world import World, post
-from real_server import Server
+from real_server import Server, free_port, serve
 from test_files import api_as as browser_api
 from test_files import send
 from test_files import start as start_upload
+from test_project_files import add, other, protein, sample, structure
+from test_registrations import CSV, LAB, PLAIN, lab, put
 from test_run_results import done, output, weight
 from test_worker_e2e import eventually, server, world
 from test_workers import worker
@@ -31,10 +33,11 @@ from iki.schema import FileOut
 from iki_server.entities.models import Revision
 from iki_server.files.models import Upload
 from iki_server.files.storage import DEFAULT_PART_SIZE
+from iki_server.org.models import Project
 
 pytestmark = pytest.mark.django_db(transaction=True)
 
-__all__ = ["server", "world"]  # the fixtures, used here
+__all__ = ["lab", "other", "server", "world"]  # the fixtures, used here
 
 PDB = b"ATOM      1  N   MET A   1      27.340  24.430   2.614  1.00  9.67           N\n"
 
@@ -226,6 +229,134 @@ def test_a_notebook_downloads_a_file_without_sending_its_sign_in_elsewhere(
     saved = iki.files.download(added["file"]["id"], tmp_path)
     assert Path(saved) == tmp_path / "abl.pdb"
     assert hashlib.sha256(Path(saved).read_bytes()).hexdigest() == hashlib.sha256(PDB).hexdigest()
+
+
+def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
+    world: World, other: Project, server: Server, sdk: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = signed_in(world, server, sdk, monkeypatch)
+    project = world.project
+    trace = add(project, "Plate-A.pdb", size=95, acquired="2026-03-14")
+    notes = add(project, "Plate-B.txt", "text/plain", size=30, acquired="2026-03-15")
+    add(project, "instrument.json", "application/json", size=19)
+    hidden = add(other, "Plate-Z.pdb", acquired="2026-03-14")
+    holders = [structure(world, trace), structure(world, trace)]
+    specimen = sample(world, "S-1")
+    target = protein(world)
+    runs = [
+        client.runs.start(
+            "acme/protein.flag_samples",
+            project=project.slug,
+            inputs={
+                "protein": str(target.pk),
+                "samples": [str(specimen.pk)],
+                "structures": [str(holder.pk)],
+            },
+        )
+        for holder in holders
+    ]
+    # A revision stops holding the file after both runs have recorded their inputs.
+    replacement = add(project, "replacement.pdb")
+    client.entities.update(
+        holders[0].hrid, {"structure": str(replacement.pk)}, revision=1, reason="New acquisition"
+    )
+
+    browser = browser_api(world)
+    filters: list[dict[str, Any]] = [
+        {"q": "pLaTe"},
+        {"format": ["chemical/*", "text/plain"]},
+        {"format": ["iki/core.pdb"]},
+        {"acquired_from": date(2026, 3, 15)},
+        {"acquired_to": "2026-03-14"},
+        {"sample": specimen.hrid},
+        {"run": runs[0]["hrid"]},
+        {"accepts": "text/*"},
+        {"max_size": 31},
+    ]
+    for query in filters:
+        web = browser.get("/files", project=str(project.pk), sort="name_desc", **query).json()
+        rows = list(client.files.list(project=project.slug, sort="name_desc", page_size=1, **query))
+        assert rows == web["items"], query
+        assert client.files.count(project=project.slug, **query) == {
+            "total": len(rows),
+            "more_than_total": False,
+        }, query
+    assert [row["id"] for row in client.files.list(q="plate", sort="name", page_size=1)] == [
+        str(trace.pk),
+        str(notes.pk),
+    ]
+    assert client.files.count(q="plate")["total"] == 2
+    with pytest.raises(iki.NotFound):
+        list(client.files.list(project=str(other.pk)))
+    with pytest.raises(iki.NotFound):
+        client.files.count(project=str(other.pk))
+    with pytest.raises(iki.NotFound) as denied:
+        client.files.get(str(hidden.pk))
+    assert denied.value.status == 404
+
+    first = client.files.get(str(trace.pk), page_size=1)
+    assert first["used_by"] == {"records": 2, "runs": 2}
+    next_records, next_runs = first["records"]["next_cursor"], first["runs"]["next_cursor"]
+    assert next_records and next_runs
+    second = client.files.get(
+        str(trace.pk), records_cursor=next_records, runs_cursor=next_runs, page_size=1
+    )
+    assert second["records"]["next_cursor"] is None and second["runs"]["next_cursor"] is None
+    records = first["records"]["items"] + second["records"]["items"]
+    assert [(r["hrid"], r["spans"]) for r in records] == [
+        (holders[0].hrid, [{"first": 1, "last": 1, "fields": ["structure"]}]),
+        (holders[1].hrid, [{"first": 1, "last": None, "fields": ["structure"]}]),
+    ]
+    using_runs = first["runs"]["items"] + second["runs"]["items"]
+    assert [(r["hrid"], r["roles"]) for r in using_runs] == [
+        (run["hrid"], ["input"]) for run in reversed(runs)
+    ]
+
+
+def test_a_notebook_registers_only_an_approved_versioned_object(
+    world: World,
+    server: Server,
+    sdk: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    lab: dict[str, Any],
+) -> None:
+    port = str(free_port())
+    env = {
+        **server.env,
+        "IKI_PORT": port,
+        "IKI_PUBLIC_URL": f"http://127.0.0.1:{port}",
+        "IKI_FILES_REGISTER_LOCATIONS": f"s3://{LAB}/runs/,s3://{PLAIN}/",
+    }
+    uri, version = put(lab, "plate.csv", CSV)
+    put(lab, "plate.csv", b"newer bytes\n")
+    unversioned, _ = put(lab, "plate.csv", CSV, bucket=PLAIN)
+    with serve(env) as registering_server:
+        client = signed_in(world, registering_server, sdk, monkeypatch)
+        project = world.project.slug
+        with pytest.raises(iki.Invalid, match="approved"):
+            client.files.register(uri.replace("/runs/", "/elsewhere/"), project=project)
+        with pytest.raises(iki.Invalid, match="doesn't keep versions"):
+            client.files.register(unversioned, project=project)
+        file = client.files.register(
+            uri,
+            project=project,
+            version=version,
+            name="Plate 7.csv",
+            media_type="text/csv",
+            acquired=date(2026, 3, 14),
+            poll=0.1,
+            timeout=30,
+        )
+        assert file["external"] and file["name"] == "Plate 7.csv"
+        assert (file["sha256"], file["size"]) == (hashlib.sha256(CSV).hexdigest(), len(CSV))
+        assert file["acquired"] is not None and file["acquired"]["on"] == "2026-03-14"
+        detail = client.files.get(file["id"])
+        assert detail["origin"] == {
+            "kind": "registration",
+            "uri": uri,
+            "version": version,
+            "run": None,
+        }
 
 
 def test_a_notebook_uploads_a_path_for_an_entity_file_field(

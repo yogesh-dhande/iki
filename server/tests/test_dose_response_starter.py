@@ -254,12 +254,18 @@ def _run_example(world: World, flow: str, bucket: Path) -> None:
         ("daidzein", (24.9383, 19.8092, 14.0238)),
     ):
         sample = UUID(ids[key])
-        _worker(
+        fit_input = _worker(
             world,
             "fit_curve",
             {"read": [read.pk], "sample": [sample]},
             {"endpoint_kind": "IC50"},
             csv,
+        )
+        [tube] = fit_input["inputs"]["sample"]
+        assert (tube["type"], tube["id"], tube["values"]["contents"]) == (
+            "iki/inventory.Tube",
+            str(sample),
+            "unreadable",
         )
         name = "RequestedResearchAssayResult" if flow == "research" else "RequestedQCAssayResult"
         candidates = list(Entity.objects.filter(owner_project=project, type=PREFIX + name))
@@ -440,7 +446,7 @@ def _check_release(
 
 def _worker(
     world: World, name: str, inputs: dict[str, list[UUID]], params: dict[str, Any], csv: Path
-) -> None:
+) -> dict[str, Any]:
     action = catalog.action(PREFIX + name)
     assert action is not None
     run = runs.launch(world.users["editor"], action, world.project, inputs, params)
@@ -456,3 +462,4 @@ def _worker(
         output = assays.reader_output(doc, commit=name == "commit_reader")
     with transaction.atomic():
         results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
+    return doc

@@ -29,7 +29,7 @@ import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
-import { media } from "../media";
+import { useMedia } from "../media";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
@@ -610,7 +610,10 @@ function ReusedNote({ run }: { run: Run }) {
   const navigate = useNavigate();
   const again = useApiMutation(async () => {
     const inputs: Record<string, string[]> = {};
-    for (const input of run.inputs) (inputs[input.name] ??= []).push(input.entity);
+    for (const input of run.inputs) {
+      if (!input.entity) throw new Error("Every input must be readable to run this action again.");
+      (inputs[input.name] ??= []).push(input.entity);
+    }
     return unwrap(
       await iki.POST("/api/v1/actions/{name}/runs", {
         params: { path: { name: run.action } },
@@ -953,7 +956,7 @@ function ImportedRows({ imported }: { imported: NonNullable<Run["imported"]> }) 
 }
 
 function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
-  if (trigger.entity === null) {
+  if (trigger.event === "schedule") {
     return (
       <>
         <dt>Trigger</dt>
@@ -979,12 +982,18 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
       <dt>Trigger</dt>
       <dd>
         {trigger.label}, when{" "}
-        <Link to="/entities/$ref/" params={{ ref: fired?.hrid ?? trigger.entity }}>
-          {fired?.hrid ?? "its entity"}
-        </Link>{" "}
+        {trigger.entity ? (
+          <Link to="/entities/$ref/" params={{ ref: fired?.hrid ?? trigger.entity }}>
+            {fired?.hrid ?? "its entity"}
+          </Link>
+        ) : (
+          "an entity you can’t read"
+        )}{" "}
         {trigger.event === "entity.created" ? "was created" : "changed"}{" "}
-        <span className="muted">(revision {trigger.revision})</span>. It runs as{" "}
-        {run.requested_by.name}
+        {trigger.revision !== null ? (
+          <span className="muted">(revision {trigger.revision})</span>
+        ) : null}
+        . It runs as {run.requested_by.name}
         {trigger.editor ? ", whose edit prompted the recheck." : ", who turned the trigger on."}
       </dd>
     </>
@@ -1051,6 +1060,7 @@ function ParamValue({
   items?: string | null | undefined;
   value: unknown;
 }) {
+  const media = useMedia(type === "file");
   if (type === "list" && items === "file" && Array.isArray(value)) {
     return (
       <ul className="param-files">
@@ -1651,14 +1661,20 @@ export function RunPage() {
           <p className="muted">It took no inputs.</p>
         ) : null}
         <dl className="summary">
-          {run.inputs.map((input) => (
-            <div key={`${input.name}-${input.entity}`} className="value-row">
+          {run.inputs.map((input, index) => (
+            <div key={`${input.name}-${String(index)}`} className="value-row">
               <dt>{inputLabels.get(input.name) ?? input.name}</dt>
               <dd>
-                <Link to="/entities/$ref/" params={{ ref: input.hrid }}>
-                  {input.hrid}
-                </Link>{" "}
-                <span className="muted">as of revision {input.revision}</span>
+                {input.hrid ? (
+                  <>
+                    <Link to="/entities/$ref/" params={{ ref: input.hrid }}>
+                      {input.hrid}
+                    </Link>{" "}
+                    <span className="muted">as of revision {input.revision}</span>
+                  </>
+                ) : (
+                  "An entity you can’t read"
+                )}
               </dd>
             </div>
           ))}
@@ -1669,25 +1685,37 @@ export function RunPage() {
             >
               <dt>{referenceLabel(read.field)}</dt>
               <dd>
-                <Link to="/entities/$ref/" params={{ ref: read.hrid }}>
-                  {read.hrid}
-                </Link>{" "}
-                <span className="muted">
-                  as of revision {read.revision}, which{" "}
-                  {run.inputs.filter((i) => i.name === read.input)[read.position]?.hrid ??
-                    "an input"}{" "}
-                  names
-                </span>
+                {read.hrid ? (
+                  <>
+                    <Link to="/entities/$ref/" params={{ ref: read.hrid }}>
+                      {read.hrid}
+                    </Link>{" "}
+                    <span className="muted">
+                      as of revision {read.revision}, which{" "}
+                      {run.inputs.filter((i) => i.name === read.input)[read.position]?.hrid ??
+                        "an input"}{" "}
+                      names
+                    </span>
+                  </>
+                ) : (
+                  "An entity you can’t read"
+                )}
               </dd>
             </div>
           ))}
           {(run.imported?.inputs_elsewhere ?? []).map((input) => (
-            <div key={`${input.name}-${input.entity}`} className="value-row">
+            <div key={`${input.name}-${String(input.position)}`} className="value-row">
               <dt>{inputLabels.get(input.name) ?? input.name}</dt>
               <dd>
                 <span className="muted">
-                  An entity on {run.imported?.deployment} that didn’t come with it (
-                  <code>{input.entity}</code>, revision {input.revision})
+                  {input.entity ? (
+                    <>
+                      An entity on {run.imported?.deployment} that didn’t come with it (
+                      <code>{input.entity}</code>, revision {input.revision})
+                    </>
+                  ) : (
+                    "An entity you can’t read"
+                  )}
                 </span>
               </dd>
             </div>
@@ -1700,8 +1728,14 @@ export function RunPage() {
               <dt>{referenceLabel(read.field)}</dt>
               <dd>
                 <span className="muted">
-                  An entity on {run.imported?.deployment} that didn’t come with it (
-                  <code>{read.entity}</code>, revision {read.revision})
+                  {read.entity ? (
+                    <>
+                      An entity on {run.imported?.deployment} that didn’t come with it (
+                      <code>{read.entity}</code>, revision {read.revision})
+                    </>
+                  ) : (
+                    "An entity you can’t read"
+                  )}
                 </span>
               </dd>
             </div>

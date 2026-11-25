@@ -7,14 +7,23 @@ import {
   type AlignmentPosition,
   type AlignmentViewerElement,
 } from "@ikisci/science/alignment-viewer";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { createElement, useEffect, useMemo, useRef, useState } from "react";
 import { idsOf, shownRows } from "../alignment";
+import { problemOf } from "../api";
+import { formatsQuery } from "../media";
 import { formatSize, type EntityType } from "../entities";
-import { declaredAlphabet, MAX_READ_BYTES, readInWorker, type Reading } from "../reading";
+import {
+  declaredAlphabet,
+  MAX_READ_BYTES,
+  readInWorker,
+  type Alphabet,
+  type Reading,
+} from "../reading";
 import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
-import { buttonClass, Loading } from "../ui";
+import { buttonClass, Loading, ProblemAlert } from "../ui";
 import type { Capture, Position } from "../views";
 import type { Source } from "./entity-viewer";
 
@@ -36,6 +45,7 @@ export function AlignmentViewer({
   position?: Position | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
+  const formats = useQuery(formatsQuery);
   const value = source.values[viewer.alignment];
   const fileId = typeof value === "string" ? value : null;
   const file = fileId ? source.files[fileId] : undefined;
@@ -45,6 +55,9 @@ export function AlignmentViewer({
   }
   if (!file)
     return <p className="muted">Its {field?.label.toLowerCase()} is a file you can’t read.</p>;
+  if (formats.error) return <ProblemAlert problem={problemOf(formats.error)} />;
+  if (!formats.data) return <Loading label="Loading file formats…" />;
+  const format = formats.data.get(file.media_type);
   return (
     <section className="alignment" aria-labelledby="alignment-file">
       <p id="alignment-file" className="structure-file">
@@ -53,7 +66,9 @@ export function AlignmentViewer({
           Download {file.name}
         </a>
       </p>
-      {file.size > MAX_READ_BYTES ? (
+      {format && format.viewer !== "alignment" ? (
+        <p>The alignment viewer doesn’t read {format.label} files.</p>
+      ) : file.size > MAX_READ_BYTES ? (
         <p>
           It’s bigger than the alignment viewer opens ({formatSize(MAX_READ_BYTES)}). Download it to
           open it in a desktop viewer, such as Jalview.
@@ -63,7 +78,7 @@ export function AlignmentViewer({
           key={fileId}
           fileId={fileId}
           name={file.name}
-          mediaType={file.media_type}
+          alphabet={declaredAlphabet(format?.id)}
           source={source}
           viewer={viewer}
           position={position}
@@ -80,7 +95,7 @@ type State =
 function AlignmentFile({
   fileId,
   name,
-  mediaType,
+  alphabet,
   source,
   viewer,
   position,
@@ -89,7 +104,7 @@ function AlignmentFile({
   fileId: string;
   name: string;
   /** What the file says it holds, which its letters are read as. */
-  mediaType: string;
+  alphabet: Alphabet | null;
   source: Source;
   viewer: Viewer;
   position?: Position | undefined;
@@ -99,7 +114,7 @@ function AlignmentFile({
   useEffect(() => {
     const abort = new AbortController();
     readStoredFile(fileId, abort.signal)
-      .then((bytes) => readInWorker(bytes, declaredAlphabet(mediaType)))
+      .then((bytes) => readInWorker(bytes, alphabet))
       .then(
         (reading) => {
           if (!abort.signal.aborted) setState({ phase: "read", reading });
@@ -115,7 +130,7 @@ function AlignmentFile({
     return () => {
       abort.abort();
     };
-  }, [fileId, name, mediaType]);
+  }, [fileId, name, alphabet]);
 
   if (state.phase === "reading") return <Loading label={`Reading ${name}…`} />;
   if (state.phase === "failed") {

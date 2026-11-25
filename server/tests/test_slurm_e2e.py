@@ -62,7 +62,9 @@ run = json.loads(Path(os.environ["IKI_INPUT"]).read_text())
 print(f"Folding {protein['hrid']} under Python {sys.version.split()[0]}", flush=True)
 print("host env:", "SLURM_JOB_ID" in os.environ, os.environ.get("HOME"), flush=True)
 print("secret:", os.environ.get("LAB_TOKEN"), flush=True)
-print("lease:", run["job"]["lease_token"], flush=True)
+job_dir = Path(os.environ["IKI_INPUT"]).parent
+public_job = set(run["job"]) == {"id", "timeout", "resources"}
+print("worker-only inputs absent:", public_job and not (job_dir / "slurm.json").exists())
 print("secrets file left:", (Path(os.environ["IKI_INPUT"]).parent / "secrets.json").exists())
 time.sleep(float(os.environ.get("FOLD_SECONDS", "0")))
 print("secret again:", os.environ.get("LAB_TOKEN"), flush=True)
@@ -523,7 +525,7 @@ def test_a_run_goes_through_slurm_in_its_image_and_its_results_come_back(
     assert SECRET not in log
     # The attempt's own credentials too.
     job = Job.objects.get(run_id=run["id"])
-    assert "lease: ***" in log
+    assert "worker-only inputs absent: True" in log
     assert str(job.lease_token) not in log
     # Its result file went up from the login node.
     body = api_as(world).get(f"/runs/{run['id']}").json()
@@ -677,7 +679,14 @@ def test_a_login_node_restarting_keeps_its_jobs_secrets_hidden_and_its_log_whole
     log = log_of(run)
     assert SECRET not in log and str(job.lease_token) not in log
     # Once each: the log carries on where it was, rather than starting again.
-    printed = ("Folding", "secret: ***", "lease: ***", "secret again: ***", "Done.", "started on")
+    printed = (
+        "Folding",
+        "secret: ***",
+        "worker-only inputs absent: True",
+        "secret again: ***",
+        "Done.",
+        "started on",
+    )
     for line in printed:
         assert log.count(line) == 1, (line, log)
 

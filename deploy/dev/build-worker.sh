@@ -11,7 +11,7 @@ docker build -f worker/Dockerfile -t iki-worker-base:dev .
 kind load docker-image iki-worker-base:dev --name iki >/dev/null
 deploy/dev/build-wasm.sh
 rm -rf build/dev/worker build/dev/worker-server
-uv run --frozen iki deploy build deploy/dev --output build/dev/worker-server/plugins \
-  --workers build/dev/worker --allow-local
+deploy/dev/build-plugins.sh worker --output build/dev/worker-server/plugins \
+  --workers build/dev/worker
 docker build -f deploy/worker.Dockerfile --build-arg IKI_WORKER_IMAGE=iki-worker-base:dev \
   -t "$ref" build/dev/worker

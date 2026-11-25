@@ -61,6 +61,7 @@ from django.db import DatabaseError, connection, migrations, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.migration import Migration
+from django.db.migrations.operations.base import Operation
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.state import ProjectState
 from django.db.models import Q
@@ -74,9 +75,15 @@ from iki_server.entities import holds as rule_holds
 from iki_server.entities.models import Entity, ProjectLink, Tombstone, UniqueValue
 from iki_server.graph import edges
 from iki_server.org import holds
-from iki_server.plugins import baseline, preflight, sync
+from iki_server.plugins import baseline, integrity, preflight, sync
 from iki_server.plugins.models import PluginMigration, PluginPurge, PluginState
-from iki_server.plugins.operations import AppendOnly, ConvertUnit, RenameEntityType
+from iki_server.plugins.operations import (
+    AppendOnly,
+    ConvertUnit,
+    MigrateValues,
+    RecordRename,
+    RenameEntityType,
+)
 from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import naming, releases
 
@@ -96,6 +103,7 @@ LOSSLESS = (
     migrations.AlterModelManagers,
     migrations.AlterModelTableComment,
     ConvertUnit,
+    RecordRename,
     RenameEntityType,
     AppendOnly,
 )
@@ -212,16 +220,26 @@ def migrate_deployment(
             if purging:
                 report.purged = _purge(purging, archive, applied)
             to_reverse = [k for k in unknown if k[0] in installed]
+            migrated: list[Operation] = []
             if to_reverse:
                 # A view stops a column it reads from being dropped. migrate drops them
                 # before it runs (its pre_migrate signal), but a rollback runs first; the
                 # sync makes them again, in this transaction.
                 with connection.cursor() as cursor:
                     sync.drop_views(cursor)
-                report.reversed = _roll_back(to_reverse, archive, applied)
+                report.reversed = _roll_back(to_reverse, archive, applied, migrated)
             forwards = MigrationExecutor(connection)
-            _unguard(forwards, forwards.migration_plan(forwards.loader.graph.leaf_nodes()))
+            plan = forwards.migration_plan(forwards.loader.graph.leaf_nodes())
+            for migration, _ in plan:
+                if problems := _rename_problems(migration):
+                    raise DeployError("\n".join(problems))
+            _unguard(forwards, plan)
             call_command(_Migrate(), interactive=False, verbosity=1, stdout=stdout)
+            migrated.extend(op for migration, _ in plan for op in migration.operations)
+            if problems := list(integrity.differences(migrated)):
+                raise DeployError(
+                    "Migrated records disagree with their history.\n" + "\n".join(problems)
+                )
             report.archived = _keep_copies(installed)
             report.synced = sync.sync(analyst_role)
             if app_role:
@@ -247,6 +265,8 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
             )
         revision, current = saved
         proposed = registry.plugins()
+        if shadowed := list(integrity.shadowed_history(current, proposed)):
+            raise DeployError("\n".join(shadowed))
         refusals = []
         for plugin in proposed.values():
             report = preflight.compare(current, proposed, revision, plugin)
@@ -322,6 +342,16 @@ def _settle(action: str, migration: Migration | None = None, fake: bool | None =
     """After each migration in the deploy's transaction, checks the deferred constraints its
     writes queued, as its own commit did: Postgres won't alter a table with checks pending,
     and a later migration may alter one an earlier one wrote to."""
+    if migration is not None and action in ("apply_start", "unapply_start") and not fake:
+        for op in _database_operations(migration.operations):
+            if (
+                isinstance(op, MigrateValues)
+                and op.migration != migration.name
+                and (migration.app_label, op.migration) not in migration.replaces
+            ):
+                raise DeployError(f"{migration} declares a backfill for {op.migration}.")
+        # Django copies this class attribute into a fresh list in Migration.__init__.
+        migration.operations = integrity.guard_raw_operations(migration.operations)  # type: ignore[misc]
     if action in ("apply_success", "unapply_success"):
         connection.check_constraints()
 
@@ -466,7 +496,10 @@ class _WithCopies(MigrationLoader):
 
 
 def _roll_back(
-    to_reverse: list[Key], archive: dict[str, dict[Key, PluginMigration]], applied: set[Key]
+    to_reverse: list[Key],
+    archive: dict[str, dict[Key, PluginMigration]],
+    applied: set[Key],
+    migrated: list[Operation],
 ) -> list[Key]:
     missing = [k for k in to_reverse if k not in archive.get(k[0], {})]
     if missing:
@@ -528,6 +561,7 @@ def _roll_back(
     executor.migrate(targets, plan=plan)
     for marker in sorted(retained):
         executor.recorder.record_unapplied(*marker)
+    migrated.extend(op for migration, _ in plan for op in migration.operations)
     return reversing
 
 
@@ -540,6 +574,38 @@ def _last_applied(loader: MigrationLoader, app: str, applied: set[Key]) -> Key |
     return None
 
 
+def _database_operations(operations: Iterable[Operation]) -> Iterable[Operation]:
+    for operation in operations:
+        if isinstance(operation, migrations.SeparateDatabaseAndState):
+            yield from _database_operations(operation.database_operations)
+        else:
+            yield operation
+
+
+def _rename_problems(migration: Migration) -> list[str]:
+    """Each signed rename must describe the columns this migration actually renames."""
+    operations = list(_database_operations(migration.operations))
+    renames = {
+        (op.model_name_lower, op.old_name, op.new_name)
+        for op in operations
+        if isinstance(op, migrations.RenameField)
+    }
+    problems = []
+    for op in operations:
+        if isinstance(op, RecordRename):
+            history = op.model_name.lower()
+            live = history.removesuffix("_history")
+            if live == history or any(
+                (model, op.old_name, op.new_name) not in renames for model in (live, history)
+            ):
+                problems.append(
+                    f"{_plugin(migration.app_label)} {migration.name}: "
+                    f"{op.describe()} needs matching RenameField operations "
+                    "on the live and history models."
+                )
+    return problems
+
+
 def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) -> list[str]:
     """What reversing ``plan`` would destroy, if anything."""
     blockers = []
@@ -547,6 +613,7 @@ def _data_loss(executor: MigrationExecutor, plan: list[tuple[Migration, bool]]) 
         for migration, _ in plan:
             key = (migration.app_label, migration.name)
             state = executor.loader.project_state(key, at_end=False)
+            blockers.extend(_rename_problems(migration))
             for operation in migration.operations:
                 before = state.clone()
                 operation.state_forwards(migration.app_label, state)
@@ -574,7 +641,12 @@ def _lost_by_reversing(
         model = after.apps.get_model(app, operation.model_name)
         column = model._meta.get_field(operation.name)
         table = model._meta.db_table
-        default = None if getattr(model, "IKI_HISTORY_OF", None) else column.get_default()
+        if not operation.preserve_default:
+            default = operation.field.default
+        elif column.has_db_default():
+            default = column.db_default
+        else:
+            default = column.get_default()
         value = column.get_db_prep_save(default, connection) if default is not None else None
         if value is None:
             found = _exists(
@@ -622,7 +694,7 @@ def _lost_by_reversing(
         return None
     if isinstance(operation, LOSSLESS):
         return None
-    if isinstance(operation, migrations.RunPython | migrations.RunSQL):
+    if isinstance(operation, migrations.RunPython | migrations.RunSQL | MigrateValues):
         # Written by the plugin's author, with a reverse they wrote and reviewed.
         return None
     return f"Iki doesn't know whether reversing {operation.describe()} keeps data."

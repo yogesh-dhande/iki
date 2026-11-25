@@ -638,6 +638,8 @@ pub struct Dirs {
     pub checkpoint: PathBuf,
     /// Where a checkpoint is packed to upload, or downloaded to unpack.
     packed_checkpoint: PathBuf,
+    /// The worker’s control directory. Slurm keeps it outside the command mount.
+    pub(crate) control: PathBuf,
     /// For an action that calls outside APIs: the system's roots and the attempt's CA,
     /// and the CA alone (ADR 0130).
     ca_bundle: PathBuf,
@@ -646,7 +648,14 @@ pub struct Dirs {
 
 impl Dirs {
     pub fn new(work_dir: &Path, job_id: &str) -> Self {
-        let root = work_dir.join("jobs").join(job_id);
+        Self::at(work_dir.join("jobs").join(job_id))
+    }
+
+    pub(crate) fn at(root: PathBuf) -> Self {
+        Self::with_control(root.clone(), root)
+    }
+
+    pub(crate) fn with_control(root: PathBuf, control: PathBuf) -> Self {
         Self {
             input: root.join("input.json"),
             output: root.join("output.json"),
@@ -655,7 +664,8 @@ impl Dirs {
             home: root.join("home"),
             inputs: root.join("inputs"),
             checkpoint: root.join("checkpoint"),
-            packed_checkpoint: root.join("checkpoint.tar"),
+            packed_checkpoint: control.join("checkpoint.tar"),
+            control,
             ca_bundle: root.join("ca-bundle.pem"),
             api_ca: root.join("api-ca.pem"),
             root,
@@ -811,15 +821,20 @@ fn write_trust(input: &RunInput, dirs: &Dirs) -> Result<(), String> {
 }
 
 /// What's hidden in what a command prints: the secrets its action declares (ADR 0054),
-/// and the attempt's own credentials, its lease token, which is the egress proxy's
-/// password too (ADR 0053).
+/// the attempt's lease token and its separate egress proxy password (ADR 0053).
 pub(crate) fn hidden(job: &RunInputJob) -> Vec<String> {
+    let mut values = command_secrets(job);
+    values.push(job.lease_token.clone());
+    values
+}
+
+/// Values made available to the command that its output must mask.
+pub(crate) fn command_secrets(job: &RunInputJob) -> Vec<String> {
     let mut values: Vec<String> = job
         .secrets
         .iter()
         .flat_map(|secrets| secrets.values().cloned())
         .collect();
-    values.push(job.lease_token.clone());
     if let Some(password) = job.proxy.as_deref().and_then(proxy_password) {
         values.push(password.to_owned());
     }
@@ -983,17 +998,22 @@ pub enum Report {
 }
 
 fn read_output(path: &Path) -> Result<serde_json::Map<String, serde_json::Value>, String> {
-    let size = match std::fs::metadata(path) {
-        Ok(meta) => meta.len(),
-        Err(_) => return Err("The command exited without writing output.json.".to_owned()),
+    let Ok(file) = files::open_regular(path) else {
+        return Err("The command exited without writing a regular output.json.".to_owned());
     };
+    let size = file.metadata().map_err(|e| e.to_string())?.len();
     if size > MAX_OUTPUT {
         return Err(format!(
             "output.json is {size} bytes, over the limit of {MAX_OUTPUT}. Put large results in files."
         ));
     }
-    let text =
-        std::fs::read(path).map_err(|error| format!("Couldn't read output.json: {error}."))?;
+    let mut text = Vec::new();
+    file.take(MAX_OUTPUT + 1)
+        .read_to_end(&mut text)
+        .map_err(|error| format!("Couldn't read output.json: {error}."))?;
+    if text.len() as u64 > MAX_OUTPUT {
+        return Err("output.json grew beyond the size limit while being read.".into());
+    }
     match serde_json::from_slice::<serde_json::Value>(&text) {
         Ok(serde_json::Value::Object(map)) => Ok(map),
         Ok(_) => Err("output.json must hold a JSON object (run-output/v1).".to_owned()),
@@ -1128,13 +1148,12 @@ fn stage_input(
     raw: &serde_json::Value,
 ) -> Result<(), files::Failed> {
     let mut written = raw.clone();
-    // The command gets its secrets in its environment, never in a file it might copy.
-    if let Some(job) = written
-        .get_mut("job")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        job.remove("secrets");
-    }
+    // Build the public metadata from typed fields. Newly added lease fields stay private.
+    written["job"] = serde_json::json!({
+        "id": input.job.id,
+        "timeout": input.job.timeout,
+        "resources": input.job.resources,
+    });
     if let Some(wanted) = input.files.as_ref().filter(|f| !f.is_empty()) {
         let staged = host.stage(wanted, &dirs.inputs)?;
         say::info(
@@ -1877,18 +1896,16 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let token = "4f1c2e0a-7d3b-4c55-9e61-2a8b0c9d1e7f";
         let script = r#"echo "proxy: $HTTPS_PROXY"; echo "key: $LAB_TOKEN"
-            grep -o '"lease_token": "[^"]*"' "$IKI_INPUT"
+            test -s "$IKI_INPUT" || exit 1
             echo "::error via $HTTPS_PROXY"; exit 2"#;
         let mut raw = serde_json::to_value(input(&["sh", "-c", script])).unwrap();
         raw["job"]["lease_token"] = token.into();
-        raw["job"]["proxy"] = format!("http://j:{token}@iki-egress-proxy:3128").into();
+        let proxy_password = "test-egress-password";
+        raw["job"]["proxy"] = format!("http://j:{proxy_password}@iki-egress-proxy:3128").into();
         raw["job"]["secrets"] = serde_json::json!({"LAB_TOKEN": "s3cr3t-lab-token"});
         let input: RunInput = serde_json::from_value(raw.clone()).unwrap();
-        assert_eq!(
-            hidden(&input.job).iter().filter(|v| *v == token).count(),
-            2,
-            "the lease token, and the proxy's password"
-        );
+        assert!(hidden(&input.job).contains(&token.to_owned()));
+        assert!(hidden(&input.job).contains(&proxy_password.to_owned()));
         let plan = Plan {
             input: &input,
             plugin_dir: &dir,
@@ -1918,7 +1935,20 @@ mod tests {
             message,
             "via http://j:***@iki-egress-proxy:3128 (exit status 2)"
         );
-        assert!(lines.contains(r#""lease_token": "***""#), "{lines}");
+        let staged: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&dirs.input).unwrap()).unwrap();
+        assert_eq!(
+            staged["job"],
+            serde_json::json!({
+                "id": input.job.id, "timeout": input.job.timeout, "resources": input.job.resources,
+            })
+        );
+        assert_eq!(staged["run"], raw["run"]);
+        assert!(
+            environment(&dirs, &input, None)
+                .iter()
+                .all(|(_, v)| !v.contains(token))
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

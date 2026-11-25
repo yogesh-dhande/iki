@@ -21,15 +21,15 @@ make the edit, and the first save could succeed even if the edit failed.
 
 ## Decision
 
-A locking state may name the state to return to when a person corrects a
-value. For example, the result's review field declares the following state.
+An unsigned locking state may name the state to return to when a person corrects a
+value. When entry was signed, an authorized signer first reopens the record and records why.
+The editor then records a reason on the value revision. [ADR 0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md#amendment-to-state-locks-and-signatures). For example, the result's review field declares the following state.
 
 ```yaml
 reviewed:
   label: Reviewed
   set_by: [reviewer]
   locks: true
-  signatures: [{ meaning: review }]
   on_edit: draft
 ```
 

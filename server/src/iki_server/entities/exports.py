@@ -128,7 +128,7 @@ def export(user: User, entity: Entity, file_format: str, revision: int | None) -
         raise Unexportable(f"{entity.hrid} has no revision {number}.", "not_found")
     if isinstance(export_, ReportExport):
         try:
-            snapshot = signed_reports.snapshot(entity, number, export_)
+            snapshot = signed_reports.snapshot(user, entity, number, export_)
         except signed_reports.Unissued as error:
             raise Unexportable(str(error), "report_not_issued") from error
         issued = snapshot["record"]["issued_revision"]

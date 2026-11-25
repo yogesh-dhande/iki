@@ -501,7 +501,7 @@ function AddPerson({ project, roles }: { project: Project; roles: Role[] }) {
     );
     return person;
   }, [["projects"], ["me"]]);
-  const form = useForm(add.error);
+  const form = useForm(add.error, add.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -564,7 +564,7 @@ function AddTeam({ project, roles }: { project: Project; roles: Role[] }) {
       ),
     [["projects"], ["me"]],
   );
-  const form = useForm(add.error);
+  const form = useForm(add.error, add.isPending);
 
   if (teams.length === 0) return null;
 

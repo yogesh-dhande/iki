@@ -8,7 +8,9 @@
  */
 
 import { useRouterState } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
+
+import { useSteady } from "./steady";
 
 interface Props {
   /** The navigation's name: "Project", "Record". */
@@ -38,27 +40,9 @@ function acrossToShow(strip: DOMRect, tab: HTMLElement): number {
 export function TabStrip({ label, className, settled, sure, widths, children }: Props) {
   const nav = useRef<HTMLElement>(null);
   const path = useRouterState({ select: (state) => state.location.pathname });
-  // While a press is on it, it's drawn as it was when the press began: what changes
-  // meanwhile (a count, refetched) is drawn once it's let go, so the press ends on the tab
-  // it began on.
-  // Let go in the task after the press ends, so its click lands on the tabs as they were.
-  const [held, hold] = useState<{ tabs: ReactNode } | null>(null);
-  useEffect(() => {
-    if (!held) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const release = () => {
-      timer = setTimeout(() => {
-        hold(null);
-      });
-    };
-    window.addEventListener("pointerup", release, true);
-    window.addEventListener("pointercancel", release, true);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("pointerup", release, true);
-      window.removeEventListener("pointercancel", release, true);
-    };
-  }, [held]);
+  // While a press is on, they're drawn as they were when it began: what changes meanwhile
+  // (a count, refetched) is drawn once it's let go, so the press ends on the tab it began on.
+  const tabs = useSteady(children);
   // On a phone the tabs scroll across: the one you're on is in view from when they're
   // drawn, and again when a width changes. Before they're painted, so they don't move once
   // they can be pressed. Only the strip scrolls, never the page: the reads it waits on can
@@ -82,16 +66,8 @@ export function TabStrip({ label, className, settled, sure, widths, children }: 
           ))}
         </div>
       )}
-      <nav
-        ref={nav}
-        className={`tabs ${className}`}
-        aria-label={label}
-        hidden={!settled}
-        onPointerDown={() => {
-          hold((now) => now ?? { tabs: children });
-        }}
-      >
-        {held ? held.tabs : children}
+      <nav ref={nav} className={`tabs ${className}`} aria-label={label} hidden={!settled}>
+        {tabs}
       </nav>
     </>
   );

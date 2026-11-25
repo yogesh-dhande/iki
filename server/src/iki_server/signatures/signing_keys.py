@@ -115,12 +115,12 @@ def own() -> list[dict[str, str | None]]:
     ]
 
 
-def trust(public: str, deployment: str, bundle_import: BundleImport | None = None) -> None:
-    """Trusts another deployment's key for the signatures a bundle from it brought."""
+def trust(public: str, deployment: str, bundle_import: BundleImport | None = None) -> bool:
+    """Bind a new key, or check the binding another import already established."""
     keys.public_key(public)  # raises ValueError unless it's a key
     if SigningKey.objects.filter(public=public).exists():
-        return
-    ForeignSigningKey.objects.get_or_create(
+        return trusted().get(public) == deployment
+    foreign, _ = ForeignSigningKey.objects.get_or_create(
         public=public,
         defaults={
             "deployment": deployment,
@@ -128,3 +128,4 @@ def trust(public: str, deployment: str, bundle_import: BundleImport | None = Non
             "bundle_import": bundle_import,
         },
     )
+    return _unseal(foreign.sealed) == (public, deployment)

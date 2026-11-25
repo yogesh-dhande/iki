@@ -12,6 +12,7 @@ from org_world import World
 from test_api_entities import api_as, create, patch
 from test_bundle_imports import PUBLIC, applied, bundle_of, upload
 from test_registries import registrar
+from test_requests import build_lab, request_with_private_sample, schedule
 from test_run_projects import elsewhere
 from test_run_results import RELAX, _stored, done, output, world
 from test_run_reuse import pod as built_pod
@@ -20,8 +21,8 @@ from test_workers import keep_connection, worker
 
 from iki_server.bundles import reading
 from iki_server.entities.models import Entity, ProjectLink
-from iki_server.org.models import OrgRole, OrgRoleAssignment
-from iki_server.runs import services
+from iki_server.org.models import OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole
+from iki_server.runs import included, services
 from iki_server.runs.models import ActionRun, RunInclusion
 from iki_spec import schemas
 
@@ -124,6 +125,26 @@ def test_command_receives_both_revision_pins_after_a_registry_move(
     assert (row["entry_id"], row["entry_revision"]) == (original["entry"]["id"], 2)
     assert row["hrid"] == original["hrid"]
     assert row["values"]["synonyms"] == ["reference"]
+
+
+def test_run_history_preserves_each_inclusion_slot_for_its_reader(world: World) -> None:
+    editor = api_as(world, "editor")
+    ours = protein(editor, world.project, "src")
+    other = protein(editor, elsewhere(world), "abl1")
+    ProjectLink.objects.create(project=world.project, entity_id=other["id"])
+    run = relax(world, structure(world, other, ours)).json()
+    ProjectLink.objects.filter(project=world.project, entity_id=other["id"]).delete()
+    path = f"/runs/{run['hrid']}"
+    assert editor.get(path).json()["included"] == run["included"]
+    response = api_as(world, "viewer").get(path)
+    assert response.status_code == 200, response.content
+    hidden, visible = response.json()["included"]
+    assert hidden == {**run["included"][0], "entity": None, "hrid": None, "revision": None}
+    assert visible == run["included"][1]
+    assert (
+        other["id"].encode() not in response.content
+        and other["hrid"].encode() not in response.content
+    )
 
 
 def test_an_input_that_includes_nothing_has_no_included(world: World) -> None:
@@ -231,16 +252,115 @@ def test_reproducing_reads_what_the_run_read(world: World, monkeypatch: pytest.M
     assert editor.post(f"/runs/{first['hrid']}/reproduce", {"reason": "x"}).status_code == 403
 
 
+@pytest.mark.parametrize("withdrawn", ["direct", "included"])
+def test_a_lease_requires_the_pinned_records_in_the_run_project(
+    world: World, withdrawn: str
+) -> None:
+    editor = api_as(world, "editor")
+    chain = protein(editor, world.project)
+    pst = structure(world, chain)
+    run = relax(world, pst).json()
+    record = pst if withdrawn == "direct" else chain
+    ProjectLink.objects.filter(entity_id=record["id"], project=world.project).delete()
+
+    assert worker(world).lease().status_code == 204
+    ended = ActionRun.objects.get(pk=run["id"])
+    assert ended.status == "rejected" and ended.error == {
+        "code": "not_allowed",
+        "message": "The run needs every pinned input, reference and file in its project.",
+    }
+
+
+def test_a_service_commands_reference_values_match_its_project(world: World) -> None:
+    lab = build_lab(world)
+    request, shared, private = request_with_private_sample(lab)
+    run = schedule(lab, "tech", lab.core, request["id"])
+    assert run.status_code == 201, run.content
+    leased = worker(world).lease()
+    assert leased.status_code == 200, leased.content
+    values = leased.json()["inputs"]["request"][0]["values"]
+    assert values["private_sample"] == "unreadable"
+    assert values["comparison_samples"] == [shared["id"], "unreadable"]
+    assert values["sample_notes"] == [{"sample": "unreadable", "note": "Comparison"}]
+    assert private["id"] not in leased.content.decode()
+    assert private["hrid"] not in leased.content.decode()
+
+
+def test_pinned_reference_values_need_project_access_at_reuse_and_reproduction(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(services, "plugin_sha", lambda plugin: SHA)
+    editor = api_as(world, "editor")
+    sample = create(
+        editor, elsewhere(world), {"label": "Calibration"}, "acme/protein.Sample"
+    ).json()
+    linked = editor.put(f"/entities/{sample['id']}/projects/{world.project.pk}", {})
+    assert linked.status_code == 201, linked.content
+    chain = protein(editor, world.project)
+    edited = patch(editor, chain["id"], {"values": {"source": sample["id"]}}, '"1"')
+    assert edited.status_code == 200, edited.content
+    pst = structure(world, chain)
+    run = relax(world, pst).json()
+    pod = built_pod(world)
+    job = pod.lease().json()
+    (given,) = job["inputs"]["structure"]
+    assert given["included"]["chains"][0]["values"]["source"] == sample["id"]
+    made = {"type": "acme/protein.ProteinStructure", "values": given["values"]}
+    assert done(pod, job, output(creates=[made]))["run_status"] == "succeeded"
+    assert relax(world, pst).json()["reused"]
+
+    pending = relax(world, pst, reuse=False).json()
+    unlinked = editor.delete(f"/entities/{sample['id']}/projects/{world.project.pk}")
+    assert unlinked.status_code == 204, unlinked.content
+    refused = problem(editor.post(f"/runs/{run['id']}/reproduce", {}), 409, "refused")
+    assert (
+        refused["detail"] == "The run needs every pinned input, reference and file in its project."
+    )
+    assert pod.lease().status_code == 204
+    assert ActionRun.objects.get(pk=pending["id"]).status == "rejected"
+
+    # The same revisions have a different reuse key when this command sees a marker.
+    masked = relax(world, pst).json()
+    assert masked["reused"] is False
+    assert ActionRun.objects.get(pk=masked["id"]).reference_mask == [
+        "/structure/0/included/chains/0/values/source"
+    ]
+    job = pod.lease().json()
+    assert (
+        job["inputs"]["structure"][0]["included"]["chains"][0]["values"]["source"] == "unreadable"
+    )
+    assert done(pod, job, output(creates=[made]))["run_status"] == "succeeded"
+    assert relax(world, pst).json()["reused_from"]["id"] == masked["id"]
+
+    # A new grant lets a fresh run see the ID, and preserves the masked run's exact input.
+    assert (
+        editor.put(f"/entities/{sample['id']}/projects/{world.project.pk}", {}).status_code == 201
+    )
+    assert relax(world, pst).json()["reused_from"]["id"] == run["id"]
+    assert editor.post(f"/runs/{masked['id']}/reproduce", {}).status_code == 201
+    job = pod.lease().json()
+    assert (
+        job["inputs"]["structure"][0]["included"]["chains"][0]["values"]["source"] == "unreadable"
+    )
+
+
 def test_a_bundle_keeps_what_its_runs_read_through_references(
     world: World, tmp_path: Path, settings: Any
 ) -> None:
     settings.IKI_BUNDLE_TRUSTED_KEYS = {"test": (PUBLIC,)}
     OrgRoleAssignment.objects.create(user=world.users["admin"], role=OrgRole.ORG_ADMIN)
     editor = api_as(world, "editor")
+    other = elsewhere(world)
+    ProjectMembership.objects.create(
+        project=other, user=world.users["admin"], role=ProjectRole.VIEWER
+    )
+    sample = create(editor, other, {"label": "Reference sample"}, "acme/protein.Sample").json()
     kept: dict[str, Any] = {}
 
     def elsewhere_() -> list[Any]:
         abl = protein(editor, world.project)
+        changed = patch(editor, abl["id"], {"values": {"source": sample["id"]}}, '"1"')
+        assert changed.status_code == 200, changed.content
         pst = structure(world, abl)
         run = relax(world, pst).json()
         pod = worker(world)
@@ -255,6 +375,7 @@ def test_a_bundle_keeps_what_its_runs_read_through_references(
     path = bundle_of(world, tmp_path, elsewhere_)
     (line,) = reading.read(path, {}, limit=1024**3).lines("runs.ndjson")
     abl = kept["abl"]
+    assert line["reference_mask"] == ["/structure/0/included/chains/0/values/source"]
     assert line["included"] == [
         {
             "input": "structure",
@@ -262,7 +383,7 @@ def test_a_bundle_keeps_what_its_runs_read_through_references(
             "field": "chains",
             "index": 0,
             "entity": abl["id"],
-            "revision": 1,
+            "revision": 2,
         }
     ]
     api = api_as(world, "admin")
@@ -271,7 +392,11 @@ def test_a_bundle_keeps_what_its_runs_read_through_references(
     assert made["state"] == "planned" and made["plan"]["applicable"], made
     assert applied(browser, made)["state"] == "applied"
     inclusion = RunInclusion.objects.get(run_id=line["id"])
-    assert (str(inclusion.entity_id), inclusion.revision) == (abl["id"], 1)
+    assert (str(inclusion.entity_id), inclusion.revision) == (abl["id"], 2)
+    restored = included.manifest(ActionRun.objects.get(pk=line["id"]))
+    assert (
+        restored.inputs["structure"][0]["included"]["chains"][0]["values"]["source"] == "unreadable"
+    )
     shown = api.get(f"/runs/{line['id']}").json()
     assert [i["hrid"] for i in shown["included"]] == [abl["hrid"]]
     assert shown["imported"]["included_elsewhere"] == []

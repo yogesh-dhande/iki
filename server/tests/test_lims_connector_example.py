@@ -7,6 +7,8 @@ import json
 import sys
 import urllib.error
 import urllib.parse
+import urllib.request
+import urllib.response
 from collections.abc import Iterator
 from email.message import Message
 from pathlib import Path
@@ -35,6 +37,10 @@ def test_the_plugin_is_valid() -> None:
     assert result.plugin.triggers["import_nightly"].on == "schedule"
 
 
+class FakeResponse(urllib.response.addinfourl):
+    msg = "Fake LIMS"
+
+
 class FakeLims:
     """The LIMS's API: proteins, a page at a time, and changes to them."""
 
@@ -57,40 +63,52 @@ class FakeLims:
         self.page = 2
         self.asked: list[tuple[str, str, dict[str, list[str]], Any]] = []
         self.failures: list[int] = []
+        self.redirects: list[str] = []
+        self.requests: list[urllib.request.Request] = []
 
-    def __call__(self, request: Any, timeout: float) -> Any:
+    def __call__(self, request: urllib.request.Request) -> FakeResponse:
+        self.requests.append(request)
         url = urllib.parse.urlsplit(request.full_url)
-        assert (url.scheme, url.netloc) == ("https", HOST)
+        assert (url.scheme, url.hostname) == ("https", HOST)
+        assert url.port in (None, 443)
         assert request.get_header("Authorization") == f"Bearer {TOKEN}"
         query = urllib.parse.parse_qs(url.query)
+        assert request.data is None or isinstance(request.data, bytes)
         body = json.loads(request.data) if request.data else None
         self.asked.append((request.get_method(), url.path, query, body))
         if self.failures:
             code = self.failures.pop(0)
             raise urllib.error.HTTPError(request.full_url, code, "No", Message(), None)
+        if self.redirects:
+            headers = Message()
+            headers["Location"] = self.redirects.pop(0)
+            return FakeResponse(io.BytesIO(), headers, request.full_url, 302)
         if request.get_method() == "PATCH":
-            return io.BytesIO(b"{}")
+            return FakeResponse(io.BytesIO(b"{}"), Message(), request.full_url, 200)
         since = query.get("modified_since", [""])[0]
         start = int(query.get("cursor", ["0"])[0])
         changed = [p for p in self.proteins if p["modified_at"] > since]
         items = changed[start : start + self.page]
         more = start + self.page < len(changed)
         answer = {"items": items, "next_cursor": str(start + self.page) if more else None}
-        return io.BytesIO(json.dumps(answer).encode())
+        return FakeResponse(
+            io.BytesIO(json.dumps(answer).encode()), Message(), request.full_url, 200
+        )
 
 
 @pytest.fixture
 def lims(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Any]:
     """The plugin's scripts, loaded here with the LIMS faked."""
     import time
-    import urllib.request
 
     monkeypatch.syspath_prepend(str(SCRIPTS))
     names = ("lims", "sync", "send")
     for name in names:
         sys.modules.pop(name, None)
     fake = FakeLims()
-    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", fake)
+    monkeypatch.setattr(urllib.request.HTTPHandler, "http_open", fake)
+    monkeypatch.setattr(urllib.request, "getproxies", dict)
     slept: list[float] = []
     monkeypatch.setattr(time, "sleep", slept.append)
     monkeypatch.setenv("IKI_INPUT", str(tmp_path / "input.json"))
@@ -137,6 +155,48 @@ def test_imports_every_record_a_page_at_a_time(lims: Any) -> None:
         "version": "modified 2026-11-01T09:00:00Z",
     }
     assert output["metrics"] == {"records": 3}
+
+
+@pytest.mark.parametrize("port", ["443", "0443"])
+def test_same_origin_redirects_keep_credentials(lims: Any, port: str) -> None:
+    client = lims.sync.Client(HOST)
+    client.headers["Cookie"] = "session=example"
+    lims.fake.redirects = ["next", f"https://{HOST.upper()}:{port}/final"]
+    assert client.call("GET", "/proteins")["items"]
+    assert [r.full_url for r in lims.fake.requests] == [
+        f"https://{HOST}/api/v1/proteins",
+        f"https://{HOST}/api/v1/next",
+        f"https://{HOST.upper()}:{port}/final",
+    ]
+    assert all(r.get_header("Cookie") == "session=example" for r in lims.fake.requests)
+
+
+@pytest.mark.parametrize(
+    "location",
+    ["https://other.example/", "//other.example/", f"https://{HOST}:8443/", f"http://{HOST}/"],
+)
+def test_redirects_stay_on_the_configured_https_origin(lims: Any, location: str) -> None:
+    client = lims.sync.Client(HOST)
+    client.headers["Cookie"] = "session=example"
+    lims.fake.redirects = ["/allowed", location]
+    with pytest.raises(lims.sync.LimsError):
+        client.call("GET", "/proteins")
+    assert [r.full_url for r in lims.fake.requests] == [
+        f"https://{HOST}/api/v1/proteins",
+        f"https://{HOST}/allowed",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("locations", "requests"),
+    [([f"/step/{i}" for i in range(6)], 6), (["/loop", "/loop"], 2)],
+)
+def test_redirect_chains_end(lims: Any, locations: list[str], requests: int) -> None:
+    lims.fake.redirects = locations
+    with pytest.raises(lims.sync.LimsError):
+        lims.sync.Client(HOST).call("GET", "/proteins")
+    assert len(lims.fake.requests) == requests
+    assert lims.slept == []
 
 
 def test_a_scheduled_run_asks_for_what_changed_since_the_last(lims: Any) -> None:

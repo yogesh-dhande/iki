@@ -78,6 +78,20 @@ def test_schedule_checks_the_material_declared_by_the_lot(
         schedule(schedule_input)
 
 
+def test_schedule_uses_the_physical_isolate_as_the_material(schedule_input: dict[str, Any]) -> None:
+    schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
+    study = schedule_input["inputs"]["study"][0]
+    lot = study["included"]["lot"][0]
+    lot.update(type="iki/lots.StrainIsolate", material_field="id", values={"strain": "design"})
+    for material in ("design", "other-isolate"):
+        study["values"]["material"] = material
+        with pytest.raises(ValueError, match="material does not match"):
+            schedule(schedule_input)
+    study["values"]["material"] = lot["id"]
+    [pull] = schedule(schedule_input)["creates"]
+    assert pull["values"]["lot"] == lot["id"]
+
+
 def test_a_tube_can_supply_repeated_pulls_only_under_one_storage_condition(
     schedule_input: dict[str, Any],
 ) -> None:

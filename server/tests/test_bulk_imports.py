@@ -21,6 +21,7 @@ from test_workers import WorkerClient, keep_connection, worker
 
 from iki_server.entities import services
 from iki_server.entities.models import Entity, ProjectLink, Revision
+from iki_server.entities.values import shape
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import imports
 from iki_server.runs.models import (
@@ -367,6 +368,28 @@ def test_every_line_of_an_identity_fills_what_its_entry_hasnt_got(world: World) 
         assert [by[n] for n in numbers] == [run["hrid"]] * len(numbers)
 
 
+def test_inline_and_file_creates_share_one_effect_with_each_entry_revision(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(imports, "FILL_BATCH", 1)
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "A", f, ec_number="2.7.10.2"),
+            protein(KINASES[0], "A", f, hazard="none"),
+            protein(KINASES[1], "B", f),
+        ),
+        creates=[{"type": "acme/protein.Protein", "values": {"sequence": KINASES[0]}}],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    effects = ActionRun.objects.get(pk=run["id"]).effects.order_by("id")
+    assert list(effects.values_list("entry_id", "entry_revisions")) == [
+        (entry_of(KINASES[0]).pk, [1, 2, 3]),
+        (entry_of(KINASES[1]).pk, [1]),
+    ]
+
+
 def test_lines_of_an_identity_that_give_a_fact_two_values_fail_the_import(
     world: World,
 ) -> None:
@@ -625,6 +648,130 @@ def test_two_lines_with_one_unique_value_fail_the_import(world: World) -> None:
         }
     ]
     assert not Entity.objects.filter(type="acme/protein.Protein").exists()
+
+
+def test_lines_repeating_an_inherited_match_field_name_both_lines(world: World) -> None:
+    file_id = stored(world)
+    run = importing(world, file_id).json()
+    stored_run = ActionRun.objects.get(pk=run["id"])
+    stored_run.spec["creates"] = [
+        {
+            "type": "acme/protein.Tube",
+            "cardinality": "many",
+            "match_on": "barcode",
+            "derived_from": [],
+        }
+    ]
+    stored_run.save(update_fields=["spec"])
+    pod = worker(world)
+    job = pod.lease().json()
+    data = lines(
+        *(
+            {"type": type_name, "values": {"barcode": "VENDOR-01"}}
+            for type_name in ("acme/protein.Tube", "acme/protein.RetainTube")
+        )
+    )
+    answer = pod.report(job, "complete", output=output(creates_file=upload(pod, job, data)))
+    assert answer.json()["run_status"] == "running", answer.content
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    (error,) = body["error"]["errors"]
+    assert error["pointer"] == "#/creates_file/2/values/barcode"
+    assert "Line 1" in error["detail"]
+    assert not Entity.objects.filter(
+        type__in=["acme/protein.Tube", "acme/protein.RetainTube"]
+    ).exists()
+
+
+def test_two_external_ids_in_a_file_cannot_resolve_to_one_existing_record(world: World) -> None:
+    old = services.create(
+        world.users["editor"],
+        "acme/protein.Protein",
+        world.project,
+        {"sequence": KINASES[0], "lims_id": "LIMS-1"},
+    ).entity
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "Match", f, lims_id="LIMS-1"),
+            protein(KINASES[0], "Other record", f, lims_id="LIMS-2"),
+        ),
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    (error,) = body["error"]["errors"]
+    assert error["pointer"] == "#/creates_file/2/values/lims_id"
+    assert "#/creates_file/1" in error["detail"]
+    assert Entity.objects.get(pk=old.pk).revision == 1
+    assert body["effects"] == []
+
+
+@pytest.mark.parametrize("second_id", ["LIMS-1", "LIMS-2"])
+def test_an_external_record_occurs_once_across_inline_and_file(
+    world: World, second_id: str
+) -> None:
+    inline = {
+        "type": "acme/protein.Protein",
+        "values": {"sequence": KINASES[0], "lims_id": "LIMS-1", "name": "Inline"},
+    }
+    run, _ = started(
+        world,
+        lambda f: lines(protein(KINASES[0], "In file", f, lims_id=second_id)),
+        creates=[inline],
+    )
+    body = finished(world, run)
+    assert body["status"] == "failed", body
+    assert body["error"]["code"] == "invalid_output"
+    (error,) = body["error"]["errors"]
+    assert error["pointer"].startswith("#/creates_file/1")
+    assert "#/creates/0" in error["detail"]
+    assert not Entity.objects.filter(type=inline["type"]).exists()
+    assert body["effects"] == []
+
+
+@pytest.mark.parametrize("defaulted", [False, True], ids=["file-supplies-key", "file-omits-key"])
+def test_one_external_key_preserves_both_registrations(
+    world: World, defaulted: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    type_name = "acme/protein.Protein"
+    inline = {
+        "type": type_name,
+        "values": {"sequence": KINASES[0], **({"lims_id": "LIMS-1"} if defaulted else {})},
+        "origin": {"source": "catalog", "id": "inline"},
+    }
+    if defaulted:
+        fields = shape(type_name).part_of("lims_id").fields
+        monkeypatch.setitem(
+            fields,
+            "lims_id",
+            dataclasses.replace(fields["lims_id"], default="LIMS-1", has_default=True),
+        )
+    run, _ = started(
+        world,
+        lambda f: lines(
+            protein(KINASES[0], "File", f, **({} if defaulted else {"lims_id": "LIMS-1"}))
+        ),
+        creates=[inline],
+    )
+    body = finished(world, run)
+    assert body["status"] == "succeeded", body
+    (effect,) = body["effects"]
+    assert effect["kind"] == "created"
+    record = Entity.objects.get(pk=effect["entity"])
+    assert (
+        api_as(world, "editor").get(f"/entities/{record.hrid}").json()["values"]["lims_id"]
+        == "LIMS-1"
+    )
+    assert set(
+        ExternalOrigin.objects.filter(entity=record).values_list("identifier", flat=True)
+    ) == {"inline", "File"}
+    imported = RunImport.objects.get(run_id=run["id"])
+    assert (imported.created, imported.updated, imported.reused, imported.registered) == (
+        1,
+        0,
+        0,
+        1,
+    )
 
 
 def test_lines_that_match_entities_update_them(world: World) -> None:

@@ -17,6 +17,7 @@ fits a phone and a tablet either way up."""
 
 import json
 import re
+import time
 from itertools import pairwise
 from time import monotonic
 from typing import Any
@@ -25,8 +26,9 @@ from uuid import UUID
 
 import pytest
 from org_world import World
-from playwright.sync_api import APIResponse, Page, Request, Route, expect
+from playwright.sync_api import APIResponse, Page, Request, Route, ViewportSize, expect
 from test_browser import (  # noqa: F401 - fixtures
+    NEXT_FRAMES,
     PAGE_ERRORS,
     _orm_beside_playwright,
     assert_clean,
@@ -959,6 +961,115 @@ def test_two_people_scanning_different_tubes_on_one_receipt_are_both_recorded(
     first.context.close()
 
 
+#: Where receiving is done: a laptop at the bench, and a phone held at it.
+BENCH: dict[str, ViewportSize] = {
+    "laptop": {"width": 1440, "height": 900},
+    "phone": {"width": 390, "height": 844},
+}
+#: The receipt's lines being read again: what each change asks for once it's had its answer.
+READ_AGAIN = re.compile(r"/api/v1/entities/[^/]+/receipts$")
+
+
+@pytest.mark.parametrize("color_scheme", ["light", "dark"])
+@pytest.mark.parametrize("screen", ["laptop", "phone"])
+@pytest.mark.parametrize("press", ["across", "after"])
+@pytest.mark.parametrize("change", ["note", "save", "scan"])
+def test_an_outcome_stays_under_the_press_while_the_line_above_changes(
+    open_as: Any, world: World, change: str, press: str, screen: str, color_scheme: str
+) -> None:
+    """The second line's Missing stays where it was first drawn while the line above it
+    changes: its note opens (Damaged pressed, with no note yet), its save's answer arrives
+    (held back till then), or a scanner's scan of it is answered. "across" presses Missing
+    before the change and lets go after it; "after" taps, once it has, where Missing was
+    first drawn. Either records missing, as the server has it, and nothing else. It didn't:
+    the line above grew as its note editor opened or its save came back (its note editor,
+    its Clear, who checked it), so Missing moved 22-79 px down under the press, which ended
+    on something else and recorded nothing, and a tap where it had been landed above it."""
+    sent = sent_to_a_core(world, 3)
+    above, below = sent["tubes"][:2]
+    page = start_receiving(open_as, sent, color_scheme=color_scheme)
+    # Drawn at the bench's size from the start, so nothing's still settling from a resize.
+    page.set_viewport_size(BENCH[screen])
+    page.reload()
+    # And with the request's title under the heading, which arrives on its own.
+    page.get_by_text("Intact mass", exact=True).filter(visible=True).first.wait_for()
+    receipt = Receipt.objects.get(request_id=sent["ask"]["id"])
+    first = receipt_line(page, above)
+    # Named with its tick once it's pressed.
+    missing = receipt_line(page, below).get_by_role("button", name=re.compile(r"\bMissing$"))
+    missing.wait_for()
+
+    def by_keyboard(name: str) -> None:
+        # Pressed where it is, without scrolling the page or moving the pointer.
+        first.get_by_role("button", name=name, exact=True).evaluate(
+            "button => button.focus({preventScroll: true})"
+        )
+        page.keyboard.press("Space")
+
+    held: list[Route] = []
+    lines = f"**/api/v1/receipts/{receipt.pk}/lines/*"
+    if change == "save":
+        page.route(lines, lambda route: held.append(route))
+        by_keyboard("Matched")
+        deadline = time.monotonic() + 10
+        while not held and time.monotonic() < deadline:
+            page.wait_for_timeout(50)
+        assert held, "The save never reached the server."
+
+    def arrive() -> None:
+        """The change to the line above, once the page has drawn it."""
+        if change == "note":
+            by_keyboard("Damaged")
+        else:
+            with page.expect_request(
+                lambda r: r.method == "GET" and bool(READ_AGAIN.search(r.url))
+            ):
+                if change == "save":
+                    held[0].continue_()
+                    page.unroute(lines)
+                else:
+                    scan_label(page, "RC000")
+        page.evaluate(NEXT_FRAMES)
+
+    missing.scroll_into_view_if_needed()
+    page.evaluate(NEXT_FRAMES)
+    drawn = missing.bounding_box()
+    assert drawn
+    x, y = drawn["x"] + drawn["width"] / 2, drawn["y"] + drawn["height"] / 2
+    if press == "across":
+        page.mouse.move(x, y)
+        page.mouse.down()
+        arrive()
+        pressed = missing.bounding_box()
+        page.mouse.up()
+    else:
+        arrive()
+        pressed = missing.bounding_box()
+        page.mouse.click(x, y)
+
+    def recorded() -> dict[str, str | None]:
+        response = page.request.get(f"/api/v1/receipts/{receipt.pk}")
+        assert response.ok, response.status
+        return {line["code"]: line["outcome"] for line in response.json()["lines"]}
+
+    wanted = {"RC000": None if change == "note" else "matched", "RC001": "missing", "RC002": None}
+    deadline = time.monotonic() + 5
+    while (now := recorded()) != wanted and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+    page.evaluate(NEXT_FRAMES)
+    settled = missing.bounding_box()
+    moved = f"Missing drawn at {drawn}, then at {pressed} when let go, then at {settled}."
+    assert now == wanted, moved
+    expect(missing).to_have_attribute("aria-pressed", "true")
+    page.evaluate(NEXT_FRAMES)
+    # Where it was first drawn, when let go and once its own outcome is shown.
+    assert pressed == drawn, moved
+    assert missing.bounding_box() == drawn, moved
+    assert page.evaluate(NO_SIDEWAYS_SCROLL)
+    checked(page)
+    page.context.close()
+
+
 def test_a_correction_refused_as_stale_shows_who_changed_it_and_keeps_the_reason(
     open_as: Any, world: World
 ) -> None:
@@ -1293,6 +1404,52 @@ def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     move.get_by_role("button", name="Move it").click()
     move.wait_for(state="hidden")
     assert where(ours) == (spare["hrid"], 1, 1)
+    page.context.close()
+
+
+def test_draw_holds_still_as_the_box_map_comes_above_it(open_as: Any, world: World) -> None:
+    """A tube's page draws where it is, then its box's map, the last of its reads, in the card
+    above Volume. A press on Draw as the map comes ends on Draw, and opens it: the map comes
+    once it's let go. It didn't: the map pushed Draw down under the press, which ended on
+    the card and drew nothing (Firefox lost the click in a full run)."""
+    kept = twins(world)
+    ours, retains = kept["ours"], kept["retains"]
+    page: Page = open_as("admin", f"/entities/{ours['hrid']}/")
+    # Tall enough that Draw is in the window unscrolled: a browser's scroll anchoring then
+    # can't keep it in place for the map, as it would below the fold.
+    page.set_viewport_size({"width": 1440, "height": 1600})
+    draw = page.get_by_role("region", name="Volume").get_by_role("button", name="Draw")
+    grid = page.get_by_role(
+        "grid", name=f"Kinase retains’s positions, with {ours['hrid']}’s marked"
+    )
+    held: list[Route] = []
+    box_read = f"**/api/v1/storage/containers/{retains['hrid']}"
+    page.route(box_read, lambda route: held.append(route))
+    with page.expect_request(box_read):
+        page.reload()
+    page.get_by_role("navigation", name=f"Where {ours['hrid']} is").wait_for()
+    draw.wait_for()
+    page.evaluate(NEXT_FRAMES)
+    assert grid.count() == 0
+    assert page.evaluate("window.scrollY") == 0
+    drawn = draw.bounding_box()
+    assert drawn
+    page.mouse.move(drawn["x"] + drawn["width"] / 2, drawn["y"] + drawn["height"] / 2)
+    page.mouse.down()
+    with page.expect_response(box_read):
+        held[0].continue_()
+    page.unroute(box_read)
+    # The map's read is in: it would be drawn by now.
+    page.evaluate(NEXT_FRAMES)
+    page.evaluate(NEXT_FRAMES)
+    pressed = draw.bounding_box()
+    page.mouse.up()
+    assert pressed == drawn, f"Draw drawn at {drawn}, then at {pressed} when let go."
+    dialog = page.get_by_role("alertdialog")
+    expect(dialog.get_by_role("textbox", name="How much")).to_be_visible()
+    # And once it's let go, the map.
+    expect(grid).to_be_visible()
+    checked(page)
     page.context.close()
 
 

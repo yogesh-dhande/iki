@@ -178,6 +178,20 @@ variable "image_writers" {
   default     = []
 }
 
+variable "config_image_files" {
+  description = "Paths to reviewed image.yaml files produced by the config repository for this deployment. Each adds its server and worker image by digest to Binary Authorization."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = alltrue(flatten([for path in var.config_image_files : [
+      for image in [yamldecode(file(path)).image, yamldecode(file(path)).backendWorkers.image] :
+      can(regex("^ghcr[.]io/[a-z0-9][a-z0-9._-]*/iki-[a-z0-9][a-z0-9._-]*@sha256:[0-9a-f]{64}$", "${image.repository}@${image.digest}"))
+    ]]))
+    error_message = "Use the config build's image.yaml with a GHCR repository and a full SHA-256 digest for both the server and backend worker."
+  }
+}
+
 variable "plugin_images" {
   description = "Where plugins' environment images come from, besides the plugins repository this makes, as Binary Authorization's patterns (a trailing * is within one level, ** below it too). Iki's first-party plugins' by default."
   type        = list(string)

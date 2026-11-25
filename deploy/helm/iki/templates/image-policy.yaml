@@ -42,20 +42,14 @@ spec:
       keyless:
         url: {{ $p.fulcioUrl | quote }}
         identities:
-          - issuer: {{ $p.iki.issuer | quote }}
-            subjectRegExp: {{ $p.iki.subjectRegExp | quote }}
+          - {{ include "iki.imageSigner" $p.iki }}
       ctlog:
         url: {{ $p.rekorUrl | quote }}
     - name: approved
       keyless:
         url: {{ $p.fulcioUrl | quote }}
         identities:
-          - issuer: {{ $p.approvals.issuer | quote }}
-            {{- if $p.approvals.subject }}
-            subject: {{ $p.approvals.subject | quote }}
-            {{- else }}
-            subjectRegExp: {{ $p.approvals.subjectRegExp | quote }}
-            {{- end }}
+          - {{ include "iki.imageSigner" $p.approvals }}
       source:
         - oci: {{ $approvals | quote }}
           {{- with $p.approvals.signaturePullSecrets }}

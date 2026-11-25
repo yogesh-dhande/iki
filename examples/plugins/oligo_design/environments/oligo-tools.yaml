@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# RDKit from PyPI, on the backend tier as the small_molecule plugin's: its wheels hold
+# everything it needs, so it needs no image of its own.
+apiVersion: iki/v1
+kind: Environment
+name: oligo-tools
+label: Oligonucleotide tools
+description: RDKit 2026.09.2, on Python 3.12.
+tiers: [backend, self_hosted]
+# What it needs at least: RDKit and a few thousand oligonucleotides fit in 512 MiB.
+resources: { cpu: 0.25, memory: 512Mi }
+python: { version: "3.12", requirements: requirements.txt }

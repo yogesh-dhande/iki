@@ -30,7 +30,6 @@ import uuid
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from typing import Any, NamedTuple
-from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.core.exceptions import EmptyResultSet
@@ -50,6 +49,7 @@ from iki_server.runs import (
     catalog,
     checkpoints,
     costs,
+    egress,
     endings,
     included,
     launches,
@@ -67,7 +67,6 @@ from iki_server.runs.models import (
     JobLog,
     JobState,
     RunApproval,
-    RunInput,
     RunOutput,
     RunStatus,
     Worker,
@@ -440,6 +439,11 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             # Queued before a deploy detached it, which the sweep hasn't reached yet.
             _end_detached(job, plugin)
             return None
+        try:
+            manifests = {run.pk: included.manifest(run)}
+        except included.Unavailable as why:
+            fail_queued(job, "not_allowed", str(why))
+            return None
         template = worker.launch.template if worker.launch is not None else ""
         build = _build(worker, job.environment)
         if cluster:
@@ -452,7 +456,14 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             # The image is the environment: its digest is the build it ran (ADR 0061).
             image = slurm.image_for(job)
             build = launches.image_digest(image) if image else ""
-        members = _pack(job, run)
+        members = []
+        for member in _pack(job, run):
+            try:
+                manifests[member.run_id] = included.manifest(member.run)
+            except included.Unavailable as why:
+                fail_queued(member, "not_allowed", str(why))
+            else:
+                members.append(member)
         job.state = JobState.LEASED
         job.template = template
         job.worker = worker
@@ -501,7 +512,7 @@ def lease(worker: Worker) -> tuple[Job, dict[str, Any]] | None:
             each.seed = run.seed
             each.save(update_fields=["status", "started_at", "seed"])
             live.changed(each.pk, each.batch_id)
-        return job, payload(job, run)
+        return job, payload(job, run, manifests)
 
 
 def _record_waits(tier: str, template: str, waits: list[float]) -> None:
@@ -532,6 +543,7 @@ def _pack(job: Job, run: ActionRun) -> list[Job]:
         )
         .exclude(pk=job.pk)
         .order_by("queued_at", "id")
+        .select_related("run__project")
         .select_for_update(skip_locked=True, of=("self",))[: size - 1]
     )
 
@@ -542,34 +554,28 @@ def packed(job: Job) -> list[Job]:
     return list(Job.objects.filter(packed_into=job).select_related("run").order_by("run_id"))
 
 
-def payload(job: Job, run: ActionRun) -> dict[str, Any]:
-    """The run's input, as ``spec/…/run-input/v1`` describes it: what the command reads."""
+def payload(
+    job: Job, run: ActionRun, manifests: dict[uuid.UUID, included.Manifest] | None = None
+) -> dict[str, Any]:
+    """The command's input document assembled from the authorized pins of its runs."""
     from iki_server.runs import input_files
 
-    inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
-    files: set[uuid.UUID] = input_files.of_params(run)
     members = packed(job)
     runs = [run, *(m.run for m in members)]
-    order = {r.pk: n for n, r in enumerate(runs)}
-    rows = sorted(
-        RunInput.objects.filter(run__in=[r.pk for r in runs]).select_related("entity"),
-        key=lambda row: (row.name, order[row.run_id], row.position),
-    )
-    hrids = {r.pk: r.hrid for r in runs}
-    pack = [
-        {"run": str(row.run_id), "hrid": hrids[row.run_id], "entity": str(row.entity_id)}
-        for row in rows
-    ]
-    # What the inputs' references name, for inputs that include them (ADR 0105).
-    nested, included_files = included.documents(runs)
-    files |= included_files
-    includes = {name: tuple(i.get("include") or ()) for name, i in run.spec["inputs"].items()}
-    for row in rows:
-        document = included.document(row.entity, row.revision, row.entry_revision, files)
-        if includes.get(row.name):
-            pinned = nested.get((row.run_id, row.name, row.position), {})
-            document["included"] = {f: pinned.get(f, []) for f in includes[row.name]}
-        inputs.setdefault(row.name, []).append(document)
+    if manifests is None:
+        manifests = {r.pk: included.manifest(r) for r in runs}
+    inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in run.spec["inputs"]}
+    files: set[uuid.UUID] = set()
+    pack: list[dict[str, str]] = []
+    for each in runs:
+        manifest = manifests[each.pk]
+        files.update(manifest.input_files | manifest.param_files)
+        for name, items in manifest.inputs.items():
+            inputs.setdefault(name, []).extend(items)
+            if members:
+                pack.extend(
+                    {"run": str(each.pk), "hrid": each.hrid, "entity": item["id"]} for item in items
+                )
     assert job.lease_token is not None and job.lease_expires_at is not None  # noqa: S101
     given = secrets.for_run(run.action.split(".")[0], run.spec.get("secrets") or [])
     if sorted(given) != job.secrets:
@@ -647,7 +653,7 @@ def _trigger(run: ActionRun) -> dict[str, Any]:
 
 def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
     """For an action that declares hosts, or calls outside APIs: the egress proxy, with this
-    attempt's job ID and lease token as its credentials (ADR 0053, 0130). They work while
+    attempt's proxy-only credentials (ADR 0053, 0130). They work while
     the attempt holds its lease."""
     # VMs reach the proxy from their VPC, not the cluster's network (ADR 0074), and a Slurm
     # cluster's compute nodes from theirs (ADR 0133).
@@ -657,8 +663,8 @@ def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
         url = slurm.proxy_url(job)
     if not (run.spec.get("network") or run.spec.get("apis")) or not url:
         return {}
-    parts = urlsplit(url)
-    return {"proxy": f"http://{job.pk}:{job.lease_token}@{parts.netloc}"}
+    assert job.lease_token is not None  # noqa: S101 - a leased attempt
+    return {"proxy": egress.proxy_url(url, job.pk, job.lease_token)}
 
 
 # --- Reports from the worker -------------------------------------------------------------------

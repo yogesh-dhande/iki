@@ -293,6 +293,36 @@ def test_the_bundle_command_reports_json(world: World, tmp_path: Path) -> None:
     assert [s["status"] for s in body["signatures"]] == ["carried", "pending"]
 
 
+def test_an_import_honors_an_existing_signing_key_binding(world: World, tmp_path: Path) -> None:
+    from iki_server.signatures import signing_keys
+
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    bundle = reading.read(path, TRUSTED, limit=1024**3)
+    key = bundle.manifest["signing_keys"][0]["key"]
+    signing_keys.trust(key, "Previously trusted lab")
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "failed"
+    assert not Signature.objects.exists()
+    assert signing_keys.trusted()[key] == "Previously trusted lab"
+
+
+def test_a_signature_row_must_name_its_signed_deployment(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = export._signature
+
+    def relabeled(signature: Signature) -> dict[str, Any]:
+        return {**original(signature), "deployment": "Different lab"}
+
+    monkeypatch.setattr(export, "_signature", relabeled)
+    path = bundle_of(world, tmp_path, lambda: signed_lot(world))
+    api = Api(world.browser("admin"))
+    done = applied(api, upload(api, world.project, path))
+    assert done["state"] == "failed"
+    assert not ForeignSigningKey.objects.exists() and not Signature.objects.exists()
+
+
 def test_an_import_brings_signatures_that_still_verify(world: World, tmp_path: Path) -> None:
     path = bundle_of(world, tmp_path, lambda: signed_lot(world))
     assert not Signature.objects.exists() and not SigningKey.objects.exists()

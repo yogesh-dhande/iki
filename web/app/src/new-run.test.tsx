@@ -66,6 +66,22 @@ describe("starting a run", () => {
     );
   });
 
+  it("requires the operator's reason before launching on a reopened target", async () => {
+    onProject();
+    answer(
+      "POST /api/v1/entities/search",
+      page([entity({ can: { ...entity().can, edit_reason_required: true } })]),
+    );
+    const { user } = await renderApp(
+      "/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=" + ACTION.name,
+    );
+    const reason = await screen.findByRole("textbox", { name: "Reason" });
+    expect(reason).toBeRequired();
+    await user.click(screen.getByRole("button", { name: "Start run" }));
+    expect(calls("POST", `/api/v1/actions/${ACTION.name}/runs`)).toHaveLength(0);
+    expect(reason).toHaveAccessibleDescription(/reopened record|lock was lifted/);
+  });
+
   it("offers the actions that take it, then starts one run with its params", async () => {
     onProject();
     answer(`POST /api/v1/actions/${ACTION.name}/runs`, () => run());
@@ -418,7 +434,14 @@ describe("starting a run", () => {
     };
     answer("GET /api/v1/files", page([fasta]));
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
-    answer("GET /api/v1/files/formats", [{ media_type: "chemical/seq-aa-fasta", count: 1 }]);
+    answer("GET /api/v1/files/formats", [
+      {
+        id: "iki/core.protein-fasta",
+        label: "protein FASTA",
+        media_type: "chemical/seq-aa-fasta",
+        count: 1,
+      },
+    ]);
     answer("POST /api/v1/actions/iki/protein.import_proteins/runs", () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
     answer("GET /api/v1/runs/RUN-000001/attempts", []);

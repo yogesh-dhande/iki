@@ -34,6 +34,7 @@ from iki_server.files import storage
 from iki_server.files.models import Blob, File
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action, can
+from iki_server.runs import output_refs
 from iki_server.runs.models import (
     FINISHED,
     ActionRun,
@@ -87,6 +88,7 @@ class Exported:
     sha256: str
     size: int
     counts: dict[str, int]
+    references: set[uuid.UUID]
 
 
 @dataclass
@@ -143,7 +145,7 @@ def write(
         # files before the files' contents are, which take longer: a change committed
         # meanwhile can't put one revision's metadata beside another's values.
         with snapshot():
-            paths, blobs, manifest = _collect(
+            paths, blobs, manifest, references = _collect(
                 project, list(picked), by, reason, selection, signing, bundle_id, work
             )
         document = json.dumps(manifest, indent=2, ensure_ascii=False).encode() + b"\n"
@@ -161,7 +163,7 @@ def write(
             out.unlink(missing_ok=True)
             raise
     sha, size = _digest(out)
-    exported = Exported(bundle_id, sha, size, manifest["counts"])
+    exported = Exported(bundle_id, sha, size, manifest["counts"], references)
     audit.record(
         "bundle.exported",
         actor=by,
@@ -189,10 +191,10 @@ def _collect(
     signing: Ed25519PrivateKey,
     bundle_id: uuid.UUID,
     work: Path,
-) -> tuple[dict[str, Path], list[Blob], dict[str, Any]]:
+) -> tuple[dict[str, Path], list[Blob], dict[str, Any], set[uuid.UUID]]:
     """What goes, read and written to the members' files in `work`: their paths, the
     blobs whose contents go, and the manifest."""
-    found = _find(project, picked, by)
+    found = _find(project, picked)
     if not found.entities:
         raise ExportError("There's nothing to export: pick at least one entity.")
     members: list[dict[str, Any]] = []
@@ -205,8 +207,38 @@ def _collect(
         .select_related("withdrawal", "entity")
         .order_by("entity_id", "signed_at", "pk")
     )
-    withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
+    from iki_server.signatures import services as signatures
+
     runs = _run_lines(found)
+    references = found.outside.keys() | found.entities.keys() | found.entries.keys()
+    # An imported trigger's recorded reason can identify its firing subject even
+    # when the input remained on the source deployment.
+    for run in found.runs.values():
+        if run.via == "trigger" and run.imported:
+            references.update(uuid.UUID(p["entity"]) for p in run.imported.get("inputs") or [])
+    try:
+        for line in runs:
+            for pin in line.get("included", []):
+                references.update(uuid.UUID(i) for i in pin.get("covered_materials", []))
+            for attempt in line["attempts"]:
+                if output := attempt["output"]:
+                    references.update(output_refs.dependencies(output["document"]))
+        for compared in output_refs.comparison_dependencies(list(found.runs.values())).values():
+            if compared is None:
+                raise output_refs.Unavailable
+            references.update(compared)
+    except output_refs.Unavailable as error:
+        raise ExportError(
+            "Exporting these run results requires their reference types and source outputs."
+        ) from error
+    try:
+        for signature in signed:
+            references.update(signatures.signed_references(signature))
+    except proof.Unexplained as error:
+        raise ExportError("A signature in this bundle needs verified reference history.") from error
+    if not access.all_references_readable(by, references):
+        raise ExportError("This bundle refers to a record you can't read.")
+    withdrawals = [w for s in signed if (w := _withdrawal_of(s)) is not None]
     people = (
         {by.pk}
         | _run_people(runs)
@@ -288,13 +320,13 @@ def _collect(
             *({"path": _blob_path(b.sha256), "sha256": b.sha256, "size": b.size} for b in blobs),
         ],
     }
-    return paths, blobs, manifest
+    return paths, blobs, manifest, references
 
 
 # --- What goes ----------------------------------------------------------------------------------
 
 
-def _find(project: Project, picked: list[Entity], by: User) -> _Found:
+def _find(project: Project, picked: list[Entity]) -> _Found:
     found = _Found()
     for entity in picked:
         if entity.owner_project_id != project.pk:
@@ -597,6 +629,7 @@ def _entity(
         "created_at": entity.created_at.isoformat(),
         "created_by": _json(entity.created_by_id),
         "archived_at": _json(entity.archived_at),
+        "has_been_locked": entity.has_been_locked,
         **({"entry": str(entity.entry_id)} if entity.entry_id is not None else {}),
         "revisions": [
             {
@@ -903,6 +936,7 @@ def _run(run: ActionRun, **parts: list[dict[str, Any]]) -> dict[str, Any]:
         "plugin_version": run.plugin_version,
         "plugin_sha": run.plugin_sha,
         "spec": run.spec,
+        **({"reference_mask": run.reference_mask} if run.reference_mask else {}),
         "requested_by": _json(run.requested_by_id),
         "via": run.via,
         "client": run.client,

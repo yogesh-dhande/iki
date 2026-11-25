@@ -234,8 +234,12 @@ iki-worker run --local tests/relax/input.json > output.json
 
 The input is a run input ([`run-input/v1`](https://ikisci.org/reference/plugin-spec/run-input/))
 that may leave out `job`. Each of its `files` gives a `path` relative to
-input.json; leave out `name`, `media_type`, `size` and `sha256` to have
-them read from the file, or give them to check the fixture still matches.
+input.json. The worker fills in missing `name`, `media_type`, `size` and
+`sha256` values and checks that the size and SHA-256 match the fixture.
+It infers a missing media type from the filename using core's format
+declarations. Standalone offline runs can specify a plugin-specific media
+type in the fixture or result. On a deployment, Iki recognizes uploaded
+results and artifacts using the installed format declarations.
 
 What the command prints goes to stderr as it prints it. If it succeeds,
 its output goes to stdout, and each `{"$file": …}` is checked as an

@@ -355,8 +355,10 @@ fn execute(
     };
     let (done, readers_done) = mpsc::channel::<()>();
     let said: Arc<Mutex<Option<String>>> = Arc::default();
-    // The proxy's password is the lease token: never in the log.
-    let mask = logs::Mask::new([input.job.lease_token.as_str()]);
+    let mask = logs::Mask::new(
+        std::iter::once(input.job.lease_token.as_str())
+            .chain(input.job.proxy.as_deref().and_then(super::proxy_password)),
+    );
     for stream in [
         child
             .stdout
@@ -628,7 +630,7 @@ mod tests {
             "job": {
                 "id": "s1", "lease_token": "secret-token", "lease_expires_at": "",
                 "heartbeat_every": 1, "timeout": timeout,
-                "proxy": "http://s1:secret-token@iki-egress:3128",
+                "proxy": "http://s1:test-egress-password@iki-egress:3128",
             },
             "script": "setup/fill.sh",
             "volumes": {"af-db": {"mount": volume.to_string_lossy(), "size": 1024}},
@@ -714,7 +716,7 @@ mod tests {
         );
         let text = logged(&job);
         assert!(text.contains(&format!("into {}", dir.0.join("volume").display())));
-        // The lease token is the proxy's password: hidden.
+        // The command's proxy-only password is hidden from its logs.
         assert!(
             text.contains("proxy http://s1:***@iki-egress:3128"),
             "{text}"

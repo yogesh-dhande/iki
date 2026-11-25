@@ -19,6 +19,8 @@ export interface Picked {
   /** In a picker's list, the project whose record it is, where two share its ID: one
    * registry entry's records in two projects, each named as its project names it. */
   project?: string;
+  /** Editing this reopened record requires the operator’s reason. */
+  editReasonRequired?: boolean;
   /** A file still uploading: the form waits for it. */
   uploading?: boolean;
   /** A file chosen from this computer with others, which its input starts uploading. */
@@ -147,7 +149,8 @@ export function toDraft(
     case "ref": {
       const id = value as string;
       const found = entity.refs[id];
-      return { id, hrid: found?.hrid ?? id, title: found?.title ?? "An entity you can’t read" };
+      const title = found?.title ?? "An entity you can’t read";
+      return { id, hrid: found?.hrid ?? title, title };
     }
     case "file": {
       const id = value as string;

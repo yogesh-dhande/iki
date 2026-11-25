@@ -40,6 +40,7 @@ class AssayRequest(Entity):
     )
     title = models.CharField(max_length=200)
     protein = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
+    private_sample = models.ForeignKey('Sample', models.PROTECT, related_name='+', null=True)
     assays = ArrayField(models.TextField(), null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
@@ -131,6 +132,9 @@ class AssayRequest_History(models.Model):
     samples = ArrayField(models.UUIDField(), null=True)
     tubes = ArrayField(models.UUIDField(), null=True)
     protein = models.UUIDField(db_column='protein_id', null=True)
+    private_sample = models.UUIDField(db_column='private_sample_id', null=True)
+    comparison_samples = ArrayField(models.UUIDField(), null=True)
+    sample_notes = models.JSONField(null=True)
     assays = ArrayField(models.TextField(), null=True)
     needed_by = models.DateField(null=True)
     instructions = models.TextField(null=True)
@@ -192,6 +196,65 @@ class AssayRequest_tubes(models.Model):
             models.CheckConstraint(
                 condition=Q(position__lt=96),
                 name='acme__protein_assayrequest__tubes__position__max_items',
+            ),
+        ]
+
+
+class AssayRequest_comparison_samples(models.Model):
+    """The items of acme/protein.AssayRequest.comparison_samples, in order."""
+
+    IKI_LIST_OF = ('AssayRequest', 'comparison_samples')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'AssayRequest',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    item = models.ForeignKey('Sample', models.PROTECT, related_name='+')
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest__comparison_samples'
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(position__lt=20),
+                name='acme__protein_assayrequest__comparison_samples__pos__2fc199817d',
+            ),
+        ]
+
+
+class AssayRequest_sample_notes(models.Model):
+    """The items of acme/protein.AssayRequest.sample_notes, in order."""
+
+    IKI_LIST_OF = ('AssayRequest', 'sample_notes')
+
+    pk = models.CompositePrimaryKey('entity', 'position')
+    entity = models.ForeignKey(
+        'AssayRequest',
+        models.CASCADE,
+        db_column='entity_id',
+        related_name='+',
+    )
+    position = models.PositiveIntegerField()
+    sample = models.ForeignKey('Sample', models.PROTECT, related_name='+')
+    note = models.CharField(max_length=200, null=True)
+
+    class Meta:
+        db_table = 'acme__protein_assayrequest__sample_notes'
+        constraints = [
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('note'), 1),
+                name='acme__protein_assayrequest__sample_notes__note__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(note__regex='[\\r\\n]'),
+                name='acme__protein_assayrequest__sample_notes__note__one_line',
+            ),
+            models.CheckConstraint(
+                condition=Q(position__lt=20),
+                name='acme__protein_assayrequest__sample_notes__position__max_items',
             ),
         ]
 
@@ -984,6 +1047,7 @@ class Protein_Entry(Entity):
     ec_number = models.CharField(max_length=20, null=True)
     chembl_target = models.CharField(max_length=20, null=True, db_index=True)
     hazard = models.TextField(null=True)
+    related_entry = models.ForeignKey('Protein_Entry', models.PROTECT, related_name='+', null=True)
     standard = models.CharField(max_length=20, null=True)
     synonyms = ArrayField(models.CharField(max_length=40), null=True)
 
@@ -1088,6 +1152,7 @@ class Protein_Entry_History(models.Model):
     ec_number = models.TextField(null=True)
     chembl_target = models.TextField(null=True)
     hazard = models.TextField(null=True)
+    related_entry = models.UUIDField(db_column='related_entry_id', null=True)
     standard = models.TextField(null=True)
     synonyms = ArrayField(models.TextField(), null=True)
 

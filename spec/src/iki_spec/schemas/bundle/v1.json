@@ -536,6 +536,9 @@
             }
           ]
         },
+        "has_been_locked": {
+          "type": "boolean"
+        },
         "archived_at": {
           "description": "When it was archived, or null if it isn't.",
           "anyOf": [
@@ -594,8 +597,16 @@
           "minimum": 1
         },
         "kind": {
-          "description": "What it did: created, edited, archived or restored the entity, moved it from a superseded registry entry to the one that replaced it, or set one of its state fields.",
-          "enum": ["created", "edited", "archived", "restored", "moved", "state_changed"]
+          "description": "What it did: created, edited, archived or restored the entity, set values through a plugin upgrade's migration, moved it from a superseded registry entry to the one that replaced it, or set one of its state fields.",
+          "enum": [
+            "created",
+            "edited",
+            "migrated",
+            "archived",
+            "restored",
+            "moved",
+            "state_changed"
+          ]
         },
         "changed_fields": {
           "description": "The fields whose values it set.",
@@ -817,6 +828,14 @@
         "spec": {
           "description": "The action as it was when it ran.",
           "type": "object"
+        },
+        "reference_mask": {
+          "description": "Typed positions shown as unreadable in its pinned worker input.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
         },
         "requested_by": {
           "description": "Who asked for it, from `people.ndjson`, or null.",
@@ -1178,15 +1197,26 @@
             },
             "agent": {
               "description": "The agent whose request they approved, from `agents.ndjson`, or null.",
-              "anyOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }]
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "statements": {
               "description": "Each API, with what's sent and the statement shown: `api`, `label`, `host`, `purpose`, `inputs`, `params` and `statement`.",
               "type": "array",
               "maxItems": 100,
-              "items": { "type": "object" }
+              "items": {
+                "type": "object"
+              }
             },
-            "given_at": { "$ref": "#/$defs/time" }
+            "given_at": {
+              "$ref": "#/$defs/time"
+            }
           }
         },
         "api_calls": {
@@ -1229,8 +1259,16 @@
                 "type": "string",
                 "maxLength": 200
               },
-              "host": { "description": "The host it went to.", "type": "string", "maxLength": 253 },
-              "method": { "description": "The HTTP method.", "type": "string", "maxLength": 16 },
+              "host": {
+                "description": "The host it went to.",
+                "type": "string",
+                "maxLength": 253
+              },
+              "method": {
+                "description": "The HTTP method.",
+                "type": "string",
+                "maxLength": 16
+              },
               "path": {
                 "description": "The path, without the query, which may hold data.",
                 "type": "string",
@@ -1238,14 +1276,23 @@
               },
               "status": {
                 "description": "The HTTP status the API answered, or null if it didn't answer.",
-                "anyOf": [{ "type": "integer" }, { "type": "null" }]
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "error": {
                 "description": "Why the call failed, or empty.",
                 "type": "string",
                 "maxLength": 500
               },
-              "started_at": { "$ref": "#/$defs/time" },
+              "started_at": {
+                "$ref": "#/$defs/time"
+              },
               "duration_ms": {
                 "description": "How long it took, in milliseconds.",
                 "type": "integer",
@@ -1350,7 +1397,10 @@
                 "description": "Direct input records covered by this included service request at launch.",
                 "type": "array",
                 "uniqueItems": true,
-                "items": { "type": "string", "format": "uuid" }
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                }
               },
               "input": {
                 "description": "The input whose entity's reference named it.",
@@ -1637,7 +1687,9 @@
                   }
                 ]
               },
-              "error": { "description": "Why it ended badly, as `code` and `message`, or null." },
+              "error": {
+                "description": "Why it ended badly, as `code` and `message`, or null."
+              },
               "log": {
                 "description": "Everything it printed.",
                 "type": "string"
@@ -1788,7 +1840,9 @@
         "since": {
           "description": "What was done to its record's history after it was signed, in order, vouched for by the exporting deployment's signing key (ADR 0148): its `document`, `iki/read-through/v1` canonical JSON naming the signature, its record and revision, and the changes (a field renamed, a quantity converted to another unit as `new = old * scale + offset`, the type renamed, and an import naming people and registry entries by their IDs where it was imported, ADR 0096), the `key` that signed it, and its Ed25519 `signature`. `iki bundle verify` and an import check it with the keys they trust, then do each change to `content` before checking it against the bundle's history. Null if nothing was done.",
           "anyOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "required": ["document", "key", "signature"],

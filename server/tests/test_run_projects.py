@@ -3,11 +3,12 @@ file params are its files. Inputs from other projects are refused, naming them, 
 launch adds them to the project first, which is audited as a link."""
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from api_client import problem
 from org_world import World
-from test_api_entities import api_as
+from test_api_entities import api_as, create
 from test_run_imports import IMPORT, stored
 from test_run_results import done, output, weight
 from test_runs import launch, launch_each, protein, world
@@ -129,14 +130,99 @@ def test_a_run_whose_input_left_the_project_cant_be_reproduced(world: World) -> 
     first = launch(editor, world.project, {"protein": theirs["id"]}, add_to_project=True).json()
     pod = worker(world)
     job = pod.lease().json()
-    assert done(pod, job, output(updates=weight(first)))["run_status"] == "succeeded"
+    message = {"text": "Measured", "level": "info", "entity": theirs["id"]}
+    assert (
+        done(
+            pod,
+            job,
+            output(updates=weight(first), messages=[{**message, "entity": theirs["id"].upper()}]),
+        )["run_status"]
+        == "succeeded"
+    )
     unlinked = editor.delete(f"/entities/{theirs['id']}/projects/{world.project.pk}")
     assert unlinked.status_code == 204, unlinked.content
 
-    refused = editor.post(f"/runs/{first['hrid']}/reproduce", {"reason": "Audit"})
+    detail = f"/runs/{first['hrid']}"
+    visible = editor.get(detail).json()
+    assert visible["inputs"] == first["inputs"] and visible["messages"] == [message]
+    assert visible["can"]["reproduce"] is False
+    viewer = api_as(world, "viewer")
+    for shown in (viewer.get(detail).json(), viewer.get("/runs").json()["items"][0]):
+        assert shown["inputs"] == [
+            {"name": "protein", "entity": None, "hrid": None, "revision": None}
+        ]
+        assert shown["messages"] == [{**message, "entity": None}]
+        assert theirs["id"] not in str(shown) and theirs["hrid"] not in str(shown)
+    refused = editor.post(f"{detail}/reproduce", {"reason": "Audit"})
 
     body = problem(refused, 409, "refused")
     assert body["detail"] == (
         f"{theirs['hrid']} isn't in {world.project.name} any more, so this run can't be "
         "reproduced there: a run reads only what's in its project."
     )
+
+
+def test_imported_source_pins_use_local_access_when_the_record_is_here(world: World) -> None:
+    editor = api_as(world, "editor")
+    local = protein(editor, elsewhere(world), "kit")
+    own = protein(editor, world.project, "src")
+    run = launch(editor, world.project, {"protein": own["id"]}).json()
+    elsewhere_id = str(uuid4())
+    first = {"entity": local["id"].upper(), "name": "samples", "position": 0, "revision": 2}
+    second = {**first, "entity": elsewhere_id, "position": 1}
+    inclusion = {
+        "entity": local["id"],
+        "input": "samples",
+        "position": 0,
+        "field": "parent",
+        "index": 0,
+        "revision": 1,
+    }
+    ActionRun.objects.filter(pk=run["id"]).update(
+        via="trigger",
+        reason=f"Triggered by {local['hrid']}",
+        imported={
+            "from": "other",
+            "hrid": run["hrid"],
+            "import": str(uuid4()),
+            "inputs": [first, second],
+            "included": [inclusion],
+        },
+    )
+    url = f"/runs/{run['hrid']}"
+    result = api_as(world, "viewer").get(url)
+    assert local["hrid"].encode() not in result.content
+    shown = result.json()["imported"]
+    assert shown["inputs_elsewhere"] == [{**first, "entity": None, "revision": None}, second]
+    assert shown["included_elsewhere"] == [{**inclusion, "entity": None, "revision": None}]
+    assert editor.get(url).json()["imported"]["inputs_elsewhere"][0]["entity"] == local["id"]
+    refused = problem(editor.post(f"{url}/reproduce", {"reason": "Verify"}), 409, "refused")
+    assert (
+        refused["detail"] == "The run needs every pinned input, reference and file in its project."
+    )
+
+
+def test_each_attempt_requires_its_file_params_to_still_belong_to_the_project(world: World) -> None:
+    editor = api_as(world, "editor")
+    other = elsewhere(world)
+    file_id = stored(world, project=other)
+    lot = create(
+        editor, other, {"label": "Reference", "report": file_id}, "acme/protein.Lot"
+    ).json()
+    link = f"/entities/{lot['id']}/projects/{world.project.pk}"
+    assert editor.put(link, {}).status_code == 201
+    params = {"file": file_id}
+    first = launch(editor, world.project, {}, IMPORT, params=params).json()
+    pod = worker(world)
+    job = pod.lease().json()
+    assert file_id in job["files"]
+    assert done(pod, job, output(creates=[]))["run_status"] == "succeeded"
+    pending = launch(editor, world.project, {}, IMPORT, params=params, reuse=False).json()
+
+    assert editor.delete(link).status_code == 204
+    refused = editor.post(f"/runs/{first['id']}/reproduce", {})
+    assert problem(refused, 409, "refused")["detail"] == (
+        "The run needs every pinned input, reference and file in its project."
+    )
+    assert pod.lease().status_code == 204
+    assert ActionRun.objects.get(pk=pending["id"]).status == "rejected"

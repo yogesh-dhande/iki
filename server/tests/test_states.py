@@ -2,6 +2,7 @@
 state set by the lab roles (ADR 0116) it names, from any other, some needing a reason, and
 states that lock a record against every change but its state fields'."""
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
 from org_world import PRINCIPALS, World, build_world
 from test_api_entities import api_as, create, patch
+from test_audit import as_app_role
 from test_bulk_imports import finished, lines, upload
 from test_lab_roles import give, membership
 from test_run_imports import SHA
@@ -28,13 +30,14 @@ from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
+from iki_server.plugins.operations import unlocked
 from iki_server.runs.models import TriggerFiring
 from iki_server.webhooks import services as webhooks
 from iki_server.webhooks.models import Delivery
 
 pytestmark = pytest.mark.django_db
 
-__all__ = ["keep_connection", "world"]  # fixtures, from test_workers and test_runs
+__all__ = ["as_app_role", "keep_connection", "world"]  # imported fixtures
 
 SAMPLE = "acme/protein.Sample"
 ANALYST, REVIEWER, QA = "acme/protein.analyst", "acme/protein.reviewer", "acme/protein.qa"
@@ -352,6 +355,18 @@ def test_an_archived_record_keeps_its_states(world: World) -> None:
 # --- Locked ---------------------------------------------------------------------------------------
 
 
+def test_only_the_migrator_can_rewrite_locked_values(
+    world: World, as_app_role: Callable[[str], None]
+) -> None:
+    reviewed(world)
+    table = registry.model(SAMPLE)._meta.db_table
+    rewrite = f"UPDATE {table} SET notes = notes"  # noqa: S608 - fixture table
+    with connection.schema_editor() as editor, unlocked(editor):
+        with pytest.raises(IntegrityError, match="is locked by its status"):
+            as_app_role(rewrite)
+        editor.execute(rewrite)
+
+
 def test_a_locked_record_refuses_every_change_but_its_states(world: World) -> None:
     body = reviewed(world)
     ref, hrid = body["id"], body["hrid"]
@@ -404,7 +419,33 @@ def test_a_locked_record_refuses_every_change_but_its_states(world: World) -> No
     freed = set_(world, "viewer", ref, "custody", "in_lab")
     assert (freed["locked"], freed["locked_by"]) == (False, [])
     assert api_as(world, "editor").get(f"/entities/{ref}").json()["can"]["edit"] is True
-    assert patch(api_as(world), ref, {"values": {"notes": "x"}}, '"8"').status_code == 200
+    edit = {"values": {"notes": "x"}}
+    assert patch(api_as(world), ref, edit, '"8"').status_code == 422
+    assert (
+        patch(api_as(world), ref, {**edit, "reason": "Corrected after review"}, '"8"').status_code
+        == 200
+    )
+
+
+def test_a_later_lock_declaration_does_not_retroactively_lock_an_edit(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    roles(world, editor=(ANALYST,))
+    ref = sample(world)["id"]
+    changed = set_(world, "editor", ref, "status", "in_testing")
+    assert not changed["locked"]
+    field = states.state_fields(SAMPLE)["status"]
+    monkeypatch.setitem(field.states, "received", replace(field.states["received"], locks=True))
+    api = api_as(world, "editor")
+    record = api.get(f"/entities/{ref}")
+    assert "edit_reason_required" not in record.json()["can"]
+    assert (
+        patch(api, ref, {"values": {"notes": "First measurement"}}, record["ETag"]).status_code
+        == 200
+    )
 
 
 def test_state_changes_are_in_the_audit_log(world: World) -> None:
@@ -453,7 +494,10 @@ def test_a_run_cant_change_a_locked_record(world: World) -> None:
     ]
     # ...and a run launched before it locked writes nothing.
     set_(world, "admin", body["id"], "status", "in_testing", "Rerun purity")
-    run = launch(api_as(world), world.project, {"sample": body["id"]}, MEASURE)
+    target = {"sample": body["id"]}
+    missing = launch(api_as(world), world.project, target, MEASURE)
+    assert problem(missing, 422, "validation_failed")["errors"][0]["pointer"] == "#/reason"
+    run = launch(api_as(world), world.project, target, MEASURE, reason="Repeat the measurement")
     assert run.status_code == 201, run.content
     pod = worker(world)
     job = pod.lease().json()

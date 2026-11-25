@@ -14,6 +14,7 @@ from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, ready, signed
 
 from iki_server.amounts import services as amounts
+from iki_server.amounts.models import DrawPurpose
 from iki_server.entities import access, requests, services, states
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.entities.values import Invalid
@@ -40,20 +41,41 @@ WORK = REQUESTS + "WorkItem"
 REQUESTER = "outsider"
 
 
-def test_the_shipping_lims_serves_both_facility_requests(tmp_path: Path, database: str) -> None:
+def _facility_build(tmp_path: Path, database: str, plugin: str) -> Path:
     build = tmp_path / "build"
-    built = iki(
-        "plugin", "build", *build_order(PLUGIN, PLUGINS / "protein"), "--output", build, cwd=PLUGINS
-    )
+    plugins = build_order(PLUGIN, PLUGINS / plugin)
+    built = iki("plugin", "build", *plugins, "--output", build, cwd=PLUGINS)
     assert built.returncode == 0, built.stdout + built.stderr
     migrate(build, database)
     sync(build, database)
+    return build
+
+
+def test_the_shipping_lims_serves_both_facility_requests(tmp_path: Path, database: str) -> None:
     exercise = django(
-        build,
+        _facility_build(tmp_path, database, "protein"),
         database,
         "-c",
         "import django; django.setup(); from test_core_facility import exercise_core_requests; "
         "exercise_core_requests()",
+    )
+    assert exercise.returncode == 0, exercise.stdout + exercise.stderr
+
+
+@pytest.mark.parametrize(
+    ("request_type", "delivery_type"),
+    [(PLAIN, BASIC_DELIVERY), (RESEARCH, RESEARCH_DELIVERY), (REGULATED, REGULATED_DELIVERY)],
+    ids=["plain-tube", "research-lot", "qc-nested-aliquot"],
+)
+def test_returned_sample_covers_its_draw(
+    tmp_path: Path, database: str, request_type: str, delivery_type: str
+) -> None:
+    exercise = django(
+        _facility_build(tmp_path, database, "samples"),
+        database,
+        "-c",
+        "import django; django.setup(); from test_core_facility import exercise_sample_delivery; "
+        f"exercise_sample_delivery({request_type!r}, {delivery_type!r})",
     )
     assert exercise.returncode == 0, exercise.stdout + exercise.stderr
 
@@ -66,8 +88,10 @@ def _report(project: Project, name: str, content: bytes) -> str:
     )
 
 
-def _sign(world: World, person: str, entity: Entity, target: str) -> Signature:
-    signature = signed(world, person, str(entity.pk), target, field="review").signature
+def _sign(world: World, person: str, entity: Entity, target: str, reason: str = "") -> Signature:
+    signature = signed(
+        world, person, str(entity.pk), target, field="review", reason=reason
+    ).signature
     assert signature is not None
     entity.refresh_from_db()
     assert states.values_of(entity)["review"] == target
@@ -119,12 +143,20 @@ def _send(world: World, request: Entity, *, receive_code: str | None = None) -> 
     _status(world, request, "editor", "in_progress")
 
 
-def _make(world: World, person: str, type_name: str, project: Project, **values: Any) -> Entity:
-    saved = services.create(world.users[person], type_name, project, values)
+def _make(
+    world: World,
+    person: str,
+    type_name: str,
+    project: Project,
+    *,
+    amount: Any = None,
+    **values: Any,
+) -> Entity:
+    saved = services.create(world.users[person], type_name, project, values, amount=amount)
     return Entity.objects.get(pk=saved.entity.pk)
 
 
-def exercise_core_requests() -> None:
+def _facility(*request_types: str) -> tuple[World, Project]:
     world = build_world()
     ready(world)
     core = world.project
@@ -140,17 +172,142 @@ def exercise_core_requests() -> None:
         membership = core.memberships.get(user=world.users[person])
         for role in roles:
             LabRoleGrant.objects.create(membership=membership, role="iki/lab_roles." + role)
-    request_api = Api(world.browser(REQUESTER))
     requests.set_intake(
         core,
-        types=[RESEARCH, PLAIN],
+        types=request_types,
         from_registry=False,
         sources=[asking],
         by=world.users["admin"],
     )
+    return world, asking
+
+
+def exercise_core_requests() -> None:
+    world, asking = _facility(RESEARCH, PLAIN)
     _production(world, asking)
     _plain_delivery_coverage(world, asking)
-    _sequencing(world, asking, request_api)
+    _sequencing(world, asking, Api(world.browser(REQUESTER)))
+
+
+def exercise_sample_delivery(request_type: str, delivery_type: str) -> None:
+    world, asking = _facility(request_type)
+    core = world.project
+    analyst = world.users["editor"]
+    membership = ProjectMembership.objects.create(
+        project=asking, user=analyst, role=ProjectRole.EDITOR
+    )
+    stock = _make(world, REQUESTER, "iki/core.Collection", asking, name="Reference material")
+    if request_type == RESEARCH:
+        subject = _make(
+            world,
+            REQUESTER,
+            "iki/lots.GenericLot",
+            asking,
+            of=str(stock.pk),
+            amount={"value": 10, "unit": "mg"},
+        )
+        LabRoleGrant.objects.create(membership=membership, role="iki/lots.qa")
+        scope = {"materials": [str(subject.pk)]}
+    else:
+        subject = _make(
+            world,
+            REQUESTER,
+            "iki/inventory.Tube",
+            asking,
+            contents=str(stock.pk),
+            amount={"value": 10, "unit": "uL"},
+        )
+        scope = {"tubes": [str(subject.pk)]}
+        if request_type == REGULATED:
+            scope["analyses"] = ["sec_purity"]
+    request = _make(world, REQUESTER, request_type, asking, title="Sample report", **scope)
+    _send(world, request)
+    source = subject
+    if request_type == REGULATED:
+        for aliquot_volume in (4, 2):
+            (source,) = amounts.split(
+                analyst, source, 1, amounts.Given.of({"value": aliquot_volume, "unit": "uL"})
+            ).aliquots
+        services.link(analyst, source, core)
+
+    def pending_sample(source: Entity) -> Entity:
+        return _make(
+            world,
+            "editor",
+            "iki/samples.Sample",
+            core,
+            source=str(source.pk),
+            purpose=str(request.pk),
+        )
+
+    fields: dict[str, Any] = {
+        "request": str(request.pk),
+        "outcome": "fulfilled",
+        "report": _report(core, "sample-report.txt", b"Sample measurements"),
+    }
+    if request_type == REGULATED:
+        fields.update(analysis="sec_purity", result="pass", purity=99)
+
+    def report_on(material: Entity) -> Entity:
+        return _make(world, "editor", delivery_type, core, **fields, material=str(material.pk))
+
+    sample = pending_sample(source)
+    with pytest.raises(Refused, match="has no returned result yet"):
+        _status(world, request, "admin", "delivered")
+    with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
+        report_on(sample)
+
+    if request_type == RESEARCH:
+        # Drawing from a tube containing the requested lot debits the tube's own balance.
+        tube = _make(
+            world,
+            "editor",
+            "iki/inventory.Tube",
+            core,
+            contents=str(subject.pk),
+            amount={"value": 10, "unit": "uL"},
+        )
+        other = pending_sample(tube)
+        amounts.draw(
+            analyst,
+            tube,
+            amounts.Given.of({"value": 1, "unit": "uL"}),
+            used_in=other,
+            purpose=DrawPurpose.QA_SAMPLING,
+            confirm=tube.hrid,
+        )
+        with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
+            report_on(other)
+        amounts.draw(
+            analyst,
+            source,
+            amounts.Given.of({"value": 1, "unit": "mg"}),
+            used_in=sample,
+            purpose=DrawPurpose.QA_SAMPLING,
+        )
+    else:
+        volume = amounts.Given.of({"value": 1, "unit": "uL"})
+        if request_type == PLAIN:
+            work = _make(world, "editor", "iki/core.Collection", core, name="Assay measurements")
+            amounts.draw(analyst, source, volume, used_in=work, confirm=source.hrid)
+            with pytest.raises(Invalid, match="Choose a sample or tube on this request"):
+                report_on(work)
+        amounts.draw(analyst, source, volume, used_in=sample, confirm=source.hrid)
+    result = report_on(sample)
+    with pytest.raises(Refused, match="has no returned result yet"):
+        _status(world, request, "admin", "delivered")
+    if request_type == PLAIN:
+        _status(world, result, "admin", "delivered")
+    elif request_type == RESEARCH:
+        _sign(world, "admin", result, "signed_off")
+    else:
+        _sign(world, "editor", result, "submitted")
+        _sign(world, "admin", result, "reviewed")
+        with pytest.raises(Refused, match="has no returned result yet"):
+            _status(world, request, "admin", "delivered")
+        _sign(world, "viewer", result, "released")
+    assert ProjectLink.objects.get(entity=result, project=asking).via_request_id == request.pk
+    _status(world, request, "admin", "delivered")
 
 
 def _production(world: World, asking: Project) -> None:
@@ -419,6 +576,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     assert api.get(f"/files/{report}").status_code == 404
 
     corrected = _report(world.project, "corrected-report.txt", b"Training: confirmed run accession")
+    _sign(world, "admin", deliverable, "recorded", "Reopen the report for correction")
     services.update(
         world.users["editor"],
         deliverable,
@@ -432,7 +590,7 @@ def _sequencing(world: World, asking: Project, api: Api) -> None:
     with pytest.raises(Refused):
         begin(world, "viewer", str(deliverable.pk), "released", field="review")
     _sign(world, "editor", deliverable, "submitted")
-    review = _sign(world, "admin", deliverable, "reviewed")
+    review = _sign(world, "admin", deliverable, "reviewed", "Review the corrected report")
     with pytest.raises(Refused, match="did not create, submit, edit or review"):
         begin(world, "admin", str(deliverable.pk), "released", field="review")
 

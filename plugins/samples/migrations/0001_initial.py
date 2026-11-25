@@ -30,7 +30,7 @@ class Migration(migrations.Migration):
                 ('receipt', models.JSONField(null=True)),
                 ('notes', models.TextField(null=True)),
                 ('due_on', models.DateField(null=True)),
-                ('status', iki_server.entities.fields.StateField(db_comment='A state field (ADR 0125): one of pending, received, in_testing, in_review, reviewed, results_recorded, retesting.', db_default='pending', locking=['in_review', 'reviewed', 'results_recorded'], states=['pending', 'received', 'in_testing', 'in_review', 'reviewed', 'results_recorded', 'retesting'])),
+                ('status', iki_server.entities.fields.StateField(db_comment='A state field (ADR 0125): one of pending, received, in_testing, in_review, reviewed, retesting.', db_default='pending', locking=['in_review', 'reviewed'], states=['pending', 'received', 'in_testing', 'in_review', 'reviewed', 'retesting'])),
                 ('analyst', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),
                 ('purpose', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to='iki_entities.entity')),
                 ('reviewer', models.ForeignKey(null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),
@@ -103,6 +103,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='sample',
-            constraint=models.CheckConstraint(condition=models.Q(('status__in', ['pending', 'received', 'in_testing', 'in_review', 'reviewed', 'results_recorded', 'retesting'])), name='iki__samples_sample__status__known'),
+            constraint=models.CheckConstraint(condition=models.Q(('status__in', ['pending', 'received', 'in_testing', 'in_review', 'reviewed', 'retesting'])), name='iki__samples_sample__status__known'),
         ),
     ]

@@ -255,7 +255,19 @@ def _autodetector() -> type:
                     continue
                 if isinstance(op, migrations.AddField):
                     model = apps.get_model(app_label, op.model_name)
-                    if hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_EXTENDS"):
+                    if owner := getattr(model, "IKI_HISTORY_OF", None):
+                        # Apply a new live column's manifest default to its historical
+                        # twin once, when adding it. Later snapshots supply their own values.
+                        live = apps.get_model(app_label, owner)
+                        if op.name in {f.name for f in live._meta.local_concrete_fields}:
+                            column = live._meta.get_field(op.name)
+                            if column.has_db_default():
+                                field = op.field.clone()
+                                field.default = column.db_default
+                                op = migrations.AddField(
+                                    op.model_name, op.name, field, preserve_default=False
+                                )
+                    elif hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_EXTENDS"):
                         # Live plugin columns can acquire a field or rule guard even in a
                         # later manifest with no migration (ADR 0127).
                         op = AddPluginField(op.model_name, op.name, op.field, op.preserve_default)

@@ -78,7 +78,8 @@ def test_files_are_checked_against_the_fields_rules(lab: dict[str, Any]) -> None
     alice, project = lab["alice"], lab["first"]
     text = add_file(project, name="notes.txt", media_type="text/plain", digit="c")
     assert errors(alice, project, str(text.pk)) == [
-        "must be chemical/x-mmcif or chemical/x-pdb, and this file is text/plain."
+        "must be chemical/x-mmcif, chemical/x-pdb or Model coordinates, "
+        "and this file is text/plain."
     ]
     huge = add_file(project, size=3 * GiB + GiB // 10, digit="d")
     assert errors(alice, project, str(huge.pk)) == [
@@ -95,6 +96,7 @@ def test_files_are_checked_against_the_fields_rules(lab: dict[str, Any]) -> None
 def test_media_types_may_name_a_whole_kind() -> None:
     assert values.media_type_allowed("image/png", ["image/*"])
     assert values.media_type_allowed("application/json", ["application/json"])
+    assert values.media_type_allowed("application/vnd.sybyl.mol2", ["chemical/*"])
     assert not values.media_type_allowed("application/jsonl", ["application/json"])
     assert not values.media_type_allowed("text/png", ["image/*"])
 
@@ -138,5 +140,10 @@ def test_the_schema_says_a_field_takes_a_file() -> None:
     out = schema.field_schema(field)
     assert "readOnly" not in out
     assert out["x-iki-file"] is True
-    assert out["x-iki-media-types"] == ["chemical/x-mmcif", "chemical/x-pdb"]
+    assert {
+        "chemical/x-mmcif",
+        "chemical/x-pdb",
+        "chemical/x-acme-model",
+        "chemical/x-acme-coordinates",
+    } <= set(out["x-iki-media-types"])
     assert out["x-iki-max-size"] == 2 * GiB

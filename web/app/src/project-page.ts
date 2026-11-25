@@ -89,7 +89,8 @@ export function changeWords(
     case "created":
       return { verb: "created", after: "" };
     case "edited":
-      return { verb: "edited", after: fields.length ? `: ${fields.join(", ")}` : "" };
+    case "migrated":
+      return { verb: change.kind, after: fields.length ? `: ${fields.join(", ")}` : "" };
     case "state_changed": {
       const state = change.state;
       if (!state) return { verb: "set a state of", after: "" };

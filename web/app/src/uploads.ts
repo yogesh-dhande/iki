@@ -21,8 +21,8 @@ import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 
 import { whileWorking } from "./activity";
-import { iki } from "./api";
-import { media } from "./media";
+import { iki, queryClient } from "./api";
+import { FormatError, formatsQuery } from "./media";
 
 export type UploadedFile = Schemas["FileOut"];
 
@@ -112,7 +112,7 @@ function put(
   });
 }
 
-/** Uploads the file to the project, as `mediaType` (by default, what its name says), its
+/** Uploads the file to the project, recognized against the installed formats, its
  * data acquired `acquiredAt` (a day, or "" if the person didn't say: the file's own wins,
  * where its format records one, ADR 0177). The person waits on it, so they count as
  * active while it runs, however long it takes (ADR 0153). */
@@ -121,10 +121,16 @@ export function upload(
   projectId: string,
   onProgress: (progress: Progress) => void,
   signal?: AbortSignal,
-  mediaType: string = media.of(file),
+  allowed: readonly string[] = [],
   acquiredAt = "",
 ): Promise<UploadedFile> {
-  return whileWorking(() => uploadNow(file, projectId, onProgress, signal, mediaType, acquiredAt));
+  return whileWorking(async () => {
+    onProgress({ phase: "hashing", done: 0, total: file.size });
+    const media = await queryClient.query(formatsQuery);
+    const mediaType = await media.identify(file, allowed);
+    aborted(signal);
+    return uploadNow(file, projectId, onProgress, signal, mediaType, acquiredAt);
+  });
 }
 
 async function uploadNow(
@@ -135,7 +141,6 @@ async function uploadNow(
   mediaType: string,
   acquiredAt: string,
 ): Promise<UploadedFile> {
-  onProgress({ phase: "hashing", done: 0, total: file.size });
   const hash = await sha256Of(
     file,
     (done) => {
@@ -261,7 +266,10 @@ async function finished(uploadId: string, signal: AbortSignal | undefined): Prom
         params: { path: { upload_id: uploadId } },
       }),
     );
-    if (current.state === "ready" && current.file) return current.file;
+    if (current.state === "ready") {
+      if (current.file) return current.file;
+      throw new UploadFailed("The upload finished. You no longer have access to the file.");
+    }
     if (current.state !== "checking" && current.state !== "pending") {
       throw new UploadFailed(current.error || `The upload ${current.state}.`);
     }
@@ -271,7 +279,7 @@ async function finished(uploadId: string, signal: AbortSignal | undefined): Prom
 
 /** What went wrong, in words, for any error an upload throws. */
 export function uploadError(error: unknown): string {
-  if (error instanceof UploadFailed) return error.message;
+  if (error instanceof UploadFailed || error instanceof FormatError) return error.message;
   if (error instanceof ApiError) return error.problem.errors?.[0]?.detail ?? error.problem.detail;
   return "The upload failed. Check your connection, then try again.";
 }

@@ -25,6 +25,7 @@ from iki_server.api.common import caller, person, require
 from iki_server.api.entities import _expected, _find
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import PersonRef
+from iki_server.entities import access
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
 from iki_server.org.permissions import Action
@@ -108,8 +109,9 @@ class SignatureOut(Schema):
     )
     status_detail: str
     carried_by: int | None = Field(description="The revision that set the state with it.")
-    document: str = Field(
-        description="What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1."
+    document: str | None = Field(
+        description="The exact canonical JSON (iki/signature/v1) when the reader can identify "
+        "the entry it names."
     )
     signature: str = Field(description="The Ed25519 signature of `document`, base64url.")
     verification: SignatureVerificationOut | None = Field(
@@ -282,12 +284,22 @@ def certify(request: HttpRequest, payload: CertificationIn) -> dict[str, Any]:
 # --- Reading ------------------------------------------------------------------------------------
 
 
-def _out(signatures: list[Signature], *, verify: bool = False) -> list[dict[str, Any]]:
+def _out(user: User, signatures: list[Signature], *, verify: bool = False) -> list[dict[str, Any]]:
     standing = services.standing(signatures)
     trusted = signing_keys.trusted() if verify else None
+    documents = {s.pk: services.parsed(s) for s in signatures}
+    entries: dict[UUID, UUID] = {}
+    unavailable: set[UUID] = set()
+    for s in signatures:
+        try:
+            if entry := services.signed_entry(s, documents[s.pk]):
+                entries[s.pk] = entry
+        except (ValueError, KeyError, TypeError):
+            unavailable.add(s.pk)
+    readable = access.readable_reference_ids(user, entries.values())
     out = []
     for s in signatures:
-        document = services.parsed(s)
+        document = documents[s.pk]
         sig = document.get("signature") or {}
         signer = document.get("signer") or {}
         moved = document.get("change") or {}
@@ -333,7 +345,11 @@ def _out(signatures: list[Signature], *, verify: bool = False) -> list[dict[str,
             "status": state.status,
             "status_detail": state.detail,
             "carried_by": state.revision,
-            "document": s.document,
+            "document": (
+                s.document
+                if s.pk not in unavailable and (s.pk not in entries or entries[s.pk] in readable)
+                else None
+            ),
             "signature": proof.b64(bytes(s.signature)),
             "verification": _verification(s, trusted) if trusted is not None else None,
         }
@@ -375,7 +391,7 @@ def list_signatures(
         .select_related("signer", "entity")
         .order_by("-signed_at")
     )
-    return {"items": _out(found, verify=params.verify), "missing": services.missing(entity)}
+    return {"items": _out(me, found, verify=params.verify), "missing": services.missing(entity)}
 
 
 def _signature(me: User, signature_id: UUID) -> Signature:
@@ -395,7 +411,8 @@ def _signature(me: User, signature_id: UUID) -> Signature:
     "/signatures/{signature_id}", response=SignatureOut, summary="A signature", by_alias=True
 )
 def get_signature(request: HttpRequest, signature_id: UUID) -> dict[str, Any]:
-    return _out([_signature(caller(request), signature_id)])[0]
+    me = caller(request)
+    return _out(me, [_signature(me, signature_id)])[0]
 
 
 @router.get(
@@ -430,7 +447,7 @@ def withdraw_signature(
         raise Problem(403, str(denied)) from None
     except Invalid as error:
         raise _invalid(error) from None
-    return _out([_signature(me, signature_id)])[0]
+    return _out(me, [_signature(me, signature_id)])[0]
 
 
 def _invalid(error: Invalid) -> Problem:

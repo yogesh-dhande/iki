@@ -147,6 +147,9 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "my_work",
         "list_projects",
         "list_lab_roles",
+        "find_files",
+        "get_file",
+        "get_file_download_link",
         "list_entity_types",
         "describe_entity_type",
         "search_entities",
@@ -1021,6 +1024,25 @@ async def test_agents_send_requests_to_services(world: World) -> None:
     assert "(409" in again
 
 
+async def test_agent_reads_request_references_with_its_persons_access(world: World) -> None:
+    from test_requests import build_lab, request_with_private_sample
+
+    made, shared, private = await sync_to_async(
+        lambda: request_with_private_sample(build_lab(world))
+    )()
+    reader = await token_for(world, "tech")
+    current = data(await tool(reader, "get_entity", ref=made["hrid"]))
+    history = data(await tool(reader, "get_entity_revision", ref=made["hrid"], number=1))
+    for result, values in [(current, current["entity"]["values"]), (history, history["values"])]:
+        assert values["private_sample"] == "unreadable"
+        assert values["comparison_samples"] == [shared["id"], "unreadable"]
+        assert private["id"] not in json.dumps(result) and private["hrid"] not in json.dumps(result)
+    requester = await token_for(world, "editor")
+    readable = data(await tool(requester, "get_entity", ref=made["hrid"]))["entity"]
+    assert readable["values"]["private_sample"] == private["id"]
+    assert readable["refs"][private["id"]]["hrid"] == private["hrid"]
+
+
 async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:
     """ADR 0122: my_work is the person's own, read-only; records name people by email
     address or ID, and their state fields say whose work they are."""
@@ -1110,6 +1132,35 @@ async def test_writes_need_the_scope_and_the_role(world: World) -> None:
 
 
 # --- Runs ---------------------------------------------------------------------------------------
+
+
+async def test_launching_an_edit_on_a_reopened_record_needs_the_operators_reason(
+    world: World,
+) -> None:
+    from test_api_entities import api_as
+
+    from iki_server.entities.models import Entity
+    from iki_server.runs.models import Job
+
+    def target() -> str:
+        record = protein(api_as(world, "runner"), world.project, "reopened")
+        return str(record["id"])
+
+    released = await sync_to_async(target)()
+    token = await token_for(world, "runner", scope="read write run")
+    launch = {"name": "acme/protein.compute_properties", "project": str(world.project.pk)}
+    single = {**launch, "inputs": {"protein": released}}
+    assert data(await tool(token, "run_action", **single))["reason"] == ""
+    await Entity.objects.filter(pk=released).aupdate(has_been_locked=True)
+    before = await Job.objects.acount()
+    assert "after its lock was lifted" in error(await tool(token, "run_action", **single))
+    batch = {**launch, "each": "protein", "entities": [released]}
+    assert "after its lock was lifted" in error(await tool(token, "run_batch", **batch, reason=" "))
+    assert await Job.objects.acount() == before
+    explanation = "Repeat the calculation after correcting the input."
+    assert (
+        data(await tool(token, "run_action", **single, reason=explanation))["reason"] == explanation
+    )
 
 
 async def test_agents_run_actions_and_costly_runs_wait_for_the_person(

@@ -427,7 +427,7 @@ def test_reuse_requires_the_same_reference_data_build(
 ) -> None:
     monkeypatch.setattr(services, "plugin_sha", lambda plugin: "a" * 40)
     cluster = FakeCluster()
-    first = run_setup(world, cluster)
+    first = run_setup(world, cluster, data_version="")
     run = queue_run(world)
     finish_prediction(cluster, run["hrid"], first)
 
@@ -437,8 +437,8 @@ def test_reuse_requires_the_same_reference_data_build(
     assert same["reused_from"]["hrid"] == run["hrid"]
     assert same["attempts"] == 0
 
-    # A new build can advertise the same data_version even though its snapshots differ.
-    second = run_setup(world, cluster)
+    # Even with no descriptive label, each build identifies a distinct set of snapshots.
+    second = run_setup(world, cluster, data_version="")
     changed = launch(runner, world.project, inputs, PREDICT).json()
     assert changed["reused_from"] is None
     assert changed["status"] == "queued"
@@ -590,10 +590,13 @@ def test_a_setup_reaches_only_the_hosts_its_environment_lists(world: World) -> N
     name, _ = setup_pod(cluster)
     worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
     given = worker.lease().json()
-    import base64
+    from urllib.parse import urlsplit
 
-    credentials = base64.b64encode(f"{build['id']}:{given['job']['lease_token']}".encode())
-    header = f"Basic {credentials.decode()}"
+    from test_egress import authorization
+
+    password = urlsplit(given["job"]["proxy"]).password
+    assert password and password != given["job"]["lease_token"]
+    header = authorization(given)
     allowed = egress.decide(header, "storage.googleapis.com", 443)
     assert allowed.allowed and allowed.setup
     egress.record(allowed.job_id, "storage.googleapis.com", 443, setup=True)  # type: ignore[arg-type]

@@ -93,14 +93,6 @@ fields:
                edits.status.pending + edits.status.received + edits.status.in_testing :
                edits.status.retesting).all(e, e.by != actor.person || !e.fields.exists(f, f in ["measurements", "notes"]))
             message: Someone other than the submitter and measurement editors must review this testing cycle.
-      results_recorded:
-        label: Results recorded
-        set_by: [iki/lab_roles.reviewer]
-        locks: true
-        guards:
-          reviewed:
-            check: state.from == "reviewed"
-            message: Record the results after independent signed review.
       retesting:
         label: Returned to testing
         set_by: [iki/lab_roles.reviewer]
@@ -114,7 +106,7 @@ fields:
           ]
         guards:
           signed:
-            check: state.from in ["in_review", "reviewed", "results_recorded"]
+            check: state.from in ["in_review", "reviewed"]
             message: Return a submitted or reviewed sample to testing.
 rules:
   awaiting_testing:

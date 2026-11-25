@@ -246,6 +246,8 @@ class Signing(models.Model):
     field = models.CharField(max_length=63)
     state = models.CharField(max_length=50)
     index = models.PositiveSmallIntegerField()
+    #: Signing terms the person reviewed before the identity-provider round trip.
+    terms_digest = models.CharField(max_length=64)
     reason = models.TextField(blank=True, default="")
     #: Where the web app wants the person back: a path on this site.
     return_to = models.CharField(max_length=2000)

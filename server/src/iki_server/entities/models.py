@@ -106,6 +106,8 @@ class Entity(models.Model):
         db_default=models.Value([], output_field=ArrayField(models.CharField(max_length=50))),
         db_comment="The state fields whose states lock it (ADR 0125).",
     )
+    #: Remains true after reopening, including when a plugin migration changes its lock.
+    has_been_locked = models.BooleanField(default=False, db_default=False)
     #: A signed result delivered to its requester holds this reviewed revision for good.
     released_review_revision = models.PositiveIntegerField(null=True, blank=True)
     updated_at = models.DateTimeField(db_default=Now())
@@ -468,6 +470,7 @@ class UniqueValue(models.Model):
 class RevisionKind(models.TextChoices):
     CREATED = "created", "Created"
     EDITED = "edited", "Edited"
+    MIGRATED = "migrated", "Migrated"
     ARCHIVED = "archived", "Archived"
     RESTORED = "restored", "Restored"
     #: One of its state fields set to another state (ADR 0125).
@@ -494,6 +497,10 @@ class Revision(models.Model):
     #: 1 for the entity's creation, then 2, 3, ...
     number = models.PositiveIntegerField()
     kind = models.CharField(max_length=16, choices=RevisionKind.choices)
+    # The database stamps every writer, including bulk imports and SQL migrations.
+    history_seen = models.PositiveBigIntegerField(
+        db_default=models.Func(function="iki_history_seen")
+    )
     #: The fields whose values this revision set.
     changed_fields = ArrayField(models.CharField(max_length=63), default=list, blank=True)
     user = models.ForeignKey(
@@ -543,6 +550,10 @@ class Revision(models.Model):
             models.CheckConstraint(condition=Q(number__gte=1), name="iki_revision_number_min"),
             models.CheckConstraint(
                 condition=Q(kind__in=RevisionKind.values), name="iki_revision_kind"
+            ),
+            models.CheckConstraint(
+                condition=~Q(kind="migrated") | Q(via="system", user__isnull=True, reason__gt=""),
+                name="iki_revision_migration_reason",
             ),
             # A state change names its field and states; nothing else does.
             models.CheckConstraint(

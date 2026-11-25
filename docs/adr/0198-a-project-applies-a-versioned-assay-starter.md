@@ -123,7 +123,7 @@ the concrete type. A type without state fields returns an empty array.
 Each field contains `name`, `label`, `initial`, `states` and `transitions`.
 States carry the existing type API's labels, qualified `set_by` roles, lock
 and reason requirements, ordered signatures and guard messages. The state’s
-`on_edit` names the automatic return when a correction is accepted. For a
+`on_edit` names the correction destination. An unsigned lock can return there on an edit. A signed lock first requires an explicit signed return under [ADR 0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md#amendment-to-state-locks-and-signatures). For a
 diagram, draw a directed edge for each `{from, to, conditional}` transition
 and a separate correction edge for each `on_edit`. A conditional edge means
 that the guard still depends on information such as the record or actor.

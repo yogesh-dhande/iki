@@ -3,34 +3,42 @@
  * errors next to each field, and focus on the first invalid field after a
  * failed submit. Required fields are checked here first, so people get plain
  * words without a round trip; the API still checks everything.
+ *
+ * What it says changes when it's sent, and only then: while it's being sent (`pending`),
+ * it says what it said before, as a server form's page stays till the next one loads, so
+ * the alert and the fields' errors above its buttons don't go and come back while the
+ * answer comes.
  */
 
 import { useEffect, useId, useState, type ReactNode } from "react";
 
 import { fieldErrors, problemOf } from "./api";
-import { ProblemAlert } from "./ui";
+import { CHECK_FIELDS, ErrorSummary, problemMessage } from "./ui";
+import { useKept } from "./steady";
 
 type Checks = Record<string, string | false | undefined>;
 
-export function useForm(error: unknown) {
+/** `error`: the sending's error, if it failed. `pending`: whether it's being sent. */
+export function useForm(error: unknown, pending = false) {
   const id = useId();
-  const [checked, setChecked] = useState<Record<string, string>>({});
+  const [own, setChecked] = useState<Record<string, string>>({});
   const [attempt, setAttempt] = useState(0);
-  const problem = error ? problemOf(error) : undefined;
+  // Held while it's sent, not while a press is on: what a press sends is checked by its
+  // click, and its errors (and `aria-invalid`, for focus) come with it. The alert and the
+  // fields' errors hold themselves through a press.
+  const checked = useKept(own, pending);
+  const failed = useKept(error, pending);
+  const problem = failed ? problemOf(failed) : undefined;
   const local = Object.keys(checked).length > 0;
   const errors = local ? checked : fieldErrors(problem);
 
   useEffect(() => {
-    if (attempt === 0 && !error) return;
+    if (pending || (attempt === 0 && !error)) return;
     document.getElementById(id)?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [id, attempt, error]);
+  }, [id, attempt, error, pending]);
 
-  const alert: ReactNode = local ? (
-    <div className="alert alert-error" role="alert">
-      <p>Check the highlighted fields.</p>
-    </div>
-  ) : (
-    <ProblemAlert problem={problem} />
+  const alert: ReactNode = (
+    <ErrorSummary message={local ? CHECK_FIELDS : problemMessage(problem)} />
   );
 
   return {

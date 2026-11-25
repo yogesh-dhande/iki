@@ -124,6 +124,11 @@ export interface ClientOptions {
 export type IkiClient = Client<paths>;
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const SIGNED_DOWNLOADS = new Set([
+  "/api/v1/bundles/{export_id}/content",
+  "/api/v1/files/{file_id}/content",
+  "/api/v1/runs/{ref}/artifacts/{artifact_id}/content",
+]);
 
 /**
  * A name in a plugin, such as `iki/protein.Protein`, for a path: the `/` between its
@@ -159,6 +164,7 @@ export function createIkiClient(options: ClientOptions = {}): IkiClient {
     credentials: options.accessToken ? "omit" : "same-origin",
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
+  const redirectedReads = new WeakSet<Request>();
   const sign: Middleware = {
     async onRequest({ request }) {
       const token = await options.accessToken?.();
@@ -169,7 +175,49 @@ export function createIkiClient(options: ClientOptions = {}): IkiClient {
       if (csrf && !SAFE_METHODS.has(request.method)) {
         request.headers.set("X-CSRFToken", csrf);
       }
-      return request;
+      if (request.redirect !== "follow") return request;
+      // The browser can enforce its page origin on every hop, including for a CSRF header.
+      // Pages read cross-origin storage using /content-url, or navigate a download link.
+      const page = (globalThis as { location?: { origin: string } }).location;
+      if (page?.origin === new URL(request.url).origin) {
+        return new Request(request, { mode: "same-origin" });
+      }
+      // Programs have no page origin. Inspect one read redirect where Fetch exposes it.
+      // A browser calling another origin can't inspect Location on an opaque redirect.
+      if (request.method === "GET" || request.method === "HEAD") {
+        const read = new Request(request, { redirect: "manual" });
+        redirectedReads.add(read);
+        return read;
+      }
+      return new Request(request, { redirect: "error" });
+    },
+    async onResponse({ request, response, schemaPath, options: { fetch } }) {
+      if (!redirectedReads.has(request)) return response;
+      if (response.type === "opaqueredirect")
+        throw new Error("Iki's redirect could not be checked.");
+      const location = response.headers.get("Location");
+      if (!location || ![301, 302, 303, 307, 308].includes(response.status)) return response;
+      await response.body?.cancel();
+      const origin = new URL(request.url);
+      const next = new URL(location, origin);
+      const download = request.method === "GET" && SIGNED_DOWNLOADS.has(schemaPath);
+      if (
+        !["http:", "https:"].includes(next.protocol) ||
+        (origin.protocol === "https:" && next.protocol === "http:") ||
+        next.username ||
+        next.password ||
+        (!download && next.origin !== origin.origin)
+      )
+        throw new Error("Iki returned an unsafe redirect.");
+      return fetch(
+        new Request(next, {
+          method: request.method,
+          signal: request.signal,
+          credentials: download ? "omit" : request.credentials,
+          ...(download ? {} : { headers: request.headers }),
+          redirect: "error",
+        }),
+      );
     },
   };
   client.use(sign);

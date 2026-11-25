@@ -8,12 +8,15 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useRef, useState, type SyntheticEvent } from "react";
 
 import { noticeInput } from "../activity";
+import { problemOf } from "../api";
 import { formatSize, type EntityType } from "../entities";
+import { formatsQuery, type FileFormat, type MediaFormats } from "../media";
 import { readStoredFile } from "../stored";
-import { Button, Loading, useMessages } from "../ui";
+import { Button, Loading, ProblemAlert, useMessages } from "../ui";
 import {
   listed,
   readCamera,
@@ -29,11 +32,17 @@ import type { Source } from "./entity-viewer";
 
 type Viewer = Schemas["StructureViewerOut"];
 
-/** The formats Mol* reads here, by media type, and what they're called. */
-const FORMATS: Record<string, { format: "mmcif" | "pdb"; label: string }> = {
-  "chemical/x-mmcif": { format: "mmcif", label: "mmCIF" },
-  "chemical/x-pdb": { format: "pdb", label: "PDB" },
-};
+/** The decoders supported by Iki’s sandboxed structure frame. */
+function structureFormat(format: FileFormat | undefined) {
+  switch (format?.viewer) {
+    case "structure-mmcif":
+      return { format: "mmcif", label: format.label };
+    case "structure-pdb":
+      return { format: "pdb", label: format.label };
+    default:
+      return undefined;
+  }
+}
 
 /** Bigger files are left to desktop viewers: Mol* would need several times this in memory. */
 export const MAX_STRUCTURE_BYTES = 256 * 1024 * 1024;
@@ -61,7 +70,7 @@ interface Prepared {
   label: string;
   fileId: string | null;
   file: Source["files"][string] | undefined;
-  format: (typeof FORMATS)[string] | undefined;
+  format: ReturnType<typeof structureFormat>;
   /** Why it isn't drawn, if it isn't. */
   problem: string | null;
 }
@@ -147,14 +156,14 @@ function readMessage(data: unknown): Message | null {
   return null;
 }
 
-function prepare(items: SceneItem[]): Prepared[] {
+function prepare(items: SceneItem[], media: MediaFormats): Prepared[] {
   let total = 0;
   return items.map((item) => {
     const value = item.source.values[item.viewer.structure];
     const fileId = typeof value === "string" ? value : null;
     const file = fileId ? item.source.files[fileId] : undefined;
     const field = item.type.fields.find((f) => f.name === item.viewer.structure);
-    const format = file ? FORMATS[file.media_type] : undefined;
+    const format = file ? structureFormat(media.get(file.media_type)) : undefined;
     const label = item.state?.label ?? item.source.title;
     let problem: string | null = null;
     if (!fileId) problem = `It has no ${field?.label.toLowerCase() ?? "structure"} yet.`;
@@ -184,7 +193,10 @@ export function StructureScene({
   camera?: Camera | undefined;
   onCapture?: ((capture: Capture | null) => void) | undefined;
 }) {
-  const prepared = prepare(items);
+  const formats = useQuery(formatsQuery);
+  if (formats.error) return <ProblemAlert problem={problemOf(formats.error)} />;
+  if (!formats.data) return <Loading label="Loading file formats…" />;
+  const prepared = prepare(items, formats.data);
   const drawn = prepared.filter((p) => !p.problem);
   const several = items.length > 1;
   return (

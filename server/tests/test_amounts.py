@@ -27,7 +27,7 @@ from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
 from iki_server.org import permissions
-from iki_server.org.models import LabRoleGrant, ProjectMembership
+from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
 
 pytestmark = pytest.mark.django_db
 
@@ -367,6 +367,59 @@ def test_a_transfer_moves_some_from_one_to_the_other(world: World) -> None:
     assert (str(out.counterpart_id), str(came.counterpart_id)) == (target["id"], source["id"])
     # The record it went to depends on the one it came from.
     assert Edge.objects.filter(node_id=target["id"], on_id=source["id"], kind="transfer").exists()
+
+
+def test_a_transfer_names_the_other_record_only_where_it_can_be_read(world: World) -> None:
+    from test_requests import build_lab
+
+    from iki_server.webhooks import services as webhooks
+
+    lab = build_lab(world)
+    source = sample(world, "Source sample", {"value": 100, "unit": "uL"})
+    response = create(
+        lab.api("tech"),
+        lab.core,
+        {"label": "Receiving sample"},
+        SAMPLE,
+        amount={"value": 10, "unit": "uL"},
+    )
+    assert response.status_code == 201, response.content
+    target = response.json()
+    ProjectMembership.objects.create(
+        project=lab.core, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    hook, _ = webhooks.create(
+        project=lab.core,
+        url="https://hooks.example.com/transfers",
+        description="Amount movements",
+        chosen=["entity.amount_moved"],
+        by=lab.users["core_admin"],
+    )
+    org_hook = make(
+        world, "https://hooks.example.com/ledger", ["entity.amount_moved"], org_level=True
+    )
+    editor = lab.api("editor")
+    moved = editor.post(
+        f"/entities/{source['id']}/amount/transfer",
+        {"to": target["id"], "amount": {"value": 30, "unit": "uL"}},
+    )
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["movement"]["counterpart"] == target["id"]
+
+    path = f"/entities/{target['id']}/amount/movements"
+    restricted = lab.api("tech").get(path).json()
+    assert restricted["items"][0]["counterpart"] == "unreadable"
+    assert restricted["refs"] == {}
+    readable = editor.get(path).json()
+    assert readable["items"][0]["counterpart"] == source["id"]
+    assert readable["refs"][source["id"]]["hrid"] == source["hrid"]
+    (notice,) = deliveries(hook)
+    assert notice.payload["data"]["entity"]["id"] == target["id"]
+    assert notice.payload["data"]["counterpart"] == "unreadable"
+    outgoing, incoming = [delivery.payload["data"] for delivery in deliveries(org_hook)]
+    assert (outgoing["entity"]["id"], outgoing["kind"]) == (source["id"], "transferred_out")
+    assert (incoming["entity"]["id"], incoming["kind"]) == (target["id"], "transferred_in")
+    assert set(outgoing) == set(incoming) == {"entity", "kind", "actor", "agent"}
 
 
 def test_a_split_makes_aliquots_holding_exactly_what_it_loses(world: World) -> None:

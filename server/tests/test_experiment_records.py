@@ -28,14 +28,14 @@ from test_signatures import evidence as authenticated
 from iki_server.amounts import services as amounts
 from iki_server.amounts.models import Amount, Movement
 from iki_server.entities import services, states
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.files.models import Blob, File
 from iki_server.graph.models import Edge
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, queue, results
 from iki_server.runs import services as runs
-from iki_server.runs.models import ActionRun, Job
+from iki_server.runs.models import ActionRun, Job, RunEffect
 from iki_server.signatures.models import Signature, Status
 from iki_server.signatures.services import finish, verify
 from iki_spec.compute import Binding
@@ -72,7 +72,7 @@ def test_witnesses_sign_the_experiment_at_its_recorded_versions(
         assert exercised.returncode == 0, exercised.stdout + exercised.stderr
 
 
-def capture(world: World, experiment: Entity, result: Entity) -> None:
+def capture(world: World, experiment: Entity, result: Entity, *, reason: str = "") -> None:
     """Launch the installed capture action, give its command the worker payload and commit it."""
     action = catalog.action(PREFIX + "capture_results")
     assert action is not None
@@ -84,6 +84,7 @@ def capture(world: World, experiment: Entity, result: Entity) -> None:
         world.project,
         {"experiment": [experiment.pk], "results": [result.pk]},
         {},
+        reason=reason,
         reuse_results=False,
     )
     job = Job.objects.get(run=run)
@@ -103,14 +104,30 @@ def capture(world: World, experiment: Entity, result: Entity) -> None:
             timeout=30,
         )
         assert command.returncode == 0, command.stdout + command.stderr
+        output = json.loads(output_file.read_text())
+        update = output["updates"]["experiment"][0]
+        update["reason"] = "An explanation invented by the action"
+        with pytest.raises(results.InvalidOutput) as invented:
+            results.checked(run, output)
+        assert invented.value.errors[0]["pointer"] == "#/updates/experiment/0/reason"
+        if reason:
+            update["reason"] = reason
+            results.checked(run, output)
+        del update["reason"]  # the installed action leaves attribution to core
         with transaction.atomic():
             locked = ActionRun.objects.select_for_update().get(pk=run.pk)
-            results.commit(locked, json.loads(output_file.read_text()))
+            results.commit(locked, output)
     experiment.refresh_from_db()
+    effect = RunEffect.objects.get(run=run, entity=experiment)
+    assert effect.revision is not None
+    revision = Revision.objects.get(entity=experiment, number=effect.revision)
+    assert (revision.reason, revision.user, revision.via) == (reason, world.users["editor"], "run")
 
 
-def sign(world: World, experiment: Entity, who: str, state: str) -> Signature:
-    signature = signed(world, who, str(experiment.pk), state, field="review").signature
+def sign(world: World, experiment: Entity, who: str, state: str, reason: str = "") -> Signature:
+    signature = signed(
+        world, who, str(experiment.pk), state, field="review", reason=reason
+    ).signature
     assert signature is not None
     assert all(check.ok for check in verify(signature))
     experiment.refresh_from_db()
@@ -368,6 +385,7 @@ def exercise(flow: str) -> None:
         with pytest.raises(Refused):
             begin(world, "editor", ref, "reviewed", field="review")
         first_review = sign(world, experiment, "admin", "reviewed")
+        sign(world, experiment, "admin", "recorded", "Reopen to correct the SOP revision")
         services.update(
             editor,
             experiment,
@@ -383,9 +401,20 @@ def exercise(flow: str) -> None:
             begin(world, "viewer", ref, "released", field="review")
         with pytest.raises(Refused):
             begin(world, "editor", ref, "submitted", field="review")
-        capture(world, experiment, result)
+        no_reason = Api(world.browser("editor")).post(
+            f"/actions/{PREFIX}capture_results/runs",
+            {
+                "project": str(world.project.pk),
+                "inputs": {"experiment": ref, "results": [str(result.pk)]},
+            },
+        )
+        assert no_reason.status_code == 422, no_reason.content
+        assert "after its lock was lifted" in no_reason.content.decode()
+        capture(
+            world, experiment, result, reason="Recapture the evidence against corrected SOP 2.1"
+        )
         sign(world, experiment, "editor", "submitted")
-        sign(world, experiment, "admin", "reviewed")
+        sign(world, experiment, "admin", "reviewed", "Review the corrected SOP revision")
         with pytest.raises(Refused):
             begin(world, "admin", ref, "released", field="review")
         signature = sign(world, experiment, "viewer", "released")

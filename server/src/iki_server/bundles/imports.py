@@ -490,14 +490,10 @@ class _Planner:
         # Choose the first local blob of the digest, including externally registered
         # blobs. Several distinct registered objects can have the same bytes.
         blobs: dict[str, str] = {}
-        existing_uris: set[str] = set()
-        for sha, pk, uri in (
-            Blob.objects.filter(sha256__in=shas)
-            .order_by("pk")
-            .values_list("sha256", "pk", "storage_uri")
+        for sha, pk in (
+            Blob.objects.filter(sha256__in=shas).order_by("pk").values_list("sha256", "pk")
         ):
             blobs.setdefault(sha, str(pk))
-            existing_uris.add(uri)
         existing = {
             str(pk): (str(blob), sha)
             for pk, blob, sha in File.objects.filter(pk__in=[f["id"] for f in lines]).values_list(
@@ -508,7 +504,6 @@ class _Planner:
         # every file of that digest will be stored, as in _Writer._store.
         sources: dict[str, str] = {}
         registered = 0
-        allowed = files.locations()
         for f in lines:
             source_id, sha = f["id"], f["sha256"]
             self.file_sha[source_id] = sha
@@ -518,12 +513,15 @@ class _Planner:
                 label = source_id
             if f["registered"]:
                 registered += 1
-                uri = f["registered"]["uri"]
-                if uri not in existing_uris and not any(uri.startswith(a) for a in allowed):
-                    self.problems.append(
-                        f"{label} is registered at {uri}, where this deployment doesn't "
-                        "register files from: an administrator adds the location first."
+                if f["registered"]["version"].strip() in ("", "null"):
+                    raise reading.BundleError(
+                        f"{label} requires an immutable object version. Register a version of "
+                        "the file at its source and export the bundle again."
                     )
+                try:
+                    files.registration_location(f["registered"]["uri"])
+                except Refused as error:
+                    self.problems.append(f"{label}: {error}")
             elif sha not in carried and sha not in blobs:
                 raise reading.BundleError(f"It names {label}, but doesn't carry its bytes.")
             member = {"label": label, "action": "new"}

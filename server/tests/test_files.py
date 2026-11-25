@@ -7,12 +7,17 @@ from typing import Any
 import pytest
 import requests
 from api_client import Api, problem
+from django.db import transaction
 from django.utils import timezone
 from org_world import World, build_world
+from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import services as entities
 from iki_server.files import services, storage
-from iki_server.files.models import Blob, File, Upload
+from iki_server.files.models import Blob, File, Upload, UploadKind, UploadState
+from iki_server.oauth.models import Consent
+from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.tasks.runner import Runner
 
 pytestmark = pytest.mark.django_db
@@ -104,6 +109,102 @@ def test_an_upload_becomes_a_file_stored_under_its_content(world: World, s3: Any
     assert event.target_id == file["id"] and event.project_id == world.project.pk
     assert event.actor_id == world.users["editor"].pk
     assert event.data == {"sha256": sha, "size": len(PDB), "media_type": "chemical/x-pdb"}
+
+
+@pytest.mark.parametrize("kind", [UploadKind.FILE, UploadKind.ARTIFACT])
+def test_rolling_back_a_finish_preserves_the_staged_input_for_a_retry(
+    world: World, s3: Any, kind: UploadKind
+) -> None:
+    digest = hashlib.sha256(PDB).hexdigest()
+    upload = services.start(
+        world.users["editor"],
+        world.project,
+        name="result.pdb",
+        media_type="chemical/x-pdb",
+        size=len(PDB),
+        sha256=digest,
+        kind=kind,
+    )
+    send({"parts": services.parts(upload)}, PDB)
+    services.complete(upload)
+    with transaction.atomic():
+        assert services.check(str(upload.pk)) == "ready"
+        assert storage.digest(upload.staging_key) == (digest, len(PDB))
+        transaction.set_rollback(True)
+    upload.refresh_from_db()
+    assert upload.state == UploadState.CHECKING
+    assert storage.digest(upload.staging_key) == (digest, len(PDB))
+    assert not File.objects.exists()
+    # The queued check can finish the upload from the same staged input.
+    run_tasks()
+    upload.refresh_from_db()
+    assert upload.state == UploadState.READY
+    kept = storage.blob_key(digest) if kind == UploadKind.FILE else storage.artifact_key(upload.pk)
+    assert storage.digest(kept) == (digest, len(PDB))
+    assert not storage.exists(upload.staging_key)
+
+
+def test_upload_recognises_bytes_before_the_name_and_uses_the_registered_reader(
+    world: World, s3: Any
+) -> None:
+    from test_file_acquired import realistic_ab1
+
+    added = add(
+        api_as(world),
+        world,
+        realistic_ab1(),
+        name="download.csv",
+        media_type="application/octet-stream",
+    )
+    assert added["media_type"] == added["file"]["media_type"] == "application/x-abi"
+    assert added["file"]["acquired"]["source"] == "abif"
+
+
+@pytest.mark.parametrize(
+    ("name", "sent", "expected"),
+    [
+        ("RESULT.MOL", "application/octet-stream", "chemical/x-mdl-molfile"),
+        ("result.FA", "chemical/seq-aa-fasta", "chemical/seq-aa-fasta"),
+        ("result.fa", "text/plain", "text/plain"),
+        ("result.fasta", "text/x-fasta", "text/x-fasta"),
+        ("result.faa", "text/plain", "chemical/seq-aa-fasta"),
+        ("result.fna", "text/plain", "chemical/seq-na-fasta"),
+        ("report.lab-report", "application/x-lab-report", "application/x-lab-report"),
+        ("structure.pdb", "application/vnd.palm", "chemical/x-pdb"),
+        ("page.html", "application/octet-stream", "text/html"),
+        ("data:report,summary", "application/octet-stream", "application/octet-stream"),
+    ],
+)
+def test_an_empty_upload_uses_the_same_registry_fallbacks(
+    world: World, s3: Any, name: str, sent: str, expected: str
+) -> None:
+    started = start(api_as(world), world, b"", name=name, media_type=sent)
+    assert started.status_code == 201, started.content
+    body = started.json()
+    assert body["media_type"] == body["file"]["media_type"] == expected
+
+
+@pytest.mark.parametrize(
+    ("data", "name", "media_type", "why"),
+    [
+        (b"ABIF" + bytes(64), "download", "text/csv", "application/x-abi"),
+        (b"not an ABI trace", "download", "application/x-abi", "signature"),
+        (b"not an ABI trace", "A01.ab1", "application/octet-stream", "signature"),
+    ],
+)
+def test_format_mismatch_is_terminal_and_discards_the_staged_object(
+    world: World, s3: Any, data: bytes, name: str, media_type: str, why: str
+) -> None:
+    api = api_as(world)
+    started = start(api, world, data, name=name, media_type=media_type).json()
+    send(started, data)
+    api.post(f"/uploads/{started['id']}/complete")
+    run_tasks()
+    upload = api.get(f"/uploads/{started['id']}").json()
+    assert upload["state"] == "failed" and upload["file"] is None
+    assert why in upload["error"]
+    assert keys(s3) == [] and not Blob.objects.exists()
+    assert services.check(started["id"]) == "nothing to check"
 
 
 def test_large_files_go_in_parts(world: World, s3: Any, small_parts: int) -> None:
@@ -244,10 +345,46 @@ def test_uploads_are_their_makers_and_files_their_projects(world: World, s3: Any
         problem(api_as(world, principal).get(f"/files/{file_id}"), 404, "not_found")
         problem(api_as(world, principal).get(f"/files/{file_id}/content"), 404, "not_found")
         problem(api_as(world, principal).get(f"/files/{file_id}/content-url"), 404, "not_found")
+    assert not AuditEvent.objects.filter(action="file.download_link_issued").exists()
     listed = api_as(world, "viewer").get("/files", project=str(world.project.pk)).json()
     assert [f["id"] for f in listed["items"]] == [file_id]
     problem(start(api_as(world, "viewer"), world, PDB), 403, "forbidden")
     problem(start(api_as(world, "outsider"), world, PDB), 404, "not_found")
+
+
+def test_upload_history_follows_current_project_and_file_access(world: World, s3: Any) -> None:
+    api = api_as(world)
+    pending = start(api, world, PDB).json()
+    private = start(api, world, b"", name="private.pdb").json()
+    shared = start(api, world, b"", name="shared.pdb").json()
+
+    editor = world.users["editor"]
+    other = Project.objects.create(team=world.team, name="Structures")
+    ProjectMembership.objects.create(user=editor, project=other, role=ProjectRole.EDITOR)
+    entities.create(
+        editor, "acme/protein.ProteinStructure", other, {"structure": shared["file"]["id"]}
+    )
+    ProjectMembership.objects.filter(user=editor, project=world.project).delete()
+
+    listed = {u["id"]: u for u in api.get("/uploads").json()["items"]}
+    for job in (pending, private):
+        status = api.get(f"/uploads/{job['id']}").json()
+        assert (
+            status
+            == listed[job["id"]]
+            == {
+                "id": job["id"],
+                "state": job["state"],
+                "created_at": job["created_at"],
+                "expires_at": job["expires_at"],
+                "file": None,
+                "error": "",
+            }
+        )
+    readable = api.get(f"/uploads/{shared['id']}").json()
+    assert readable == listed[shared["id"]]
+    assert readable["name"] == "shared.pdb" and readable["file"]["id"] == shared["file"]["id"]
+    assert readable["project"] is None and readable["file"]["project"] is None
 
 
 def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(
@@ -256,6 +393,9 @@ def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(
     upload = add(api_as(world), world, PDB, name="résumé 1abc.pdb")
     response = api_as(world, "viewer").get(f"/files/{upload['file']['id']}/content")
     assert response.status_code == 302 and response["Cache-Control"] == "no-store"
+    event = AuditEvent.objects.get(action="file.download_link_issued")
+    assert (event.actor, event.agent, event.project) == (world.users["viewer"], None, world.project)
+    assert (event.target_type, event.target_id) == ("file", upload["file"]["id"])
     fetched = requests.get(response["Location"], timeout=30)
     assert fetched.content == PDB
     assert fetched.headers["Content-Type"] == "chemical/x-pdb"
@@ -267,11 +407,25 @@ def test_downloads_redirect_to_a_short_lived_link_under_the_files_name(
 def test_pages_that_read_a_file_get_a_link_and_the_hash_to_check(world: World, s3: Any) -> None:
     """The structure viewer reads files itself, so it needs the link, not a redirect."""
     upload = add(api_as(world), world, PDB)
+    file_id = upload["file"]["id"]
+    client, tokens = signed_in_token(world, "viewer", scope="read", projects=[world.project])
     before = timezone.now()
-    body = api_as(world, "viewer").get(f"/files/{upload['file']['id']}/content-url").json()
+    response = bearer(tokens["access_token"], "GET", f"/files/{file_id}/content-url")
+    assert response.status_code == 200 and response["Cache-Control"] == "no-store"
+    body = response.json()
     assert body["sha256"] == hashlib.sha256(PDB).hexdigest()
     expires = datetime.fromisoformat(body["expires_at"])
     assert timedelta(minutes=4) < expires - before <= timedelta(minutes=5, seconds=5)
+    event = AuditEvent.objects.get(action="file.download_link_issued")
+    assert (event.actor, event.project, event.target_id) == (
+        world.users["viewer"],
+        world.project,
+        file_id,
+    )
+    assert event.via == "api" and event.agent is not None
+    assert event.agent.client_id == client.client_id
+    assert event.agent.grant == Consent.objects.get(client=client, user=world.users["viewer"]).grant
+    assert event.data == {"sha256": body["sha256"], "expires_at": expires.isoformat()}
     assert requests.get(body["url"], timeout=30).content == PDB
 
 

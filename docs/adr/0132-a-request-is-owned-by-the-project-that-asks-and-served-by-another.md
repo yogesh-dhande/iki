@@ -112,11 +112,21 @@ project, audited as `request.result_released`, and it stays there, as
 released results must. A service that doesn't share its entities can't
 release them.
 
+For Plain, Research and QC requests, the service can mark the request
+Delivered once it has returned every recorded deliverable and each
+commissioned subject has a returned result. A result on a drawn sample
+covers the debited tube or lot. If the tube is an aliquot, its split
+history can trace the result back to the tube on the request. Assigning
+a sample's source plans the draw. The ledger records the withdrawal that
+establishes coverage. [ADR 0211](0211-lots-inventory-samples-and-requests.md)
+
 **Each side sees only what the request gives it.** The service reads the
 request and what it sent; the asking project reads its own records and the
 results released to it. This is fuzzed both ways, as ADR 0101 fuzzes
 authorization: of every record either project holds, each side's people
-read, list and search exactly those.
+read, list and search exactly those. Record and revision values show a
+reference as an ID when the reader can identify its target. Other references
+are shown as `unreadable`, including individual items in lists and rows.
 
 **The queue is the requests sent to a project.** They're linked into it,
 so they're in its grid and search, and a built-in `sent_to` condition

@@ -49,7 +49,11 @@ def manifestation(document: Mapping[str, Any]) -> str:
     sig = document.get("signature") or {}
     signer = document.get("signer") or {}
     meaning = SIGNATURE_MEANINGS.get(str(sig.get("meaning", "")))
-    verb = meaning.verb if meaning else "Signed"
+    verb = (
+        "Reversed"
+        if (document.get("change") or {}).get("reversal")
+        else (meaning.verb if meaning else "Signed")
+    )
     label = sig.get("label") or (meaning.label if meaning else "")
     who = signer.get("name") or signer.get("email")
     stamp = str(document.get("signed_at", ""))

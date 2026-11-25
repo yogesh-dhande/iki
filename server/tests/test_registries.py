@@ -11,8 +11,17 @@ from org_world import World, build_world, post
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
+from iki_server.notifications import services as notifications
 from iki_server.notifications.models import Notification
-from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+from iki_server.org.models import (
+    OrgRole,
+    OrgRoleAssignment,
+    Project,
+    ProjectMembership,
+    ProjectRole,
+    Registry,
+)
+from iki_server.webhooks.models import Delivery, Webhook
 
 pytestmark = pytest.mark.django_db
 
@@ -152,6 +161,32 @@ def test_references_hold_the_entry(world: World, rival: Project) -> None:
 # --- Facts -----------------------------------------------------------------------------------
 
 
+def test_a_shared_entry_fact_indicates_a_reference_only_its_owner_can_read(
+    world: World, rival: Project
+) -> None:
+    editor, outsider = api_as(world, "editor"), api_as(world, "outsider")
+    other = create(editor, world.project, {"sequence": "MRKAAA", "name": "Private"}).json()
+    other_entry = other["entry"]["id"]
+    mine = create(editor, world.project, {"sequence": SEQUENCE, "related_entry": other_entry})
+    assert mine.status_code == 201, mine.content
+    theirs = create(outsider, rival, {"sequence": SEQUENCE})
+    assert theirs.status_code == 201, theirs.content
+    entry_path = f"/entries/{mine.json()['entry']['id']}"
+    all_paths = [f"/entities/{theirs.json()['id']}", entry_path, f"{entry_path}/revisions/1"]
+    for path in all_paths:
+        response = outsider.get(path)
+        assert response.status_code == 200
+        view = response.json()
+        assert view["values"]["related_entry"] == "unreadable"
+        body = response.content.decode()
+        assert other_entry not in body and other["hrid"] not in body
+    assert view["changes"]["related_entry"]["after"] == "unreadable"
+    for path in [entry_path, f"{entry_path}/revisions/1"]:
+        view = editor.get(path).json()
+        assert view["values"]["related_entry"] == other_entry
+        assert view["refs"][other_entry]["hrid"] == other["hrid"]
+
+
 def test_a_fact_is_set_once_and_then_only_by_a_registrar(world: World, rival: Project) -> None:
     editor, outsider = api_as(world, "editor"), api_as(world, "outsider")
     mine = create(editor, world.project, {"sequence": SEQUENCE, "ec_number": "1.1.1.1"}).json()
@@ -288,6 +323,12 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     ).json()
     theirs = create(outsider, rival, {"sequence": SEQUENCE + "K"}).json()
     curator = registrar(world)
+    hook = Webhook.objects.create(
+        project=rival,
+        created_by=world.users["outsider"],
+        url="https://hooks.example.org",
+        events=["entry.superseded"],
+    )
     # Only a registrar supersedes.
     problem(
         editor.post(
@@ -311,6 +352,43 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     )
     assert done.status_code == 200, done.content
     assert done.json()["superseded"]["by"]["hrid"] == right["hrid"]
+    # A holder learns which entry to move to and reads its facts once it holds it.
+    ref = f"/entities/{theirs['id']}"
+    for detail in (
+        outsider.get(ref).json()["entry"],
+        outsider.get(f"/entries/{wrong['entry']['id']}").json(),
+    ):
+        successor = detail["superseded"]
+        assert successor["by_id"] == right["entry"]["id"]
+        assert successor["by"]["hrid"] == successor["by"]["title"] == right["hrid"]
+    assert outsider.get(f"/entries/{right['entry']['id']}").status_code == 404
+    data = Delivery.objects.get(webhook=hook, event="entry.superseded").payload["data"]
+    assert data["replacement"] == {"id": right["entry"]["id"], "hrid": right["hrid"]}
+    assert right["id"] not in str(data) and SEQUENCE not in str(data)
+    notice = Notification.objects.get(
+        kind="registry.entry_superseded", recipient=world.users["outsider"]
+    )
+    assert right["hrid"] in notice.title and notice.path == ref
+    assert str(notice.entity_id) == theirs["id"]
+    # Both current notices and earlier project-scoped notices follow current data access.
+    original = world.users["outsider"]
+    OrgRoleAssignment.objects.create(user=original, role=OrgRole.ORG_ADMIN)
+    past = Notification.objects.create(
+        recipient=original, project=rival, kind=notice.kind, title=notice.title, path=notice.path
+    )
+
+    def visible_notices() -> set[Any]:
+        return set(
+            notifications.inbox(type(original).objects.get(pk=original.pk))
+            .filter(pk__in=[notice.pk, past.pk])
+            .values_list("pk", flat=True)
+        )
+
+    assert visible_notices() == {notice.pk, past.pk}
+    rival.memberships.filter(user=original).delete()
+    assert not visible_notices()
+    rival.memberships.create(user=original, role=ProjectRole.ADMIN)
+    assert visible_notices() == {notice.pk, past.pk}
     # Each holding project's Admins, and whoever added its record, are told.
     told = set(
         Notification.objects.filter(kind="registry.entry_superseded").values_list(
@@ -323,7 +401,6 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     again = problem(create(outsider, rival, {"sequence": SEQUENCE + "K"}), 409, "refused")
     assert right["hrid"] in str(again)
     # The rival's independent holder must state why it is moving its record.
-    ref = f"/entities/{theirs['id']}"
     for body in ({}, {"reason": "   "}):
         invalid = problem(outsider.post(f"{ref}/move", body), 422, "validation_failed")
         assert invalid["errors"][0]["pointer"] == "#/reason"

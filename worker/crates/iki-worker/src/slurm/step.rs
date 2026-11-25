@@ -51,7 +51,7 @@ pub struct Step {
 #[serde(deny_unknown_fields)]
 pub struct Secrets {
     pub env: Vec<(String, String)>,
-    /// Its secrets' values and the attempt's credentials (`job::hidden`).
+    /// Secrets available to the command, including its egress credentials.
     #[serde(default)]
     pub mask: Vec<String>,
 }
@@ -70,6 +70,8 @@ pub fn apptainer(step: &Step, secrets: &Secrets) -> (Vec<String>, Vec<(String, S
         // Nothing of the host's: its environment, home, /tmp, devices or PID space.
         "--containall".to_owned(),
         "--cleanenv".to_owned(),
+        "--no-mount".to_owned(),
+        "hostfs,bind-paths".to_owned(),
     ];
     match home {
         // The job's own home, in its directory, rather than the service account's.
@@ -243,6 +245,8 @@ mod tests {
                 "exec",
                 "--containall",
                 "--cleanenv",
+                "--no-mount",
+                "hostfs,bind-paths",
                 "--home",
                 "/scratch/iki/jobs/0190/home",
                 "--bind",

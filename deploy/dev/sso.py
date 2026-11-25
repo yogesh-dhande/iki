@@ -1,15 +1,8 @@
 """Sets up sign-in on the dev cluster through the real wizard and Keycloak.
 
-    uv run python deploy/dev/sso.py           # set up (or re-set up) SSO, bob becomes admin
-    uv run python deploy/dev/sso.py --check   # same, then end-to-end checks: sign-in as
-                                              # alice (also in Chromium), her
-                                              # notification and its email,
-                                              # Keycloak's own email, SCIM
-                                              # provisioning, the API, webhooks,
-                                              # the DNA plugin's actions on the
-                                              # cluster's worker, a model behind
-                                              # an outside API (the fake
-                                              # FoldCloud), OAuth, and SAML
+    uv run python deploy/dev/sso.py                     # set up SSO, bob becomes admin
+    uv run python deploy/dev/sso.py --check             # exercise sign-in and product scenarios
+    uv run python deploy/dev/sso.py --check --fixtures  # also exercise the dev-ci overlay
 
 It drives Iki like a browser: opens a one-time setup link from
 `iki-server setup_link`, fills in the wizard, signs in on Keycloak's login
@@ -356,7 +349,9 @@ def post(
     return session.post(url, data={"csrfmiddlewaretoken": token, **data}, headers={"Origin": IKI})
 
 
-def teams_and_projects(admin: requests.Session, member: requests.Session, email: str) -> None:
+def teams_and_projects(
+    admin: requests.Session, member: requests.Session, email: str
+) -> dict[str, Any]:
     """The Org Admin creates a team and adds someone; they create a project in it."""
     name = f"E2E {int(time.time())}"
     response = post(admin, f"{IKI}/teams/", {"name": name})
@@ -385,7 +380,7 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     created = api_call(member, "POST", "/projects", {"team": team["id"], "name": "Atlas"})
     if created.status_code != 201 or created.json()["my_role"] != "admin":
         fail(f"creating a project: HTTP {created.status_code} {created.text[:200]}")
-    project = created.json()
+    project: dict[str, Any] = created.json()
     if member.get(f"{IKI}/projects/{project['slug']}/").status_code != 200:
         fail("the project's page doesn't load")
     ok("the team member created a project and became its Admin")
@@ -407,6 +402,7 @@ def teams_and_projects(admin: requests.Session, member: requests.Session, email:
     if "Created a project: Atlas" not in log.text or "Granted an org role" not in log.text:
         fail(f"the audit log page lacks the team and project events (HTTP {log.status_code})")
     ok("an Auditor reads the team, project and role changes in the audit log")
+    return project
 
 
 def told(member: requests.Session, email: str, team: str) -> None:
@@ -462,6 +458,7 @@ def identity_provider_mail(user: str) -> None:
             "username": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_USERNAME"),
             "password": secret("keycloak-dev", "KC_BOOTSTRAP_ADMIN_PASSWORD"),
         },
+        allow_redirects=False,
         timeout=10,
     )
     if token.status_code != 200:
@@ -471,6 +468,7 @@ def identity_provider_mail(user: str) -> None:
         f"{keycloak}/admin/realms/iki/users",
         params={"username": user, "exact": "true"},
         headers=admin,
+        allow_redirects=False,
         timeout=10,
     ).json()
     if len(found) != 1:
@@ -481,6 +479,7 @@ def identity_provider_mail(user: str) -> None:
         params={"lifespan": 300},
         json=["VERIFY_EMAIL"],
         headers=admin,
+        allow_redirects=False,
         timeout=30,
     )
     if sent.status_code != 204:
@@ -530,8 +529,10 @@ class Scim:
         )
 
     def __call__(self, method: str, path: str, body: Any = None) -> Any:  # noqa: ANN401
-        response = self.session.request(method, f"{IKI}/scim/v2{path}", json=body)
-        if response.status_code >= 400:
+        response = self.session.request(
+            method, f"{IKI}/scim/v2{path}", json=body, allow_redirects=False
+        )
+        if response.status_code >= 300:
             fail(f"SCIM {method} {path}: HTTP {response.status_code} {response.text[:300]}")
         return response.json() if response.content else None
 
@@ -782,7 +783,11 @@ def page_post(
 
 def bearer_call(token: str, method: str, path: str, body: Any = None) -> requests.Response:  # noqa: ANN401
     return browser().request(
-        method, f"{IKI}/api/v1{path}", json=body, headers={"Authorization": f"Bearer {token}"}
+        method,
+        f"{IKI}/api/v1{path}",
+        json=body,
+        headers={"Authorization": f"Bearer {token}"},
+        allow_redirects=False,
     )
 
 
@@ -810,6 +815,7 @@ def cli_read_token(session: requests.Session, *, project: str | None = None) -> 
     time.sleep(device["interval"])
     tokens = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             "device_code": device["device_code"],
@@ -906,6 +912,7 @@ def oauth(admin: requests.Session) -> None:
         fail(f"allowing the app answered HTTP {allowed.status_code}: {allowed.headers}")
     exchanged = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "authorization_code",
             "code": params["code"][0],
@@ -945,6 +952,7 @@ def oauth(admin: requests.Session) -> None:
         fail("creating service-account credentials didn't show them once")
     issued = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={"grant_type": "client_credentials"},
         auth=(client_id[1], html.unescape(secret[1])),
     )
@@ -993,6 +1001,7 @@ def oauth(admin: requests.Session) -> None:
         fail(f"delegating answered HTTP {delegated.status_code}: {delegated.text[:300]}")
     acting = app.post(
         f"{IKI}/oauth/token/",
+        allow_redirects=False,
         data={
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "subject_token": grant[1],
@@ -1034,6 +1043,7 @@ def mcp(token: str) -> None:
                 **({"Authorization": f"Bearer {auth}"} if auth else {}),
                 **headers,
             },
+            allow_redirects=False,
             timeout=30,
         )
 
@@ -1138,7 +1148,7 @@ def in_a_browser(user: str, ports: tuple[int, int]) -> None:
     ok("in Chromium, they created a project in the web app, with no errors or CSP violations")
 
 
-def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
+def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> dict[str, Any]:
     session = browser()
     login = session.get(f"{IKI}/login/")
     if login.status_code != 200 or "Continue with Keycloak" not in login.text:
@@ -1168,7 +1178,7 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
         fail("session cookie must be HttpOnly and end with the browser session")
     ok(f"{user} signed in through Keycloak with PKCE; session cookie is HttpOnly")
 
-    teams_and_projects(admin, session, f"{user}@iki.test")
+    project = teams_and_projects(admin, session, f"{user}@iki.test")
     identity_provider_mail(user)
     in_a_browser(user, ports)
 
@@ -1195,6 +1205,7 @@ def check(user: str, admin: requests.Session, ports: tuple[int, int]) -> None:
     if any("code=" in line or "state=" in line for line in logs.splitlines()):
         fail("OAuth code or state leaked into the web logs")
     ok("audit events reach the log stream for a SIEM; no OAuth codes in the logs")
+    return project
 
 
 def followed(session: requests.Session, run: dict[str, Any], within: int = 120) -> dict[str, Any]:
@@ -1248,11 +1259,8 @@ def followed(session: requests.Session, run: dict[str, Any], within: int = 120) 
     return found
 
 
-def actions() -> None:
+def dna_actions(alice: requests.Session, project: dict[str, Any]) -> None:
     """The DNA plugin's actions, run by the cluster's backend worker in its built environment."""
-    alice = sign_in_as("alice")
-    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
-    project = next(p for p in mine if p["name"] == "Atlas")
     listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
     for name in ("iki/dna.compute_composition", "iki/dna.primer_properties"):
         if not listed.get(name, {}).get("available"):
@@ -1301,17 +1309,6 @@ def actions() -> None:
         ):
             fail(f"{run['hrid']} wrote no melting temperature: {got}")
         ok(f"{action} ran on the cluster's backend worker ({run['hrid']}) and wrote {got}")
-    reads_aligned(alice, project)
-    sequences_aligned(alice, project)
-    sequence_library_annotation(alice, project)
-    proteins(alice, project)
-    compounds(alice, project)
-    oligonucleotides(alice, project)
-    conjugates(alice, project)
-    polymers(alice, project)
-    plasmids(alice, project)
-    lots(alice, project)
-    mouse_stocks(alice, project)
 
 
 def strain_stocks(
@@ -1339,15 +1336,28 @@ def strain_stocks(
     again = created(alice, project, "iki/strains.TransformedStrain", identity)
     if not again["reused"] or again["id"] != strain["id"]:
         fail(f"Registering {strain['hrid']}'s base and plasmid again created another strain")
+    transformation = created(
+        alice, project, "iki/experiments.Experiment", {"title": "Synthetic transformation"}
+    )
+    isolate = created(
+        alice,
+        project,
+        "iki/lots.StrainIsolate",
+        {
+            "strain": entry_of(strain),
+            "isolate_label": "Synthetic clone A",
+            "transformation": transformation["id"],
+        },
+    )
     barcode = f"SYNTHETIC-{secrets.token_hex(4)}"
     stock = created(
         alice,
         project,
-        "iki/strains.GlycerolStock",
-        {"strain": entry_of(strain), "barcode": barcode},
+        "iki/lots.GlycerolStock",
+        {"isolate": isolate["id"], "contents": isolate["id"], "barcode": barcode},
         {"value": 100, "unit": "uL"},
     )
-    box = created(alice, project, "iki/strains.StrainBox", {"name": "Synthetic glycerol stocks"})
+    box = created(alice, project, "iki/inventory.Box", {"name": "Synthetic glycerol stocks"})
     moved(alice, [(stock, box, "A1")], "Synthetic inventory example")
     location = api_call(alice, "GET", f"/entities/{stock['id']}/location").json()
     if [(step["hrid"], step["position"]) for step in location["path"]] != [(box["hrid"], "A1")]:
@@ -1361,6 +1371,7 @@ def strain_stocks(
             "bases": "".join(secrets.choice("ACGT") for _ in range(32)),
         },
     )
+    give_lab_roles(alice, project, "iki/lots.qa")
     drawn = api_call(
         alice,
         "POST",
@@ -1368,7 +1379,8 @@ def strain_stocks(
         {
             "amount": {"value": 10, "unit": "uL"},
             "used_in": read["id"],
-            "reason": "Synthetic sequencing example",
+            "reason": "Synthetic isolate check",
+            "purpose": "qa_sampling",
             "confirm": barcode,
         },
     )
@@ -1381,13 +1393,23 @@ def strain_stocks(
         or movement["confirmed"] != barcode
     ):
         fail(f"{stock['hrid']}'s ledger recorded an unexpected draw {drawn.json()}")
-    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=4&down=0")
+    ancestry = api_call(alice, "GET", f"/entities/{read['id']}/graph?up=5&down=0")
     if ancestry.status_code != 200:
         fail(f"Graph for {read['hrid']} gave HTTP {ancestry.status_code}: {ancestry.text[:500]}")
     graph = ancestry.json()
     ancestors = {entity["id"] for entity in graph["entities"]}
-    if not {stock["id"], strain["id"], base["id"], plasmid["id"]} <= ancestors:
-        fail(f"{read['hrid']}'s lineage is missing its stock, strain, base or plasmid")
+    if (
+        not {
+            stock["id"],
+            isolate["id"],
+            transformation["id"],
+            strain["id"],
+            base["id"],
+            plasmid["id"],
+        }
+        <= ancestors
+    ):
+        fail(f"{read['hrid']}'s lineage is missing its stock, isolate or strain ancestry")
     ok(f"{read['hrid']} traces to {strain['hrid']} through the draw from {stock['hrid']} at A1")
 
 
@@ -1673,13 +1695,10 @@ def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
 LIMS_RECORDS = ("LIMS-0001", "LIMS-0002", "LIMS-0003")
 
 
-def lims() -> None:
+def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     """Run the example connector against the fake LIMS, importing records over HTTPS,
     through the egress proxy, at the host the deployment's settings give, then again,
     matching each record to its protein, and a write-back."""
-    alice = sign_in_as("alice")
-    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
-    project = next(p for p in mine if p["name"] == "Atlas")
     action = "iki/lims_connector_example.import_from_lims"
     run = launch(alice, project, action, {})
     if run["network"] != ["fake-lims.iki.svc"]:
@@ -1728,17 +1747,6 @@ def lims() -> None:
     if [a["path"] for a in kept] != ["sent.json"]:
         fail(f"{sent['hrid']} kept {kept}, not what it sent")
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
-    bookings(alice, project)
-    signatures(alice, project, first)
-    stability_study(alice, project)
-    plate_assay(alice, project)
-    reagent_stock(alice, project)
-    dose_response_starters(alice, project)
-    qc_release(alice, project)
-    sequencing(alice, project)
-    sequencing_analysis(alice, project)
-    proteomics(alice, project)
-    whole_plasmid(alice, project)
 
 
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
@@ -1768,8 +1776,8 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
         sample = created(
             alice,
             project,
-            "acme/example.Sample",
-            {"name": "Saccharomyces cerevisiae SAMN11070697", "kind": "other"},
+            "iki/inventory.Tube",
+            {"name": "Saccharomyces cerevisiae SAMN11070697"},
         )
         library = created(
             alice,
@@ -1821,7 +1829,7 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
     if libraries:
         library = libraries[0]
     else:
-        sample = created(alice, project, "acme/example.Sample", {"name": name, "kind": "other"})
+        sample = created(alice, project, "iki/inventory.Tube", {"name": name})
         library = created(
             alice,
             project,
@@ -1900,7 +1908,8 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
         None,
     )
     if plasmid is None:
-        fail("no annotated pUC19 plasmid in the project to check whole-plasmid reads against")
+        _, plasmid = register_puc19(alice, project)
+        launch(alice, project, "iki/plasmid.annotate_plasmid", {"plasmid": plasmid["id"]})
     accession = "SRR17915342"
     runs = matching_records(
         alice, project, "iki/sequencing.SequencingRun", "run_accession", accession
@@ -2493,7 +2502,7 @@ def assign_reviewer(
     return person
 
 
-def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
     """Electronic signatures (ADR 0126) against Keycloak: submitting a sample signs in again
     there (prompt=login, its auth_time checked, ADR 0124), sets its state, shows with it and
     verifies; signing in at Keycloak as someone else gives no signature."""
@@ -2504,6 +2513,12 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
         "iki/lab_roles.analyst",
         "iki/lab_roles.reviewer",
         "iki/lab_roles.qa",
+    )
+    protein = created(
+        alice,
+        project,
+        "iki/protein.Protein",
+        {"name": "Signature training protein", "sequence": "MPEPTIDE"},
     )
     tube = created(
         alice,
@@ -2584,15 +2599,9 @@ def signatures(alice: requests.Session, project: dict[str, Any], protein: dict[s
     if not review["set"]:
         fail(f"Independent review of {sample['hrid']} failed: {review}")
     path = f"/entities/{sample['id']}"
-    recorded = api_call(
-        bob,
-        "POST",
-        f"{path}/states/status",
-        {"state": "results_recorded"},
-        {"If-Match": api_call(bob, "GET", path).headers["ETag"]},
-    )
-    if recorded.status_code != 200 or not recorded.json()["locked"]:
-        fail(f"Recording {sample['hrid']} failed: {recorded.text[:300]}")
+    completed = api_call(bob, "GET", path).json()
+    if completed["values"]["status"] != "reviewed" or not completed["locked"]:
+        fail(f"Signed review did not complete and lock {sample['hrid']}")
     carol = sign_in_as("carol")
     core = analytical_core(alice, bob, carol, project)
     analysis_result(alice, bob, carol, project, sample, core)
@@ -2718,12 +2727,19 @@ def analysis_result(
     result_path = f"/entities/{result['hrid']}"
     requester = cli_read_token(analyst, project=asking["id"])
 
-    def submit_and_review() -> dict[str, Any]:
+    def submit_and_review(review_reason: str = "") -> dict[str, Any]:
         for session, name, state in (
             (analyst, "alice", "submitted"),
             (reviewer, "bob", "reviewed"),
         ):
-            signed = signing(session, result, state, name, field="review")
+            signed = signing(
+                session,
+                result,
+                state,
+                name,
+                field="review",
+                reason=review_reason if state == "reviewed" else "",
+            )
             if signed["status"] != "signed" or not signed["set"]:
                 fail(f"signing {result['hrid']} as {state} gave {signed}")
         return record(analyst, result["id"])
@@ -2731,13 +2747,19 @@ def analysis_result(
     first_review = submit_and_review()
     if not first_review["locked"] or bearer_call(requester, "GET", result_path).status_code != 404:
         fail(f"{result['hrid']} must be locked in the core until QA releases it")
+    reversal = signing(
+        reviewer, result, "recorded", "bob", field="review", reason="Reopen the measured purity"
+    )
+    if reversal["status"] != "signed" or not reversal["set"]:
+        fail(f"Reopening {result['hrid']} for correction failed: {reversal}")
+    reopened = record(analyst, result["id"])
     measurement["purity"] = 97.0
     edit = api_call(
         analyst,
         "PATCH",
         result_path,
         {"values": {"purity": measurement["purity"]}, "reason": "Correct the measured purity"},
-        {"If-Match": f'"{first_review["revision"]}"'},
+        {"If-Match": f'"{reopened["revision"]}"'},
     )
     if edit.status_code != 200 or edit.json()["values"]["review"] != "recorded":
         fail(
@@ -2746,7 +2768,7 @@ def analysis_result(
     qa_states = record(qa, result["id"])["can"]["states"]["review"]
     if next(st for st in qa_states if st["name"] == "released")["allowed"]:
         fail(f"QA could release {result['hrid']} before the correction was reviewed")
-    reviewed = submit_and_review()
+    reviewed = submit_and_review("Reviewed the corrected measured purity")
     signed = signing(qa, result, "released", "carol", field="review")
     if signed["status"] != "signed" or not signed["set"]:
         fail(f"releasing {result['hrid']} gave {signed}")
@@ -2756,8 +2778,10 @@ def analysis_result(
     ]
     if len({s["signer"]["id"] for s in signatures}) != 3:
         fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
-    if len(signatures) != 5:
-        fail(f"{result['hrid']} must retain both signed reviews, both submissions and QA's release")
+    if len(signatures) != 6:
+        fail(
+            f"{result['hrid']} must retain both submissions, reviews, the reversal and QA's release"
+        )
     review = next(s for s in signatures if s["carried_by"] == reviewed["revision"])
     release = next(s for s in signatures if s["change"]["to"] == "released")
     receipt = bearer_call(requester, "GET", path + "/request").json()["result_releases"]
@@ -3372,7 +3396,7 @@ def bookings(alice: requests.Session, project: dict[str, Any]) -> None:
     seen = (
         shown(bob, {"entity": reader["id"]}).status_code,
         shown(bob, {"project": project["id"]}).status_code,
-        [i["hrid"] for i in shown(bob, {"home": True}).json().get("items", [])],
+        [i["hrid"] for i in shown(bob, {"home": True, "refine": {"where": these}}).json()["items"]],
     )
     if seen != (404, 403, []):
         fail(f"Bob, outside {project['name']}, got {seen} from the calendar, not nothing")
@@ -3440,7 +3464,6 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
         f"iki/protein.compute_properties ran in Biopython's environment ({run['hrid']}): "
         f"{weight} Da, pI {point}"
     )
-    foldcloud(alice, project, protein)
     chains = aligned(alice, project)
     reads_on_protein(alice, project, chains[1])
     aligned_many(alice, project, chains)
@@ -3456,19 +3479,25 @@ def proteins(alice: requests.Session, project: dict[str, Any]) -> None:
 #: cluster's settings point it: the fake FoldCloud (manifests/fake-foldcloud.yaml).
 FOLDCLOUD = "iki/example_models.foldcloud"
 FOLDCLOUD_HOST = "fake-foldcloud.iki.svc"
-#: What deploy/dev/compute.yaml charges for its calls, in USD: per call, and per GPU second
+#: What the CI fixture charges for its calls, in USD: per call, and per GPU second
 #: the finished job reports. The fake reports half a GPU second per residue.
 FOLDCLOUD_PER_CALL = 0.01
 FOLDCLOUD_PER_GPU_SECOND = 0.0011
 
 
-def foldcloud(alice: requests.Session, project: dict[str, Any], protein: dict[str, Any]) -> None:
+def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
     """A model behind an outside API (ADR 0130): refused until an Org Admin approves
     FoldCloud for Atlas, then a prediction that calls it through the egress proxy, which
     adds the organization's key, parks on its job without a worker, wakes on its signed
     webhook and resumes to import the structure. The proxy's record of each call says what
     answered, and their prices are the run's cost. The approval is revoked afterwards."""
     bob = sign_in_as("bob")
+    protein = created(
+        alice,
+        project,
+        "iki/protein.Protein",
+        {"name": "FoldCloud test input", "sequence": "AGSGAGSGAGSG"},
+    )
     approvals = f"/outside-apis/{FOLDCLOUD}/approvals"
     # One left by an earlier check that stopped part way.
     api_call(bob, "DELETE", f"{approvals}/{project['id']}")
@@ -4828,6 +4857,21 @@ def stability_study(alice: requests.Session, project: dict[str, Any]) -> None:
     ok(f"{study['hrid']} scheduled and drew its stored tube, then trended its signed result")
 
 
+def register_puc19(
+    alice: requests.Session, project: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Register the public reference used by the plasmid and sequencing scenarios."""
+    run = launch(
+        alice,
+        project,
+        "iki/plasmid.register_plasmid",
+        {},
+        {"bases": PUC19, "name": "pUC19", "accession": "L09137.2"},
+    )
+    plasmid = next(e for e in run["effects"] if e["type"] == "iki/plasmid.Plasmid")
+    return run, record(alice, plasmid["entity"])
+
+
 def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plasmid plugin, in its environment with Biopython: pUC19 registered from the
     2,686 bases of L09137.2 and annotated by its trigger from the library of common vector
@@ -4848,15 +4892,10 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
         if on.status_code != 200 or not on.json().get("enabled"):
             fail(f"turning {trigger} on answered HTTP {on.status_code}: {on.text[:300]}")
     action = "iki/plasmid.register_plasmid"
-    run = launch(
-        alice, project, action, {}, {"bases": PUC19, "name": "pUC19", "accession": "L09137.2"}
-    )
+    run, plasmid = register_puc19(alice, project)
     kinds = {e["type"]: e["kind"] for e in run["effects"]}
     if kinds.get("iki/plasmid.Plasmid") != "created":
         fail(f"{run['hrid']} ({action}) made {run['effects']}, not a plasmid")
-    plasmid = record(
-        alice, next(e["entity"] for e in run["effects"] if e["type"].endswith("Plasmid"))
-    )
     # Its trigger annotates it: the run is launched by the server, so wait for its values.
     deadline = time.monotonic() + 180
     values: dict[str, Any] = {}
@@ -6263,7 +6302,12 @@ def upload(
     made = started.json()
     offset = 0
     for part in made["parts"]:
-        sent = requests.put(part["url"], data=data[offset : offset + part["size"]], timeout=30)
+        sent = requests.put(
+            part["url"],
+            data=data[offset : offset + part["size"]],
+            allow_redirects=False,
+            timeout=30,
+        )
         if sent.status_code != 200:
             fail(f"sending part {part['number']} answered HTTP {sent.status_code}")
         offset += part["size"]
@@ -6551,13 +6595,10 @@ def _contained(
     return run, attempt, str(got.get("storage"))
 
 
-def containers() -> None:
+def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     """The plugin template's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
-    alice = sign_in_as("alice")
-    mine = api_call(alice, "GET", "/projects?member=true&limit=100").json()["items"]
-    project = next(p for p in mine if p["name"] == "Atlas")
     listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
     for action in ("acme/example.assign_storage", "acme/example.tidy_storage"):
         if not listed.get(action, {}).get("available"):
@@ -6584,7 +6625,7 @@ def containers() -> None:
     ok(f"{attempt['worker']} is labelled with {run['hrid']}'s run and project")
 
     action = "acme/example.tidy_storage"
-    # container-warm keeps one pod and allows no more (compute.yaml), so both runs share
+    # container-warm keeps one pod and allows no more (fixtures/compute.yaml), so both runs share
     # it only if it ran one after the other; what runs where doesn't depend on which of
     # two free pods won a lease.
     ran = [
@@ -6873,9 +6914,39 @@ def budget_warns(project: dict[str, Any]) -> None:
         api_call(bob, "PUT", path, {"roles": roles})
 
 
+def product_scenarios(alice: requests.Session, project: dict[str, Any]) -> None:
+    """Run the scientific checks for the product lock in the newly created Atlas project."""
+    dna_actions(alice, project)
+    reads_aligned(alice, project)
+    sequences_aligned(alice, project)
+    sequence_library_annotation(alice, project)
+    proteins(alice, project)
+    compounds(alice, project)
+    oligonucleotides(alice, project)
+    conjugates(alice, project)
+    polymers(alice, project)
+    plasmids(alice, project)
+    lots(alice, project)
+    mouse_stocks(alice, project)
+    bookings(alice, project)
+    signatures(alice, project)
+    stability_study(alice, project)
+    plate_assay(alice, project)
+    reagent_stock(alice, project)
+    dose_response_starters(alice, project)
+    qc_release(alice, project)
+    sequencing(alice, project)
+    sequencing_analysis(alice, project)
+    proteomics(alice, project)
+    whole_plasmid(alice, project)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="also run end-to-end sign-in checks")
+    parser.add_argument("--check", action="store_true", help="run the sign-in and product checks")
+    parser.add_argument(
+        "--fixtures", action="store_true", help="also run checks that require the dev-ci overlay"
+    )
     parser.add_argument("--admin", default="bob", help="Keycloak user who finishes setup")
     parser.add_argument("--iki-port", type=int, default=8000)
     parser.add_argument("--keycloak-port", type=int, default=8080)
@@ -6886,6 +6957,8 @@ def main() -> None:
         "--web", default=WEB["target"], help="web pod or deployment for exec and logs"
     )
     args = parser.parse_args()
+    if args.fixtures and not args.check:
+        parser.error("--fixtures requires --check")
     WEB["target"] = args.web
     MAILPIT["url"] = f"http://127.0.0.1:{args.mailpit_port}"
     RECEIVER["url"] = f"http://127.0.0.1:{args.webhook_port}"
@@ -6893,14 +6966,32 @@ def main() -> None:
     route(args.iki_port, args.keycloak_port)
     admin = set_up(args.admin)
     if args.check:
-        check("alice", admin, (args.iki_port, args.keycloak_port))
+        project = check("alice", admin, (args.iki_port, args.keycloak_port))
         provisioning(admin)
         rest_api(admin)
         webhooks(admin)
         certify_dev_signatures(admin)
-        actions()
-        lims()
-        containers()
+        alice = sign_in_as("alice")
+        product_scenarios(alice, project)
+        sys.stdout.write(
+            kubectl(
+                "exec",
+                "-i",
+                WEB["target"],
+                "-c",
+                "web",
+                "--",
+                "env",
+                f"IKI_SEED_PROJECT={project['id']}",
+                "iki-server",
+                "shell",
+                stdin=Path(__file__).with_name("check_seed.py").read_text(),
+            )
+        )
+        if args.fixtures:
+            lims(alice, project)
+            foldcloud(alice, project)
+            containers(alice, project)
         oauth(admin)
         saml()
 

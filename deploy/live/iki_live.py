@@ -507,6 +507,7 @@ def build_plugins(
             "--workers",
             str(out / "worker"),
             "--allow-local",
+            "--test-only",
         ],
         check=True,
         cwd=REPO,
@@ -846,7 +847,12 @@ def check_file_round_trip(
     offset = 0
     for part in upload["parts"]:
         upload_url(part["url"])
-        sent = requests.put(part["url"], data=body[offset : offset + part["size"]], timeout=120)
+        sent = requests.put(
+            part["url"],
+            data=body[offset : offset + part["size"]],
+            allow_redirects=False,
+            timeout=120,
+        )
         assert sent.status_code == 200, sent.text[:500]
         offset += part["size"]
     done = admin.api("POST", f"/uploads/{upload['id']}/complete")
@@ -865,7 +871,7 @@ def check_file_round_trip(
     assert ready["state"] == "ready", ready
     link = admin.api("GET", f"/files/{ready['file']['id']}/content-url").json()["url"]
     download_url(link)
-    downloaded = requests.get(link, timeout=120)
+    downloaded = requests.get(link, allow_redirects=False, timeout=120)
     assert downloaded.status_code == 200 and hashlib.sha256(downloaded.content).hexdigest() == sha
 
 

@@ -32,6 +32,8 @@ server.
 | `plugin-template/` | Where a lab's own plugin starts: example types, migrations, CI       |
 | `docs/adr/`        | Architecture Decision Records                                        |
 
+For lab-specific procedures, see the [plugin examples and copy instructions](examples/plugins/README.md).
+
 ## Development
 
 Requirements:
@@ -54,7 +56,8 @@ make help    # list all tasks
 ```
 
 To run the whole stack on a local Kubernetes cluster (Postgres, S3, Keycloak,
-Grafana), see [deploy/dev/README.md](deploy/dev/README.md): `make dev-up`.
+Grafana), run `make dev-up`. Use `make dev-e2e` to seed and check the product plugins.
+The [dev cluster guide](deploy/dev/README.md) also covers the fixture cluster for integration tests.
 
 To work on an Iki plugin with a coding agent, use the skills to
 [write](plugin-template/.agents/skills/iki-write-plugin/SKILL.md),

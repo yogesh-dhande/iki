@@ -344,7 +344,7 @@ pub fn sbatch_args(slurm: &RunInputJobSlurm, name: &str, comment: &str, dir: &Pa
         format!("--output={}", path(&dir.join("log"))),
         format!("--error={}", path(&dir.join("log"))),
         "--open-mode=append".to_owned(),
-        format!("--chdir={}", path(dir)),
+        format!("--chdir={}", path(&dir.join("command"))),
     ];
     if let Some(qos) = slurm.qos.as_deref().filter(|q| !q.is_empty()) {
         args.push(format!("--qos={qos}"));
@@ -495,7 +495,7 @@ mod tests {
                 "--output=/scratch/iki/jobs/0190/log",
                 "--error=/scratch/iki/jobs/0190/log",
                 "--open-mode=append",
-                "--chdir=/scratch/iki/jobs/0190",
+                "--chdir=/scratch/iki/jobs/0190/command",
                 "--qos=normal",
                 "--mem=8192",
                 "--gpus=a100:1",

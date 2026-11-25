@@ -18,12 +18,12 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.utils import timezone
 
 from iki_server.audit import log as audit
 from iki_server.entities import access, registry
-from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.files.models import File
 from iki_server.runs import included, input_files, live
@@ -67,6 +67,8 @@ def key(
     settings: Mapping[str, Any],
     pins: Sequence[included.Pin] = (),
     *,
+    entry_revisions: Mapping[UUID, int | None],
+    reference_mask: list[str],
     volumes: dict[str, Any] | None,
     image_digest: str = "",
 ) -> str:
@@ -115,7 +117,7 @@ def key(
                     e.type,
                     types[e.type].schema_version,
                     # A registry entry's values are the record's too (ADR 0115).
-                    *([] if (at := entity_services.entry_revision(e)) is None else [at]),
+                    *([] if (at := entry_revisions[e.pk]) is None else [at]),
                 ]
                 for e in chosen
             ]
@@ -125,6 +127,8 @@ def key(
     if pins:
         # Only when there are any, so keys made before inputs could include stay the same.
         document["included"] = included.keyed(pins)
+    if reference_mask:
+        document["reference_mask"] = reference_mask
     if image_digest:
         document["image_digest"] = image_digest
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"), default=str)
@@ -183,6 +187,7 @@ def reuse(
     original: ActionRun,
     *,
     hrid: str,
+    entry_revisions: Mapping[UUID, int | None],
     batch: RunBatch | None = None,
     step: tuple[WorkflowRun, str] | None = None,
     pins: Sequence[included.Pin] = (),
@@ -216,6 +221,7 @@ def reuse(
         volumes=original.volumes,
         seed=original.seed,
         reuse_key=original.reuse_key,
+        reference_mask=original.reference_mask,
         reused_from=original,
         timeout=original.timeout,
         max_attempts=original.max_attempts,
@@ -230,13 +236,13 @@ def reuse(
             position=index,
             entity=entity,
             revision=entity.revision,
-            entry_revision=entity_services.entry_revision(entity),
+            entry_revision=entry_revisions[entity.pk],
         )
         for name, chosen in entities.items()
         for index, entity in enumerate(chosen)
     )
     included.record(run, pins)
-    input_files.record_given(run)
+    input_files.record_given(run, included.manifest(run))
     made = list(
         RunEffect.objects.filter(
             run=original, kind__in=[EffectKind.CREATED, EffectKind.REUSED]

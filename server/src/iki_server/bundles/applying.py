@@ -30,11 +30,12 @@ import datetime as dt
 import tempfile
 import uuid
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import F
@@ -67,6 +68,7 @@ from iki_server.entities.services import (
 )
 from iki_server.entities.values import Shape, shape
 from iki_server.entities.values import is_list_table as _is_list
+from iki_server.files import services as files
 from iki_server.files import storage
 from iki_server.files.models import Blob, File
 from iki_server.org.models import registry_of
@@ -156,6 +158,7 @@ def apply_import(import_id: str, planned_at: str | None = None) -> str:
                     f"This deployment no longer trusts {bundle.source}'s key, so nothing was "
                     "imported."
                 )
+            _verify_registered_files(made, bundle)
             return _apply(made, bundle, Path(tmp))
         except (reading.BundleError, IntegrityError, DatabaseError) as error:
             logger.warning("bundle_import_failed", import_id=import_id, error=str(error))
@@ -166,6 +169,63 @@ def apply_import(import_id: str, planned_at: str | None = None) -> str:
             logger.exception("bundle_import_crashed", import_id=import_id)
             _failed(made, UNEXPECTED)
             raise
+
+
+def _verify_registered_files(made: BundleImport, bundle: reading.Bundle) -> None:
+    """Read each external version once, before taking the project's write locks.
+
+    Check both the source the bundle declares and any external blob the reviewed plan
+    will actually use. The locked replan requires confirmation if that choice changes.
+    """
+    decisions = made.plan.get("members", {}).get("files", {})
+    reused = {
+        str(blob.pk): blob
+        for blob in Blob.objects.filter(
+            pk__in={d["blob"] for d in decisions.values() if "blob" in d},
+            registered_external=True,
+        )
+    }
+    checked: dict[tuple[str, str], tuple[str, int]] = {}
+
+    def verify(uri: str, version: str, sha: str, size: int, label: str) -> None:
+        if version.strip() in ("", "null"):
+            raise reading.BundleError(f"{label} requires an immutable object version.")
+        source = (uri, version)
+        if source not in checked:
+            try:
+                found = files.registration_object(uri, version)
+                if found["size"] != size:
+                    raise reading.BundleError(
+                        f"{label}: the registered version has a different size."
+                    )
+                bucket, key = storage.split_uri(uri)
+                checked[source] = storage.digest_object(bucket, key, version)
+            except (Refused, BotoCoreError, ClientError, storage.StorageError, OSError) as error:
+                # A local copy may belong to a different project. Keep its location and
+                # the storage provider's response out of the caller's import record.
+                raise reading.BundleError(
+                    f"{label}: Iki could not read the pinned version at an approved location. "
+                    "Check the object's version, availability and registration settings."
+                ) from error
+        if checked[source] != (sha, size):
+            raise reading.BundleError(
+                f"{label}: the registered bytes differ from the recorded SHA-256 or size."
+            )
+
+    for item in bundle.lines("files.ndjson"):
+        if registered := item["registered"]:
+            verify(
+                registered["uri"], registered["version"], item["sha256"], item["size"], item["name"]
+            )
+        target = reused.get(decisions.get(item["id"], {}).get("blob", ""))
+        if target is not None:
+            if (target.sha256, target.size) != (item["sha256"], item["size"]):
+                raise reading.BundleError(
+                    f"{item['name']}: the local file has a different SHA-256 or size."
+                )
+            verify(
+                target.storage_uri, target.object_version, target.sha256, target.size, item["name"]
+            )
 
 
 def _said(error: Exception) -> str:
@@ -366,19 +426,25 @@ class _Writer:
 
     def _agents(self) -> None:
         for line in self.bundle.lines("agents.ndjson"):
-            agent = Agent.objects.filter(key=line["key"]).first()
-            if agent is None:
-                agent = Agent.objects.create(
-                    key=line["key"],
-                    client_id=line["client_id"],
-                    client_name=line["client_name"],
-                    grant=line["grant"],
-                    session=line["session"],
-                    software=line["software"],
-                    model=line["model"],
-                    first_seen_at=line["first_seen_at"],
-                )
-            self.agents[line["id"]] = agent
+            info = audit.AgentInfo(
+                client_id=line["client_id"],
+                client_name=line["client_name"],
+                grant=uuid.UUID(line["grant"]) if line["grant"] else None,
+                session=line["session"],
+                software=line["software"],
+                model=line["model"],
+            )
+            key = info.key()
+            if key != line["key"]:
+                raise reading.BundleError("An agent's key does not match its identity.")
+            identity = asdict(info)
+            agent, _ = Agent.objects.get_or_create(
+                key=key, defaults={**identity, "first_seen_at": line["first_seen_at"]}
+            )
+            if any(getattr(agent, field) != value for field, value in identity.items()):
+                raise reading.BundleError("An agent's identity conflicts with the local record.")
+            if self.agents.setdefault(line["id"], agent) != agent:
+                raise reading.BundleError("The bundle gives one agent ID two identities.")
 
     def _user(self, source_id: str | None) -> User | None:
         return self.people.get(source_id) if source_id else None
@@ -584,7 +650,7 @@ class _Writer:
             row.save(update_fields=["hrid_here"])
         self._extensions_and_lists(form, instance.pk, values, fresh=True)
         self._history(form, instance.pk, line, revisions, after=0)
-        self._lock(instance.pk, line["type"], values)
+        self._lock(instance.pk, line, values)
         ProjectLink.objects.create(
             entity_id=instance.pk, project=self.made.project, linked_by=self.made.applied_by
         )
@@ -610,15 +676,16 @@ class _Writer:
             updated_at=revisions[-1]["created_at"],
             archived_at=line["archived_at"],
         )
-        self._lock(instance.pk, line["type"], values)
+        self._lock(instance.pk, line, values)
         self.counts["updated"] += 1
 
     @staticmethod
-    def _lock(entity_id: uuid.UUID, type_name: str, values: dict[str, Any]) -> None:
+    def _lock(entity_id: uuid.UUID, line: dict[str, Any], values: dict[str, Any]) -> None:
         """Whether the record's state fields, as the bundle has them, lock it (ADR 0125)."""
-        found = states.locking(states.state_fields(type_name), values)
-        if found:
-            Entity.objects.filter(pk=entity_id).update(locked_by=found)
+        fields = states.state_fields(line["type"])
+        found = states.locking(fields, values)
+        if found or line.get("has_been_locked"):
+            Entity.objects.filter(pk=entity_id).update(locked_by=found, has_been_locked=True)
 
     @staticmethod
     def _set_values(form: Shape, instance: Any, values: dict[str, Any]) -> None:  # noqa: ANN401
@@ -714,19 +781,31 @@ class _Writer:
         from iki_server.signatures import services as signature_services
         from iki_server.signatures.models import Signature, Withdrawal
 
-        listed = {k["key"]: k["deployment"] for k in self.bundle.manifest.get("signing_keys", [])}
-        trusted = {**signing_keys.trusted(), **listed}
         # What migrations here do to its record's history from now on, it's read through,
         # signed by this deployment's own key (ADR 0148): made now, if it has none yet.
         seen = signature_services.history_seen()
         if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
             signing_keys.current()
+        trusted = signing_keys.trusted()
+        for binding in self.bundle.manifest.get("signing_keys", []):
+            if trusted.setdefault(binding["key"], binding["deployment"]) != binding["deployment"]:
+                raise reading.BundleError(
+                    "A signing key names a different deployment than its established binding."
+                )
         entities = {line["id"]: line["type"] for line in self.bundle.lines("entities.ndjson")}
         reviews: dict[str, tuple[str, int, str, str]] = {}
         for line in self.bundle.lines("signatures.ndjson"):
             if line["record"] not in planned:
                 continue
             document = proof_document(line["document"])
+            key, deployment = line["key"], line["deployment"]
+            if (document.get("key"), document.get("deployment")) != (
+                key,
+                deployment,
+            ) or trusted.get(key) != deployment:
+                raise reading.BundleError(
+                    "A signature's signing key or deployment conflicts with its signed identity."
+                )
             if "reviewed" in document:
                 reviews[line["id"]] = (
                     line["record"],
@@ -747,6 +826,15 @@ class _Writer:
                 )
             try:
                 before = proof.vouched(line.get("since"), line, trusted)
+                if since := line.get("since"):
+                    authority = proof_document(since["document"])
+                    since_label = trusted[since["key"]]
+                    if since_label != authority.get("deployment") or not signing_keys.trust(
+                        since["key"], since_label, self.made
+                    ):
+                        raise reading.BundleError(
+                            "The history attestation's deployment conflicts with its signing key."
+                        )
                 content = proof.migrated(proof_document(line["content"]), before)
             except proof.Unexplained as unexplained:
                 raise reading.BundleError(
@@ -755,8 +843,10 @@ class _Writer:
             signer = self._user(line["signer"])
             if signer is None:
                 raise reading.BundleError(f"Signature {line['id']} names nobody in it.")
-            for key in {line["key"]} - set(signing_keys.trusted()):
-                signing_keys.trust(key, listed.get(key, self.made.trusted_as or ""), self.made)
+            if not signing_keys.trust(key, deployment, self.made):
+                raise reading.BundleError(
+                    "The signing key already belongs to a different deployment."
+                )
             # How this import names, here, the people and registry entries it names: what
             # its record's history here is read through, after what was done where it came
             # from (ADR 0096, ADR 0148).
@@ -928,6 +1018,7 @@ class _Writer:
             plugin_version=line["plugin_version"],
             plugin_sha=line["plugin_sha"],
             spec=line["spec"],
+            reference_mask=line.get("reference_mask", []),
             project=self.made.project,
             requested_by=self._requester(line),
             via=line["via"],

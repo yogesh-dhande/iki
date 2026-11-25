@@ -249,7 +249,9 @@ def test_a_workbook_already_in_the_project_is_picked_from_its_files(
     page.get_by_role("combobox", name="Its rows are").select_option(SAMPLE)
     choose.click()
     picker = page.get_by_role("dialog", name="Choose a file for the import")
-    picker.get_by_text("It takes Excel (.xlsx) or CSV (.csv) files, up to 100 MiB.").wait_for()
+    picker.get_by_text(
+        re.compile(r"It takes .*\.xlsx.*\.xlsm.*\.csv.*\.tsv.*\.txt.*100 MiB")
+    ).wait_for()
     workbook = picker.get_by_role("radio", name="kinase-domains-batch-12.xlsx")
     workbook.wait_for()
     checked(page)

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from iki_spec.model import Plugin
 
-__all__ = ["CORE_DIRECTORY", "core_plugin", "using_core"]
+__all__ = ["CORE_DIRECTORY", "core_plugin", "shipped_core", "using_core"]
 
 CORE_DIRECTORY = Path(str(files("iki_spec").joinpath("core")))
 
@@ -26,7 +26,7 @@ _override: ContextVar[Plugin | None] = ContextVar("core_plugin_override", defaul
 
 
 def core_plugin() -> Plugin:
-    return _override.get() or _shipped_core()
+    return _override.get() or shipped_core()
 
 
 @contextmanager
@@ -43,7 +43,7 @@ def using_core(directory: Path | None) -> Iterator[None]:
 
 
 @cache
-def _shipped_core() -> Plugin:
+def shipped_core() -> Plugin:
     return _load_core(CORE_DIRECTORY)
 
 

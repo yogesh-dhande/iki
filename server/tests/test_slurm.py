@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 from api_client import problem
+from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
@@ -31,9 +32,25 @@ from iki_server.runs.models import (
     SlurmJob,
     Worker,
 )
+from iki_server.settings import _image_policy
 from iki_spec import schemas
 
 pytestmark = pytest.mark.django_db
+
+
+def test_image_signer_uses_both_selectors() -> None:
+    issuer = {"issuer": "https://issuer.example"}
+
+    def policy(**selectors: str) -> dict[str, Any] | None:
+        return _image_policy(json.dumps({"iki": {**issuer, **selectors}}))
+
+    assert policy(subject="release-2", subject_regexp=r"^release-\d$") == {
+        "iki": {**issuer, "subject": "release-2"}
+    }
+    for selectors in ({}, {"subject": "release-٢", "subject_regexp": r"^release-\d$"}):
+        with pytest.raises(ImproperlyConfigured):
+            policy(**selectors)
+
 
 COLABFOLD = "acme/prediction.predict_with_colabfold"
 IMAGE = (

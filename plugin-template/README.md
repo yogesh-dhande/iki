@@ -7,8 +7,11 @@ yours.
 
 What's here:
 
-- `plugin.yaml`: the plugin, `acme/example`, its version, the plugins it
-  depends on (here, Iki's `iki/dna`), and its settings.
+- `plugin.yaml` declares the plugin, its dependencies and settings, and a tube
+  scanner's export format. Its header lets Iki recognize a scan even when the
+  filename has lost its extension. To accept it in a file field or action file
+  parameter, set `media_types: [acme/example.tube-scan]`. If you rename the
+  plugin, use the new plugin name in that ID.
 - `types/sample.yaml`: an entity type, `acme/example.Sample`, with references to
   its own type and to `iki/dna.DNASequence`.
 - `types/dna_sequence.yaml`: an extension adding two fields to
@@ -98,6 +101,9 @@ directory intact so the agent can run its scripts.
    back, as CI does on each pull request
    ([Validate and test a plugin in CI on GitHub](https://ikisci.org/guides/test-a-plugin-in-ci/),
    [Upgrade a plugin without losing history](https://ikisci.org/guides/upgrade-a-plugin/)).
+   For a backfill on existing records, use `MigrateValues` and give the
+   expected fields in `after` on an `upgrade: true` fixture. Each record then
+   carries the migration's reason. See the [backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test).
 5. Commit the manifests, the new migration and the tests together, in one
    pull request.
 
@@ -116,6 +122,9 @@ plugins:
     state: active
 ```
 
-For your own plugin, use its name, repository and commit. CI builds the
+For your own plugin, use its name, repository and commit. Production builds
+refuse a pin to the template directory in Iki's repository or a configured
+mirror. The [author examples](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins)
+describe how to adapt a worked recipe and test the copy. CI builds the
 plugins into the deployment's image, checking them
 together. The deployment migrates the database on its next rollout.

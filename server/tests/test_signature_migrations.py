@@ -15,7 +15,18 @@ from typing import Any
 
 import psycopg
 import pytest
-from test_plugin_migrations import build, database, django, made, orm, query, sync
+from test_plugin_migrations import (
+    build,
+    build_to,
+    database,
+    deployed,
+    django,
+    made,
+    orm,
+    private_database,
+    query,
+    sync,
+)
 from test_plugin_migrations import migrate as migrate_only
 
 __all__ = ["database"]  # a fixture, from test_plugin_migrations
@@ -71,6 +82,7 @@ fields:
   code: { type: string, required: true, immutable: true, max_length: 20 }
   cas: { type: string, registry: fact, pattern: "^[1-9][0-9]{1,6}-[0-9]{2}-[0-9]$" }
   note: { type: string, max_length: 100 }
+  reference: { type: ref, to: Reagent, registry: fact }
 """
     + SIGNED
 )
@@ -188,6 +200,41 @@ CHANGED = (
 
 HISTORY = "SELECT {} FROM acme__lab_sample__history h JOIN iki_entity e ON e.id = h.entity_id"
 HISTORY += " WHERE h.revision = 1 ORDER BY e.hrid"
+
+
+def test_a_signed_revision_reads_under_the_old_field_name_after_rollback(
+    lab: Path, database: str
+) -> None:
+    manifest = lab / "types" / "sample.yaml"
+    manifest.write_text(SAMPLE)
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    manifest.write_text(SAMPLE.replace("  name: {", "  title: {"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    second = build_to(lab.parent, "v2", "lab")
+    deployed(second, database)
+    orm(
+        second,
+        database,
+        PEOPLE
+        + """
+analyst = person("analyst", project)
+record = entities.create(analyst, "acme/lab.Sample", project, {"title": "S1"}).entity
+sign(analyst, record)
+record.refresh_from_db()
+entities.update(analyst, record, {"title": "S2"}, expected_revision=record.revision)
+result = None
+""",
+    )
+    deployed(first, database)
+    ok, detail = verified(first, database)["SMP-000001"]
+    assert ok, detail
+    assert query(database, "SELECT name FROM acme__lab_sample__history ORDER BY revision") == [
+        ("S1",),
+        ("S1",),
+        ("S2",),
+    ]
 
 
 def test_a_signature_survives_migrations_that_rename_and_convert_what_it_signed(
@@ -320,6 +367,111 @@ def _dependencies(migration: str) -> list[tuple[str, str]]:
             found: list[tuple[str, str]] = ast.literal_eval(node.value)
             return found
     return []
+
+
+def test_a_restored_signed_entry_keeps_its_reversal_after_a_state_field_rename(
+    lab: Path,
+    database: str,
+    _postgres_url: str,
+    tmp_path: Path,
+    s3: Any,
+    settings: Any,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The source renamed status to phase after signing. The receiving lab installed
+    the newer schema from the outset and has no local rename operation."""
+    monkeypatch.setenv("IKI_HTTPS", "false")
+    for key in (
+        "IKI_FILES_BUCKET",
+        "IKI_FILES_PREFIX",
+        "IKI_FILES_ENDPOINT_URL",
+        "IKI_FILES_PUBLIC_ENDPOINT_URL",
+    ):
+        monkeypatch.setenv(key, getattr(settings, key))
+    manifest = lab / "types/sample.yaml"
+    manifest.write_text(SAMPLE)
+    made("lab", "--no-input", cwd=lab.parent)
+    source = build(lab.parent, "lab")
+    migrate(source, database)
+    orm(
+        source,
+        database,
+        PEOPLE
+        + """
+analyst = person("analyst", project)
+ProjectMembership.objects.create(project=project, user=admin, role=ProjectRole.ADMIN)
+sample = entities.create(analyst, "acme/lab.Sample", project, {"name": "Reviewed sample"}).entity
+sign(analyst, sample)
+result = None
+""",
+    )
+    newer = SAMPLE.replace("  status:", "  phase:").replace(
+        "schema_version: 1", "schema_version: 2"
+    )
+    manifest.write_text(newer)
+    (lab / "plugin.yaml").write_text(LAB.replace("1.0.0", "1.1.0"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    source = build(lab.parent, "lab")
+    migrate(source, database)
+    archive = tmp_path / "reviewed-sample.tar.gz"
+    exported = django(
+        source,
+        database,
+        "-c",
+        f"""
+import django
+django.setup()
+from pathlib import Path
+from iki_server.accounts.models import User
+from iki_server.bundles import export
+from iki_server.entities.models import Entity
+sample = Entity.objects.get(type="acme/lab.Sample")
+export.write(
+    sample.owner_project, [sample], Path({str(archive)!r}),
+    by=User.objects.get(email="admin@example.com"),
+    reason="Hand over signed work", selection="",
+)
+""",
+    )
+    assert exported.returncode == 0, exported.stdout + exported.stderr
+    target = tmp_path / "receiving/plugins/lab"
+    (target / "types").mkdir(parents=True)
+    (target / "plugin.yaml").write_text((lab / "plugin.yaml").read_text())
+    (target / "types/sample.yaml").write_text(newer)
+    made("lab", "--no-input", cwd=target.parent)
+    receiver = build(target.parent, "lab")
+    with private_database(_postgres_url) as db:
+        migrate(receiver, db)
+        restored = django(
+            receiver,
+            db,
+            "-c",
+            f"""
+import django
+django.setup()
+from pathlib import Path
+from django.conf import settings
+from api_client import Api
+from org_world import build_world
+from test_bundle_imports import PUBLIC, applied, upload
+from iki_server.entities.models import Entity, Revision
+from iki_server.org.models import OrgRole, OrgRoleAssignment
+from iki_server.signatures import changes
+world = build_world()
+admin = world.users["admin"]
+OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
+settings.IKI_BUNDLE_TRUSTED_KEYS = {{"test": (PUBLIC,)}}
+api = Api(world.browser("admin"))
+done = applied(api, upload(api, world.project, Path({str(archive)!r})))
+assert done["state"] == "applied", done
+record = Entity.objects.get(type="acme/lab.Sample")
+assert Revision.objects.get(entity=record, number=2).state_field == "status"
+exit = changes.find(record, "phase", "received")
+assert exit.reversal and exit.reason == "required"
+assert exit.signatures[0].label == "Reversal of Authorship"
+""",
+        )
+        assert restored.returncode == 0, restored.stdout + restored.stderr
 
 
 def test_signing_checks_the_registry_entry_revision_the_signer_read(
@@ -460,14 +612,50 @@ wrong = entities.create(
 right = entities.create(
     analyst, "acme/lab.Reagent", project, {"code": "NACL-01", "cas": "7647-14-5"}
 ).entity
-sign(analyst, wrong)
 wrong_entry = Entity.objects.get(pk=wrong.entry_id)
+reference = entities.create(analyst, "acme/lab.Reagent", project, {"code": "REF-01"}).entity
+entries.curate(curator, wrong_entry, {"reference": str(reference.entry_id)},
+               expected_revision=wrong_entry.revision, reason="Reference standard")
+sign(analyst, wrong)
+wrong_entry.refresh_from_db()
+entries.curate(curator, wrong_entry, {"reference": None},
+               expected_revision=wrong_entry.revision, reason="Retire the reference standard")
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from iki_server.bundles import export
 from iki_server.signatures.models import Signature
+exporter = person("exporter")
+screens.memberships.create(user=exporter, role=ProjectRole.ADMIN)
+with TemporaryDirectory() as tmp:
+    path = Path(tmp) / "archive.tar.gz"
+    def write():
+        return export.write(screens, [wrong], path, by=User.objects.get(pk=exporter.pk),
+                            reason="Keep the signed history", selection=wrong.hrid)
+    try:
+        write()
+    except export.ExportError as exc:
+        assert str(exc) == "This bundle refers to a record you can't read."
+    else:
+        raise AssertionError("Export requires access to the signed reference standard")
+    assert not path.exists()
+    project.memberships.create(user=exporter, role=ProjectRole.VIEWER)
+    assert reference.entry_id in write().references
+
 before = {c.name: c.ok for c in signatures.verify(Signature.objects.get(entity_id=wrong.pk))}
 # A registrar supersedes the mistyped entry; Screens moves its record onto the right one.
 entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id), reason="Typo")
 entries.move(analyst, Entity.objects.get(pk=wrong.pk), reason="Superseded")
 moved = Entity.objects.get(pk=wrong.pk)
+from api_client import Api
+from browser import Browser
+browser = Browser()
+browser.force_login(analyst)
+api = Api(browser)
+shown = api.get(f"/entities/{moved.pk}/signatures", verify=True)
+assert shown.status_code == 200, shown.content
+[item] = shown.json()["items"]
+assert item["verification"]["valid"] and item["document"] is None
+assert str(wrong_entry.pk).encode() not in shown.content
 result = {
     "before": before,
     "moved_to": [str(moved.entry_id), str(right.entry_id)],
@@ -488,7 +676,7 @@ result = {
     tamper(
         database,
         "UPDATE acme__lab_reagent__entry__history h SET cas = '7758-02-3' FROM iki_entity e "
-        "WHERE e.id = h.entity_id AND e.hrid = %s AND h.revision = 1",
+        "WHERE e.id = h.entity_id AND e.hrid = %s AND h.revision = 2",
         result["old_entry"],
     )
     assert verified(out, database) == {

@@ -70,6 +70,7 @@ from iki_server.entities import (
     states,
     unique,
 )
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import (
     Entity,
     ProjectLink,
@@ -80,13 +81,23 @@ from iki_server.entities.models import (
     RuleHoldOccurrence,
     RulesChecked,
 )
-from iki_server.entities.values import Invalid, Shape, shape, subtypes, to_json
+from iki_server.entities.values import (
+    Invalid,
+    Shape,
+    ids_in,
+    redact_json_references,
+    reference_ids,
+    shape,
+    subtypes,
+    to_json,
+)
 from iki_server.notifications import declared
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.runs.models import EntityMaking, ExternalOrigin, MadeBy, Recalculation, RunEffect
 from iki_server.runs.services import visible_runs
 from iki_server.signatures import changes as sig_changes
+from iki_server.signatures import entries as signed_entries
 from iki_server.signatures import models as signing_models
 from iki_server.signatures import services as sig_services
 from iki_spec import rules as spec_rules
@@ -203,11 +214,11 @@ class StateOut(Schema):
     )
     locks: bool = Field(
         description="Locks the record against value edits, archiving, restoring and moving. "
-        "A declared `on_edit` permits a reasoned correction."
+        "An unsigned lock may declare a reasoned correction through `on_edit`."
     )
     on_edit: str | None = Field(
         None,
-        description="The state this field returns to when an editable value changes. The "
+        description="The state this field returns to on a value edit under an unsigned lock. The "
         "correction needs a reason and permission to enter this state (ADR 0179).",
     )
     holds_amount: bool = Field(
@@ -417,8 +428,8 @@ class StructureViewerOut(Schema):
     viewer: Literal["structure"] = Field(description="`structure`: a 3D structure, in Mol*.")
     label: str = Field(description="What its tab is called.")
     structure: str = Field(
-        description="The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB "
-        "(chemical/x-pdb)."
+        description="The file field holding coordinates in a format that declares "
+        "the structure-mmcif or structure-pdb viewer."
     )
 
 
@@ -547,9 +558,8 @@ class TypeAmountOut(Schema):
         "split from."
     )
     material: str | None = Field(
-        description="Its reference naming what its amount is of, such as a lot's molecule: "
-        "a transfer into one of its records takes only that entity's, and its aliquots are "
-        "of it too."
+        description="The reference field that identifies the material, or id if the record itself "
+        "is the material. Transfers and aliquots retain that material identity."
     )
     follows: list[str] = Field(
         default_factory=list,
@@ -731,6 +741,11 @@ class EntityCan(Schema):
     edit: bool = Field(
         description="Change it, archive or restore it: false for everyone when its plugin is "
         "detached, or while a state locks it."
+    )
+    edit_reason_required: bool | None = Field(
+        None,
+        exclude_if=lambda value: value is None,
+        description="Present and true when a value edit needs a reason after an unlock.",
     )
     correct: bool = Field(
         False,
@@ -985,7 +1000,10 @@ class EntityOut(Schema):
     locked_by: list[str] = Field(
         description="The state fields whose states lock it, in its type's order."
     )
-    values: dict[str, Any] = Field(description="Its fields' values, as its type's schema says.")
+    values: dict[str, Any] = Field(
+        description="Its fields' values, as its type's schema says. A reference to an entity "
+        "you can't read is the string `unreadable` instead of an ID."
+    )
     refs: dict[str, RefOut] = Field(
         description="The entities its values refer to that you can read, by ID."
     )
@@ -1134,6 +1152,7 @@ class RevisionOut(Schema):
     kind: Literal[
         "created",
         "edited",
+        "migrated",
         "archived",
         "restored",
         "curated",
@@ -1193,8 +1212,13 @@ class ChangeOut(Schema):
 
 
 class RevisionDetailOut(RevisionOut):
-    values: dict[str, Any] = Field(description="Every field's value as it was at this revision.")
-    changes: dict[str, ChangeOut] = Field(description="What this revision changed.")
+    values: dict[str, Any] = Field(
+        description="Every field's value as it was at this revision. References to entities you "
+        "can't read are shown as `unreadable`."
+    )
+    changes: dict[str, ChangeOut] = Field(
+        description="What this revision changed, as you can read it."
+    )
     refs: dict[str, RefOut] = Field(
         description="The entities its values and changes refer to that you can read, by ID."
     )
@@ -1807,6 +1831,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     named, stale, take = _people_of(user, entities, values)
     readers = {p.pk for p in access.readable_projects(user).filter(pk__in=projects)}
     signing = _Signing(user, entities)
+    signed_history = signed_entries.for_records(entities)
     belongs = _projects_of(user, entities)
     from iki_server.amounts import services as amounts
     from iki_server.storage import services as storage
@@ -1838,9 +1863,12 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
-        transitions = states.options(user, entity, values[entity.pk])
-        mine = _ids_in(fields, values[entity.pk])
-        shown = {name: to_json(fields[name], value) for name, value in values[entity.pk].items()}
+        transitions = states.options(user, entity, values[entity.pk], history=signed_history)
+        mine = ids_in(fields, values[entity.pk])
+        shown = {
+            name: to_json(fields[name], value, readable_refs=refs)
+            for name, value in values[entity.pk].items()
+        }
         out.append(
             {
                 "id": entity.pk,
@@ -1878,6 +1906,9 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ),
                 "can": {
                     "edit": editable_record and not entity.locked,
+                    "edit_reason_required": True
+                    if entity.has_been_locked and not entity.locked_by
+                    else None,
                     "correct": editable_record
                     and _can_correct(entity, values[entity.pk], transitions),
                     "edit_amount": edit_amount,
@@ -1891,7 +1922,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     if draw_amount
                     else [],
                     "states": _states_can(transitions),
-                    "sign": _sign_can(user, entity, values[entity.pk], signing),
+                    "sign": _sign_can(user, entity, values[entity.pk], signing, transitions),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -1942,6 +1973,9 @@ def _holds_of(
         "held_by", "held_agent"
     ):
         occurrences[occurrence.hold_id].append(occurrence)
+    readable_entries = access.readable_reference_ids(
+        user, (o.entry_id for items in occurrences.values() for o in items if o.entry_id)
+    )
     for row in rows:
         entity = by_id[row.entity_id]
         evidence = occurrences[row.pk]
@@ -1959,7 +1993,7 @@ def _holds_of(
                 "reason": row.reason,
                 "revision": row.revision,
                 "last_revision": row.last_revision,
-                "occurrences": [_hold_occurrence(occurrence) for occurrence in evidence],
+                "occurrences": [_hold_occurrence(o, readable_entries) for o in evidence],
                 "review_version": holds.review_version(
                     row,
                     entity.revision,
@@ -1983,7 +2017,8 @@ def _holds_of(
     return held, breaches
 
 
-def _hold_occurrence(occurrence: RuleHoldOccurrence) -> dict[str, Any]:
+def _hold_occurrence(occurrence: RuleHoldOccurrence, readable_entries: set[UUID]) -> dict[str, Any]:
+    readable = occurrence.entry_id in readable_entries
     return {
         "id": occurrence.pk,
         "label": occurrence.label,
@@ -1993,8 +2028,8 @@ def _hold_occurrence(occurrence: RuleHoldOccurrence) -> dict[str, Any]:
         "held_at": occurrence.held_at,
         "reason": occurrence.reason,
         "revision": occurrence.revision,
-        "entry_id": occurrence.entry_id,
-        "entry_revision": occurrence.entry_revision,
+        "entry_id": occurrence.entry_id if readable else None,
+        "entry_revision": occurrence.entry_revision if readable else None,
         "legacy_gap": occurrence.legacy_gap_ended_at is not None,
     }
 
@@ -2057,10 +2092,14 @@ class _Signing:
 
 
 def _sign_can(
-    user: User, entity: Entity, values: dict[str, Any], signing: _Signing
+    user: User,
+    entity: Entity,
+    values: dict[str, Any],
+    signing: _Signing,
+    transitions: dict[str, list[states.Option]],
 ) -> list[dict[str, Any]]:
     out = []
-    for change in sig_changes.signed(entity, values):
+    for change in sig_changes.signed(transitions, values):
         slots = sig_services.slots(
             user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
         )
@@ -2163,32 +2202,13 @@ def _named(
     """The people a page of records names, as ``people`` has them."""
     where: dict[Any, set[Any]] = {}
     for entity in entities:
-        for person in _ids_in(shape(entity.type).fields(), values[entity.pk])["person"]:
+        for person in ids_in(shape(entity.type).fields(), values[entity.pk])["person"]:
             where.setdefault(person, set()).add(entity.owner_project_id)
     found = people.shown(user, where, where)
     return {
         pk: {"id": p.id, "name": p.name, "email": p.email, "active": p.active}
         for pk, p in found.items()
     }
-
-
-def _ids_in(fields: dict[str, Any], values: dict[str, Any]) -> dict[str, set[Any]]:
-    """The entity, file and person IDs these values refer to."""
-    found: dict[str, set[Any]] = {"ref": set(), "file": set(), "person": set()}
-    for name, value in values.items():
-        f = fields[name]
-        if f.is_rows and f.items is not None and value:
-            # A list of rows' references, files and people (ADR 0137).
-            for cell_name, cell in f.items.fields.items():
-                if cell.type in found:
-                    found[cell.type].update(
-                        r[cell_name] for r in value if r.get(cell_name) is not None
-                    )
-            continue
-        kind = f.items.type if f.type == "list" and f.items is not None else f.type
-        if kind in found and value is not None:
-            found[kind].update(value if isinstance(value, list) else [value])
-    return found
 
 
 def _referenced(
@@ -2199,7 +2219,7 @@ def _referenced(
     :func:`refs_in`."""
     wanted: dict[str, set[Any]] = {"ref": set(), "file": set()}
     for entity in entities:
-        for kind, ids in _ids_in(shape(entity.type).fields(), values[entity.pk]).items():
+        for kind, ids in ids_in(shape(entity.type).fields(), values[entity.pk]).items():
             if kind in wanted:
                 wanted[kind] |= ids
     return _lookup(user, wanted, projects={e.owner_project_id for e in entities})
@@ -2612,8 +2632,8 @@ def _table_rows(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
-        mine = _ids_in(fields, values[entity.pk])
-        shown = {n: to_json(fields[n], v) for n, v in values[entity.pk].items()}
+        mine = ids_in(fields, values[entity.pk])
+        shown = {n: to_json(fields[n], v, readable_refs=refs) for n, v in values[entity.pk].items()}
         kind = types.get(entity.type)
         out.append(
             {
@@ -3110,12 +3130,12 @@ class TrailFilter(Schema):
     )
 
     def applied(
-        self, revisions: QuerySet[Revision], *, disclosed: Q | None = None
+        self, revisions: QuerySet[Revision], names: FieldNames, *, disclosed: Q | None = None
     ) -> QuerySet[Revision]:
         """``revisions``, narrowed. A person is matched only among those ``disclosed``
         says who made, so narrowing by them tells no more than reading each would."""
         if self.field:
-            revisions = revisions.filter(changed_fields__contains=[self.field])
+            revisions = revisions.filter(names.setting(self.field))
         if self.person:
             revisions = revisions.filter(user_id=self.person)
             if disclosed is not None:
@@ -3141,15 +3161,20 @@ def list_revisions(
     a person made, or that set a field, as its audit trail's filters do (ADR 0176)."""
     me = caller(request)
     entity = _find(me, ref, project)
-    revisions = trail.applied(Revision.objects.filter(entity=entity)).select_related(
+    names = FieldNames.for_type(entity.type)
+    revisions = trail.applied(Revision.objects.filter(entity=entity), names).select_related(
         "user", "agent"
     )
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
-    states = revision_states(result["items"])
-    held = _holds_opened(entity, result["items"])
+    states = revision_states(result["items"], {entity.type: names})
+    held = _holds_opened(me, entity, result["items"])
+    submitted = _submissions(me, result["items"])
     result["items"] = [
-        {**_revision(r, made, states=states), "holds": held.get(r.number, [])}
+        {
+            **_revision(r, made, names=names, states=states, submitted=submitted.get(r.pk)),
+            "holds": held.get(r.number, []),
+        }
         for r in result["items"]
     ]
     return result
@@ -3199,15 +3224,23 @@ def project_changes(
     )
     entities = list({r.entity_id: r.entity for r in revisions}.values())
     values = services.current_values_of(entities) if entities else {}
+    submitted = _submissions(me, revisions)
     made = _runs_of(me, revisions)
-    states = revision_states(revisions)
+    by_type = {t: FieldNames.for_type(t) for t in {e.type for e in entities}}
+    states = revision_states(revisions, by_type)
     out = []
     for r in revisions:
         fields = shape(r.entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.get(r.entity_id, {}).items()}
         out.append(
             {
-                **_revision(r, made, states=states),
+                **_revision(
+                    r,
+                    made,
+                    names=by_type[r.entity.type],
+                    states=states,
+                    submitted=submitted.get(r.pk),
+                ),
                 "entity": {
                     "id": r.entity.pk,
                     "hrid": r.entity.hrid,
@@ -3220,20 +3253,28 @@ def project_changes(
     return out
 
 
-def _holds_opened(entity: Entity, revisions: list[Revision]) -> dict[int, list[dict[str, Any]]]:
+def _holds_opened(
+    user: User, entity: Entity, revisions: list[Revision]
+) -> dict[int, list[dict[str, Any]]]:
     """The hold evidence of each revision (ADR 0127), as ``HeldOut``, with the hold's
     review when it is available."""
     numbers = [r.number for r in revisions if r.entity_id == entity.pk]
     if not numbers or entity.registry_id is not None:
         return {}
     out: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for occurrence in RuleHoldOccurrence.objects.filter(
-        hold__entity=entity, revision__in=numbers
-    ).select_related("hold__reviewed_by", "held_by", "held_agent"):
+    occurrences = list(
+        RuleHoldOccurrence.objects.filter(hold__entity=entity, revision__in=numbers).select_related(
+            "hold__reviewed_by", "held_by", "held_agent"
+        )
+    )
+    readable_entries = access.readable_reference_ids(
+        user, (o.entry_id for o in occurrences if o.entry_id)
+    )
+    for occurrence in occurrences:
         hold = occurrence.hold
         out[occurrence.revision].append(
             {
-                **_hold_occurrence(occurrence),
+                **_hold_occurrence(occurrence, readable_entries),
                 "id": hold.pk,
                 "occurrence_id": occurrence.pk,
                 "rule": hold.rule,
@@ -3270,19 +3311,27 @@ def get_revision(
     fields = shape(entity.type).fields(removed=True)
     values = services.revision_values(entity, number, fields)
     changes = {n: c for n, c in services.changes(entity, revision).items() if n in fields}
-    wanted = _ids_in(fields, values)
+    wanted = ids_in(fields, values)
     for name, (before, after) in changes.items():
-        for kind, ids in _ids_in(fields, {name: before}).items():
+        for kind, ids in ids_in(fields, {name: before}).items():
             wanted[kind] |= ids
-        for kind, ids in _ids_in(fields, {name: after}).items():
+        for kind, ids in ids_in(fields, {name: after}).items():
             wanted[kind] |= ids
     refs, files = _lookup(me, wanted, projects={entity.owner_project_id})
     return {
-        **_revision(revision, _runs_of(me, [revision])),
-        "holds": _holds_opened(entity, [revision]).get(revision.number, []),
-        "values": {n: to_json(fields[n], v) for n, v in values.items()},
+        **_revision(
+            revision,
+            _runs_of(me, [revision]),
+            names=FieldNames.for_type(entity.type),
+            submitted=_submissions(me, [revision]).get(revision.pk),
+        ),
+        "holds": _holds_opened(me, entity, [revision]).get(revision.number, []),
+        "values": {n: to_json(fields[n], v, readable_refs=refs) for n, v in values.items()},
         "changes": {
-            name: {"before": to_json(fields[name], before), "after": to_json(fields[name], after)}
+            name: {
+                "before": to_json(fields[name], before, readable_refs=refs),
+                "after": to_json(fields[name], after, readable_refs=refs),
+            }
             for name, (before, after) in changes.items()
         },
         "refs": refs_in(refs, wanted["ref"], entity.owner_project_id),
@@ -3390,21 +3439,23 @@ def _revision(
     revision: Revision,
     runs: dict[tuple[Any, int], dict[str, Any]],
     *,
+    names: FieldNames,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
     states: dict[Any, dict[str, Any]] | None = None,
+    submitted: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """A revision as ``RevisionOut``. One of ``entity``'s registry entry's, for a reader of
     ``projects``, says who made it and when only if :func:`services.discloses` it. A page's
     revisions pass their ``states``, from :func:`revision_states`, found for all at once."""
     of_entry = entity is not None and revision.entity_id != entity.pk
     if of_entry and not services.discloses(revision, projects or set()):
-        return undisclosed(revision)
+        return undisclosed(revision, names)
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": of_entry,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": revision.user,
         "via": revision.via,
         "client": revision.client,
@@ -3413,12 +3464,35 @@ def _revision(
         "run_withheld": run is WITHHELD,
         "reason": revision.reason,
         "state": (states if states is not None else revision_states([revision])).get(revision.pk),
-        "submitted": revision.submitted,
+        "submitted": submitted,
         "created_at": revision.created_at,
     }
 
 
-def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
+def _submissions(me: User, revisions: Iterable[Revision]) -> dict[Any, dict[str, Any]]:
+    """Identity values as submitted on first creation, with their references as readers see them."""
+    found = {r.pk: (r.entity_id, r.submitted) for r in revisions if r.submitted}
+    if not found:
+        return {}
+    types = dict(
+        Entity.objects.filter(pk__in={pk for pk, _ in found.values()}).values_list("pk", "type")
+    )
+    shaped = {
+        r: (shape(types[entity]).fields(removed=True), values)
+        for r, (entity, values) in found.items()
+        if values is not None
+    }
+    ids = {i for fields, values in shaped.values() for i in reference_ids(fields, values)}
+    readable = access.readable_reference_ids(me, ids)
+    return {
+        r: {n: redact_json_references(fields.get(n), v, readable) for n, v in values.items()}
+        for r, (fields, values) in shaped.items()
+    }
+
+
+def revision_states(
+    revisions: list[Revision], by_type: dict[str, FieldNames] | None = None
+) -> dict[Any, dict[str, Any]]:
     """What each state change among the revisions did, by revision ID: its field, its
     states, and the signatures that set it (ADR 0126). Their entities' types and their
     signatures are found for all of them at once, in two queries however many there are."""
@@ -3428,13 +3502,15 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     types = dict(
         Entity.objects.filter(pk__in={r.entity_id for r in changed}).values_list("pk", "type")
     )
+    if by_type is None:
+        by_type = {t: FieldNames.for_type(t) for t in set(types.values())}
     wanted = {i for r in changed for i in r.signatures or ()}
     carried = (
         {s.pk: s for s in signing_models.Signature.objects.filter(pk__in=wanted)} if wanted else {}
     )
     return {
         r.pk: {
-            **services.state_change(types[r.entity_id], r),
+            **services.state_change(types[r.entity_id], r, by_type[types[r.entity_id]]),
             "signatures": [
                 {
                     "id": i,
@@ -3450,14 +3526,14 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     }
 
 
-def undisclosed(revision: Revision) -> dict[str, Any]:
+def undisclosed(revision: Revision, names: FieldNames) -> dict[str, Any]:
     """A registry entry's revision as told to a reader it isn't disclosed to: what it set,
     not who, how or when (ADR 0115)."""
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": True,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": None,
         "via": "",
         "client": "",
@@ -3485,9 +3561,20 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
     made = _runs_of(me, found.values())
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
-    states = revision_states(list(found.values()))
+    names = FieldNames.for_type(entity.type)
+    entry_names = FieldNames.for_type(entity.type, entry=True) if entity.entry_id else names
+    states = revision_states(list(found.values()), {entity.type: names})
+    submitted = _submissions(me, found.values())
     return {
-        name: _revision(revision, made, entity=entity, projects=readable, states=states)
+        name: _revision(
+            revision,
+            made,
+            entity=entity,
+            names=names if revision.entity_id == entity.pk else entry_names,
+            projects=readable,
+            states=states,
+            submitted=submitted.get(revision.pk),
+        )
         for name, revision in found.items()
     }
 

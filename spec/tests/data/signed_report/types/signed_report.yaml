@@ -6,6 +6,7 @@ schema_version: 1
 hrid: { prefix: RPT }
 fields:
   report: { type: json, required: true }
+  source: { type: ref, to: SignedReport }
   review:
     type: state
     initial: recorded
@@ -18,13 +19,11 @@ fields:
         label: Submitted
         set_by: [analyst]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: authorship }]
       reviewed:
         label: Reviewed
         set_by: [reviewer]
         locks: true
-        on_edit: recorded
         signatures: [{ meaning: review }]
       issued:
         label: Issued

@@ -52,12 +52,12 @@ import {
   type Schemaed,
   type QuantityDraft,
 } from "./entity-values";
-import { FilePicker } from "./file-picker";
+import { FilePicker, takesText } from "./file-picker";
 import { UploadStatus } from "./file-upload";
 import { FILES } from "./files";
 import { optionLabel } from "./filters";
 import { describeHelm, isProblem, useHelmReading } from "./helm";
-import { media } from "./media";
+import { useMedia } from "./media";
 import { nameableQuery } from "./people";
 import { upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
@@ -547,6 +547,7 @@ function pickable(found: readonly Entity[]): Picked[] {
     id: e.id,
     hrid: e.hrid,
     title: e.title,
+    ...(!e.locked && e.can.edit_reason_required ? { editReasonRequired: true } : {}),
     ...((shared.get(e.hrid) ?? 0) > 1 && e.owner_project ? { project: e.owner_project.name } : {}),
   }));
 }
@@ -959,19 +960,6 @@ function inSentenceLabel(label: string): string {
   return `${article} ${lowered}`;
 }
 
-/** What a file field takes, as a sentence, or "" when it takes anything. */
-function fileRules(schema: { "x-iki-media-types"?: string[]; "x-iki-max-size"?: number }): string {
-  const allowed = schema["x-iki-media-types"] ?? [];
-  const maxSize = schema["x-iki-max-size"];
-  const rules = [
-    allowed.length ? `${media.either(allowed)} files` : "",
-    maxSize != null ? `up to ${formatSize(maxSize)}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
-  return rules ? `It takes ${rules}.` : "";
-}
-
 /** A file: one uploaded from this computer, or one already in the project. In a list,
  * a chosen file is one line (the list says what it takes, once). */
 function FileInput({
@@ -991,6 +979,7 @@ function FileInput({
   const own = propertySchema(type, field.name);
   const schema = own.items ?? own;
   const client = useQueryClient();
+  const media = useMedia();
   const allowed = schema["x-iki-media-types"] ?? [];
   const maxSize = schema["x-iki-max-size"];
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -1000,18 +989,15 @@ function FileInput({
   const inList = itemLabel !== undefined;
   const help = inList
     ? undefined
-    : helpText(field, [note, fileRules(schema)].filter(Boolean).join(" "));
+    : helpText(
+        field,
+        [note, takesText({ accepts: allowed, maxSize }, media)].filter(Boolean).join(" "),
+      );
   const shownError = problem ?? error;
   const label = itemLabel ?? field.label;
 
   async function send(file: File, acquiredAt = "") {
     setProblem(null);
-    const refused = media.refusal(file, allowed);
-    if (refused) {
-      setProblem(refused);
-      onChange(emptyDraft(field));
-      return;
-    }
     if (maxSize != null && file.size > maxSize) {
       setProblem(
         `${file.name} is ${formatSize(file.size)}: choose one up to ${formatSize(maxSize)}.`,
@@ -1028,7 +1014,7 @@ function FileInput({
         projectId,
         setProgress,
         controller.signal,
-        media.of(file, allowed),
+        allowed,
         acquiredAt,
       );
       onChange({ id: made.id, hrid: "", title: made.name, size: made.size });
@@ -1208,11 +1194,16 @@ function ListInput(props: InputProps) {
   const rows = field.items === "row";
   const noun = rows ? "row" : "item";
   const files = field.items === "file";
+  const media = useMedia(files);
   const itemSchema = propertySchema(type, field.name).items ?? {};
+  const takes = {
+    accepts: itemSchema["x-iki-media-types"] ?? [],
+    maxSize: itemSchema["x-iki-max-size"],
+  };
   // What each file may be, said once for the list rather than for each file.
   const help = helpText(
     field,
-    [note, files ? fileRules(itemSchema) : ""].filter(Boolean).join(" "),
+    [note, files ? takesText(takes, media) : ""].filter(Boolean).join(" "),
   );
   // Items change one by one as their files finish uploading, so each change starts from
   // the list as the last one left it, not as this render saw it.
@@ -1335,7 +1326,7 @@ function ListInput(props: InputProps) {
               type="file"
               multiple
               disabled={disabled ?? false}
-              accept={media.accept(itemSchema["x-iki-media-types"] ?? [])}
+              accept={media.accept(takes.accepts)}
               onChange={(event) => {
                 const chosen = [...(event.target.files ?? [])];
                 event.target.value = "";
@@ -1363,10 +1354,7 @@ function ListInput(props: InputProps) {
           }}
           projectId={props.projectId}
           label={field.label}
-          takes={{
-            accepts: itemSchema["x-iki-media-types"] ?? [],
-            maxSize: itemSchema["x-iki-max-size"],
-          }}
+          takes={takes}
           multiple
           room={most == null ? undefined : Math.max(0, most - items.length)}
           chosen={items.flatMap((d) => ((d as Picked | null)?.id ? [(d as Picked).id] : []))}

@@ -48,6 +48,12 @@ another project or a lineage parent left out, is kept as it was (the UUID,
 HRID, type and revision) and listed in the bundle as _outside_, so the gap
 is visible on the target, not silent. Purged entities don't go.
 
+Making an archive requires current read access to every record or entry its
+history and proofs identify, including readable tombstones. Iki keeps those
+identities with the archive and checks them for the caller each time it
+issues a download link. An archive made
+before this list was recorded requires a fresh export to obtain a link.
+
 The archive is `.tar.gz`, readable with standard tools. `bundle.json`
 describes it: the format (`bundle/v1`, a spec schema like the others), the
 source deployment and its Iki release, who exported it, when and why, the
@@ -69,7 +75,7 @@ listed with its SHA-256 and size, and limits what it unpacks
 (`IKI_BUNDLE_MAX_BYTES`). `iki-server verify_bundle` runs these checks
 alone.
 
-A registered file (ADR 0055) goes as its address, object version and
+A registered file (ADR 0036) goes as its address, object version and
 SHA-256, not its bytes: it stays where it was registered, and the importing
 deployment must be able to read it there.
 

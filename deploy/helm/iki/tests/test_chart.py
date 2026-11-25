@@ -1583,6 +1583,24 @@ def test_the_image_policy_needs_its_controller_and_the_builds_identity(
     assert message in error
 
 
+@pytest.mark.parametrize("authority", ["iki", "approvals"])
+def test_a_signers_subject_meets_every_identity_constraint(authority: str) -> None:
+    both = {"subject": "workflow-main", "subjectRegExp": "^workflow-"}
+    if authority == "approvals":
+        both["repository"] = APPROVED["repository"]
+    docs = render(with_policy(**{authority: both}), api_versions=(POLICY_API,))
+    assert isinstance(docs, list)
+    [policy] = by_kind(docs, "ClusterImagePolicy")
+    actual = policy["spec"]["authorities"][0 if authority == "iki" else 1]
+    assert actual["keyless"]["identities"] == [
+        {"issuer": "https://token.actions.githubusercontent.com", "subject": "workflow-main"}
+    ]
+    for exact, pattern in (("workflow-main", "^other$"), (None, None)):
+        invalid = {**both, "subject": exact, "subjectRegExp": pattern}
+        error = render(with_policy(**{authority: invalid}), api_versions=(POLICY_API,), ok=False)
+        assert isinstance(error, str) and "subject" in error
+
+
 def test_slurm_clusters_workers_learn_who_signs_images_without_the_controller() -> None:
     # A Slurm cluster's worker checks images itself (ADR 0133): the server tells it whom
     # to trust once the deployment names its build's signer, controller or not.
@@ -1958,6 +1976,26 @@ def _narrow(docs: list[Manifest], namespace: str, labels: dict[str, str]) -> Non
 DEV = CHART.parents[1] / "dev" / "values-dev.yaml"
 #: An operator's own: the internet-facing ALB's addresses aren't known to OpenTofu.
 AWS_SERVER = egress(server={"to": [{"ipBlock": {"cidr": "198.51.100.20/32"}}]})
+
+
+@pytest.mark.parametrize("fixtures", [False, True], ids=["product", "fixtures"])
+def test_dev_fixture_services_and_secrets_are_opt_in(fixtures: bool) -> None:
+    values = _merged(DEV, DEV.parent / "fixtures" / "values.yaml") if fixtures else _merged(DEV)
+    docs = manifests(values)
+    secrets = set(_secrets_read(docs))
+    assert ("iki-dev-ca" in secrets) == fixtures
+    assert ("iki-run-secrets" in secrets) == fixtures
+
+    proxy = named(docs, "NetworkPolicy", "iki-egress-proxy")["spec"]["egress"]
+    peers = [peer for rule in proxy for peer in rule["to"]]
+    for service in ("fake-lims", "fake-foldcloud"):
+        peer = {"podSelector": {"matchLabels": {"app.kubernetes.io/name": service}}}
+        assert (peer in peers) == fixtures
+
+    run_namespaces = {role["metadata"]["namespace"] for role in by_kind(docs, "Role")}
+    assert "iki-runs" in run_namespaces
+    for namespace in ("iki-runs-shared", "iki-runs-bucket"):
+        assert (namespace in run_namespaces) == fixtures
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import math
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, cast
@@ -639,7 +639,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
         raise ValueError(refs.why_held_file(target) or "refers to no file you can read.")
     media_type, size = found
     if f.media_types and not media_type_allowed(media_type, f.media_types):
-        raise ValueError(f"must be {_either(f.media_types)}, and this file is {media_type}.")
+        formats = registry.file_formats().formats
+        labels = tuple(formats[t].label if t in formats else t for t in f.media_types)
+        raise ValueError(f"must be {_either(labels)}, and this file is {media_type}.")
     if f.max_size is not None and size > f.max_size:
         raise ValueError(
             f"can be at most {human_size(f.max_size)}, and this file is {human_size(size)}."
@@ -648,9 +650,9 @@ def _file(f: Field, value: Any, refs: Refs) -> uuid.UUID:  # noqa: ANN401 - JSON
 
 
 def media_type_allowed(media_type: str, allowed: Iterable[str]) -> bool:
-    """Whether ``media_type`` is one of ``allowed``, where ``image/*`` allows any image."""
+    """Whether a file matches an accepted format ID, media type or wildcard family."""
     kind = media_type.split("/", 1)[0]
-    return any(a == media_type or a == f"{kind}/*" for a in allowed)
+    return any(a == media_type or a == f"{kind}/*" for a in registry.file_formats().expand(allowed))
 
 
 def _either(choices: tuple[str, ...]) -> str:
@@ -662,16 +664,127 @@ def _either(choices: tuple[str, ...]) -> str:
 # --- Database → JSON ----------------------------------------------------------------------------
 
 
-def to_json(f: Field, value: Any) -> Any:  # noqa: ANN401 - a model value in, JSON out
+UNREADABLE_REFERENCE = "unreadable"
+
+
+def ids_in(fields: Mapping[str, Field], values: Mapping[str, Any]) -> dict[str, set[Any]]:
+    """The entity, file and person IDs these values refer to."""
+    found: dict[str, set[Any]] = {"ref": set(), "file": set(), "person": set()}
+    for name, value in values.items():
+        f = fields.get(name)
+        if f is None:
+            continue
+        if f.is_rows and f.items is not None and isinstance(value, list):
+            # A list of rows' references, files and people (ADR 0137).
+            for cell_name, cell in f.items.fields.items():
+                if cell.type in found:
+                    found[cell.type].update(
+                        r[cell_name]
+                        for r in value
+                        if isinstance(r, dict) and isinstance(r.get(cell_name), str | uuid.UUID)
+                    )
+            continue
+        kind = f.items.type if f.type == "list" and f.items is not None else f.type
+        if kind in found and value is not None:
+            items = value if isinstance(value, list) else [value]
+            found[kind].update(i for i in items if isinstance(i, str | uuid.UUID))
+    return found
+
+
+def reference_ids(fields: Mapping[str, Field], values: Mapping[str, Any]) -> set[uuid.UUID]:
+    """Record and entry IDs in typed values, including references inside lists and rows."""
+    return set(_uuids(ids_in(fields, values)["ref"]))
+
+
+def exact_reference_ids(fields: Mapping[str, Field], values: Mapping[str, Any]) -> set[uuid.UUID]:
+    """Identify every typed reference in an immutable copy, using known field and cell shapes."""
+    return {pk for _, pk in reference_positions(fields, values)}
+
+
+def reference_positions(
+    fields: Mapping[str, Field], values: Mapping[str, Any]
+) -> Iterator[tuple[tuple[str | int, ...], uuid.UUID]]:
+    """Typed reference positions within the values of a record, including row cells."""
+
+    def collect(
+        f: Field | None,
+        value: Any,  # noqa: ANN401 - a stored field or a command's JSON
+        at: tuple[str | int, ...],
+    ) -> Iterator[tuple[tuple[str | int, ...], uuid.UUID]]:
+        if f is None:
+            raise ValueError("The copy needs the field types of its stored revision.")
+        if value is None:
+            return
+        if f.type == "ref":
+            # A command can name another create in the same output by its local key.
+            if isinstance(value, dict) and value.keys() == {"$create"}:
+                return
+            yield at, uuid.UUID(str(value))
+        elif f.type == "list" and f.items is not None:
+            if not isinstance(value, list):
+                raise ValueError("The copy needs a list for this field.")
+            for index, item in enumerate(value):
+                yield from collect(f.items, item, (*at, index))
+        elif f.type == "row":
+            if not isinstance(value, dict):
+                raise ValueError("The copy needs named values for this row.")
+            for name, item in value.items():
+                yield from collect(f.fields.get(name), item, (*at, name))
+
+    for name, value in values.items():
+        yield from collect(fields.get(name), value, (name,))
+
+
+def redact_json_references(
+    f: Field | None,
+    value: Any,  # noqa: ANN401 - stored JSON
+    readable_refs: Collection[uuid.UUID],
+) -> Any:  # noqa: ANN401 - JSON out
+    """Apply the same read boundary to values that are already JSON."""
     if value is None:
         return None
+    if f is None:
+        return UNREADABLE_REFERENCE
+    if f.type == "ref":
+        try:
+            target = uuid.UUID(str(value))
+        except ValueError:
+            return UNREADABLE_REFERENCE
+        return value if target in readable_refs else UNREADABLE_REFERENCE
+    if f.is_rows and f.items is not None:
+        return [
+            {
+                n: redact_json_references(f.items.fields.get(n), v, readable_refs)
+                for n, v in row.items()
+            }
+            for row in value
+        ]
+    if f.type == "list" and f.items is not None and f.items.type == "ref":
+        return [redact_json_references(f.items, item, readable_refs) for item in value]
+    return value
+
+
+def to_json(
+    f: Field,
+    value: Any,  # noqa: ANN401 - a model value in
+    *,
+    readable_refs: Collection[Any] | None = None,
+) -> Any:  # noqa: ANN401 - JSON out
+    """Serialize a value. Reader-facing callers supply the IDs available to that reader."""
+    if value is None:
+        return None
+    if f.type == "ref" and readable_refs is not None and value not in readable_refs:
+        return UNREADABLE_REFERENCE
     if f.is_rows:
         assert f.items is not None  # noqa: S101 - lists always have items
         cells = f.items.fields
-        return [{n: to_json(cell, row.get(n)) for n, cell in cells.items()} for row in value]
+        return [
+            {n: to_json(cell, row.get(n), readable_refs=readable_refs) for n, cell in cells.items()}
+            for row in value
+        ]
     if f.type == "list":
         assert f.items is not None  # noqa: S101 - lists always have items
-        return [to_json(f.items, item) for item in value]
+        return [to_json(f.items, item, readable_refs=readable_refs) for item in value]
     if f.type == "datetime":
         utc = value.astimezone(dt.UTC)
         return utc.isoformat().replace("+00:00", "Z")

@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import date
 from decimal import Decimal
 from importlib import metadata
-from typing import TYPE_CHECKING, Any, BinaryIO, Literal, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal, Unpack, cast
 from urllib.parse import quote
 
 import httpx2
@@ -32,6 +32,7 @@ from iki.errors import (
 if TYPE_CHECKING:
     import pandas as pd
 
+    from iki.file_types import FileFilters, FileSort, FileWithUses
     from iki.schema import (
         ActionOut,
         AliquotsOut,
@@ -47,7 +48,9 @@ if TYPE_CHECKING:
         EntityOut,
         EntityTypeOut,
         EntryOut,
+        FileCountOut,
         FileOut,
+        FileRowOut,
         GraphOut,
         IkiIdConfirmationIn,
         IntakeOut,
@@ -58,6 +61,7 @@ if TYPE_CHECKING:
         PreviewRowOut,
         ProjectOut,
         ProjectRef,
+        RegistrationOut,
         RequestOut,
         RevisionDetailOut,
         RevisionOut,
@@ -1589,7 +1593,141 @@ def _ref(ref: str | Mapping[str, Any]) -> str:
 
 
 class Files(_Part):
-    """Files that entities' values refer to."""
+    """Browse project files, follow their use in records and runs, and add or download them."""
+
+    def _filters(
+        self,
+        *,
+        project: str | Mapping[str, Any] | None = None,
+        q: str | None = None,
+        format: str | Sequence[str] | None = None,
+        acquired_from: date | str | None = None,
+        acquired_to: date | str | None = None,
+        sample: str | None = None,
+        run: str | None = None,
+        accepts: str | Sequence[str] | None = None,
+        max_size: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "project": self._client._project_id(project) if project is not None else None,
+            "q": q,
+            "format": [format] if isinstance(format, str) else list(format or ()),
+            "acquired_from": acquired_from,
+            "acquired_to": acquired_to,
+            "sample": sample,
+            "run": run,
+            "accepts": [accepts] if isinstance(accepts, str) else list(accepts or ()),
+            "max_size": max_size,
+        }
+
+    def list(
+        self,
+        *,
+        sort: FileSort = "newest",
+        page_size: int = 100,
+        **filters: Unpack[FileFilters],
+    ) -> Results[FileRowOut]:
+        """Files you can read, a page at a time. ``q`` matches part of the name in any case.
+
+        Filter by ``project``, ``format`` (a format ID, media type, family or sequence of these),
+        inclusive days ``acquired_from`` and ``acquired_to``, ``sample`` or ``run`` (ID or
+        HRID). ``accepts`` and ``max_size`` narrow results to what a file field takes.
+        Sorting by acquisition places unknown dates last.
+        """
+        params = {**self._filters(**filters), "sort": sort, "limit": page_size}
+        return Results(
+            lambda cursor: self._client.request(
+                "GET", "/files", params={**params, "cursor": cursor}
+            )
+        )
+
+    def count(self, **filters: Unpack[FileFilters]) -> FileCountOut:
+        """Count files matching the same filters as ``list``. ``total`` stops at 1,000.
+        ``more_than_total`` says whether more match."""
+        return cast(
+            "FileCountOut",
+            self._client.request("GET", "/files/count", params=self._filters(**filters)),
+        )
+
+    def get(
+        self,
+        file_id: str,
+        *,
+        records_cursor: str | None = None,
+        runs_cursor: str | None = None,
+        page_size: int = 100,
+    ) -> FileWithUses:
+        """Metadata, origin and samples, with the records and runs that use this file.
+
+        Both ``records`` and ``runs`` contain ``items`` and a ``next_cursor``. Pass either
+        cursor back to continue that list. Each record gives the revision spans and fields
+        that held the file. Each run gives its roles, such as input or output (``made``).
+        """
+        path = _path("/files/{f}", f=file_id)
+        detail = self._client.request("GET", path)
+        return cast(
+            "FileWithUses",
+            {
+                **detail,
+                "records": self._client.request(
+                    "GET", path + "/records", params={"cursor": records_cursor, "limit": page_size}
+                ),
+                "runs": self._client.request(
+                    "GET", path + "/runs", params={"cursor": runs_cursor, "limit": page_size}
+                ),
+            },
+        )
+
+    def register(
+        self,
+        uri: str,
+        *,
+        project: str | Mapping[str, Any],
+        version: str | None = None,
+        name: str | None = None,
+        media_type: str | None = None,
+        acquired: date | str | None = None,
+        poll: float = 2.0,
+        timeout: float | None = None,
+    ) -> FileOut:
+        """Register an object in an approved location and return its verified file record.
+
+        Iki pins ``version``, or the object's current version if omitted, and reads that
+        version to compute its SHA-256. The location must keep immutable object versions.
+        The name defaults to the object's own. Iki checks its media type against the
+        installed format declarations. ``acquired`` supplies a date when the format lacks
+        one. ``timeout`` limits the wait for verification in seconds.
+        """
+        from iki._uploads import wait_for_file
+
+        if poll < 0 or (timeout is not None and timeout < 0):
+            raise ValueError("poll and timeout must be nonnegative.")
+        registration = cast(
+            "RegistrationOut",
+            self._client.request(
+                "POST",
+                "/registrations",
+                json={
+                    "uri": uri,
+                    "project": self._client._project_id(project),
+                    "version": version or "",
+                    "name": name or "",
+                    "media_type": media_type or "",
+                    "acquired_at": acquired.isoformat()
+                    if isinstance(acquired, date)
+                    else acquired or "",
+                },
+            ),
+        )
+        return wait_for_file(
+            self._client,
+            _path("/registrations/{id}", id=registration["id"]),
+            registration,
+            registration["name"],
+            "registration",
+            timeout,
+            poll,
+        )
 
     def upload(
         self,
@@ -1606,7 +1744,8 @@ class Files(_Part):
 
         A stream is read from its current position, which is restored if it can seek.
         Give an unnamed stream a ``name``.
-        The media type defaults to a guess from the filename, then application/octet-stream.
+        By default Iki recognizes the format from the bytes and filename using the
+        deployment's registered formats. Pass a media type to declare it explicitly.
         ``acquired`` is when its data was acquired, a date or datetime, or ISO 8601 text such
         as ``"2026-03-14"`` or ``"2026-03-14T09:21"``, for a file whose format doesn't record
         it: where it does, the file's own wins (ADR 0177). Without either, it's unknown.
@@ -1947,13 +2086,17 @@ def _download(
         target = target / (base if base not in ("", ".", "..") else what)
     partial = target.with_name(target.name + ".part")
     digest = hashlib.sha256()
-    # It answers with a short-lived signed URL. That's fetched without Iki's token,
-    # which is for Iki alone.
+    # A signed storage URL needs no Iki credentials, including cookies set by the API.
     signed = client._send("GET", content)
     location = signed.headers.get("Location")
     if signed.status_code not in (301, 302, 303, 307) or not location:
         raise IkiError(f"{client.url} didn't say where to download {what} from.")
-    response = client._http.send(client._http.build_request("GET", location), stream=True)
+    url = signed.request.url.join(location)
+    if url.scheme not in ("https", "http") or url.userinfo:
+        raise IkiError("Iki returned an invalid download address.")
+    if signed.request.url.scheme == "https" and url.scheme == "http":
+        raise IkiError("Iki returned a download address that downgrades HTTPS to HTTP.")
+    response = client._http.send(httpx2.Request("GET", url), stream=True)
     try:
         if response.status_code != 200:
             raise IkiError(

@@ -27,7 +27,6 @@ from iki_server.api.common import caller
 from iki_server.api.entities import (
     _find,
     _holds_opened,
-    _ids_in,
     _lookup,
     _people_out,
     _runs_of,
@@ -39,7 +38,7 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, registry, services
 from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.search_exports import text
-from iki_server.entities.values import shape, to_json
+from iki_server.entities.values import ids_in, shape, to_json
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.signatures import models as signing_models
@@ -50,6 +49,7 @@ router = Router(tags=["entities"])
 #: What each kind of revision did, as the record's page says it.
 KIND: dict[str, str] = {
     RevisionKind.CREATED: "Created",
+    RevisionKind.MIGRATED: "Migrated",
     RevisionKind.EDITED: "Edited",
     RevisionKind.ARCHIVED: "Archived",
     RevisionKind.RESTORED: "Restored",
@@ -257,7 +257,9 @@ class _Trail:
         of: str,
     ) -> Iterator[list[Any]]:
         runs = _runs_of(self.user, revisions)
-        holds = _holds_opened(self.record, revisions) if entity.pk == self.record.pk else {}
+        holds = (
+            _holds_opened(self.user, self.record, revisions) if entity.pk == self.record.pk else {}
+        )
         signed = _signatures(revisions)
         for revision in revisions:
             disclosed = told is None or services.discloses(revision, told)
@@ -301,7 +303,7 @@ class _Trail:
         wanted: dict[str, set[Any]] = {"ref": set(), "file": set(), "person": set()}
         for name, pair in found.items():
             for value in pair:
-                for kind, ids in _ids_in(dict(fields), {name: value}).items():
+                for kind, ids in ids_in(dict(fields), {name: value}).items():
                     wanted[kind] |= ids
         owner = self.record.owner_project_id
         refs, files = _lookup(self.user, wanted, projects={owner})
@@ -318,7 +320,7 @@ class _Trail:
             found.items(), key=lambda item: order.get(item[0], len(order))
         ):
             f = self.labels.get(name)
-            shown = [to_json(fields[name], v) for v in (before, after)]
+            shown = [to_json(fields[name], v, readable_refs=refs) for v in (before, after)]
             cells = [_cell(f, v, row) for v in shown]
             out.append((f["label"] if f else name, cells[0], cells[1]))
         return out

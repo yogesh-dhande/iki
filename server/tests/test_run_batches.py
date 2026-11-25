@@ -17,6 +17,7 @@ from test_runs import COMPUTE, protein
 from test_workers import WorkerClient, expire, keep_connection, worker, world
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities.models import ProjectLink
 from iki_server.realtime.hub import hub
 from iki_server.runs import queue
 from iki_server.runs.models import ActionRun, Job, JobLog, JobState, RunOutput, RunQuota
@@ -330,6 +331,31 @@ def test_a_lost_pack_retries_each_run_on_its_own(world: World) -> None:
     again = pod.lease().json()
     assert again["run"]["attempt"] == 2
     assert len(again["inputs"]["protein"]) == 3
+
+
+def test_a_retried_pack_contains_the_runs_whose_inputs_are_still_readable(world: World) -> None:
+    launched = batch(world)
+    pod = worker(world)
+    first = pod.lease().json()
+    expire(first)
+    assert queue.recover_expired() == 1
+    Job.objects.filter(attempt=2).update(queued_at=Now())
+    withdrawn = launched["runs"][1]
+    record = withdrawn["inputs"][0]
+    ProjectLink.objects.filter(entity_id=record["entity"], project=world.project).delete()
+
+    response = pod.lease()
+    if response.status_code == 204:  # The withdrawn run was at the head of the queue.
+        response = pod.lease()
+    assert response.status_code == 200, response.content
+    job = response.json()
+    assert job["run"]["attempt"] == 2
+    assert {row["run"] for row in job["pack"]} == {r["id"] for r in launched["runs"]} - {
+        withdrawn["id"]
+    }
+    assert record["entity"] not in response.content.decode()
+    assert record["hrid"] not in response.content.decode()
+    assert statuses(launched) == ["running", "rejected", "running"]
 
 
 def test_a_failed_pack_fails_each_run(world: World) -> None:

@@ -1,30 +1,28 @@
 """A physical prep's archived evidence and signed decision through the installed plugin."""
 
 import runpy
-from dataclasses import replace
+import shutil
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
-from django.apps import apps
 from django.core.exceptions import PermissionDenied
-from django.db import DatabaseError, connection
+from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from first_party_dependencies import ROOT, build_order
+from first_party_dependencies import FIRST_PARTY, ROOT, build_order, withs
 from org_world import build_world
 from test_lots import LOTS
-from test_plugin_migrations import database, iki, migrate, orm, sync
-from test_signatures import begin, past_the_triggers, ready, signed, standing
+from test_plugin_migrations import database, git, iki, migrate, orm, sync, upgrade
+from test_signatures import begin, ready, signed, standing
 from test_states import roles
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import access, checking, services, states
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import shape, to_json
 from iki_server.files.models import Blob, File
 from iki_server.org.services import Refused
-from iki_server.plugins.sync import drop_views
 from iki_server.runs import catalog, triggers
 from iki_server.runs.models import ProjectTrigger, TriggerFiring
 from iki_spec import rules as cel
@@ -55,6 +53,21 @@ def test_pinned_subtype_fields_stay_with_their_own_evidence() -> None:
     assert [row[0].value for row in evaluated] == [True, False, False, True]
     ordinary = checking.evaluate_pinned(variables, [(when, cel.CONDITION)], contexts, ())
     assert [row[0].value for row in ordinary] == [False] * len(contexts)
+
+
+def test_marked_plasmid_samples_upgrade_from_the_initial_schema(
+    tmp_path: Path, _postgres_url: str
+) -> None:
+    source = ROOT / "plugins" / "plasmid_sequencing"
+    plugin = tmp_path / "plasmid_sequencing"
+    shutil.copytree(source, plugin)
+    git(tmp_path, "init", "-q", "-b", "main")
+    git(tmp_path, "add", "plasmid_sequencing")
+    git(tmp_path, "commit", "-qm", "Initial schema")
+    checked = upgrade(plugin, _postgres_url, *withs(FIRST_PARTY[source]), "-k", "none")
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "Using fixtures marked upgrade in the earlier plugin" in checked.stdout
+    assert "rolled back: the samples have their values" in checked.stdout
 
 
 def test_prep_evidence_is_pinned_and_signed_under_its_recorded_flow(
@@ -214,6 +227,26 @@ def exercise_review(blob: Blob) -> None:
     assert "Needs re-verification" in current["verification_note"]
     assert "backbone" in current["verification_note"]
 
+    # A failed automatic recheck on a reopened record keeps the operator's explanation.
+    reopened = routes[0]
+    Entity.objects.filter(pk=reopened.pk).update(has_been_locked=True)
+    explanation = "Correct the reference on the reopened record"
+    with patch.object(catalog, "availability", return_value=catalog.Availability(True)):
+        saved = services.update(
+            analyst,
+            reopened,
+            {"product": str(dna.pk)},
+            expected_revision=reopened.revision,
+            reason=explanation,
+            by_run=True,
+        )
+    assert saved.revision is not None
+    diagnostic = Revision.objects.get(entity=reopened, number=saved.revision.number + 1)
+    assert (saved.revision.via, saved.revision.reason) == ("run", explanation)
+    assert (diagnostic.via, diagnostic.user, diagnostic.reason) == ("trigger", analyst, explanation)
+    assert diagnostic.changed_fields == ["verification_note"]
+    assert TriggerFiring.objects.filter(entity=reopened, state="failed", run__isnull=True).exists()
+
     with pytest.raises(PermissionDenied):
         triggers.disable(analyst, world.project, recheck, reason="Manual verification.")
     with pytest.raises(Refused):
@@ -233,16 +266,26 @@ def exercise_review(blob: Blob) -> None:
 
     # Replaying the upgrade preserves an explicit opt-out and restores the default
     # for projects whose older trigger was switched off without a reason.
-    upgrade = runpy.run_path(
-        str(ROOT / "plugins/plasmid/migrations/0008_invalidate_edited_plans.py")
-    )["invalidate"]
+    stale = create("iki/plasmid.Assembly", source | {"matches_product": True}, by_run=True)
+    with patch.object(triggers, "rechecks", return_value=[]):
+        edit(stale, {"method": "gateway_lr"})
+    assert services.values_at(stale, 2)["matches_product"] is True
+    loader = MigrationExecutor(connection).loader
+    key = ("iki__plasmid", "0008_invalidate_edited_plans")
+    upgrade = loader.get_migration(*key)
     setting = ProjectTrigger.objects.get(project=world.project, trigger=recheck)
     with connection.schema_editor() as schema:
-        upgrade(apps, schema)
+        upgrade.apply(loader.project_state(key, at_end=False), schema)
         setting.refresh_from_db()
         assert not setting.enabled and setting.disabled_reason == reason
         ProjectTrigger.objects.filter(pk=setting.pk).update(disabled_reason="")
-        upgrade(apps, schema)
+        upgrade.apply(loader.project_state(key, at_end=False), schema)
+    revision = stale.revisions.get(kind="migrated")
+    assert revision.number == 3 and revision.via == "system" and revision.user_id is None
+    assert key[1] in revision.reason
+    assert AuditEvent.objects.filter(action="entity.migrated", target_id=str(stale.pk)).count() == 1
+    assert services.values_at(stale, 2)["matches_product"] is True
+    assert services.values_at(stale, 3)["matches_product"] is None
     restored = ProjectTrigger.objects.get(pk=setting.pk)
     assert restored.enabled and restored.disabled_by_id is None
 
@@ -439,8 +482,8 @@ def exercise_review(blob: Blob) -> None:
     with pytest.raises(services.Invalid):
         edit(qc, {"review_flow": "research", "plasmid_revision": 999})
 
-    def sign(who: str, record: Entity, target: str) -> None:
-        signed(world, who, str(record.pk), target, field="review")
+    def sign(who: str, record: Entity, target: str, reason: str = "") -> None:
+        signed(world, who, str(record.pk), target, field="review", reason=reason)
         assert states.values_of(record)["review"] == target
 
     def refused(who: str, record: Entity, target: str) -> None:
@@ -501,6 +544,7 @@ def exercise_review(blob: Blob) -> None:
     assert sorted(item["meaning"] for item in signatures) == ["approval", "authorship", "review"]
     assert all(item["verification"]["valid"] for item in signatures)
 
+    sign("viewer", qc, "recorded", "Reopen the evidence for correction")
     edit(qc, {"outcome": "discrepancy", "override_reason": None}, correction=True)
     assert states.values_of(qc)["review"] == "recorded"
     refused("admin", qc, "reviewed")
@@ -514,7 +558,7 @@ def exercise_review(blob: Blob) -> None:
     assert retained["plasmid_revision"] == qc_values["plasmid_revision"] < plasmid.revision
     assert retained["alignment_revision"] == qc_values["alignment_revision"] < alignment.revision
     original = standing(world, str(qc.pk))
-    assert {s["id"]: s["revision"] for s in original} == {
+    assert {s["id"]: s["revision"] for s in original if s["change"]["to"] != "recorded"} == {
         s["id"]: s["revision"] for s in signatures
     }
     for signature in original:
@@ -523,84 +567,13 @@ def exercise_review(blob: Blob) -> None:
         assert attested["outcome"] == "match"
         assert attested["override_reason"] == override_reason
 
-    # The earlier result had an agreement only. Copy it into the new field of
-    # every parent revision, including one where only the alignment name changed.
-    # The data migration runs alone, on today's tables, so later migrations that
-    # change the type's columns don't stand in its way.
-    app = "iki__plasmid_sequencing"
-    executor = MigrationExecutor(connection)
-    [head] = executor.loader.graph.leaf_nodes(app)
-    name = "0002_project_agreement_to_alignment_verdict"
-    loader = executor.loader
-    copying = loader.get_migration(app, name)
-    old = (app, "0003_consensus_length_and_unplaced")
-    executor.migrate([old])
-    # Use the old field and create rule for this fixture. Historical human-entered
-    # agreements lack the computed comparison values that new alignments require.
-    old_fields = shape(whole_type).part_of("agreement").fields
-    old_checks = tuple(r for r in checking.checks_of(whole_type) if r.name != "action_evidence")
-    with (
-        patch.dict(
-            old_fields, agreement=replace(old_fields["agreement"], required=True, computed=False)
-        ),
-        patch.object(checking, "checks_of", return_value=old_checks),
-    ):
-        legacy = create(whole_type, whole | {"sample": None})
-    # Seed the old sample column using the historical table. Revision 2 touches only
-    # the subtype, so no alignment history row exists there to carry the sample forward.
-    edit(legacy, {"provider": "External review"})
-    with past_the_triggers() as cursor:
-        cursor.execute(
-            "UPDATE iki__plasmid_sequencing_wholeplasmidalignment SET sample_id = %s "
-            "WHERE entity_id = %s",
-            [prep.pk, legacy.pk],
-        )
-        cursor.execute(
-            "UPDATE iki__plasmid_sequencing_wholeplasmidalignment__history SET sample_id = %s "
-            "WHERE entity_id = %s AND revision = 2",
-            [prep.pk, legacy.pk],
-        )
-    edit(legacy, {"name": "Edited earlier alignment"})
-    legacy.refresh_from_db()
-    before = [services.values_at(legacy, number) for number in range(1, legacy.revision + 1)]
-    assert all(row["verdict"] is None for row in before)
-    MigrationExecutor(connection).migrate([head])
-    with connection.schema_editor() as editor:
-        copying.apply(loader.project_state((app, name), at_end=False), editor)
-    assert services.current_values_of([legacy])[legacy.pk]["verdict"] == "incomplete"
-    for number, row in enumerate(before, 1):
-        assert services.values_at(legacy, number) == row | {
-            "verdict": "incomplete",
-            "sample": None if number == 1 else prep.pk,
-        }
-    with pytest.raises(ValueError, match="Give a reason"):
-        values("regulated_qc", legacy)
+    # The common alignment owns sample from this plugin's first migration.
+    # Editing the subtype alone still reads the sample at the parent's last revision.
     late = create(whole_type, comparison | {"sample": None}, by_run=True)
     edit(late, {"sample": str(other_prep.pk)})
-    MigrationExecutor(connection).migrate([old])
-    with connection.cursor() as cursor:
-        for record, expected_prep in ((legacy, prep), (late, other_prep)):
-            cursor.execute(
-                "SELECT revision, sample_id "
-                "FROM iki__plasmid_sequencing_wholeplasmidalignment__history "
-                "WHERE entity_id = %s ORDER BY revision",
-                [record.pk],
-            )
-            assert cursor.fetchall() == [(1, None), (2, expected_prep.pk)]
-    with connection.schema_editor() as editor:
-        copying.unapply(loader.project_state((app, name)), editor)
-    for number, row in enumerate(before, 1):
-        assert services.values_at(legacy, number) == row
-    previous_core = ("iki__core", "0004_alignment_verdict_alignment_history_verdict")
-    # MigrationExecutor bypasses the pre_migrate signal and the deployment runner,
-    # which both remove generated analyst views before changing their columns.
-    with connection.cursor() as cursor:
-        drop_views(cursor)
-    MigrationExecutor(connection).migrate([old, previous_core])
-    MigrationExecutor(connection).migrate([head])
-    # Other producers may put samples on core alignments. The older schema has nowhere
-    # to preserve those values, so the downgrade must stop before dropping the columns.
-    generic = create("iki/core.Alignment", imported | {"sample": str(prep.pk)})
-    with pytest.raises(DatabaseError, match="would lose recorded alignment samples"):
-        MigrationExecutor(connection).migrate([old, previous_core])
-    assert services.values_at(generic, 1)["sample"] == prep.pk
+    edit(late, {"provider": "External review"})
+    assert [services.values_at(late, n)["sample"] for n in (1, 2, 3)] == [
+        None,
+        other_prep.pk,
+        other_prep.pk,
+    ]

@@ -16,8 +16,10 @@ about its hash.
 from __future__ import annotations
 
 import datetime as dt
+import mimetypes
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -30,7 +32,7 @@ from django.utils import timezone
 from iki_server.accounts.models import User
 from iki_server.audit import log
 from iki_server.core.sizes import human_size
-from iki_server.entities import access
+from iki_server.entities import access, registry
 from iki_server.files import acquired, storage
 from iki_server.files.models import (
     ACQUIRED,
@@ -56,6 +58,8 @@ _MEDIA_TYPE = re.compile(MEDIA_TYPE)
 #: A media type's top-level kind, such as image: ``image/*`` is any of its types.
 MEDIA_KIND = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")
 _ACQUIRED = re.compile(ACQUIRED)
+_OCTET_STREAM = "application/octet-stream"
+_STANDARD_TYPES = mimetypes.MimeTypes()
 #: How a file's acquisition is known when whoever added it said, rather than its format.
 GIVEN = "given"
 
@@ -113,7 +117,7 @@ def clean_acquired(text: str) -> str:
 
 
 class _Stored:
-    """A stored object, read a range at a time: what :func:`acquired.read` reads from."""
+    """An object used for bounded signature and metadata reads, pinned for registrations."""
 
     def __init__(self, uri: str, version: str, size: int) -> None:
         self.uri, self.version, self._size = uri, version, size
@@ -128,18 +132,54 @@ class _Stored:
         return storage.read_range(self.uri, self.version, offset, min(length, self._size - offset))
 
 
-def acquisition(
-    name: str, media_type: str, source: acquired.Readable, given: str
-) -> tuple[dt.date | None, str, str]:
-    """When a file's data was acquired, and how that's known (ADR 0177): as its format
-    records it, if it does; else as whoever added it said; else unknown. Never when it was
-    added: that's another fact, kept apart."""
-    found = acquired.read(name, media_type, source) if source.size else None
-    if found is not None:
+@dataclass(frozen=True)
+class _Inspection:
+    media_type: str
+    metadata: acquired.FileMetadata
+
+
+def _inspect(
+    name: str, media_type: str, source: acquired.Readable, *, read_metadata: bool
+) -> _Inspection:
+    """Recognise the file against the installed declarations before accepting the bytes."""
+    formats = registry.file_formats()
+    length = min(formats.signature_bytes, source.size)
+    prefix = source.read(0, length) if length else b""
+    if len(prefix) != length:
+        raise OSError("The store did not return the complete file prefix.")
+    try:
+        match = formats.recognize(name, prefix, media_type)
+    except ValueError as error:
+        raise Refused(str(error), field="media_type") from None
+    if match is not None:
+        media_type = match.canonical
+    elif media_type == _OCTET_STREAM:
+        media_type = _STANDARD_TYPES.guess_type(f"./{name}")[0] or _OCTET_STREAM
+    metadata = (
+        acquired.read_metadata(match.reader, source)
+        if read_metadata and match
+        else acquired.FileMetadata()
+    )
+    return _Inspection(media_type, metadata)
+
+
+def _acquisition(metadata: acquired.FileMetadata, given: str) -> tuple[dt.date | None, str, str]:
+    """The format's own date wins, followed by the date given when the file was added."""
+    if metadata.acquired is not None:
+        found = metadata.acquired
         return found.on, found.at, found.source
     if given:
         return dt.date.fromisoformat(given[:10]), given, GIVEN
     return None, "", ""
+
+
+def _inspect_upload(upload: Upload) -> _Inspection:
+    if upload.kind not in (UploadKind.FILE, UploadKind.ARTIFACT):
+        return _Inspection(upload.media_type, acquired.FileMetadata())
+    source = _Stored(storage.uri(upload.staging_key), "", upload.size)
+    return _inspect(
+        upload.name, upload.media_type, source, read_metadata=upload.kind == UploadKind.FILE
+    )
 
 
 # --- Uploading -----------------------------------------------------------------------------------
@@ -187,9 +227,10 @@ def start(
         # Nothing to send. Its hash must be the empty content's, as for any other upload.
         if sha256 != EMPTY_SHA256:
             raise Refused("An empty file's SHA-256 is e3b0c442…b855.", field="sha256")
+        inspection = _inspect_upload(upload)
         upload.save()
         storage.put_empty(upload.staging_key)
-        _finish(upload, sha256, 0)
+        _finish(upload, sha256, 0, inspection)
         return upload
     upload.multipart_id = storage.start_multipart(upload.staging_key)
     upload.save()
@@ -269,64 +310,74 @@ def check(upload_id: str) -> str:
         return "nothing to check"
     sha256, size = storage.digest(upload.staging_key)
     if (sha256, size) != (upload.sha256, upload.size):
-        storage.delete(upload.staging_key)
-        with transaction.atomic():
-            locked = Upload.objects.select_for_update().get(pk=upload.pk)
-            if locked.state != UploadState.CHECKING:
-                return locked.state
-            what = "size" if size != upload.size else "SHA-256"
-            locked.error = (
-                f"The bytes that arrived don't match the {what} you sent, so they weren't kept. "
-                "Upload the file again."
-            )
-            _end(locked, UploadState.FAILED)
+        what = "size" if size != upload.size else "SHA-256"
         logger.warning("upload_mismatch", upload=upload_id, expected=upload.sha256, got=sha256)
-        return "mismatch"
-    when = None
-    if upload.kind == UploadKind.FILE:
-        # Read from the checked bytes, before they move: what the format says of them.
-        staged = _Stored(storage.uri(upload.staging_key), "", size)
-        when = acquisition(upload.name, upload.media_type, staged, upload.acquired_at)
-    _finish(upload, sha256, size, when)
+        return _fail_upload(
+            upload,
+            f"The bytes that arrived don't match the {what} you sent, so they weren't kept. "
+            "Upload the file again.",
+        )
+    try:
+        inspection = _inspect_upload(upload)
+    except Refused as error:
+        return _fail_upload(upload, str(error))
+    _finish(upload, sha256, size, inspection)
     return "ready"
+
+
+def _fail_upload(upload: Upload, reason: str) -> str:
+    with transaction.atomic():
+        locked = Upload.objects.select_for_update().get(pk=upload.pk)
+        if locked.state != UploadState.CHECKING:
+            return str(locked.state)
+        locked.error = reason
+        _end(locked, UploadState.FAILED)
+    return "mismatch"
 
 
 def _finish(
     upload: Upload,
     sha256: str,
     size: int,
-    when: tuple[dt.date | None, str, str] | None = None,
+    inspection: _Inspection | None = None,
 ) -> None:
-    """Moves checked bytes to their content's key, and makes the upload a file, acquired
-    `when` its bytes say; or, for an artifact or a checkpoint, to its own key."""
-    if upload.kind != UploadKind.FILE:
-        kept = storage.kept_key(upload.kind, upload.pk)
-        storage.copy(upload.staging_key, kept)
-        storage.delete(upload.staging_key)
-        with transaction.atomic():
-            locked = Upload.objects.select_for_update().get(pk=upload.pk)
-            if locked.state in (UploadState.PENDING, UploadState.CHECKING):
-                _end(locked, UploadState.READY)
-                if locked.kind == UploadKind.BUNDLE:
-                    from iki_server.bundles import imports
-
-                    imports.uploaded(locked)
-                return
-        # Cancelled while it was checked (its run's checkpoints were deleted, say): keep none.
-        storage.delete_for_good(kept)
+    """Publishes checked bytes with their verified format and acquisition metadata."""
+    finishing = (UploadState.PENDING, UploadState.CHECKING)
+    # A finished upload's bytes are where they belong (or retention has removed them), so a
+    # stale attempt copies nothing.
+    if not Upload.objects.filter(pk=upload.pk, state__in=finishing).exists():
         return
-    key = storage.blob_key(sha256)
-    if not storage.exists(key):
+    if inspection is None:
+        inspection = _inspect_upload(upload)
+    key = (
+        storage.blob_key(sha256)
+        if upload.kind == UploadKind.FILE
+        else storage.kept_key(upload.kind, upload.pk)
+    )
+    # The copy runs outside the transaction: a large object takes minutes, and its key is
+    # the content's or this upload's own, so copying twice writes the same bytes.
+    copied = not storage.exists(key)
+    if copied:
         storage.copy(upload.staging_key, key)
-    storage.delete(upload.staging_key)
     with transaction.atomic():
+        # Only one finisher publishes the upload.
         locked = Upload.objects.select_for_update().get(pk=upload.pk)
-        if locked.state not in (UploadState.PENDING, UploadState.CHECKING):
+        if locked.state not in finishing:
+            if copied and locked.kind != UploadKind.FILE and locked.state == UploadState.CANCELLED:
+                # Cancelled while it was copied (its run's checkpoints were deleted, say).
+                storage.delete_for_good(key)
+            return
+        locked.media_type = inspection.media_type
+        if locked.kind != UploadKind.FILE:
+            _end(locked, UploadState.READY)
+            if locked.kind == UploadKind.BUNDLE:
+                from iki_server.bundles import imports
+
+                imports.uploaded(locked)
             return
         blob = _blob(sha256, size, storage.uri(key))
-        # An empty file says nothing of itself: only what its uploader gave.
-        acquired_on, acquired_at, acquired_from = when or acquisition(
-            locked.name, locked.media_type, _Stored("", "", 0), locked.acquired_at
+        acquired_on, acquired_at, acquired_from = _acquisition(
+            inspection.metadata, locked.acquired_at
         )
         file = File.objects.create(
             blob=blob,
@@ -412,7 +463,13 @@ def _blob(sha256: str, size: int, uri: str) -> Blob:
 def _end(upload: Upload, state: UploadState) -> None:
     upload.state = state
     upload.finished_at = timezone.now()
-    upload.save(update_fields=["state", "finished_at", "error", "file"])
+    upload.save(update_fields=["state", "finished_at", "error", "file", "media_type"])
+    if state in (UploadState.READY, UploadState.FAILED):
+        from iki_server.files.tasks import discard_staging
+
+        # The runner sees this deletion only after the enclosing transaction commits.
+        # A rolled-back finish can read its input again, even if the final copy exists.
+        discard_staging.enqueue(str(upload.pk))
     if upload.kind != UploadKind.FILE:
         return  # a worker's, for a run: the run's page says how it went
     # Postgres delivers it when the transaction commits.
@@ -458,6 +515,49 @@ def locations() -> list[str]:
     return list(settings.IKI_FILES_REGISTER_LOCATIONS)
 
 
+def registration_location(uri: str) -> tuple[str, str]:
+    """The bucket and key of an object the deployment allows registering."""
+    bucket_name, key = storage.split_uri(uri)
+    scheme = storage.scheme()
+    if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
+        raise Refused(f"Name an object, such as {scheme}://lab-data/runs/plate-7.csv.", field="uri")
+    if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
+        places = ", ".join(locations()) or "none are set up"
+        raise Refused(
+            f"Files can be registered only from the locations your administrators approved "
+            f"({places}). Upload this file instead, or ask them to add its location.",
+            field="uri",
+        )
+    return bucket_name, key
+
+
+def registration_object(uri: str, version: str) -> dict[str, Any]:
+    """Resolve an approved object to an immutable version and its storage metadata."""
+    bucket_name, key = registration_location(uri)
+    if not storage.versioned(bucket_name):
+        raise Refused(
+            f"Bucket {bucket_name} doesn't keep versions, so this file could change after "
+            "it's registered. Turn on versioning for the bucket, or upload the file instead.",
+            field="uri",
+        )
+    found = storage.head(bucket_name, key, version)
+    if found is None:
+        what = f"version {version} of {uri}" if version else uri
+        raise Refused(f"There's no object at {what}.", field="version" if version else "uri")
+    pinned = found["version"]
+    if pinned in ("", "null"):
+        raise Refused(
+            "This object was stored before the bucket kept versions, so it could still be "
+            "overwritten. Copy it onto itself to give it a version, then register it.",
+            field="uri",
+        )
+    if version and pinned != version:
+        raise Refused(
+            "The object store returned a different version from the one requested.", field="version"
+        )
+    return found
+
+
 def register(
     user: User,
     project: Project,
@@ -474,34 +574,9 @@ def register(
     """
     uri = uri.strip()
     acquired_at = clean_acquired(acquired_at)
-    bucket_name, key = storage.split_uri(uri)
-    scheme = storage.scheme()
-    if not uri.startswith(f"{scheme}://") or not bucket_name or not key or key.endswith("/"):
-        raise Refused(f"Name an object, such as {scheme}://lab-data/runs/plate-7.csv.", field="uri")
-    if ".." in key.split("/") or not any(uri.startswith(place) for place in locations()):
-        places = ", ".join(locations()) or "none are set up"
-        raise Refused(
-            f"Files can be registered only from the locations your administrators approved "
-            f"({places}). Upload this file instead, or ask them to add its location.",
-            field="uri",
-        )
-    if not storage.versioned(bucket_name):
-        raise Refused(
-            f"Bucket {bucket_name} doesn't keep versions, so this file could change after "
-            "it's registered. Turn on versioning for the bucket, or upload the file instead.",
-            field="uri",
-        )
-    found = storage.head(bucket_name, key, version.strip())
-    if found is None:
-        what = f"version {version.strip()} of {uri}" if version.strip() else uri
-        raise Refused(f"There's no object at {what}.", field="version" if version else "uri")
+    found = registration_object(uri, version.strip())
     pinned = found["version"]
-    if pinned in ("", "null"):
-        raise Refused(
-            "This object was stored before the bucket kept versions, so it could still be "
-            "overwritten. Copy it onto itself to give it a version, then register it.",
-            field="uri",
-        )
+    _, key = storage.split_uri(uri)
     name = clean_name(name or key.rsplit("/", 1)[-1])
     if media_type:
         media_type = clean_media_type(media_type)
@@ -528,7 +603,7 @@ def register(
         ).first()
         if blob is not None:
             # Registered before: its hash is known, so it's a file at once.
-            _registered(registration, blob)
+            _registered(registration, blob, _inspect_registration(registration))
         else:
             from iki_server.files.tasks import check_registration
 
@@ -553,6 +628,12 @@ def check_registration(registration_id: str) -> str:
             _end_registration(locked, RegistrationState.FAILED)
             return "mismatch"
         try:
+            inspection = _inspect_registration(locked)
+        except Refused as error:
+            locked.error = str(error)
+            _end_registration(locked, RegistrationState.FAILED)
+            return "mismatch"
+        try:
             with transaction.atomic():
                 blob, _ = Blob.objects.get_or_create(
                     registered_external=True,
@@ -566,14 +647,19 @@ def check_registration(registration_id: str) -> str:
                 storage_uri=locked.storage_uri,
                 object_version=locked.object_version,
             )
-        _registered(locked, blob)
+        _registered(locked, blob, inspection)
     return "ready"
 
 
-def _registered(registration: Registration, blob: Blob) -> None:
-    source = _Stored(blob.storage_uri, blob.object_version, blob.size)
-    acquired_on, acquired_at, acquired_from = acquisition(
-        registration.name, registration.media_type, source, registration.acquired_at
+def _inspect_registration(registration: Registration) -> _Inspection:
+    source = _Stored(registration.storage_uri, registration.object_version, registration.size)
+    return _inspect(registration.name, registration.media_type, source, read_metadata=True)
+
+
+def _registered(registration: Registration, blob: Blob, inspection: _Inspection) -> None:
+    registration.media_type = inspection.media_type
+    acquired_on, acquired_at, acquired_from = _acquisition(
+        inspection.metadata, registration.acquired_at
     )
     file = File.objects.create(
         blob=blob,
@@ -607,7 +693,7 @@ def _registered(registration: Registration, blob: Blob) -> None:
 def _end_registration(registration: Registration, state: RegistrationState) -> None:
     registration.state = state
     registration.finished_at = timezone.now()
-    registration.save(update_fields=["state", "finished_at", "error", "file"])
+    registration.save(update_fields=["state", "finished_at", "error", "file", "media_type"])
     realtime.publish(
         registration.created_by_id,
         "registration.finished",

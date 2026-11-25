@@ -351,6 +351,11 @@ input:focus-visible {
   margin: 0 0 0.35rem;
 }
 
+/* An error put right while the person is still in its field: its room, till they leave. */
+.field-error-room {
+  margin: 0;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -724,18 +729,55 @@ input:focus-visible {
   }
 }
 
+/* The server's messages, said as a page loads: at its top, before it can be pressed. */
 .messages {
   margin-bottom: 1.25rem;
 }
 
-/* The app's messages are always there, for screen readers: they take room only with one,
-   so a page's title is as far under the bar on the app's pages as on the server's. */
-.messages:empty {
+.messages .alert {
+  margin: 0 0 0.5rem;
+}
+
+/* The app's confirmations (ui.tsx's Notices), said once the page can be pressed: at the
+   foot of the page, where they move nothing on it, and held at the foot of the window over
+   what's above. The room they keep as one is dismissed catches no presses; they do. */
+.notices {
+  position: sticky;
+  bottom: 1rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  max-width: calc(560rem / 13);
+  pointer-events: none;
+}
+
+.notices-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.notices-list:not(:empty) {
+  padding-top: 1rem;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding-block: 0.5rem;
+  box-shadow: var(--shadow-menu);
+  pointer-events: auto;
+}
+
+.notice > p {
   margin: 0;
 }
 
-.messages .alert {
-  margin: 0 0 0.5rem;
+.notice > .button {
+  flex: none;
 }
 
 .rows {
@@ -1600,21 +1642,24 @@ main.admin-main {
 }
 
 /* Confirmation dialogs (React Aria: focus is trapped and returns on close). */
+/* A dialog hangs from a fixed height, not the middle: what comes or goes in it (a problem,
+   a field's error, a plan) moves only what's below that, never its title and fields above. */
 .dialog-overlay {
+  --dialog-top: clamp(1rem, 8dvh, 4.5rem);
   position: fixed;
   inset: 0;
   z-index: 100;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 1rem;
+  padding: var(--dialog-top) 1rem 1rem;
   background: rgb(10 15 20 / 55%);
 }
 
 .dialog {
   width: 100%;
   max-width: 28rem;
-  max-height: calc(100dvh - 2rem);
+  max-height: calc(100dvh - var(--dialog-top) - 1rem);
   overflow: auto;
   background: var(--surface);
   color: var(--text);
@@ -6064,8 +6109,32 @@ button.scan-choice:disabled {
   border-color: var(--warning);
 }
 
-.button.outcome[aria-pressed="true"]::before {
+/* The tick's place is kept while it isn't pressed, so pressing one never widens it and
+   moves the outcomes beside it; as much again after the label keeps the label centred. */
+.button.outcome[aria-pressed]::before,
+.button.outcome[aria-pressed]::after {
   content: "✓";
+  visibility: hidden;
+}
+
+.button.outcome[aria-pressed]::after {
+  content: "✓" / "";
+}
+
+.button.outcome[aria-pressed="true"]::before {
+  visibility: visible;
+}
+
+/* Clear's place, kept while there's nothing to clear. */
+.button.outcome-spare {
+  visibility: hidden;
+}
+
+/* Who checked it: one line, there from the start, however long their name. */
+.receive-checked {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .receive-note {
@@ -6081,7 +6150,10 @@ button.scan-choice:disabled {
   margin-bottom: 0;
 }
 
+/* As wide as its widest label (Mark rejected), so a choice never moves it to a line of its
+   own. */
 .receive-note .button {
+  min-width: 9.5em;
   min-height: var(--slot-size);
 }
 

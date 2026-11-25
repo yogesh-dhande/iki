@@ -8,6 +8,7 @@ import pytest
 from api_client import Api, problem
 from org_world import World
 from test_api_entities import api_as, create
+from test_run_projects import elsewhere
 from test_runs import protein
 from test_workers import WorkerClient, keep_connection, worker, world
 
@@ -188,6 +189,7 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     assert run.requested_by == world.users["editor"]
     assert run.via == WorkflowRun.objects.get().via == "web"
     assert run.reason == f"Step `weigh` of {body['hrid']}: Kinase panel"
+    assert run.change_reason == "Kinase panel"
     event = AuditEvent.objects.get(action="workflow.started")
     assert (event.target_label, event.data["steps"]) == (body["hrid"], 2)
     launched = AuditEvent.objects.get(action="run.launched")
@@ -206,6 +208,35 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
     problem(outsider.get(f"/workflow-runs/{body['hrid']}"), 404, "not_found")
     problem(outsider.get("/runs", workflow=body["hrid"]), 404, "not_found")
     assert outsider.get("/workflow-runs").json()["items"] == []
+
+
+def test_workflow_run_inputs_follow_the_readers_current_projects(world: World) -> None:
+    editor = api_as(world, "editor")
+    private = protein(editor, elsewhere(world), "kit")
+    shared = protein(editor, world.project, "met")
+    made = start(
+        editor, world, {"query": shared["id"], "target": private["id"]}, add_to_project=True
+    )
+    assert made.status_code == 201, made.content
+    workflow = made.json()
+    assert (
+        editor.delete(f"/entities/{private['id']}/projects/{world.project.pk}").status_code == 204
+    )
+    assert get(world, workflow)["inputs"] == workflow["inputs"]
+    weigh(worker(world))
+    run_tasks()
+    history = get(world, workflow, "viewer")
+    query, target = history["inputs"]
+    assert query == workflow["inputs"][0]
+    assert target == {"name": "target", "entity": None, "hrid": None, "revision": None}
+    assert history["status"] == "failed" and history["error"]["step"] == "align"
+    assert private["id"] not in str(history) and private["hrid"] not in str(history)
+    # The runner has launch rights in the workflow project and can see its history.
+    runner = api_as(world, "runner")
+    assert get(world, workflow, "runner")["can"]["rerun"] is False
+    refused = runner.post(f"/workflow-runs/{workflow['hrid']}/rerun", {"reason": "Verify"})
+    assert refused.status_code == 403, refused.content
+    assert private["id"].encode() not in refused.content
 
 
 def test_a_workflow_moves_on_as_its_steps_succeed(world: World) -> None:

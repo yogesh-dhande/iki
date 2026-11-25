@@ -202,7 +202,7 @@ def with_action_tests() -> list[Path]:
     """
     return [
         plugin
-        for plugin in FIRST_PARTY
+        for plugin in (*FIRST_PARTY, TEMPLATE)
         if any(
             "\nkind: ActionTest" in found.read_text(encoding="utf-8")
             for found in sorted((plugin / "tests").glob("*.yaml"))

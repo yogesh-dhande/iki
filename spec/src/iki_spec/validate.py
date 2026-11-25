@@ -39,6 +39,8 @@ from iki_spec import (
     units,
     workflows,
 )
+from iki_spec.builtin import CORE_DIRECTORY, core_plugin, shipped_core
+from iki_spec.formats import FormatRegistry
 from iki_spec.identity import IDENTITY_TYPES, NUCLEIC_FORMATS, SEQUENCE_FORMATS
 from iki_spec.model import (
     BUILTIN_TYPES,
@@ -54,6 +56,7 @@ from iki_spec.model import (
     Export,
     Extension,
     Field,
+    FileFormat,
     Grid,
     Guard,
     LabRole,
@@ -274,12 +277,14 @@ def load_plugin(
     dependencies: Sequence[FilePath | str] = (),
     core: bool = False,
     require_setting_policy: bool = True,
+    historical: bool = False,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
-    Only an upgrade probe loading old manifests can relax the explicit setting policy.
+    An upgrade probe uses ``historical`` to build the earlier commit under the manifest
+    rules it shipped with. Current builds enforce the setting and signed-state policies.
     """
     root = FilePath(directory)
     loaded = _read(root)
@@ -309,7 +314,9 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core).run(require_setting_policy=require_setting_policy)
+    _Semantics(loaded, others, core=core, historical=historical).run(
+        require_setting_policy=require_setting_policy and not historical
+    )
     return loaded.result()
 
 
@@ -334,7 +341,23 @@ def check_compiled_rules(plugin: Plugin, installed: Mapping[str, Plugin]) -> Plu
         for name, other in installed.items()
         if name != plugin.name
     }
-    types, extensions = rules.check(_Semantics(loaded, others, core=plugin.name == naming.CORE))
+    semantics = _Semantics(loaded, others, core=plugin.name == naming.CORE)
+
+    def file_choices(fields: Mapping[str, Field], path: Path) -> None:
+        for name, f in fields.items():
+            at = (*path, name)
+            semantics.file_choices(f, source, at)
+            if f.items:
+                semantics.file_choices(f.items, source, (*at, "items"))
+                file_choices(f.items.fields, (*at, "items", "fields"))
+
+    for name, t in plugin.types.items():
+        file_choices(t.fields, ("types", name, "fields"))
+    for i, extension in enumerate(plugin.extensions):
+        file_choices(extension.fields, ("extensions", i, "fields"))
+    for name, action in plugin.actions.items():
+        file_choices(action.params, ("actions", name, "params"))
+    types, extensions = rules.check(semantics)
     for problem in loaded.checker.problems:
         if problem.is_error:
             raise ValueError(f"{'.'.join(map(str, problem.path))}: {problem.message}")
@@ -561,6 +584,10 @@ def _read(root: FilePath) -> _Loaded:
         triggers=fires,
         components=shown,
         roles=roles,
+        formats={
+            f"{name}.{local}": FileFormat.read(f"{name}.{local}", spec, order)
+            for order, (local, spec) in enumerate(data.get("formats", {}).items())
+        },
         starters=dict(data.get("starters", {})),
         apis=apis.read_apis(name, data),
     )
@@ -884,11 +911,25 @@ def _storage(data: Any, plugin: str) -> Storage | None:  # noqa: ANN401 - YAML
     )
 
 
-#: The formats the structure viewer reads, by media type, as Mol* names them.
-STRUCTURE_MEDIA_TYPES = {"chemical/x-mmcif": "mmcif", "chemical/x-pdb": "pdb"}
+#: Media top-level types whose dotted subtypes are literal MIME choices, alongside the
+#: long-standing chemical community tree. A qualified, declared format ID wins first.
+_MEDIA_TREES = frozenset(
+    [
+        "application",
+        "audio",
+        "chemical",
+        "example",
+        "font",
+        "haptics",
+        "image",
+        "message",
+        "model",
+        "multipart",
+        "text",
+        "video",
+    ]
+)
 
-#: The formats the alignment viewer reads: FASTA, of amino acids or nucleotides.
-ALIGNMENT_MEDIA_TYPES = frozenset({"chemical/seq-aa-fasta", "chemical/seq-na-fasta", "text/plain"})
 
 #: What each viewer's fields must be: (role, as it reads, test).
 _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] = {
@@ -907,11 +948,7 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
         (
             "structure",
             "a file field of mmCIF or PDB files (media types chemical/x-mmcif or chemical/x-pdb)",
-            lambda f: (
-                f.type == "file"
-                and bool(f.media_types)
-                and set(f.media_types) <= set(STRUCTURE_MEDIA_TYPES)
-            ),
+            lambda f: f.type == "file" and bool(f.media_types),
         ),
     ),
     "alignment": (
@@ -919,11 +956,7 @@ _VIEWER_ROLES: dict[str, tuple[tuple[str, str, Callable[[Field], bool]], ...]] =
             "alignment",
             "a file field of FASTA files (media types chemical/seq-aa-fasta, "
             "chemical/seq-na-fasta or text/plain)",
-            lambda f: (
-                f.type == "file"
-                and bool(f.media_types)
-                and set(f.media_types) <= ALIGNMENT_MEDIA_TYPES
-            ),
+            lambda f: f.type == "file" and bool(f.media_types),
         ),
         (
             "rows",
@@ -992,7 +1025,14 @@ def _fields(data: dict[str, Any], plugin: str) -> dict[str, Field]:
 
 
 class _Semantics:
-    def __init__(self, loaded: _Loaded, others: dict[str, _Loaded], *, core: bool = False) -> None:
+    def __init__(
+        self,
+        loaded: _Loaded,
+        others: dict[str, _Loaded],
+        *,
+        core: bool = False,
+        historical: bool = False,
+    ) -> None:
         assert loaded.plugin is not None and loaded.plugin_source is not None  # noqa: S101 - an invariant, not a check
         self.loaded = loaded
         self.plugin: Plugin = loaded.plugin
@@ -1001,6 +1041,7 @@ class _Semantics:
         self.checker = loaded.checker
         self.add = loaded.checker.add
         self.core = core
+        self.historical = historical
         self.types: dict[str, EntityType] = {} if core else dict(BUILTIN_TYPES)
         for other in others.values():
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
@@ -1024,6 +1065,24 @@ class _Semantics:
             assert other.plugin is not None  # noqa: S101 - an invariant, not a check
             self.roles.update(other.plugin.roles)
         self.roles.update(self.plugin.roles)
+        # An upgrade probe can load a core from before format declarations. Its original
+        # viewers still recognize the MIME types declared in today's shipped core.
+        installed = {n: p.plugin for n, p in others.items() if p.plugin is not None}
+        installed[self.plugin.name] = self.plugin
+        if not core:
+            installed.setdefault(naming.CORE, core_plugin())
+        if (
+            (base := installed.get(naming.CORE))
+            and not base.formats
+            and loaded.directory != CORE_DIRECTORY
+        ):
+            installed[naming.CORE] = shipped_core()
+        self.formats: FormatRegistry | None
+        try:
+            self.formats = FormatRegistry(installed.values())
+        except ValueError as error:
+            self.add("format-conflict", str(error), self.source, ("formats",))
+            self.formats = None
         self.unavailable: set[str] = set()
         self.used: set[str] = set()
 
@@ -2150,6 +2209,11 @@ class _Semantics:
             message = f"`{state.name}` belongs to a removed field or state, so no one edits it."
         elif not state.locks:
             message = f"`{state.name}` must lock the record to require a return on edit."
+        elif state.signatures and not self.historical:
+            message = (
+                f"Leaving the signed lock `{state.name}` for a correction requires an explicit "
+                "signed return. Remove `on_edit` from this state."
+            )
         elif target is None or target.removed:
             self.state_ref(name, set(f.live_states), source, (*at, "on_edit"))
             return
@@ -2411,6 +2475,19 @@ class _Semantics:
                     else "Give the type an `amount`: its records are things in the lab.",
                 )
             return
+        if (entity_type.amount is not None or amount.material == "id") and any(
+            t.identity for t in lineage
+        ):
+            self.add(
+                "amount-on-identity",
+                f"`{entity_type.name}` has an identity, so each project has one record of each "
+                "of its entries: its records aren't things in the lab, with an amount each.",
+                source,
+                ("amount",) if entity_type.amount is not None else ("name",),
+                key=True,
+                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
+                "that refers to the entry.",
+            )
         if entity_type.amount is None:
             return
         parent = next((t for t in lineage[1:] if t.amount is not None), None)
@@ -2422,17 +2499,6 @@ class _Semantics:
                 ("amount",),
                 key=True,
                 hint="A record has one amount: leave this one off.",
-            )
-        if any(t.identity for t in lineage):
-            self.add(
-                "amount-on-identity",
-                f"`{entity_type.name}` has an identity, so each project has one record of each "
-                "of its entries: its records aren't things in the lab, with an amount each.",
-                source,
-                ("amount",),
-                key=True,
-                hint="Give the amount to a type of what the lab keeps (a sample, a lot, a tube) "
-                "that refers to the entry.",
             )
         try:
             unit = units.parse(amount.unit)
@@ -2455,7 +2521,16 @@ class _Semantics:
             self.concentration(amount.concentration, unit, every, source)
         if amount.aliquots is not None:
             self.aliquots(entity_type, amount, source)
-        if amount.material is not None:
+        if amount.material == "id":
+            if amount.aliquots is None:
+                self.add(
+                    "amount-aliquots",
+                    "A record that is its own material needs a container type for its aliquots.",
+                    source,
+                    ("amount", "material"),
+                    hint="Name a container type and its reference to this record in `aliquots`.",
+                )
+        elif amount.material is not None:
             self.material(amount.material, every, source)
         for index, name in enumerate(amount.follows):
             found = every.get(name)
@@ -2571,6 +2646,13 @@ class _Semantics:
                 (*at, "type"),
                 hint="Give that type an `amount` too.",
             )
+        elif theirs.material == "id":
+            self.add(
+                "amount-aliquots",
+                "An aliquot cannot identify itself as new material.",
+                source,
+                (*at, "type"),
+            )
         elif _measures_as(theirs.unit, amount.unit) is False:
             # What an aliquot holds is what its source lost: in the same kind of unit.
             self.add(
@@ -2586,6 +2668,15 @@ class _Semantics:
             entity_type.qualified_name,
             *(t.qualified_name for t in self.ancestors(entity_type)),
         }
+        if amount.material == "id" and theirs is not None and theirs.material != "id":
+            material = fields.get(theirs.material or "")
+            if material is None or not (mine | {"iki/core.Entity"}).intersection(material.to):
+                self.add(
+                    "amount-aliquots",
+                    f"`{target.name}` needs a material reference to `{entity_type.name}`.",
+                    source,
+                    (*at, "type"),
+                )
         if of is None or of.type != "ref" or not mine & set(of.to):
             self.add(
                 "amount-aliquots",
@@ -2896,7 +2987,10 @@ class _Semantics:
                     self.add(
                         "unknown-field", f"This type has no field `{name}`.", source, (*path, role)
                     )
-                elif not kinds(found):
+                elif not kinds(found) or (
+                    role in ("alignment", "structure")
+                    and not self.format_viewer(found, viewer.viewer)
+                ):
                     self.add(
                         "viewer-field",
                         f"`{name}` isn't {wanted}, which a {viewer.viewer} viewer's "
@@ -2930,6 +3024,15 @@ class _Semantics:
                         where,
                     )
                 tracked.add(track.field)
+
+    def format_viewer(self, field: Field, viewer: str) -> bool:
+        if self.formats is None:
+            return True  # A declaration conflict already identifies the formats to fix.
+        for choice in field.media_types:
+            fmt = self.formats.formats.get(choice) or self.formats.by_media_type(choice)
+            if not fmt or not fmt.viewer or fmt.viewer.partition("-")[0] != viewer:
+                return False
+        return True
 
     def exports(self, entity_type: EntityType, source: Document, fields: dict[str, Field]) -> None:
         """Each export names fields the type has, of the kind it writes, once per type. A
@@ -3787,7 +3890,38 @@ class _Semantics:
                 hint="Add `max_length: 255`, or drop `indexed` for long values such as sequences.",
             )
 
+    def file_choices(self, field: Field, source: Document, path: Path) -> None:
+        if self.formats is None:
+            return
+        for index, choice in enumerate(field.media_types):
+            owner, dot, _ = choice.partition(".")
+            if not dot or self.formats.by_media_type(choice):
+                continue
+            where = (*path, "media_types", index)
+            if choice not in self.formats.formats:
+                # A dotted MIME subtype may resemble a format ID. Keep standard media
+                # trees and private x- types literal, even if an installed plugin happens
+                # to be called application/vnd. Other dotted names identify formats.
+                top_level = choice.partition("/")[0]
+                if top_level in _MEDIA_TREES or top_level.startswith("x-"):
+                    continue
+                if owner not in self.unavailable:
+                    self.add("unknown-format", f"Unknown file format `{choice}`.", source, where)
+            elif (
+                owner not in {self.plugin.name, naming.CORE}
+                and owner not in self.plugin.dependencies
+            ):
+                self.add(
+                    "undeclared-dependency",
+                    f"`{choice}` belongs to {owner}. Add `{owner}: {{}}` "
+                    "under `dependencies` in plugin.yaml.",
+                    source,
+                    where,
+                )
+
     def options(self, f: Field, source: Document, path: Path) -> None:
+        if f.media_types:
+            self.file_choices(f, source, path)
         for low, high, a, b in (
             (f.min, f.max, "min", "max"),
             (f.min_length, f.max_length, "min_length", "max_length"),

@@ -1,6 +1,6 @@
 """What the egress proxy lets a run reach, and what it keeps of it (ADR 0053).
 
-A run's command gets ``HTTPS_PROXY`` with its attempt's job ID and lease token as
+A run's command gets ``HTTPS_PROXY`` with its attempt's job ID and a proxy-only password as
 credentials. The proxy lets a connection through only while that attempt holds its
 lease, only to a host its action declares under ``network``, and only on port 443. Each
 host an attempt reached, or was refused, is kept with the attempt, for its run's page.
@@ -8,14 +8,16 @@ host an attempt reached, or was refused, is kept with the attempt, for its run's
 A host that's one of the action's outside APIs (ADR 0130) is let through too: the proxy
 ends the TLS connection itself and calls the API for the command, with its key.
 
-An environment's setup build (ADR 0075) gets the same, with its ID and lease token: it
+An environment's setup build (ADR 0075) gets the same, with its ID and a proxy-only password: it
 reaches the hosts its setup lists under ``network``, and what it reached is kept with it.
 """
 
 import base64
 import binascii
+import hmac
 import uuid
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from django.db import connection
 from django.db.models import F
@@ -51,8 +53,17 @@ class Decision:
         return self.status == 200
 
 
-def credentials(header: str | None) -> tuple[uuid.UUID, uuid.UUID] | None:
-    """The job ID and lease token a ``Proxy-Authorization: Basic …`` header carries."""
+def _password(record_id: uuid.UUID, lease: uuid.UUID) -> str:
+    """Derive a proxy-only password that expires with this lease."""
+    return hmac.digest(lease.bytes, b"iki/egress/v1\0" + record_id.bytes, "sha256").hex()
+
+
+def proxy_url(url: str, record_id: uuid.UUID, lease: uuid.UUID) -> str:
+    return f"http://{record_id}:{_password(record_id, lease)}@{urlsplit(url).netloc}"
+
+
+def credentials(header: str | None) -> tuple[uuid.UUID, str] | None:
+    """The job ID and proxy password a Basic authentication header carries."""
     if not header:
         return None
     scheme, _, encoded = header.strip().partition(" ")
@@ -60,7 +71,9 @@ def credentials(header: str | None) -> tuple[uuid.UUID, uuid.UUID] | None:
         return None
     try:
         user, _, password = base64.b64decode(encoded.strip(), validate=True).decode().partition(":")
-        return uuid.UUID(user), uuid.UUID(password)
+        if len(password) != 64 or not password.isascii():
+            return None
+        return uuid.UUID(user), password
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return None
 
@@ -81,26 +94,39 @@ def declares(network: list[str], host: str) -> bool:
     return False
 
 
-def _held(job_id: uuid.UUID, token: uuid.UUID) -> Job | None:
-    return (
+def _held(job_id: uuid.UUID, password: str) -> Job | None:
+    job = (
         Job.objects.select_related("run")
         .filter(
             pk=job_id,
-            lease_token=token,
             state__in=HELD,
             lease_expires_at__gt=timezone.now(),
         )
         .first()
     )
 
+    if (
+        job
+        and job.lease_token
+        and hmac.compare_digest(_password(job_id, job.lease_token), password)
+    ):
+        return job
+    return None
 
-def _setup_held(build_id: uuid.UUID, token: uuid.UUID) -> SetupBuild | None:
-    return SetupBuild.objects.filter(
+
+def _setup_held(build_id: uuid.UUID, password: str) -> SetupBuild | None:
+    build = SetupBuild.objects.filter(
         pk=build_id,
-        lease_token=token,
         state=SetupState.RUNNING,
         lease_expires_at__gt=timezone.now(),
     ).first()
+    if (
+        build
+        and build.lease_token
+        and hmac.compare_digest(_password(build_id, build.lease_token), password)
+    ):
+        return build
+    return None
 
 
 def decide(header: str | None, host: str, port: int, *, tunnel: bool = True) -> Decision:

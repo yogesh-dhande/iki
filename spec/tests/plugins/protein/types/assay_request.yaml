@@ -17,6 +17,16 @@ fields:
   samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
   tubes: { type: list, items: { type: ref, to: Tube }, max_items: 96 }
   protein: { type: ref, to: Protein }
+  private_sample: { type: ref, to: Sample }
+  comparison_samples: { type: list, items: { type: ref, to: Sample }, max_items: 20 }
+  sample_notes:
+    type: list
+    max_items: 20
+    items:
+      type: row
+      fields:
+        sample: { type: ref, to: Sample, required: true }
+        note: { type: string, max_length: 200 }
   # What to measure, from the core's assays: a list of choices.
   assays:
     type: list

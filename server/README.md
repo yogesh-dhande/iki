@@ -136,6 +136,38 @@ them on the run's page, where a notification takes them (ADR 0050). No token
 can approve them, so no agent can approve its own. Requests nobody decides
 expire after 7 days, when `maintain` runs.
 
+#### File tools
+
+All three tools use the `read` scope. An unreadable file ID and an unknown
+file ID both return 404.
+
+- `find_files` returns `items`, `next_cursor`, `total`, `more_than_total`
+  and `formats`. Use `project` (a project UUID) to search its Files tab,
+  or omit it to search all files you can read. `q` matches part of the name
+  in any case. `format` takes a list of installed format IDs such as `iki/core.csv`,
+  media types or families such as `image/*`. `acquired_from` and `acquired_to`
+  are inclusive ISO dates.
+  `sample` and `run` take IDs or HRIDs. When choosing a file for a field
+  or action parameter, `accepts` takes the same format selectors and `max_size`
+  limits bytes. Sort by `newest` (default), `oldest`, `name`, `name_desc`,
+  `acquired` (latest first) or `acquired_oldest`. Unknown acquisition dates
+  sort last. Pass `next_cursor` as `cursor` with the same filters and sort.
+  The total stops at 1,000. Each `formats` entry gives its format ID when declared,
+  label, media type and count with all filters except `format` applied. Aliases count together.
+- `get_file(file_id)` returns `file` with its byte size, SHA-256,
+  acquisition and origin. A registration's origin includes its URI and
+  pinned object version. `records` lists revision spans and the fields
+  that held the file. `runs` lists how each run used it. Both are pages
+  with `items` and `next_cursor`. Continue them with `records_cursor`
+  and `runs_cursor`, respectively. Both file tools that return pages take
+  `limit` (1–100, default 50).
+- `get_file_download_link(file_id)` returns `url`, `expires_at` and
+  `sha256`. Fetch the URL from object storage without an Iki token.
+  Anyone holding the URL can read the file for five minutes. Iki records
+  who requested the link and which agent acted for them.
+
+For a worked example, see [Find and read a project's files](../docs/guides/find-and-read-project-files.md).
+
 ### Database roles
 
 Iki connects to Postgres as two roles (ADR 0025):

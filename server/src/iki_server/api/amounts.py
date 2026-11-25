@@ -13,6 +13,7 @@ Amounts are exact decimals, given and answered as strings or numbers: ``"12.5"``
 
 from __future__ import annotations
 
+from collections.abc import Collection, Iterable
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -41,7 +42,7 @@ from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
 from iki_server.api.storage import ConfirmationIn
 from iki_server.entities import access
 from iki_server.entities.models import Entity
-from iki_server.entities.values import Invalid
+from iki_server.entities.values import UNREADABLE_REFERENCE, Invalid
 from iki_server.storage import services as storage
 
 router = Router(tags=["amounts"])
@@ -72,11 +73,13 @@ class MovementOut(Schema):
     balance: str = Field(pattern=r"^\d+(\.\d+)?$", description="How much it had after.")
     unit: str
     given: GivenOut | None = Field(description="What was asked for, in the unit it was asked in.")
-    counterpart: UUID | None = Field(description="The other record, if there is one.")
-    used_in: UUID | None = Field(
-        None, description="What a draw went into, such as an analysis or an experiment."
+    counterpart: UUID | Literal["unreadable"] | None = Field(
+        description="The other record's ID, or `unreadable` if you can't read it."
     )
-    source: UUID | None = Field(
+    used_in: UUID | Literal["unreadable"] | None = Field(
+        None, description="What a draw went into. An unreadable record is shown as `unreadable`."
+    )
+    source: UUID | Literal["unreadable"] | None = Field(
         None,
         description="Where a container's material came from, as its type's `follows` says: "
         "its lot (ADR 0180).",
@@ -168,7 +171,10 @@ def amount_out(
     return _amount(entity, amount, values)
 
 
-def movement_out(m: Movement) -> dict[str, Any]:
+def movement_out(m: Movement, refs: Collection[str]) -> dict[str, Any]:
+    def readable(value: UUID | None) -> UUID | str | None:
+        return value if value is None or str(value) in refs else UNREADABLE_REFERENCE
+
     return {
         "id": m.id,
         "kind": m.kind,
@@ -179,9 +185,9 @@ def movement_out(m: Movement) -> dict[str, Any]:
         "given": {"value": _plain(m.given_value), "unit": m.given_unit}
         if m.given_value is not None
         else None,
-        "counterpart": m.counterpart_id,
-        "used_in": m.used_in_id,
-        "source": m.source_id,
+        "counterpart": readable(m.counterpart_id),
+        "used_in": readable(m.used_in_id),
+        "source": readable(m.source_id),
         "confirmed": m.confirmed,
         "operation": m.operation,
         "user": m.user,
@@ -196,6 +202,18 @@ def movement_out(m: Movement) -> dict[str, Any]:
 def _refs_out(me: User, ids: set[Any]) -> dict[str, dict[str, Any]]:
     refs, _ = _lookup(me, {"ref": ids, "file": set()})
     return {str(pk): ref for pk, ref in refs.items()}
+
+
+def _movement_refs(me: User, movements: Iterable[Movement]) -> dict[str, dict[str, Any]]:
+    return _refs_out(
+        me,
+        {
+            ref
+            for m in movements
+            for ref in (m.counterpart_id, m.used_in_id, m.source_id)
+            if ref is not None
+        },
+    )
 
 
 def _record(me: User, ref: str, *, edit: bool = True, keeper: bool = False) -> Entity:
@@ -223,9 +241,12 @@ def _given(q: QuantityIn, name: str = "amount", *, zero: bool = False) -> servic
         raise _invalid(error) from None
 
 
-def _moved(entity: Entity, movement: Movement) -> dict[str, Any]:
+def _moved(me: User, entity: Entity, movement: Movement) -> dict[str, Any]:
     amount = Amount.objects.get(pk=entity.pk)
-    return {"amount": amount_out(entity, amount), "movement": movement_out(movement)}
+    return {
+        "amount": amount_out(entity, amount),
+        "movement": movement_out(movement, _movement_refs(me, [movement])),
+    }
 
 
 @router.get("/entities/{ref}/amount", response=AmountOut, summary="How much there is of it")
@@ -253,16 +274,9 @@ def list_movements(request: HttpRequest, ref: str, params: Query[PageParams]) ->
     movements = Movement.objects.filter(entity=entity).select_related("user", "agent")
     result = page(movements, params, key="id", newest_first=True)
     items: list[Movement] = result["items"]
-    result["items"] = [movement_out(m) for m in items]
-    result["refs"] = _refs_out(
-        me,
-        {
-            ref
-            for m in items
-            for ref in (m.counterpart_id, m.used_in_id, m.source_id)
-            if ref is not None
-        },
-    )
+    refs = _movement_refs(me, items)
+    result["items"] = [movement_out(m, refs) for m in items]
+    result["refs"] = refs
     return result
 
 
@@ -299,7 +313,7 @@ def draw(request: HttpRequest, ref: str, payload: DrawIn) -> dict[str, Any]:
         raise Problem(403, str(denied)) from None
     except Invalid as error:
         raise _invalid(error) from None
-    return _moved(entity, movement)
+    return _moved(me, entity, movement)
 
 
 @router.post(
@@ -319,7 +333,7 @@ def transfer(request: HttpRequest, ref: str, payload: TransferIn) -> dict[str, A
         )
     except Invalid as error:
         raise _invalid(error) from None
-    return _moved(entity, sent)
+    return _moved(me, entity, sent)
 
 
 @router.post("/entities/{ref}/amount/adjust", response=AmountMovedOut, summary="Adjust its amount")
@@ -352,7 +366,7 @@ def adjust(
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
-    return _moved(entity, movement)
+    return _moved(me, entity, movement)
 
 
 @router.post(
@@ -379,7 +393,7 @@ def split(request: HttpRequest, ref: str, payload: SplitIn) -> Status[dict[str, 
     return Status(
         201,
         {
-            **_moved(entity, done.source),
+            **_moved(me, entity, done.source),
             "aliquots": [refs[str(a.pk)] for a in done.aliquots],
             "ids": [a.pk for a in done.aliquots],
         },

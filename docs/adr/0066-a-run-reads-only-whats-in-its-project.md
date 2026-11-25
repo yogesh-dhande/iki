@@ -47,7 +47,16 @@ its project, and can read the inputs, so they may also link them.
   person's decision, so the error tells the agent to ask them.
 
 **Reproducing a run needs its inputs to still be in its project.** If one
-has been unlinked since, reproducing the run is refused, naming it.
+has been unlinked since, a reader who still has access can see which input
+to add back.
+
+**Each attempt receives the exact inputs its project can read at dispatch.**
+Launch pins which typed references the project can identify, including lists
+and row cells. Its worker receives `unreadable` at the other positions.
+Each lease requires continued project access to every record, identifier
+and file param its command will receive. An attempt whose pinned document
+is unavailable ends with a generic reason.
+A packed command receives the eligible runs of its batch.
 
 **Unlinking is still allowed.** What earlier runs made stays in the project,
 like a copy someone made while they could read the input. The audit log
@@ -56,9 +65,10 @@ can no longer see as an entity they can't read.
 
 ## Consequences
 
-- A run's readers can read all of its inputs, so runs, logs, artifacts and
-  outputs need no checks beyond their project. Every page and API stays as
-  simple as it is.
+- Run logs, artifacts and completed results belong to the project. Run
+  and workflow pages identify inputs and inclusions according to each
+  reader's current access. An unreadable input keeps its place in the list.
+  Comparisons show record values to readers with access to their references.
 - Sharing data with another project is always a deliberate act on the data,
   never a side effect of running something. Each such act is audited.
 - Reused results (ADR 0057) and duplicates (ADR 0035) already linked into

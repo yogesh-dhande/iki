@@ -12,6 +12,7 @@ import { meQuery, problemOf } from "../api";
 import { BoxMap } from "../box-map";
 import { personName, type Entity, type EntityType } from "../entities";
 import { LabelDialog } from "../labels";
+import { useSteady } from "../steady";
 import {
   containerQuery,
   EVENT_KINDS,
@@ -29,14 +30,19 @@ export function EntityLocation({ entity, type }: { entity: Entity; type: EntityT
   const id = useId();
   const storage = type?.storage;
   const where = useQuery({ ...locationQuery(entity.id), enabled: !!storage });
-  const me = useQuery(meQuery).data;
   const [doing, setDoing] = useState<Doing | null>(null);
-  const location = where.data;
-  const box = location?.path.at(-1);
+  const box = where.data?.path.at(-1);
   const map = useQuery({
     ...containerQuery(box?.hrid ?? "-"),
-    enabled: !!box && !!location?.position,
+    enabled: !!box && !!where.data?.position,
   });
+  // What it shows comes late, the box's map last of all, and it's above the record's other
+  // cards (Volume's Draw, say): drawn as it was while a press is on, and as it came once it's
+  // let go, so nothing below it moves under the press (steady.ts). Each is read as it comes.
+  const location = useSteady(where.data);
+  const failed = useSteady(where.error);
+  const shown = useSteady(map.data);
+  const me = useSteady(useQuery(meQuery).data);
   if (!storage) return null;
   const container = storage.holds.length > 0;
   const chosen: Chosen = {
@@ -49,7 +55,7 @@ export function EntityLocation({ entity, type }: { entity: Entity; type: EntityT
   const editing = entity.can.edit && !entity.archived;
   const out = location?.custodian;
   const mine = !!out && out.id === me?.id;
-  const here = map.data?.contents.find((o) => o.id === entity.id);
+  const here = shown?.contents.find((o) => o.id === entity.id);
   return (
     <section className="card where-card" aria-labelledby={`${id}-title`}>
       <div className="section-head">
@@ -62,7 +68,7 @@ export function EntityLocation({ entity, type }: { entity: Entity; type: EntityT
           </Link>
         ) : null}
       </div>
-      {where.error ? <ProblemAlert problem={problemOf(where.error)} /> : null}
+      {failed ? <ProblemAlert problem={problemOf(failed)} /> : null}
       {!location ? <Loading label="Finding where it is…" /> : null}
       {location ? <WherePath location={location} label={`Where ${entity.hrid} is`} /> : null}
       {out ? (
@@ -79,12 +85,12 @@ export function EntityLocation({ entity, type }: { entity: Entity; type: EntityT
           </p>
         </div>
       ) : null}
-      {map.data?.shape && here?.row && here.column ? (
+      {shown?.shape && here?.row && here.column ? (
         <div className="where-map">
           <BoxMap
-            label={`${stepName(map.data)}’s positions, with ${entity.hrid}’s marked`}
-            shape={map.data.shape}
-            contents={map.data.contents}
+            label={`${stepName(shown)}’s positions, with ${entity.hrid}’s marked`}
+            shape={shown.shape}
+            contents={shown.contents}
             marked={{ row: here.row, column: here.column }}
             compact
             onActivate={() => undefined}
@@ -92,10 +98,10 @@ export function EntityLocation({ entity, type }: { entity: Entity; type: EntityT
           <Link
             className="where-open"
             to="/storage/$ref/"
-            params={{ ref: map.data.hrid }}
+            params={{ ref: shown.hrid }}
             search={{ at: here.position ?? "" }}
           >
-            Open {stepName(map.data)}
+            Open {stepName(shown)}
           </Link>
         </div>
       ) : null}

@@ -13,11 +13,12 @@ from test_runs import PREDICT, bind_vm, launch, protein, world
 from test_workers import keep_connection, worker
 
 from iki_server.entities import services
-from iki_server.entities.models import Entity, ProjectLink
+from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.files import services as files
 from iki_server.files.services import EMPTY_SHA256
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
-from iki_server.runs.models import ActionRun, ExternalOrigin
+from iki_server.runs import results
+from iki_server.runs.models import ActionRun, EntityMaking, ExternalOrigin, RunEffect
 from iki_spec import schemas
 
 pytestmark = pytest.mark.django_db
@@ -374,6 +375,83 @@ def lims(name: str, sequence: str = "MKVLEIC", lims_id: str = "LIMS-1", **values
         "values": {"name": name, "sequence": sequence, "lims_id": lims_id, **values},
         "origin": {"id": lims_id},
     }
+
+
+def test_an_inline_import_matches_a_sample_label_only_once(world: World) -> None:
+    csv = files.start(
+        world.users["editor"],
+        world.project,
+        name="samples.csv",
+        media_type="text/csv",
+        size=0,
+        sha256=EMPTY_SHA256,
+    )
+    csv.refresh_from_db()
+    run = launch(
+        api_as(world),
+        world.project,
+        {},
+        "acme/protein.import_samples",
+        params={"file": str(csv.file_id)},
+    )
+    assert run.status_code == 201, run.content
+    pod = worker(world)
+    job = pod.lease().json()
+    creates = [
+        {"type": "acme/protein.Sample", "values": {"label": "S-1", "purity": purity}}
+        for purity in (90, 99)
+    ]
+    answer = done(pod, job, output(creates=creates))
+
+    assert answer["run_status"] == "failed", answer
+    diagnostics = " ".join(f"{e['pointer']} {e['detail']}" for e in answer["errors"])
+    assert "#/creates/0" in diagnostics and "#/creates/1" in diagnostics
+    assert not RunEffect.objects.filter(run_id=run.json()["id"]).exists()
+    assert not Entity.objects.filter(type="acme/protein.Sample").exists()
+
+
+@pytest.mark.parametrize(
+    ("existing", "second_id"),
+    [(False, "LIMS-1"), (True, "LIMS-1"), (False, "LIMS-2")],
+    ids=["new-match", "existing-match", "two-matches-for-one-identity"],
+)
+def test_one_run_cannot_import_two_external_records_for_the_same_record(
+    world: World, existing: bool, second_id: str
+) -> None:
+    if existing:
+        _, first = imported(world, lims("Original"))
+        assert first["run_status"] == "succeeded", first
+    before = list(Entity.objects.order_by("pk").values_list("pk", "revision"))
+    revisions = Revision.objects.count()
+    run, answer = imported(world, lims("First name"), lims("Second name", lims_id=second_id))
+
+    assert answer["run_status"] == "failed", answer
+    diagnostics = " ".join(f"{e['pointer']} {e['detail']}" for e in answer["errors"])
+    assert "#/creates/0" in diagnostics and "#/creates/1" in diagnostics
+    assert list(Entity.objects.order_by("pk").values_list("pk", "revision")) == before
+    assert Revision.objects.count() == revisions
+    assert not RunEffect.objects.filter(run_id=run["id"]).exists()
+    assert not EntityMaking.objects.filter(run_id=run["id"]).exists()
+    assert not ExternalOrigin.objects.filter(run_id=run["id"]).exists()
+
+
+def test_a_reference_identity_finds_the_same_record_by_project_or_registry_id(world: World) -> None:
+    editor = world.users["editor"]
+    plasmid = services.create(editor, "acme/dna.Plasmid", world.project, {"bases": "ATGCGA"}).entity
+    vector_type = "acme/dna.Vector"
+    vector = services.create(
+        editor, vector_type, world.project, {"plasmid": str(plasmid.pk)}
+    ).entity
+    entry = Entity.objects.get(pk=plasmid.pk).entry_id
+    assert entry is not None and entry != plasmid.pk
+    run = ActionRun.objects.get(pk=importing(world, stored(world)).json()["id"])
+
+    # Registration supplied the omitted topology and strandedness defaults.
+    found = results.same_entity(run, "acme/dna.Plasmid", {"bases": "ATGCGA"})
+    assert found is not None and found.pk == plasmid.pk
+    for plasmid_id in (entry, plasmid.pk):
+        found = results.same_entity(run, vector_type, {"plasmid": str(plasmid_id)})
+        assert found is not None and found.pk == vector.pk
 
 
 def test_a_record_that_comes_again_updates_its_entity(world: World) -> None:

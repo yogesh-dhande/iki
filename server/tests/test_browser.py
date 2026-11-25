@@ -3507,7 +3507,7 @@ def test_a_view_superposes_its_structures_in_one_mol_star_scene(
         assert_clean(page)
         return
     page.get_by_role("button", name="Superpose on first").click()
-    said = page.locator(".messages").get_by_text(re.compile(r"^moved"))
+    said = page.locator(".notices").get_by_text(re.compile(r"^moved"))
     said.wait_for(timeout=60_000)
     assert said.inner_text() == "moved: RMSD 0.00 Å over 6 residues."
     page.get_by_role("button", name="Save the view").click()
@@ -4332,6 +4332,24 @@ def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world:
     page.get_by_role("link", name=re.compile("^Audit trail")).click()
     page.get_by_text("Status set to Reviewed, from In testing by Editor").wait_for()
     page.get_by_text("“Bench 4”").wait_for()
+    assert_clean(page)
+    page.context.close()
+
+
+def test_request_page_indicates_a_sample_the_service_cannot_read(
+    open_as: Any, world: World
+) -> None:
+    from test_requests import build_lab, request_with_private_sample
+
+    made, _, private = request_with_private_sample(build_lab(world))
+    page: Page = open_as("tech", f"/entities/{made['hrid']}/")
+    expect(page.get_by_text("An entity you can’t read", exact=True).first).to_be_visible()
+    assert private["id"] not in page.content() and private["hrid"] not in page.content()
+    assert_clean(page)
+    page.context.close()
+
+    page = open_as("editor", f"/entities/{made['hrid']}/")
+    expect(page.get_by_role("link", name=private["hrid"]).first).to_be_visible()
     assert_clean(page)
     page.context.close()
 

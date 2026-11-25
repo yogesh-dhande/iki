@@ -9,6 +9,7 @@ marker the data itself can't guess (ADR 0013).
 import json
 import secrets
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -23,8 +24,9 @@ from iki_server.api.entities import Condition, SortIn
 from iki_server.api.graph import FollowedName
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT
 from iki_server.api.runs import MAX_BATCH
+from iki_server.files.listing import Sort as FileSort
 from iki_server.graph import queries
-from iki_server.mcp.api import call, path, web_url
+from iki_server.mcp.api import Query, call, path, web_url
 from iki_server.runs.models import RunStatus
 
 INSTRUCTIONS = """\
@@ -76,6 +78,7 @@ Cursor = Annotated[
     str | None, Field(description="To get the next page: the last page's next_cursor.")
 ]
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Items per page.")]
+FileId = Annotated[UUID, Field(description="The file's ID from find_files or a file field.")]
 Revision = Annotated[
     int,
     Field(
@@ -220,6 +223,13 @@ Inputs = Annotated[
 Params = Annotated[
     dict[str, Any], Field(description="Its params, as describe_action's params_schema says.")
 ]
+LaunchReason = Annotated[
+    str,
+    Field(
+        max_length=2000,
+        description="Ask the operator for their reason when updating a reopened record.",
+    ),
+]
 RunReason = Annotated[
     str, Field(min_length=1, max_length=2000, description="Why, for the record: people read it.")
 ]
@@ -333,6 +343,107 @@ def build() -> MCPServer:
         holders do. A project's Admins give them to its members beside their project role;
         list_projects says which the person holds where. Only people give them, in Iki."""
         return answer(await call("GET", "/lab-roles"))
+
+    @server.tool(annotations=READ, title="Find files")
+    async def find_files(
+        project: Annotated[UUID | None, Field(description="Only this project's files.")] = None,
+        q: Annotated[
+            str | None, Field(max_length=255, description="Part of the name, in any case.")
+        ] = None,
+        format: Annotated[
+            list[str] | None,
+            Field(
+                max_length=50,
+                description="Format IDs, media types or families, such as iki/core.csv or image/*.",
+            ),
+        ] = None,
+        acquired_from: Annotated[
+            date | None, Field(description="Acquired on this day or later.")
+        ] = None,
+        acquired_to: Annotated[
+            date | None, Field(description="Acquired on this day or earlier.")
+        ] = None,
+        sample: Annotated[
+            str | None,
+            Field(
+                max_length=64,
+                description="A sample's ID or HRID. Includes files from runs that read it.",
+            ),
+        ] = None,
+        run: Annotated[
+            str | None,
+            Field(max_length=64, description="A run's ID or HRID. Includes files it read or made."),
+        ] = None,
+        accepts: Annotated[
+            list[str] | None,
+            Field(
+                max_length=50,
+                description="Format IDs, media types or families a field or parameter takes.",
+            ),
+        ] = None,
+        max_size: Annotated[int | None, Field(ge=0, description="Maximum size in bytes.")] = None,
+        sort: Annotated[
+            FileSort,
+            Field(
+                description="newest or oldest added, name (A to Z) or name_desc, acquired "
+                "(latest first) or acquired_oldest. Unknown acquisition dates come last."
+            ),
+        ] = "newest",
+        limit: Limit = DEFAULT_LIMIT,
+        cursor: Cursor = None,
+    ) -> CallToolResult:
+        """Find files as in Iki's Files list. Each item has the file's ID and counts of the
+        records and runs you can read that use it. Pass next_cursor to continue. The total
+        stops at 1,000, with more_than_total true when more match. Each formats entry gives
+        the format ID if declared, its label, media type and count under the other filters.
+        A format's aliases count together. Use get_file for the file's origin and uses."""
+        filters: Query = {
+            "project": str(project) if project else None,
+            "q": q,
+            "format": format,
+            "acquired_from": acquired_from.isoformat() if acquired_from else None,
+            "acquired_to": acquired_to.isoformat() if acquired_to else None,
+            "sample": sample,
+            "run": run,
+            "accepts": accepts,
+            "max_size": max_size,
+        }
+        page = await call(
+            "GET", "/files", query={**filters, "sort": sort, "limit": limit, "cursor": cursor}
+        )
+        count = await call("GET", "/files/count", query=filters)
+        formats = await call("GET", "/files/formats", query=filters)
+        return answer({**page, **count, "formats": formats})
+
+    @server.tool(annotations=READ, title="Get a file")
+    async def get_file(
+        file_id: FileId,
+        limit: Limit = DEFAULT_LIMIT,
+        records_cursor: Annotated[
+            str | None, Field(description="The previous records.next_cursor.")
+        ] = None,
+        runs_cursor: Annotated[
+            str | None, Field(description="The previous runs.next_cursor.")
+        ] = None,
+    ) -> CallToolResult:
+        """Read a file's metadata, SHA-256, byte size, acquisition date, samples and origin
+        (including the URI and pinned version for a registration). The records page gives the
+        revisions that held it. The runs page lists the runs that read or made it. Each has
+        its own next_cursor. Use get_file_download_link when you need the bytes."""
+        where = path("/files/{id}", id=str(file_id))
+        file = await call("GET", where)
+        records = await call(
+            "GET", f"{where}/records", query={"limit": limit, "cursor": records_cursor}
+        )
+        runs = await call("GET", f"{where}/runs", query={"limit": limit, "cursor": runs_cursor})
+        return answer({"file": file, "records": records, "runs": runs})
+
+    @server.tool(annotations=READ, title="Get a file download link")
+    async def get_file_download_link(file_id: FileId) -> CallToolResult:
+        """Get a signed URL for the file's bytes, its expiry (five minutes) and the SHA-256
+        to check after download. Anyone holding the URL can read the bytes until it expires.
+        Use it without sending an Iki token. Issuing the link is audited."""
+        return answer(await call("GET", path("/files/{id}/content-url", id=str(file_id))))
 
     @server.tool(annotations=READ, title="List entity types")
     async def list_entity_types() -> CallToolResult:
@@ -1064,14 +1175,15 @@ def build() -> MCPServer:
         project: Annotated[
             UUID, Field(description="Where it runs. Entities it creates belong to it.")
         ],
-        reason: RunReason,
+        reason: LaunchReason = "",
         inputs: Inputs | None = None,
         params: Params | None = None,
         reuse: Reuse = True,
     ) -> CallToolResult:
         """Queues one run of an action. Its inputs, params and the person's role are
-        checked first. Its inputs must be in the project: for ones that aren't, the error
-        lists them, and the person adds them to it in Iki. Runs on the container and VM
+        checked first. For changes to reopened records, ask the operator for their reason and
+        pass it verbatim. Iki records it on the revision. The error lists inputs outside the
+        project so the person can add them in Iki. Runs on the container and VM
         tiers wait for the person to approve them in Iki; the answer says so. So do runs
         of actions that send data to outside APIs (their `apis` in get_action): the person
         agrees to what's sent by approving, as an agent can't for them. A run that reuses an
@@ -1101,7 +1213,7 @@ def build() -> MCPServer:
                 description=f"Entity IDs: one run for each, in order, at most {MAX_BATCH}.",
             ),
         ],
-        reason: RunReason,
+        reason: LaunchReason = "",
         inputs: Annotated[
             dict[str, UUID | list[UUID]] | None,
             Field(description="Every run's other inputs, as for run_action."),

@@ -33,7 +33,8 @@ permissions of study material when planning the windows.
    tube and volume to each condition and month. A tube may supply several
    months within its assigned condition. Each other condition needs its own
    tube. Scheduling checks the material declared by the lot type against the
-   material on the study. List the attributes to measure,
+   material on the study. For a strain isolate, choose the same isolate lot as
+   both the material and the lot. List the attributes to measure,
    the method and its revision, and the reporting unit. Use a new linked study
    record when the protocol changes.
 2. In **Schedule**, run **Schedule stability pulls**. The run generates each

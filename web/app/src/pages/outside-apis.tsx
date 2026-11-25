@@ -57,7 +57,7 @@ function ApproveDialog({ api, onClose }: { api: OutsideApi; onClose: () => void 
       ),
     [OUTSIDE_APIS],
   );
-  const form = useForm(approve.error);
+  const form = useForm(approve.error, approve.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

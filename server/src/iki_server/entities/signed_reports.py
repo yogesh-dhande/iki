@@ -7,6 +7,8 @@ from html import escape
 from typing import Any
 from uuid import UUID
 
+from iki_server.accounts.models import User
+from iki_server.entities import access
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.services import values_at
 from iki_server.signatures import proof, services, signing_keys
@@ -20,7 +22,7 @@ class Unissued(ValueError):  # noqa: N818 - this revision has no issuable report
     """An unsigned report or an invalid issuance, with the reason."""
 
 
-def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any]:
+def snapshot(user: User, entity: Entity, number: int, export: ReportExport) -> dict[str, Any]:
     """Read the report, and verify every carried signature of the continuous signed cycle."""
     values = values_at(entity, number)
     revisions = iter(
@@ -38,7 +40,7 @@ def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any
     ):
         raise Unissued("This revision has no signed, issued report.")
 
-    # An unsigned transition back to Recorded starts a new cycle and ends this walk.
+    # An unsigned step or a verified reversal starts a new review cycle.
     # Render the report at the issuance revision even if another field changed later.
     carried = [issuance]
     for earlier in revisions:
@@ -48,11 +50,26 @@ def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any
     signatures = Signature.objects.in_bulk([pk for step in carried for pk in step.signatures])
     trusted = signing_keys.trusted()
     report = values[export.report]
-    checked = [
-        _check(signatures, pk, index, step, report, export, trusted)
-        for step in reversed(carried)
-        for index, pk in enumerate(step.signatures)
-    ]
+    cycle = []
+    references: set[UUID] = set()
+    for step in carried:
+        evidence = [
+            _check(signatures, pk, index, step, report, export, trusted)
+            for index, pk in enumerate(step.signatures)
+        ]
+        approvals = [item for item in evidence if item is not None]
+        if len(approvals) != len(evidence):
+            if approvals or step == issuance:
+                raise Unissued("A reversal cannot attest to issuance of this report.")
+            break
+        try:
+            for pk in step.signatures:
+                references.update(services.signed_references(signatures[pk]))
+        except proof.Unexplained as error:
+            raise Unissued("The report needs verified reference history.") from error
+        cycle.append(approvals)
+    if not access.all_references_readable(user, references):
+        raise Unissued("The signed report refers to a record you can't read.")
     return {
         "format": FORMAT,
         "record": {
@@ -63,7 +80,7 @@ def snapshot(entity: Entity, number: int, export: ReportExport) -> dict[str, Any
         },
         "report_field": export.report,
         "report": report,
-        "signatures": checked,
+        "signatures": [item for approvals in reversed(cycle) for item in approvals],
     }
 
 
@@ -75,7 +92,7 @@ def _check(
     report: Any,  # noqa: ANN401 - arbitrary JSON report
     export: ReportExport,
     trusted: dict[str, str],
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     signature = found.get(pk)
     if (
         signature is None
@@ -89,9 +106,11 @@ def _check(
         raise Unissued("A signature in this report's issuance could not be verified.")
     document = json.loads(signature.document)
     content = json.loads(signature.content)
-    if document["signature"]["of"] != len(step.signatures) or proof.canonical(
-        content["values"].get(export.report)
-    ) != proof.canonical(report):
+    if document["signature"]["of"] != len(step.signatures):
+        raise Unissued("This transition does not carry all its signatures.")
+    if document["change"].get("reversal"):
+        return None
+    if proof.canonical(content["values"].get(export.report)) != proof.canonical(report):
         raise Unissued("The report differs from the one signed in its issuance.")
     return {
         "manifestation": services.manifestation(document),

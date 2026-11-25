@@ -288,6 +288,7 @@ def exercise_qc() -> None:
     recorder_api, reviewer_api = Api(world.browser("editor")), Api(world.browser("runner"))
     investigation_path = f"/entities/{investigation.pk}"
     viewed = reviewer_api.get(investigation_path)
+    sign("editor", investigation, "recorded", reason="Reopen the findings for correction")
     corrected = patch(
         recorder_api,
         str(investigation.pk),
@@ -295,7 +296,7 @@ def exercise_qc() -> None:
             "values": {"findings": "Synthetic correction clarifying the assignable cause."},
             "reason": "Clarified the investigation finding.",
         },
-        viewed["ETag"],
+        recorder_api.get(investigation_path)["ETag"],
     )
     assert corrected.status_code == 200, corrected.content
     assert corrected.json()["values"]["review"] == "recorded"

@@ -462,7 +462,9 @@ def bundle_export(suffix: str = "") -> Build:
         made = exports.start(
             w.users["admin"], w.project, reason="For production", entities=[_entity(w).hrid]
         )
-        BundleExport.objects.filter(pk=made.pk).update(state="ready", sha256="0" * 64, size=1)
+        BundleExport.objects.filter(pk=made.pk).update(
+            state="ready", sha256="0" * 64, size=1, references=made.picked
+        )
         return f"/bundles/{made.pk}{suffix}", None
 
     return build
@@ -1839,6 +1841,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/files", fixed("/files"), row(200)),
     ("GET", "/files/count", fixed("/files/count"), row(200)),
     ("GET", "/files/formats", fixed("/files/formats"), row(200)),
+    ("GET", "/formats", fixed("/formats"), row(200)),
     ("GET", "/files/{file_id}", file(), readers(200)),
     ("GET", "/files/{file_id}/records", file("/records"), readers(200)),
     ("GET", "/files/{file_id}/runs", file("/runs"), readers(200)),

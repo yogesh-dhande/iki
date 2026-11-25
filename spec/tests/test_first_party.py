@@ -29,3 +29,25 @@ def test_each_fetched_plugin_has_trees_and_the_core_plugin_none() -> None:
     # It ships with the server; nothing fetches it.
     assert first_party.trees(naming.CORE) == frozenset()
     assert first_party.trees("acme/dna") == frozenset()
+
+
+def test_only_the_active_first_party_plugins_are_in_the_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(naming, "FIRST_PARTY", frozenset({naming.CORE, "iki/protein"}))
+    directory = tmp_path / "protein"
+    directory.mkdir()
+    manifest = directory / "plugin.yaml"
+    with pytest.raises(ValueError, match="Missing first-party manifest"):
+        first_party.catalog(tmp_path)
+    manifest.write_text("name: acme/protein\n")
+    with pytest.raises(ValueError, match="must declare the first-party plugin iki/protein"):
+        first_party.catalog(tmp_path)
+    manifest.write_text("name: iki/protein\n")
+    assert first_party.catalog(tmp_path) == {"iki/protein": directory}
+
+    extra = directory / "fixtures"
+    extra.mkdir()
+    (extra / "plugin.yaml").write_text("name: acme/fixture\n")
+    with pytest.raises(ValueError, match="Unexpected plugin manifest"):
+        first_party.catalog(tmp_path)

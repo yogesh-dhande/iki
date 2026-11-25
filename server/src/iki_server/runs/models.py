@@ -27,6 +27,7 @@ from django.db import models
 from django.db.models import OuterRef, Q, Subquery
 from django.db.models.functions import Lower, Now
 
+from iki_server.audit.models import Via
 from iki_server.core.ids import uuid7
 from iki_server.entities.models import Entity
 from iki_server.files.models import Upload
@@ -490,7 +491,19 @@ class WorkflowStep(models.Model):
         return self.state in STEP_ENDED
 
 
+def operator_change_reason(via: str, reason: str, workflow: WorkflowRun | None = None) -> str:
+    """The launcher’s explanation, excluding generated trigger and workflow-step descriptions."""
+    if via == Via.TRIGGER:
+        return ""
+    return (workflow.reason if workflow is not None else reason).strip()
+
+
 class ActionRun(models.Model):
+    @property
+    def change_reason(self) -> str:
+        """Only the launcher's own words may explain a revision made through this run."""
+        return operator_change_reason(self.via, self.reason, self.workflow)
+
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     hrid = models.CharField(max_length=32, unique=True, db_comment="Such as RUN-000123.")
     #: The action's qualified name, such as ``protein.compute_properties``.
@@ -554,6 +567,8 @@ class ActionRun(models.Model):
     #: identical run can reuse them (ADR 0057). While volumes are pending this holds the
     #: hash of the other launch inputs, completed when the build is pinned.
     reuse_key = models.CharField(max_length=64, blank=True, default="")
+    #: Typed positions shown as unreadable in the pinned worker document (ADR 0105).
+    reference_mask = models.JSONField(default=list, blank=True)
     #: The identical run whose results it reused instead of running.
     reused_from = models.ForeignKey(
         "self",

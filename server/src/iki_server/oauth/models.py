@@ -1,6 +1,6 @@
 """OAuth clients and the access people grant them (ADR 0028).
 
-Clients come from four places:
+Clients come from three places:
 
 - **First party:** Iki's own CLI and SDK, created by a migration.
 - **Self-registered:** MCP clients and other tools register themselves, by

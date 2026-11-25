@@ -159,6 +159,7 @@ def _classify(repo: Path, base: str, head: str, event: str = "pull_request") -> 
         (".dockerignore", "true", "true"),
         ("scripts/verify-server-wasm.sh", "true", "true"),
         ("scripts/ci/smoke-server-image.sh", "true", "true"),
+        ("examples/plugins/assays/README.md", "true", "true"),
         ("plugins/plasmid/data/dna-annotation.wasm.sha256", "true", "true"),
         (".github/workflows/build-server-wasm.yml", "true", "true"),
         ("server-build.toml", "true", "true"),

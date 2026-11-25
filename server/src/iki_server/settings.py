@@ -154,6 +154,23 @@ def _image_policy(raw: str) -> dict[str, Any] | None:
             '{"iki": {"issuer": "https://…", "subject_regexp": "…"}, "approvals": '
             '{"repository": "ghcr.io/…", "issuer": "https://…", "subject": "…"}}.'
         )
+    # Cosign and the Kubernetes policy controller use RE2 and accept one subject
+    # selector per identity. Their intersection is the exact subject when it matches.
+    for signer in policy.values():
+        if (subject := signer.get("subject")) and (pattern := signer.get("subject_regexp")):
+            import re2  # type: ignore[import-untyped]
+
+            try:
+                matches = re2.search(pattern, subject)
+            except re2.error as error:
+                raise environ.ImproperlyConfigured(
+                    f"Invalid image signer subject regexp: {error}"
+                ) from error
+            if not matches:
+                raise environ.ImproperlyConfigured(
+                    "The image signer's subject does not match its subject regexp."
+                )
+            del signer["subject_regexp"]
     return dict(policy)
 
 
@@ -245,7 +262,8 @@ if IKI_RUNS_VM_CLOUD == "gcp" and IKI_RUNS_VM_OWNER:
 
 def _named_mirror(url: str, named: list[str]) -> bool:
     """Whether ``url`` is one of ``named``, however each is written."""
-    return any(repository(url) == repository(m) for m in named)
+    remote = repository(url)
+    return remote is not None and any(remote == repository(m) for m in named)
 
 
 if find_spec("iki_installed_plugins") is not None:

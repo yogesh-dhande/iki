@@ -744,8 +744,40 @@ def test_runs_make_a_dataframe(fake: FakeIki, client: Client) -> None:
 # --- Files -------------------------------------------------------------------------------------
 
 
-def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_path: Path) -> None:
-    path = tmp_path / "empty.txt"
+def test_a_failed_registration_reports_the_verifiers_reason(fake: FakeIki, client: Client) -> None:
+    checking = {"id": "r1", "name": "run.csv", "state": "checking", "file": None}
+    fake.on("POST", "/api/v1/registrations", checking)
+    fake.on(
+        "GET",
+        "/api/v1/registrations/r1",
+        {**checking, "state": "failed", "error": "The pinned object version was removed."},
+    )
+    with pytest.raises(iki.IkiError, match="The pinned object version was removed"):
+        client.files.register("s3://lab-data/runs/run.csv", project=PROJECT)
+    assert len(fake.sent("POST", "/api/v1/registrations")) == 1
+
+
+def test_registration_timeout_leaves_the_version_being_checked(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on(
+        "POST",
+        "/api/v1/registrations",
+        {"id": "r1", "name": "run.csv", "state": "checking", "file": None},
+    )
+    with pytest.raises(iki.TimedOut, match="/registrations/r1"):
+        client.files.register("s3://lab-data/runs/run.csv", project=PROJECT, timeout=0)
+    assert len(fake.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("declared", "sent"),
+    [(None, "application/octet-stream"), ("chemical/x-pdb", "chemical/x-pdb")],
+)
+def test_an_empty_upload_is_already_ready(
+    fake: FakeIki, client: Client, tmp_path: Path, declared: str | None, sent: str
+) -> None:
+    path = tmp_path / "empty.pdb"
     path.touch()
     digest = hashlib.sha256(b"").hexdigest()
     record = {"id": "f1", "name": path.name, "size": 0, "sha256": digest}
@@ -755,11 +787,11 @@ def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_pat
         {"id": "u1", "state": "ready", "file": record, "parts": [], "part_count": 0},
     )
 
-    assert client.files.upload(path, project=PROJECT) == record
+    assert client.files.upload(path, project=PROJECT, media_type=declared) == record
     assert fake.body("POST", "/api/v1/uploads") == {
         "project": PROJECT,
         "name": path.name,
-        "media_type": "text/plain",
+        "media_type": sent,
         "size": 0,
         "sha256": digest,
     }
@@ -875,6 +907,15 @@ def offer_one_part(fake: FakeIki) -> None:
     )
 
 
+def test_a_finished_upload_reports_lost_file_access(fake: FakeIki, client: Client) -> None:
+    offer_one_part(fake)
+    fake.on("PUT", "/staging/u1", httpx2.Response(200))
+    fake.on("POST", "/api/v1/uploads/u1/complete", {"state": "checking"})
+    fake.on("GET", "/api/v1/uploads/u1", {"state": "ready", "file": None, "error": ""})
+    with pytest.raises(iki.IkiError, match=r"finished.*no longer have access"):
+        client.files.upload(io.BytesIO(b"x"), project=PROJECT, name="run.bin")
+
+
 def test_a_failed_part_is_retried_then_cancelled(fake: FakeIki, client: Client) -> None:
     offer_one_part(fake)
     fake.on("PUT", "/staging/u1", httpx2.Response(503))
@@ -917,12 +958,38 @@ def test_files_download_from_the_signed_url_without_ikis_token(
 ) -> None:
     content = b"HEADER    TEST\nEND\n"
     downloadable(fake, content, hashlib.sha256(content).hexdigest())
+    client._http.cookies.set("sessionid", "test-session", domain=".example.com")
     saved = client.files.download("f1", tmp_path)
     assert Path(saved) == tmp_path / "abl1.pdb"
     assert Path(saved).read_bytes() == content
     signed = fake.sent("GET", "/abl1")[0]
     assert signed.url.host == "files.example.com"
     assert "Authorization" not in signed.headers
+    assert "Cookie" not in signed.headers
+
+
+def test_signed_download_refuses_an_https_downgrade(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    downloadable(fake, b"x", "")
+    fake.on(
+        "GET",
+        "/api/v1/files/f1/content",
+        httpx2.Response(302, headers={"Location": "http://files.example.com/abl1?sig=x"}),
+    )
+    with pytest.raises(iki.IkiError, match="downgrades HTTPS"):
+        client.files.download("f1", tmp_path)
+    assert not fake.sent("GET", "/abl1")
+
+
+def test_signed_download_follows_one_location(
+    fake: FakeIki, client: Client, tmp_path: Path
+) -> None:
+    downloadable(fake, b"x", "")
+    fake.on("GET", "/abl1", httpx2.Response(302, headers={"Location": "/another"}))
+    with pytest.raises(iki.IkiError, match=r"refused the download of f1 \(302\)"):
+        client.files.download("f1", tmp_path)
+    assert not fake.sent("GET", "/another")
 
 
 @pytest.mark.parametrize(

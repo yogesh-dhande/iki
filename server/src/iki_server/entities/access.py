@@ -33,6 +33,7 @@ are entries.
 
 from collections.abc import Callable, Iterable
 from typing import Any, cast
+from uuid import UUID
 
 from django.db.models import Exists, F, OuterRef, Q, QuerySet
 
@@ -67,12 +68,43 @@ def visible_entries(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or An
 
 def readable(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """Records and registry entries the user can read: what a reference may show."""
-    projects = readable_projects(user).values("pk")
+    return _readable_in(readable_projects(user).values("pk"))
+
+
+def _readable_in(projects: QuerySet[Any]) -> QuerySet[Entity]:
     links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
     return Entity.objects.filter(
         Q(Exists(links), _views_they_read(Entity, projects)) | _has_record_in(projects),
         purged_at__isnull=True,
     )
+
+
+def readable_reference_ids(user: Any, ids: Iterable[UUID]) -> set[UUID]:  # noqa: ANN401 - a caller
+    """The named records, registry entries and tombstones the reader can identify."""
+    named = set(ids)
+    return _reference_ids_in(readable_projects(user).values("pk"), named) if named else set()
+
+
+def project_reference_ids(project: Project, ids: set[UUID]) -> set[UUID]:
+    """The named records, entries and tombstones readable through this project."""
+    return (
+        _reference_ids_in(Project.objects.filter(pk=project.pk).values("pk"), ids) if ids else set()
+    )
+
+
+def _reference_ids_in(projects: QuerySet[Any], named: set[UUID]) -> set[UUID]:
+    visible = set(_readable_in(projects).filter(pk__in=named).values_list("pk", flat=True))
+    if remaining := named - visible:
+        visible.update(
+            _tombstones_in(projects).filter(pk__in=remaining).values_list("pk", flat=True)
+        )
+    return visible
+
+
+def all_references_readable(user: Any, ids: Iterable[UUID]) -> bool:  # noqa: ANN401 - a caller
+    """Whether the reader can identify every record, entry or tombstone in an exact copy."""
+    named = set(ids)
+    return not named or readable_reference_ids(user, named) == named
 
 
 def _has_record_in(projects: QuerySet[Any]) -> Q:
@@ -141,7 +173,10 @@ def traced(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUs
 def tombstones(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """What's left of purged entities the user could read (ADR 0092): their HRIDs, types
     and when, but no values."""
-    projects = readable_projects(user).values("pk")
+    return _tombstones_in(readable_projects(user).values("pk"))
+
+
+def _tombstones_in(projects: QuerySet[Any]) -> QuerySet[Entity]:
     links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
     # A purged registry entry (ADR 0115), through a purged record of it they could read.
     record_links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)

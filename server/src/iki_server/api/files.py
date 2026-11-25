@@ -16,6 +16,7 @@ SHA-256, then the registration is ``ready``, with its ``file``.
 ``registration.finished`` arrives on ``/events``.
 """
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
@@ -30,7 +31,8 @@ from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
 from iki_server.api.schemas import AgentOut, Page, ProjectRef, UserOut, agent_out
-from iki_server.entities import access
+from iki_server.audit import log as audit
+from iki_server.entities import access, registry
 from iki_server.entities import services as entity_services
 from iki_server.entities.models import Entity
 from iki_server.entities.values import shape, to_json
@@ -44,6 +46,7 @@ from iki_server.files.models import (
     UploadState,
 )
 from iki_server.org import permissions
+from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 
@@ -163,8 +166,27 @@ class UsingRunOut(Schema):
 
 
 class FormatOut(Schema):
+    id: str | None = Field(description="The declared format ID, when installed.")
+    label: str
     media_type: str
     count: int
+
+
+class FileSignatureOut(Schema):
+    offset: int
+    hex: str
+
+
+class InstalledFormatOut(Schema):
+    id: str
+    label: str
+    canonical: str
+    media_types: list[str] = Field(description="The canonical media type followed by its aliases.")
+    extensions: list[str]
+    signatures: list[FileSignatureOut]
+    reader: str | None
+    viewer: str | None
+    parsers: list[str] = Field(description="Installed actions whose file inputs accept the format.")
 
 
 class FileCountOut(Schema):
@@ -178,23 +200,34 @@ class PartOut(Schema):
     url: str = Field(description="PUT the part's bytes here. It works for an hour.")
 
 
-class UploadOut(Schema):
+class UploadStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
+    created_at: datetime
+    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class UploadOut(UploadStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     size: int
     sha256: str
-    state: Literal["pending", "checking", "ready", "failed", "cancelled", "expired"]
     part_size: int
     part_count: int
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
-    expires_at: datetime = Field(description="Unfinished then, it's cancelled.")
+
+
+# Preserve the published OpenAPI component name as the items gain a status-only form.
+class Page_UploadOut_(Page[UploadOut | UploadStatusOut]):  # noqa: N801
+    pass
 
 
 class StartedOut(UploadOut):
+    project: UUID
     parts: list[PartOut] = Field(description="Every part, with where to send it.")
 
 
@@ -240,18 +273,27 @@ class RegistrationIn(Schema):
     )
 
 
-class RegistrationOut(Schema):
+class RegistrationStatusOut(Schema):
+    """Your job status when the file is outside your current access."""
+
     id: UUID
-    project: UUID
+    state: Literal["checking", "ready", "failed"]
+    created_at: datetime
+    file: FileOut | None = Field(description="The file it became, once ready and readable.")
+    error: str = Field(description="Why it failed, if you can still read the details.")
+
+
+class RegistrationOut(RegistrationStatusOut):
+    project: UUID | None = Field(description="Where it was added. Null if you can't see it.")
     name: str
     media_type: str
     uri: str
     version: str = Field(description="The object version the file is pinned to.")
     size: int
-    state: Literal["checking", "ready", "failed"]
-    file: FileOut | None = Field(description="The file it became, once ready.")
-    error: str = Field(description="Why it failed.")
-    created_at: datetime
+
+
+class Page_RegistrationOut_(Page[RegistrationOut | RegistrationStatusOut]):  # noqa: N801
+    pass
 
 
 class LocationsOut(Schema):
@@ -264,7 +306,7 @@ class FileFilters(PageParams):
     format: list[str] = Field(
         default_factory=list,
         max_length=50,
-        description="Media types, such as application/x-abi, or image/* for any image.",
+        description="Format IDs, media types such as application/x-abi, or image/* for any image.",
     )
     acquired_from: date | None = Field(None, description="Acquired on this day or later.")
     acquired_to: date | None = Field(None, description="Acquired on this day or earlier.")
@@ -349,48 +391,54 @@ def _acquired_out(f: File) -> dict[str, Any] | None:
     }
 
 
-def _upload_out(user: User, upload: Upload) -> dict[str, Any]:
-    file = None
-    if upload.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(pk=upload.file_id)
-        file = _file_out(user, [found])[0]
-    return {
-        "id": upload.pk,
-        "project": upload.project_id,
-        "name": upload.name,
-        "media_type": upload.media_type,
-        "size": upload.size,
-        "sha256": upload.sha256,
-        "state": upload.state,
-        "part_size": upload.part_size,
-        "part_count": storage.part_count(upload.size, upload.part_size),
-        "file": file,
-        "error": upload.error,
-        "created_at": upload.created_at,
-        "expires_at": upload.expires_at,
-    }
-
-
-def _registration_out(user: User, registration: Registration) -> dict[str, Any]:
-    file = None
-    if registration.file_id is not None:
-        found = File.objects.select_related("blob", "created_by", "agent").get(
-            pk=registration.file_id
-        )
-        file = _file_out(user, [found])[0]
-    return {
-        "id": registration.pk,
-        "project": registration.project_id,
-        "name": registration.name,
-        "media_type": registration.media_type,
-        "uri": registration.storage_uri,
-        "version": registration.object_version,
-        "size": registration.size,
-        "state": registration.state,
-        "file": file,
-        "error": registration.error,
-        "created_at": registration.created_at,
-    }
+def _job_statuses(
+    user: User, jobs: Sequence[Upload | Registration], *, created_in: Project | None = None
+) -> list[dict[str, Any]]:
+    """The maker keeps the status. Details follow the file, or its project until it exists."""
+    files = services.readable(user).filter(pk__in={job.file_id for job in jobs if job.file_id})
+    file_rows = _file_out(user, list(files.select_related("blob", "created_by", "agent")))
+    by_file = {f["id"]: f for f in file_rows}
+    before_file = {job.project_id for job in jobs if job.file_id is None}
+    readable_projects = set(
+        access.readable_projects(user).filter(pk__in=before_file).values_list("pk", flat=True)
+    )
+    # Starting a job already authorized adding the file in this project on this request.
+    # Polls and history always use current read access, including access through a record.
+    rows = []
+    for job in jobs:
+        file = by_file.get(job.file_id)
+        row = {
+            "id": job.pk,
+            "state": job.state,
+            "created_at": job.created_at,
+            "file": file,
+            "error": "",
+        }
+        if isinstance(job, Upload):
+            row["expires_at"] = job.expires_at
+        just_created = created_in is not None and job.project_id == created_in.pk
+        if (
+            just_created
+            or file is not None
+            or (job.file_id is None and job.project_id in readable_projects)
+        ):
+            row.update(
+                project=job.project_id if just_created or file is None or file["project"] else None,
+                name=job.name,
+                media_type=job.media_type,
+                size=job.size,
+                error=job.error,
+            )
+            if isinstance(job, Upload):
+                row.update(
+                    sha256=job.sha256,
+                    part_size=job.part_size,
+                    part_count=storage.part_count(job.size, job.part_size),
+                )
+            else:
+                row.update(uri=job.storage_uri, version=job.object_version)
+        rows.append(row)
+    return rows
 
 
 def _invalid(error: Refused) -> Exception:
@@ -447,24 +495,27 @@ def start_upload(request: HttpRequest, payload: UploadIn) -> Status[dict[str, An
     except Refused as error:
         raise _invalid(error) from None
     upload.refresh_from_db()
+    status = _job_statuses(me, [upload], created_in=target)[0]
     parts = services.parts(upload) if upload.state == UploadState.PENDING else []
-    return Status(201, {**_upload_out(me, upload), "parts": parts})
+    return Status(201, {**status, "parts": parts})
 
 
-@router.get("/uploads", response=Page[UploadOut], summary="Your uploads")
+@router.get("/uploads", response=Page_UploadOut_, summary="Your uploads")
 def list_uploads(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     mine = Upload.objects.filter(created_by=me, kind=UploadKind.FILE)
     result = page(mine, params, newest_first=True)
-    result["items"] = [_upload_out(me, u) for u in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
-@router.get("/uploads/{upload_id}", response=UploadOut, summary="One of your uploads")
+@router.get(
+    "/uploads/{upload_id}", response=UploadOut | UploadStatusOut, summary="One of your uploads"
+)
 def get_upload(request: HttpRequest, upload_id: UUID) -> dict[str, Any]:
     me = caller(request)
-    return _upload_out(me, _upload(me, upload_id))
+    return _job_statuses(me, [_upload(me, upload_id)])[0]
 
 
 @router.post(
@@ -479,7 +530,7 @@ def sign_parts(request: HttpRequest, upload_id: UUID, payload: PartsIn) -> list[
 
 @router.post(
     "/uploads/{upload_id}/complete",
-    response={202: UploadOut, 200: UploadOut},
+    response={202: UploadOut | UploadStatusOut, 200: UploadOut | UploadStatusOut},
     summary="Finish an upload",
 )
 def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, Any]]:
@@ -488,7 +539,9 @@ def complete_upload(request: HttpRequest, upload_id: UUID) -> Status[dict[str, A
     me = caller(request)
     _storage()
     upload = services.complete(_upload(me, upload_id))
-    return Status(202 if upload.state == UploadState.CHECKING else 200, _upload_out(me, upload))
+    return Status(
+        202 if upload.state == UploadState.CHECKING else 200, _job_statuses(me, [upload])[0]
+    )
 
 
 @router.delete("/uploads/{upload_id}", response={204: None}, summary="Cancel an upload")
@@ -538,21 +591,25 @@ def register_file(request: HttpRequest, payload: RegistrationIn) -> Status[dict[
         raise _invalid(error) from None
     registration.refresh_from_db()
     ready = registration.state == RegistrationState.READY
-    return Status(201 if ready else 202, _registration_out(me, registration))
+    return Status(201 if ready else 202, _job_statuses(me, [registration], created_in=target)[0])
 
 
-@router.get("/registrations", response=Page[RegistrationOut], summary="Your registrations")
+@router.get(
+    "/registrations",
+    response=Page_RegistrationOut_,
+    summary="Your registrations",
+)
 def list_registrations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Newest first."""
     me = caller(request)
     result = page(Registration.objects.filter(created_by=me), params, newest_first=True)
-    result["items"] = [_registration_out(me, r) for r in result["items"]]
+    result["items"] = _job_statuses(me, result["items"])
     return result
 
 
 @router.get(
     "/registrations/{registration_id}",
-    response=RegistrationOut,
+    response=RegistrationOut | RegistrationStatusOut,
     summary="One of your registrations",
 )
 def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, Any]:
@@ -560,7 +617,7 @@ def get_registration(request: HttpRequest, registration_id: UUID) -> dict[str, A
     found = Registration.objects.filter(pk=registration_id, created_by=me).first()
     if found is None:
         raise Problem(404, "No such registration of yours.")
-    return _registration_out(me, found)
+    return _job_statuses(me, [found])[0]
 
 
 # --- Files ---------------------------------------------------------------------------------------
@@ -600,14 +657,16 @@ def _media_types(given: list[str], parameter: str) -> list[str]:
     out = []
     for each in given:
         text = each.strip().lower()
-        if text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2]):
+        if text in registry.file_formats().formats or (
+            text.endswith("/*") and services.MEDIA_KIND.fullmatch(text[:-2])
+        ):
             out.append(text)
             continue
         try:
             out.append(services.clean_media_type(text))
         except Refused:
             raise _unknown(
-                parameter, f"{each!r} isn't a media type, nor a family such as image/*."
+                parameter, "Give an installed format ID, media type or family such as image/*."
             ) from None
     return out
 
@@ -671,11 +730,44 @@ def count_files(request: HttpRequest, params: Query[FacetParams]) -> dict[str, A
 
 @router.get("/files/formats", response=list[FormatOut], summary="The formats of files")
 def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[str, Any]]:
-    """The media types of the files ``GET /files`` would list, whatever its ``format``,
-    with how many of each: what its Format filter offers."""
+    """Format labels and counts for readable files matching the other filters. Aliases
+    count together. A file of an undeclared type keeps its media type as its label."""
     me = caller(request)
     found = listing.formats(me, _scope(me, params.project), _filters(me, params))
-    return [{"media_type": m, "count": n} for m, n in found]
+    catalog = registry.file_formats()
+    out = []
+    for media_type, count in found:
+        fmt = catalog.by_media_type(media_type)
+        out.append(
+            {
+                "id": fmt.id if fmt else None,
+                "label": fmt.label if fmt else media_type,
+                "media_type": media_type,
+                "count": count,
+            }
+        )
+    return out
+
+
+@router.get("/formats", response=list[InstalledFormatOut], summary="The installed file formats")
+def installed_formats(request: HttpRequest) -> list[dict[str, Any]]:
+    """Core and plugin formats, in recognition order for shared filename extensions."""
+    caller(request)
+    catalog = registry.file_formats()
+    return [
+        {
+            "id": fmt.id,
+            "label": fmt.label,
+            "canonical": fmt.canonical,
+            "media_types": fmt.media_types,
+            "extensions": fmt.extensions,
+            "signatures": fmt.signatures,
+            "reader": fmt.reader,
+            "viewer": fmt.viewer,
+            "parsers": catalog.parsers(fmt.id),
+        }
+        for fmt in catalog.formats.values()
+    ]
 
 
 def _run_ref(run: Any) -> dict[str, Any]:  # noqa: ANN401 - an ActionRun
@@ -815,40 +907,45 @@ def file_runs(request: HttpRequest, file_id: UUID, params: Query[PageParams]) ->
     return result
 
 
-@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
-def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
-    """Redirects to a signed URL that works for five minutes. It downloads the file under
-    its name, rather than opening it in the browser."""
-    me = caller(request)
-    found = _file(me, file_id)
-    _storage()
-    blob = found.blob
-    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
-    response = HttpResponse(status=302)
-    response["Location"] = url
-    response["Cache-Control"] = "no-store"
-    return response
-
-
 class ContentUrlOut(Schema):
     url: str = Field(description="A signed URL that reads the file, for five minutes.")
     expires_at: datetime
     sha256: str = Field(description="What the bytes it reads hash to: check them against it.")
 
 
-@router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
-def file_content_url(request: HttpRequest, file_id: UUID) -> dict[str, Any]:
-    """For pages that read a file themselves, such as the structure viewer: the store
-    lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
-    offer, since a redirect to another origin hides who's asking."""
-    me = caller(request)
+def _download_link(me: User, file_id: UUID) -> ContentUrlOut:
     found = _file(me, file_id)
     _storage()
     blob = found.blob
-    return {
-        "url": storage.download_url(
-            blob.storage_uri, blob.object_version, found.name, found.media_type
-        ),
-        "expires_at": timezone.now() + timedelta(seconds=storage.DOWNLOAD_URL_SECONDS),
-        "sha256": blob.sha256,
-    }
+    expires_at = timezone.now().replace(microsecond=0) + timedelta(
+        seconds=storage.DOWNLOAD_URL_SECONDS
+    )
+    url = storage.download_url(blob.storage_uri, blob.object_version, found.name, found.media_type)
+    audit.record(
+        "file.download_link_issued",
+        actor=me,
+        target=found,
+        project=found.project,
+        data={"sha256": blob.sha256, "expires_at": expires_at.isoformat()},
+    )
+    return ContentUrlOut(url=url, expires_at=expires_at, sha256=blob.sha256)
+
+
+@router.get("/files/{file_id}/content", response={302: None}, summary="Download a file")
+def download_file(request: HttpRequest, file_id: UUID) -> HttpResponse:
+    """Redirects to a signed URL that works for five minutes. It downloads the file under
+    its name, rather than opening it in the browser."""
+    link = _download_link(caller(request), file_id)
+    response = HttpResponse(status=302)
+    response["Location"] = link.url
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@router.get("/files/{file_id}/content-url", response=ContentUrlOut, summary="A link to read a file")
+def file_content_url(request: HttpRequest, file_id: UUID, response: HttpResponse) -> ContentUrlOut:
+    """For pages that read a file themselves, such as the structure viewer: the store
+    lets Iki's pages read it from the link (CORS), which ``/content``'s redirect can't
+    offer, since a redirect to another origin hides who's asking."""
+    response["Cache-Control"] = "no-store"
+    return _download_link(caller(request), file_id)

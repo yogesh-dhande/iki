@@ -151,7 +151,9 @@ def test_another_projects_files_never_appear(world: World, other: Project) -> No
             0 if query.get("q") == "secret" else 1 - bool(query.get("acquired_from"))
         )
     formats = viewer.get("/files/formats").json()
-    assert formats == [{"media_type": "application/x-abi", "count": 1}]
+    assert formats == [
+        {"id": "iki/core.abif", "label": "ABI trace", "media_type": "application/x-abi", "count": 1}
+    ]
     # Its project, its file, and what uses it are as if they didn't exist.
     assert viewer.get("/files", project=str(other.pk)).status_code == 404
     for path in ("", "/records", "/runs", "/content"):
@@ -192,8 +194,10 @@ def test_files_are_found_by_format_and_by_a_family_of_formats(world: World) -> N
     add(world.project, "b.tif", "image/tiff")
     add(world.project, "c.png", "image/png")
     add(world.project, "d.fcs", "application/vnd.isac.fcs")
+    add(world.project, "ligand.mol2", "application/vnd.sybyl.mol2")
     viewer = api_as(world, "viewer")
     assert sorted(every(viewer, format="image/*")) == ["b.tif", "c.png"]
+    assert every(viewer, format="chemical/*") == ["ligand.mol2"]
     assert sorted(every(viewer, format=["application/x-abi", "image/png"])) == ["a.ab1", "c.png"]
     formats = viewer.get("/files/formats", project=str(world.project.pk), q=".").json()
     assert {f["media_type"]: f["count"] for f in formats} == {
@@ -201,6 +205,7 @@ def test_files_are_found_by_format_and_by_a_family_of_formats(world: World) -> N
         "application/vnd.isac.fcs": 1,
         "image/png": 1,
         "image/tiff": 1,
+        "application/vnd.sybyl.mol2": 1,
     }
     refused = viewer.get("/files", format="not a type")
     assert problem(refused, 422, "validation_failed")["errors"][0]["parameter"] == "format"
@@ -213,6 +218,52 @@ def test_a_picker_lists_only_what_its_field_takes(world: World) -> None:
     viewer = api_as(world, "viewer")
     taken = every(viewer, accepts=["chemical/x-pdb", "chemical/x-mmcif"], max_size=100)
     assert taken == ["small.pdb"]
+
+
+def test_plugin_format_from_upload_to_structure_field_and_filter(world: World, s3: Any) -> None:
+    from test_api_entities import create
+    from test_files import PDB
+    from test_files import add as upload
+
+    fmt = "acme/protein.model-pdb"
+    api = api_as(world)
+    declarations = {f["id"]: f for f in api.get("/formats").json()}
+    model = declarations[fmt]
+    assert model["viewer"] == "structure-pdb"
+    assert model["canonical"] == "chemical/x-acme-model"
+    assert model["extensions"] == [".model.pdb"]
+    assert "acme/protein.relax_structure" in model["parsers"]
+
+    # A generic name and media type leave the plugin's signature to recognize these bytes.
+    data = b"REMARK 700 MODEL CANDIDATE A\n" + PDB
+    made = upload(api, world, data, name="result.bin", media_type="application/octet-stream")
+    assert made["file"]["media_type"] == model["canonical"]
+    file_id = made["file"]["id"]
+    saved = create(api, world.project, {"structure": file_id}, STRUCTURE)
+    assert saved.status_code == 201, saved.content
+    found_type = api.get(f"/entity-types/{STRUCTURE}").json()
+    viewer = found_type["viewers"][0]
+    assert viewer["viewer"] == "structure"
+    assert saved.json()["values"][viewer["structure"]] == file_id
+
+    # Previously stored aliases still pass the same field and produce one filter choice.
+    legacy = add(world.project, "older.model.pdb", "chemical/x-acme-coordinates")
+    assert create(api, world.project, {"structure": str(legacy.pk)}, STRUCTURE).status_code == 201
+    add(world.project, "notes.unspecified", "application/x-unregistered")
+    facets = api.get("/files/formats", accepts=[fmt]).json()
+    assert facets == [
+        {"id": fmt, "label": "Model coordinates", "media_type": model["canonical"], "count": 2}
+    ]
+    for choice in (fmt, *model["media_types"]):
+        assert sorted(every(api, format=choice)) == ["older.model.pdb", "result.bin"]
+    assert api.get("/files/formats", q="notes").json() == [
+        {
+            "id": None,
+            "label": "application/x-unregistered",
+            "media_type": "application/x-unregistered",
+            "count": 1,
+        }
+    ]
 
 
 def test_files_are_found_by_when_their_data_was_acquired(world: World) -> None:

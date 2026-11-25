@@ -6,6 +6,7 @@ import hashlib
 import io
 import random
 import tarfile
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
@@ -324,6 +325,38 @@ def test_a_late_initial_planner_preserves_the_finished_import(
     monkeypatch.setattr(storage, "download_file", downloaded)
     assert plan(earlier) == outcome
     assert snapshot() == before
+
+
+def test_imported_agent_identity_is_derived_from_its_fields(world: World, tmp_path: Path) -> None:
+    from dataclasses import asdict
+    from unittest.mock import Mock
+
+    from iki_server.audit.log import AgentInfo
+    from iki_server.audit.models import Agent
+    from iki_server.bundles import applying, reading
+
+    identity = AgentInfo(client_id="acme", client_name="Workbench")
+    local = Agent.objects.create(key=identity.key(), **asdict(identity))
+    row = {
+        "id": str(local.pk),
+        "key": local.key,
+        **asdict(identity),
+        "first_seen_at": local.first_seen_at.isoformat(),
+    }
+    bundle = Mock(spec=reading.Bundle)
+    writer = applying._Writer(Mock(), bundle, tmp_path)
+    other_id = str(uuid.uuid4())
+    bundle.lines.return_value = [
+        row,
+        {**row, "id": other_id, "first_seen_at": "2024-02-01T00:00:00Z"},
+    ]
+    writer._agents()
+    assert writer.agents[other_id] == local
+    assert writer.agents[row["id"]] == local
+    bundle.lines.return_value = [{**row, "client_name": "Different identity"}]
+    with pytest.raises(reading.BundleError, match="agent"):
+        writer._agents()
+    assert Agent.objects.get(pk=local.pk).client_name == identity.client_name
 
 
 # --- Applying ----------------------------------------------------------------------------
@@ -1112,6 +1145,44 @@ def test_runs_come_with_what_they_made_and_read(world: World, tmp_path: Path) ->
     from iki_server.runs import services as run_services
 
     assert run_services._next_hrid() > "RUN-009001"
+
+
+@pytest.mark.parametrize("location", ["previous_output", "imported_trigger"])
+def test_export_checks_the_dependencies_of_immutable_run_data(
+    world: World, tmp_path: Path, location: str
+) -> None:
+    admin = world.users["admin"]
+    other = Project.objects.create(team=world.team, name="Reference collection")
+    grant = ProjectMembership.objects.create(project=other, user=admin, role=ProjectRole.EDITOR)
+    source = services.create(admin, "acme/protein.Protein", other, {"sequence": "MKSOURCE"}).entity
+    assert isinstance(source, Entity)
+    read = protein(world, "MKREADIN")
+    made = protein(world, "MKMADEBY")
+    if location == "previous_output":
+        previous = {"creates": [{"type": made.type, "values": {"source": str(source.pk)}}]}
+        ran(world, made, read, parked=previous)
+    else:
+        run = ran(world, made, read)
+        run.via = "trigger"
+        run.reason = f"Triggered by {source.hrid}"
+        run.imported = {"inputs": [{"entity": str(source.pk)}]}
+        run.save(update_fields=["via", "reason", "imported"])
+    path = tmp_path / "results.tar.gz"
+    complete = export.write(
+        world.project, [made], path, by=admin, reason="Review", selection=made.hrid
+    )
+    assert source.pk in complete.references
+    grant.delete()
+    with pytest.raises(export.ExportError, match="read"):
+        export.write(
+            world.project,
+            [made],
+            tmp_path / "new.tar.gz",
+            by=admin,
+            reason="Review",
+            selection=made.hrid,
+        )
+    assert not (tmp_path / "new.tar.gz").exists()
 
 
 def test_a_run_that_parked_brings_each_attempts_output(world: World, tmp_path: Path) -> None:

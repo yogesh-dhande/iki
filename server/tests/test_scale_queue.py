@@ -34,6 +34,7 @@ from test_workers import LOCAL, ROOMY, WorkerClient, keep_connection, registrati
 
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs.models import ActionRun, Job, JobState, RunInput, RunStatus
+from iki_server.runs.services import cancel
 
 pytestmark = [pytest.mark.scale, pytest.mark.django_db(transaction=True)]
 
@@ -141,11 +142,8 @@ def fill(template: ActionRun, projects: list[Project]) -> None:
             hi,
         )
         print(f"copied {hi:,} in {time.monotonic() - began:.0f}s", flush=True)  # noqa: T201
-    # The template's own run waits behind the copies; leasing it would only be a 101st
-    # project's turn.
-    Job.objects.filter(run=template).delete()
-    RunInput.objects.filter(run=template).delete()
-    template.delete()
+    # Only the copies participate in the queue measurement.
+    cancel(template.requested_by, template)
     _sql("ANALYZE iki_action_run")
     _sql("ANALYZE iki_run_input")
     _sql("ANALYZE iki_job")

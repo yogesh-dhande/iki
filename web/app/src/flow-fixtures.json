@@ -48,7 +48,7 @@
               "description": null,
               "set_by": ["iki/lab_roles.analyst"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -140,7 +140,7 @@
               "description": null,
               "set_by": ["iki/lab_roles.reviewer"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -624,26 +624,6 @@
               ]
             },
             {
-              "name": "results_recorded",
-              "label": "Results recorded",
-              "description": null,
-              "set_by": ["iki/lab_roles.reviewer"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
-                {
-                  "name": "reviewed",
-                  "description": null,
-                  "check": "state.from == \"reviewed\"",
-                  "when": null,
-                  "message": "Record the results after independent signed review."
-                }
-              ],
-              "signatures": []
-            },
-            {
               "name": "retesting",
               "label": "Returned to testing",
               "description": null,
@@ -656,7 +636,7 @@
                 {
                   "name": "signed",
                   "description": null,
-                  "check": "state.from in [\"in_review\", \"reviewed\", \"results_recorded\"]",
+                  "check": "state.from in [\"in_review\", \"reviewed\"]",
                   "when": null,
                   "message": "Return a submitted or reviewed sample to testing."
                 }
@@ -700,22 +680,12 @@
               "conditional": true
             },
             {
-              "from": "reviewed",
-              "to": "results_recorded",
-              "conditional": false
-            },
-            {
               "from": "in_review",
               "to": "retesting",
               "conditional": false
             },
             {
               "from": "reviewed",
-              "to": "retesting",
-              "conditional": false
-            },
-            {
-              "from": "results_recorded",
               "to": "retesting",
               "conditional": false
             }
@@ -1067,7 +1037,7 @@
               "description": null,
               "set_by": ["iki/plate_assays.analyst"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [
@@ -1096,7 +1066,7 @@
               "description": null,
               "set_by": ["iki/plate_assays.reviewer"],
               "locks": true,
-              "on_edit": "recorded",
+              "on_edit": null,
               "holds_amount": false,
               "reason": null,
               "guards": [

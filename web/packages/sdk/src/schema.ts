@@ -54,8 +54,9 @@ export interface paths {
          * Run an action
          * @description Queue a run. Everything is checked first: your role for the action's tier, that it can
          *     run on this deployment, its inputs (entities you can read, of the right types, not archived,
-         *     and editable by you where it changes them) and its params. A run reads only what's in its
-         *     project: inputs from other projects need `add_to_project`.
+         *     and editable by you where it changes them) and its params. Give the operator's reason if
+         *     an input it changes has been unlocked. Iki records that reason on the revision. Inputs from
+         *     other projects need `add_to_project`.
          */
         post: operations["iki_server_api_runs_launch_run"];
         delete?: never;
@@ -2089,8 +2090,8 @@ export interface paths {
         };
         /**
          * The formats of files
-         * @description The media types of the files ``GET /files`` would list, whatever its ``format``,
-         *     with how many of each: what its Format filter offers.
+         * @description Format labels and counts for readable files matching the other filters. Aliases
+         *     count together. A file of an undeclared type keeps its media type as its label.
          */
         get: operations["iki_server_api_files_file_formats"];
         put?: never;
@@ -2199,6 +2200,26 @@ export interface paths {
          *     newest first.
          */
         get: operations["iki_server_api_files_file_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/formats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installed file formats
+         * @description Core and plugin formats, in recognition order for shared filename extensions.
+         */
+        get: operations["iki_server_api_files_installed_formats"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7724,7 +7745,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -8106,6 +8127,11 @@ export interface components {
              */
             edit_amount: boolean;
             /**
+             * Edit Reason Required
+             * @description Present and true when a value edit needs a reason after an unlock.
+             */
+            edit_reason_required?: boolean | null;
+            /**
              * Sign
              * @description The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.
              */
@@ -8316,7 +8342,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -8511,7 +8537,7 @@ export interface components {
             type: string;
             /**
              * Values
-             * @description Its identity, derived values and facts: every holding project's.
+             * @description Its identity, derived values and facts: every holding project's. References to entities you can't read are shown as `unreadable`.
              */
             values: {
                 [key: string]: unknown;
@@ -9167,7 +9193,7 @@ export interface components {
             cursor?: string | null;
             /**
              * Format
-             * @description Media types, such as application/x-abi, or image/* for any image.
+             * @description Format IDs, media types such as application/x-abi, or image/* for any image.
              */
             format?: string[];
             /**
@@ -9355,6 +9381,13 @@ export interface components {
             size: number;
             used_by: components["schemas"]["UsedByCountOut"];
         };
+        /** FileSignatureOut */
+        FileSignatureOut: {
+            /** Hex */
+            hex: string;
+            /** Offset */
+            offset: number;
+        };
         /** FiredEntityOut */
         FiredEntityOut: {
             /** Hrid */
@@ -9394,7 +9427,7 @@ export interface components {
              */
             created_at: string;
             editor?: components["schemas"]["PersonRef"] | null;
-            /** @description Whose change fired it; null on a schedule. */
+            /** @description The visible entity whose change fired it. */
             entity: components["schemas"]["FiredEntityOut"] | null;
             error: components["schemas"]["FiringErrorOut"] | null;
             /**
@@ -9420,7 +9453,7 @@ export interface components {
             } | null;
             /**
              * Revision
-             * @description The revision the change made; null on a schedule.
+             * @description The revision of the visible entity whose change fired it.
              */
             revision: number | null;
             run: components["schemas"]["FiredRunOut"] | null;
@@ -9484,6 +9517,13 @@ export interface components {
         FormatOut: {
             /** Count */
             count: number;
+            /**
+             * Id
+             * @description The declared format ID, when installed.
+             */
+            id: string | null;
+            /** Label */
+            label: string;
             /** Media Type */
             media_type: string;
         };
@@ -10667,10 +10707,9 @@ export interface components {
         ImportedInclusionOut: {
             /**
              * Entity
-             * Format: uuid
-             * @description Its ID there: it isn't here.
+             * @description Its source ID, subject to read access here.
              */
-            entity: string;
+            entity: string | null;
             /** Field */
             field: string;
             /** Index */
@@ -10680,22 +10719,21 @@ export interface components {
             /** Position */
             position: number;
             /** Revision */
-            revision: number;
+            revision: number | null;
         };
         /** ImportedInputOut */
         ImportedInputOut: {
             /**
              * Entity
-             * Format: uuid
-             * @description Its ID there: it isn't here.
+             * @description Its source ID, subject to read access here.
              */
-            entity: string;
+            entity: string | null;
             /** Name */
             name: string;
             /** Position */
             position: number;
             /** Revision */
-            revision: number;
+            revision: number | null;
         };
         /** InboxFilters */
         InboxFilters: {
@@ -10735,6 +10773,33 @@ export interface components {
             optional: boolean;
             /** Type */
             type: string;
+        };
+        /** InstalledFormatOut */
+        InstalledFormatOut: {
+            /** Canonical */
+            canonical: string;
+            /** Extensions */
+            extensions: string[];
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /**
+             * Media Types
+             * @description The canonical media type followed by its aliases.
+             */
+            media_types: string[];
+            /**
+             * Parsers
+             * @description Installed actions whose file inputs accept the format.
+             */
+            parsers: string[];
+            /** Reader */
+            reader: string | null;
+            /** Signatures */
+            signatures: components["schemas"]["FileSignatureOut"][];
+            /** Viewer */
+            viewer: string | null;
         };
         /** IntakeIn */
         IntakeIn: {
@@ -11462,7 +11527,7 @@ export interface components {
             updated_at: string;
             /**
              * Values
-             * @description Its fields' values, as its type's schema says.
+             * @description Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.
              */
             values: {
                 [key: string]: unknown;
@@ -11491,9 +11556,9 @@ export interface components {
             confirmed: string;
             /**
              * Counterpart
-             * @description The other record, if there is one.
+             * @description The other record's ID, or `unreadable` if you can't read it.
              */
-            counterpart: string | null;
+            counterpart: string | "unreadable" | null;
             /**
              * Created At
              * Format: date-time
@@ -11526,14 +11591,14 @@ export interface components {
              * Source
              * @description Where a container's material came from, as its type's `follows` says: its lot (ADR 0180).
              */
-            source?: string | null;
+            source?: string | "unreadable" | null;
             /** Unit */
             unit: string;
             /**
              * Used In
-             * @description What a draw went into, such as an analysis or an experiment.
+             * @description What a draw went into. An unreadable record is shown as `unreadable`.
              */
-            used_in?: string | null;
+            used_in?: string | "unreadable" | null;
             user: components["schemas"]["UserOut"] | null;
             /** Via */
             via: string;
@@ -12274,10 +12339,10 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[RegistrationOut] */
+        /** Page_RegistrationOut_ */
         Page_RegistrationOut_: {
             /** Items */
-            items: components["schemas"]["RegistrationOut"][];
+            items: (components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"])[];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -12414,10 +12479,10 @@ export interface components {
              */
             next_cursor: string | null;
         };
-        /** Page[UploadOut] */
+        /** Page_UploadOut_ */
         Page_UploadOut_: {
             /** Items */
-            items: components["schemas"]["UploadOut"][];
+            items: (components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"])[];
             /**
              * Next Cursor
              * @description Pass as cursor for the next page; null at the end.
@@ -13071,7 +13136,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /** Reason */
@@ -14050,10 +14115,10 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -14066,9 +14131,9 @@ export interface components {
             name: string;
             /**
              * Project
-             * Format: uuid
+             * @description Where it was added. Null if you can't see it.
              */
-            project: string;
+            project: string | null;
             /** Size */
             size: number;
             /**
@@ -14083,6 +14148,34 @@ export interface components {
              * @description The object version the file is pinned to.
              */
             version: string;
+        };
+        /**
+         * RegistrationStatusOut
+         * @description Your job status when the file is outside your current access.
+         */
+        RegistrationStatusOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed, if you can still read the details.
+             */
+            error: string;
+            /** @description The file it became, once ready and readable. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "checking" | "ready" | "failed";
         };
         /** RegistryCan */
         RegistryCan: {
@@ -14511,7 +14604,7 @@ export interface components {
             changed_fields: string[];
             /**
              * Changes
-             * @description What this revision changed.
+             * @description What this revision changed, as you can read it.
              */
             changes: {
                 [key: string]: components["schemas"]["ChangeOut"];
@@ -14545,7 +14638,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /**
@@ -14585,7 +14678,7 @@ export interface components {
             user: components["schemas"]["UserOut"] | null;
             /**
              * Values
-             * @description Every field's value as it was at this revision.
+             * @description Every field's value as it was at this revision. References to entities you can't read are shown as `unreadable`.
              */
             values: {
                 [key: string]: unknown;
@@ -14624,7 +14717,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "created" | "edited" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
+            kind: "created" | "edited" | "migrated" | "archived" | "restored" | "curated" | "superseded" | "moved" | "state_changed";
             /** Number */
             number: number;
             /** Reason */
@@ -15054,7 +15147,7 @@ export interface components {
             project: string;
             /**
              * Reason
-             * @description Why, for the record.
+             * @description The operator's reason. Required when changing an input whose lock was lifted.
              * @default
              */
             reason: string;
@@ -15247,7 +15340,7 @@ export interface components {
             project: string;
             /**
              * Reason
-             * @description Why, for the record.
+             * @description The operator's reason. Required when changing an input whose lock was lifted.
              * @default
              */
             reason: string;
@@ -15262,16 +15355,16 @@ export interface components {
         RunInclusionOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /**
              * Field
              * @description The reference.
              */
             field: string;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /**
              * Index
              * @description Its place in the reference, from 0: a list's can be more.
@@ -15289,26 +15382,26 @@ export interface components {
             position: number;
             /**
              * Revision
-             * @description The revision the run read.
+             * @description The revision read, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** RunInputOut */
         RunInputOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /** Name */
             name: string;
             /**
              * Revision
-             * @description The revision the run read.
+             * @description The revision read, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** RunOut */
         RunOut: {
@@ -16833,9 +16926,9 @@ export interface components {
             deployment: string;
             /**
              * Document
-             * @description What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.
+             * @description The exact canonical JSON (iki/signature/v1) when the reader can identify the entry it names.
              */
-            document: string;
+            document: string | null;
             /**
              * Entry Revision
              * @description For a record of a registry entry: the entry's revision it signs.
@@ -17560,7 +17653,7 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
             /**
@@ -17569,7 +17662,7 @@ export interface components {
              * @description Unfinished then, it's cancelled.
              */
             expires_at: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -17861,14 +17954,14 @@ export interface components {
             label: string;
             /**
              * Locks
-             * @description Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.
+             * @description Locks the record against value edits, archiving, restoring and moving. An unsigned lock may declare a reasoned correction through `on_edit`.
              */
             locks: boolean;
             /** Name */
             name: string;
             /**
              * On Edit
-             * @description The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).
+             * @description The state this field returns to on a value edit under an unsigned lock. The correction needs a reason and permission to enter this state (ADR 0179).
              */
             on_edit?: string | null;
             /**
@@ -18069,7 +18162,7 @@ export interface components {
             label: string;
             /**
              * Structure
-             * @description The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).
+             * @description The file field holding coordinates in a format that declares the structure-mmcif or structure-pdb viewer.
              */
             structure: string;
             /**
@@ -18291,14 +18384,14 @@ export interface components {
             enabled_by: components["schemas"]["PersonRef"] | null;
             /**
              * Entity
-             * @description The entity whose change fired it; null on a schedule.
+             * @description The visible entity whose change fired it.
              */
             entity: string | null;
             /**
              * Event
              * @enum {string}
              */
-            event: "entity.created" | "entity.updated" | "schedule";
+            event: "entity.created" | "entity.registered" | "entity.state_changed" | "entity.updated" | "schedule";
             /**
              * Label
              * @description Its label, or its name once it's no longer installed.
@@ -18311,7 +18404,7 @@ export interface components {
             name: string;
             /**
              * Revision
-             * @description The revision the change made; null on a schedule.
+             * @description The revision of the visible entity whose change fired it.
              */
             revision: number | null;
             /**
@@ -18458,7 +18551,7 @@ export interface components {
             label: string;
             /**
              * Material
-             * @description Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.
+             * @description The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.
              */
             material: string | null;
             /**
@@ -18704,7 +18797,7 @@ export interface components {
             created_at: string;
             /**
              * Error
-             * @description Why it failed.
+             * @description Why it failed, if you can still read the details.
              */
             error: string;
             /**
@@ -18713,7 +18806,7 @@ export interface components {
              * @description Unfinished then, it's cancelled.
              */
             expires_at: string;
-            /** @description The file it became, once ready. */
+            /** @description The file it became, once ready and readable. */
             file: components["schemas"]["FileOut"] | null;
             /**
              * Id
@@ -18730,13 +18823,47 @@ export interface components {
             part_size: number;
             /**
              * Project
-             * Format: uuid
+             * @description Where it was added. Null if you can't see it.
              */
-            project: string;
+            project: string | null;
             /** Sha256 */
             sha256: string;
             /** Size */
             size: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "pending" | "checking" | "ready" | "failed" | "cancelled" | "expired";
+        };
+        /**
+         * UploadStatusOut
+         * @description Your job status when the file is outside your current access.
+         */
+        UploadStatusOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Error
+             * @description Why it failed, if you can still read the details.
+             */
+            error: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description Unfinished then, it's cancelled.
+             */
+            expires_at: string;
+            /** @description The file it became, once ready and readable. */
+            file: components["schemas"]["FileOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
             /**
              * State
              * @enum {string}
@@ -19603,18 +19730,18 @@ export interface components {
         WorkflowInputOut: {
             /**
              * Entity
-             * Format: uuid
+             * @description The record ID when you can read it.
              */
-            entity: string;
+            entity: string | null;
             /** Hrid */
-            hrid: string;
+            hrid: string | null;
             /** Name */
             name: string;
             /**
              * Revision
-             * @description Its revision when the workflow started.
+             * @description The starting revision, shown with its record.
              */
-            revision: number;
+            revision: number | null;
         };
         /** WorkflowOut */
         WorkflowOut: {
@@ -22609,7 +22736,7 @@ export interface operations {
                 project?: string | null;
                 /** @description Part of its name, in any case. */
                 q?: string;
-                /** @description Media types, such as application/x-abi, or image/* for any image. */
+                /** @description Format IDs, media types such as application/x-abi, or image/* for any image. */
                 format?: string[];
                 /** @description Acquired on this day or later. */
                 acquired_from?: string | null;
@@ -22817,6 +22944,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_UsingRunOut_"];
+                };
+            };
+        };
+    };
+    iki_server_api_files_installed_formats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InstalledFormatOut"][];
                 };
             };
         };
@@ -24940,7 +25087,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrationOut"];
+                    "application/json": components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"];
                 };
             };
         };
@@ -26746,7 +26893,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
         };
@@ -26788,7 +26935,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
             /** @description Accepted */
@@ -26797,7 +26944,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["UploadOut"];
+                    "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
         };

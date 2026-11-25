@@ -52,11 +52,12 @@ from django.conf import settings
 from google.api_core import exceptions as google_errors
 from google.auth import credentials as google_credentials
 from google.auth import exceptions as auth_errors
-from google.auth.transport.requests import AuthorizedSession, Request
+from google.auth.transport.requests import AuthorizedSession
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from iki_server.files.storage import StorageError
+from iki_server.google_http import credential_request, restrict_google_session
 
 if TYPE_CHECKING:
     from google.cloud.storage.blob import Blob
@@ -76,7 +77,7 @@ _NAMESPACE = re.compile(r"^\{[^}]*\}")
 def find_credentials() -> google_credentials.Credentials:
     """Google's default credentials: on GKE, the pod's service account's, by Workload
     Identity."""
-    found, _ = google.auth.default(scopes=list(SCOPES))
+    found, _ = google.auth.default(scopes=list(SCOPES), request=credential_request())
     return found
 
 
@@ -128,7 +129,7 @@ class Google:
             return self.credentials
         if not self.credentials.valid:
             # Compute Engine's (GKE's) credentials learn their account's email as they do.
-            self.credentials.refresh(Request())
+            self.credentials.refresh(credential_request())
         email = str(getattr(self.credentials, "service_account_email", "") or "")
         if "@" not in email:
             raise StorageError(
@@ -142,6 +143,7 @@ class Google:
 
 def _session(credentials: google_credentials.Credentials) -> AuthorizedSession:
     session = AuthorizedSession(credentials)
+    restrict_google_session(session)
     # Rate limits and Google's own errors are retried; a request that may have been
     # carried out (one read timing out) isn't, as completing an upload twice fails.
     retry = Retry(
@@ -170,6 +172,7 @@ def clients() -> Google:
         credentials=credentials,
         client_options={"api_endpoint": endpoint} if settings.IKI_FILES_ENDPOINT_URL else None,
     )
+    restrict_google_session(client._http)
     return Google(credentials, client, _session(credentials), endpoint)
 
 

@@ -442,7 +442,7 @@ function ChangeWorker({ worker, onDone }: { worker: Worker; onDone: () => void }
       ),
     [COMPUTE],
   );
-  const form = useForm(save.error);
+  const form = useForm(save.error, save.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -697,7 +697,7 @@ function NewToken({ onMade }: { onMade: (token: RegistrationCreated) => void }) 
     }) => unwrap(await iki.POST("/api/v1/compute/registration-tokens", { body })),
     [COMPUTE],
   );
-  const form = useForm(make.error);
+  const form = useForm(make.error, make.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

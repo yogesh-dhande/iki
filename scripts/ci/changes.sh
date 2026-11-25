@@ -16,7 +16,7 @@ set -euo pipefail
 # still builds and checks the site, which the ADRs are pages of.
 is_docs() {
   case "$1" in
-    plugins/* | plugin-template/* | */src/*) return 1 ;;
+    plugins/* | examples/plugins/* | plugin-template/* | */src/*) return 1 ;;
     docs/site/* | docs/sitegen/* | docs/tooling/*) return 1 ;;
     docs/* | *.md) return 0 ;;
     *) return 1 ;;

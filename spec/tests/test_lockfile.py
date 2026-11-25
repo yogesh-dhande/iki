@@ -1,8 +1,10 @@
+import subprocess
 import textwrap
 from pathlib import Path
 
 import pytest
 
+from iki_spec import naming
 from iki_spec.lockfile import (
     LockedPlugin,
     load_lock,
@@ -188,7 +190,7 @@ def test_plugins_are_named_in_a_namespace(tmp_path: Path) -> None:
     [
         "https://github.com/yogesh-dhande/iki.git",
         "https://github.com/yogesh-dhande/iki",
-        "https://GitHub.com/yogesh-dhande/iki/",
+        "https://GitHub.com:443/yogesh-dhande/iki.git/",
         "git@github.com:yogesh-dhande/iki.git",
         "ssh://git@github.com/yogesh-dhande/iki.git",
     ],
@@ -196,6 +198,173 @@ def test_plugins_are_named_in_a_namespace(tmp_path: Path) -> None:
 def test_iki_plugins_come_from_iki(tmp_path: Path, git: str) -> None:
     entry = f"- {{name: iki/dna, git: '{git}', path: plugins/dna, sha: {SHA}, state: active}}\n"
     assert codes(lock(tmp_path, entry)) == []
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "examples/plugins/provider",
+        "./plugin-template/",
+        "spec/tests/data/signed_report",
+        "spec/tests/plugins/dna",
+        "server/tests/fixtures/plugins/execution",
+        "deploy/dev/fixtures/plugins/worker_execution",
+        "deploy/live/plugins/live_check",
+        "plugins/../examples/plugins/connector",
+    ],
+)
+def test_official_teaching_and_fixture_pins_need_a_test_build(tmp_path: Path, path: str) -> None:
+    mirror = "https://git.lab.example/release/iki.git"
+    file = lock(
+        tmp_path,
+        f"- name: acme/a\n  git: {naming.IKI_REPOSITORY}\n  path: {path}\n"
+        f"  sha: {SHA}\n  state: detached\n"
+        f"- name: lab/b\n  git: https://GIT.lab.example:443/release/iki/\n  path: {path}\n"
+        f"  sha: {SHA}\n  state: active\n",
+    )
+    problems = load_lock(file, mirrors=[mirror]).problems
+    assert [(p.code, p.path) for p in problems] == [
+        ("test-only-source", ("plugins", 0, "path")),
+        ("test-only-source", ("plugins", 1, "path")),
+    ]
+    assert all(p.location and "--test-only" in (p.hint or "") for p in problems)
+    assert load_lock(file, mirrors=[mirror], test_only=True).ok
+
+
+@pytest.mark.parametrize(
+    ("git", "path"),
+    [
+        ("https://git.lab.example/iki.git", "examples/plugins/provider"),
+        ("https://git.lab.example/custom/iki.git", "plugin-template"),
+        (naming.IKI_REPOSITORY, "examples/plugins_extra/provider"),
+        (naming.IKI_REPOSITORY, "deploy/live/plugins/checks"),
+    ],
+)
+def test_distribution_rule_matches_both_repository_and_directory(
+    tmp_path: Path, git: str, path: str
+) -> None:
+    file = lock(
+        tmp_path, f"- {{name: acme/provider, git: {git}, sha: {SHA}, path: {path}, state: active}}"
+    )
+    assert load_lock(file, mirrors=["https://git.lab.example/release/iki.git"]).ok
+
+
+@pytest.mark.parametrize(
+    ("mirror", "pin", "test_only"),
+    [
+        ("ssh://git@git.lab.example:22/Team/Iki.git", "git@GIT.lab.example:/Team/Iki/", True),
+        (
+            "ssh://git@git.lab.example:2222/Team/Iki",
+            "ssh://git@git.lab.example/2222/Team/Iki",
+            False,
+        ),
+        ("https://git.lab.example/Team/Iki", "https://git.lab.example/team/Iki", False),
+        ("https://git.lab.example/Team/Iki.git", "https://git.lab.example/Team/Iki.git.git", False),
+        ("https://git.lab.example/Team/Iki", "ssh://git@git.lab.example/Team/Iki", False),
+        ("git@git.lab.example:Team/Iki", "ssh://git@git.lab.example/~/Team/Iki", True),
+        ("git@git.lab.example:Team/Iki", "ssh://git@git.lab.example/Team/Iki", False),
+        ("git@git.lab.example:Team/Iki", "lab@git.lab.example:Team/Iki", False),
+    ],
+)
+def test_distribution_uses_the_configured_mirror_identity(
+    tmp_path: Path, mirror: str, pin: str, test_only: bool
+) -> None:
+    file = lock(
+        tmp_path,
+        f"- {{name: lab/a, git: '{pin}', sha: {SHA}, path: spec/tests/plugins/a, state: active}}",
+    )
+    problems = load_lock(file, mirrors=[mirror]).problems
+    assert [problem.code for problem in problems] == (["test-only-source"] if test_only else [])
+
+
+@pytest.mark.parametrize(
+    "url", ["https://git.lab.example:bad/Team/Iki", "ssh://git.lab.example%3A22/Team/Iki"]
+)
+def test_fixture_pins_need_a_recognized_source_in_production(tmp_path: Path, url: str) -> None:
+    file = lock(
+        tmp_path,
+        f"- {{name: lab/a, git: '{url}', sha: {SHA}, path: spec/tests/plugins/a, state: active}}",
+    )
+    assert codes(file) == ["unrecognized-source"]
+    assert load_lock(file, test_only=True).ok
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "git@github.com:yogesh-dhande/iki",
+        "ssh://git@GITHUB.com:22/yogesh-dhande/iki.git",
+        "https://github.com:443/Yogesh-Dhande/Iki.git",
+        "https://github.com./yogesh-dhande/%69ki.git",
+        "https://%67ithub.com/yogesh-dhande/iki.git",
+        "https://github.com/yogesh-dhande/./iki.git",
+        "ssh://%67it@github.com/yogesh-dhande/iki.git",
+    ],
+)
+def test_official_repository_spellings(tmp_path: Path, url: str) -> None:
+    file = lock(
+        tmp_path,
+        f"- {{name: acme/a, git: '{url}', sha: {SHA}, path: plugin-template, state: active}}",
+    )
+    assert codes(file) == ["test-only-source"]
+
+
+def test_local_pin_follows_its_own_checkout_and_resolves_links(tmp_path: Path) -> None:
+    repo = tmp_path / "checkout"
+    fixture = repo / "examples" / "plugins" / "provider"
+    fixture.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)  # noqa: S603, S607
+    (tmp_path / "provider").symlink_to(fixture, target_is_directory=True)
+    file = lock(tmp_path, "- {name: acme/provider, local: provider, state: detached}")
+    mirror = "https://git.lab.example/iki.git"
+    for origin in (
+        "https://GIT.lab.example:443/iki.git/",
+        "https://git.lab.example/./%69ki.git",
+        naming.IKI_REPOSITORY,
+    ):
+        subprocess.run(  # noqa: S603
+            ["git", "-C", str(repo), "config", "remote.origin.url", origin],  # noqa: S607
+            check=True,
+        )
+        result = load_lock(file, mirrors=[mirror])
+        assert [(p.code, p.path) for p in result.problems] == [
+            ("test-only-source", ("plugins", 0, "local"))
+        ]
+        assert load_lock(file, test_only=True).ok
+    for origin, problems in (
+        ("https://git.lab.example/custom", []),
+        (str(tmp_path / "lab-fork.git"), []),
+        ("https://git.lab.example:bad/iki", ["unrecognized-source"]),
+    ):
+        subprocess.run(  # noqa: S603
+            ["git", "-C", str(repo), "config", "remote.origin.url", origin],  # noqa: S607
+            check=True,
+        )
+        result = load_lock(file, mirrors=[mirror])
+        assert [p.code for p in result.problems] == problems
+
+
+def test_local_pin_in_an_iki_source_archive(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    marker = source / "spec/src/iki_spec/lockfile.py"
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    (source / "plugin-template").mkdir()
+    file = lock(tmp_path, "- {name: acme/example, local: source/plugin-template, state: active}")
+    assert codes(file) == ["test-only-source"]
+    assert load_lock(file, test_only=True).ok
+
+
+@pytest.mark.parametrize(
+    "git",
+    [
+        "https://github.com/yogesh-dhande/IKI.git",
+        "https://github.com:8443/yogesh-dhande/iki.git",
+    ],
+)
+def test_a_first_party_lock_checks_the_repository_path_and_port(tmp_path: Path, git: str) -> None:
+    entry = f"- {{name: iki/dna, git: '{git}', path: plugins/dna, sha: {SHA}, state: active}}"
+    assert codes(lock(tmp_path, entry)) == ["first-party-source"]
 
 
 def test_the_iki_namespace_is_reserved(tmp_path: Path) -> None:
@@ -247,6 +416,8 @@ SECRET = "ghp_EXAMPLE0SECRET"
         ("acme/assays", f"https://github.com/acme/a.git?private_token={SECRET}", "a query"),
         ("acme/assays", f"https://github.com/acme/a.git#{SECRET}", "a query or fragment"),
         ("acme/assays", f"ssh://git:{SECRET}@git.acme.example/assays.git", "a password"),
+        ("iki/dna", f"https://user:{SECRET}@[invalid/Org/Repo", "malformed user information"),
+        ("iki/dna", f"https://[invalid/Org/Repo?value={SECRET}", "a query or fragment"),
         # Messages for Iki's own plugins and for a missing commit name the URL: none may.
         ("iki/dna", f"https://bob:{SECRET}@git.acme.example/mirrors/iki.git", "a password"),
         ("iki/dna", f"https://{SECRET}@github.com/yogesh-dhande/iki.git", "a user or token"),
@@ -288,6 +459,8 @@ def test_an_ssh_user_isnt_a_credential(tmp_path: Path, git: str) -> None:
 
 
 def test_urls_are_shown_without_credentials() -> None:
+    assert without_credentials(f"https://[invalid/Org/Repo?value={SECRET}") == "[invalid Git URL]"
+    assert SECRET not in without_credentials(f"https://user:{SECRET}@host:bad/Org/Repo")
     assert (
         without_credentials(f"https://bob:{SECRET}@GitHub.com:8443/a/b.git?t={SECRET}")
         == "https://github.com:8443/a/b.git"

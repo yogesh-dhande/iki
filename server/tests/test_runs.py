@@ -7,13 +7,26 @@ from typing import Any
 
 import pytest
 from api_client import Api, problem
+from django.db import ProgrammingError, connection, transaction
+from django.utils import timezone
 from org_world import World, build_world
+from psycopg import sql
 from test_api_entities import api_as, create
 
 from iki_server.audit.models import AuditEvent
+from iki_server.core import db_roles
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import catalog
-from iki_server.runs.models import ActionRun, Job, JobState, RunInput
+from iki_server.runs.models import (
+    ActionRun,
+    ApiCall,
+    EntityMaking,
+    Job,
+    JobLog,
+    JobState,
+    Lineage,
+    RunEffect,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -487,5 +500,48 @@ def test_cancelling_a_running_run_asks_its_worker(world: World) -> None:
     assert AuditEvent.objects.filter(action="run.cancel_requested").count() == 1
 
 
-def test_run_inputs_are_append_only(world: World) -> None:
-    assert getattr(RunInput, "APPEND_ONLY", False)
+def test_run_records_are_append_only(world: World) -> None:
+    editor = api_as(world)
+    source = protein(editor, world.project)
+    result = protein(editor, world.project, name="result")
+    launched = launch(editor, world.project, {"protein": source["id"]})
+    assert launched.status_code == 201, launched.content
+    run = ActionRun.objects.get(pk=launched.json()["id"])
+    job = Job.objects.get(run=run)
+    rows = (
+        run.inputs.get(),
+        RunEffect.objects.create(run=run, entity_id=result["id"], kind="created", revision=1),
+        Lineage.objects.create(
+            run=run,
+            entity_id=result["id"],
+            parent_id=source["id"],
+            parent_revision=1,
+            input="protein",
+        ),
+        EntityMaking.objects.create(
+            run=run, entity_id=result["id"], by="iki", kind="computational", software="processor"
+        ),
+        JobLog.objects.create(job=job, offset=0, text="Complete"),
+        ApiCall.objects.create(
+            run=run,
+            job=job,
+            api="test.service",
+            host="example.test",
+            kind="call",
+            method="GET",
+            path="/jobs",
+            started_at=timezone.now(),
+            duration_ms=1,
+        ),
+    )
+    tables = db_roles.append_only_tables()
+    with connection.cursor() as cursor:
+        for row in rows:
+            table = row._meta.db_table
+            assert table in tables
+            for command in ("UPDATE {} SET id = id WHERE id = %s", "DELETE FROM {} WHERE id = %s"):
+                with (
+                    pytest.raises(ProgrammingError, match=f"append-only: .* on {table}"),
+                    transaction.atomic(),
+                ):
+                    cursor.execute(sql.SQL(command).format(sql.Identifier(table)), [row.pk])

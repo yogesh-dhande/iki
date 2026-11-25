@@ -27,7 +27,6 @@ from test_plugin_migrations import (
     orm,
     query,
     refused,
-    samples,
     sync,
     write_sample,
 )
@@ -35,11 +34,23 @@ from test_plugin_migrations import (
 __all__ = ["database", "lab"]  # fixtures shared with test_plugin_migrations
 
 
-SAMPLE_ROW = """
-from iki_plugin_acme__lab.models import Sample
-Sample.objects.create(hrid="SMP-000001", owner_project=project, name="S1", NOTES)
+RECORDS = """
+from iki_server.accounts.models import User
+from iki_server.entities import services, states
+from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
+user = User.objects.create_user("a@example.com", "A")
+member = ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.ADMIN)
+def record(kind, **values):
+    return services.create(user, "acme/lab." + kind, project, values).entity
+"""
+
+SAMPLE_ROW = (
+    RECORDS
+    + """
+record("Sample", name="S1", NOTES)
 result = None
 """
+)
 
 
 @pytest.fixture
@@ -216,7 +227,11 @@ def test_deploy_requires_review_before_adding_a_rule_existing_records_break(
     made("lab", "--no-input", cwd=lab.parent)
     v1 = build_to(lab.parent, "v1", "lab")
     deployed(v1, database)
-    samples(v1, database)
+    orm(
+        v1,
+        database,
+        RECORDS + '\nresult = [record("Sample", name=n, count=3).hrid for n in ("A", "B")]',
+    )
     rule = "rules:\n  minimum_count:\n    check: record.count >= 5\n    message: At least five.\n"
     (lab / "types" / "sample.yaml").write_text(SAMPLE + "  notes: { type: text }\n" + rule)
     made("lab", "--name", "notes", "--no-input", cwd=lab.parent)
@@ -316,20 +331,16 @@ RENAMED = (
     .replace("record.lot ", "record.lot_number ")
 )
 
-GUARDED_ROWS = """
-from iki_plugin_acme__lab.models import Sample
-from iki_server.entities.models import Entity
-released = Sample.objects.create(
-    type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1",
-    lims_id="LIMS-1", lot="L1", product="P", status="released",
-)
-Entity.objects.filter(pk=released.pk).update(locked_by=["status"])
-other = Sample.objects.create(
-    type="acme/lab.Sample", hrid="SMP-000002", owner_project=project, name="S2",
-    lims_id="LIMS-2", lot="L1", product="Q",
-)
+GUARDED_ROWS = (
+    RECORDS
+    + """
+LabRoleGrant.objects.create(membership=member, role="acme/lab.qa")
+released = record("Sample", name="S1", lims_id="LIMS-1", lot="L1", product="P")
+states.set_state(user, released, "status", "released", expected_revision=released.revision)
+other = record("Sample", name="S2", lims_id="LIMS-2", lot="L1", product="Q")
 result = [str(released.pk), str(other.pk)]
 """
+)
 
 #: A migration a plugin's author wrote by hand, rebuilding the table under its guards.
 REBUILD = """\
@@ -479,16 +490,20 @@ def test_no_write_skips_a_guard_while_a_deploy_migrates(
 #: writes the rows no state locks, through whatever guards the table has at that point.
 TOUCH = """\
 from django.db import migrations
+from iki_server.plugins.operations import MigrateValues
 
+def lower(row):
+    return {{"{column}": row.{column}.lower()}} if row.status != "released" else {{}}
 
 class Migration(migrations.Migration):
-    dependencies = [("acme__lab", "0002_change")]
+    dependencies = [
+        ("acme__lab", "0002_change"), ("iki_entities", "0027_migrated_revisions")
+    ]
     operations = [
-        migrations.RunSQL(
-            "UPDATE acme__lab_sample SET {column} = lower({column}), lot = lot "
-            "WHERE status <> 'released'",
-            migrations.RunSQL.noop,
-        )
+        MigrateValues("Sample", lower, version="1.1.0", migration="0003_touch",
+                      reason="Normalize the label of each open sample."),
+        migrations.RunSQL("UPDATE acme__lab_sample SET lot = lot WHERE status <> 'released'",
+                          migrations.RunSQL.noop),
     ]
 """
 
@@ -627,20 +642,13 @@ def test_a_migration_can_drop_a_reference_to_several_types(lab: Path, database: 
     box, sample, shelf = orm(
         v1,
         database,
-        """
-        from iki_plugin_acme__lab.models import Box, Sample, Shelf
-        sample = Sample.objects.create(
-            type="acme/lab.Sample", hrid="SMP-000001", owner_project=project, name="S1"
-        )
-        box = Box.objects.create(
-            type="acme/lab.Box", hrid="BOX-000001", owner_project=project,
-            stored_id=sample.pk, spare_id=sample.pk,
-        )
-        shelf = Shelf.objects.create(
-            type="acme/lab.Shelf", hrid="SHF-000001", owner_project=project
-        )
-        result = [str(box.pk), str(sample.pk), str(shelf.pk)]
-        """,
+        RECORDS
+        + """
+sample = record("Sample", name="S1")
+box = record("Box", stored=str(sample.pk), spare=str(sample.pk))
+shelf = record("Shelf")
+result = [str(box.pk), str(sample.pk), str(shelf.pk)]
+""",
     )
     (lab / "types" / "box.yaml").write_text(
         BOX.replace(

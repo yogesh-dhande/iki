@@ -4525,7 +4525,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -5368,6 +5368,18 @@
             "title": "Edit Amount",
             "type": "boolean"
           },
+          "edit_reason_required": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present and true when a value edit needs a reason after an unlock.",
+            "title": "Edit Reason Required"
+          },
           "sign": {
             "description": "The states its state fields may be set to now that need electronic signatures (ADR 0126), each with its signatures, given or not.",
             "items": {
@@ -5783,7 +5795,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -6245,7 +6257,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its identity, derived values and facts: every holding project's.",
+            "description": "Its identity, derived values and facts: every holding project's. References to entities you can't read are shown as `unreadable`.",
             "title": "Values",
             "type": "object"
           }
@@ -7760,7 +7772,7 @@
             "title": "Cursor"
           },
           "format": {
-            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
             "items": {
               "type": "string"
             },
@@ -8200,6 +8212,24 @@
         "title": "FileRowOut",
         "type": "object"
       },
+      "FileSignatureOut": {
+        "properties": {
+          "hex": {
+            "title": "Hex",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "offset",
+          "hex"
+        ],
+        "title": "FileSignatureOut",
+        "type": "object"
+      },
       "FiredEntityOut": {
         "properties": {
           "hrid": {
@@ -8292,7 +8322,7 @@
                 "type": "null"
               }
             ],
-            "description": "Whose change fired it; null on a schedule."
+            "description": "The visible entity whose change fired it."
           },
           "error": {
             "anyOf": [
@@ -8360,7 +8390,7 @@
                 "type": "null"
               }
             ],
-            "description": "The revision the change made; null on a schedule.",
+            "description": "The revision of the visible entity whose change fired it.",
             "title": "Revision"
           },
           "run": {
@@ -8507,12 +8537,30 @@
             "title": "Count",
             "type": "integer"
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The declared format ID, when installed.",
+            "title": "Id"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "media_type": {
             "title": "Media Type",
             "type": "string"
           }
         },
         "required": [
+          "id",
+          "label",
           "media_type",
           "count"
         ],
@@ -10819,10 +10867,17 @@
       "ImportedInclusionOut": {
         "properties": {
           "entity": {
-            "description": "Its ID there: it isn't here.",
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its source ID, subject to read access here.",
+            "title": "Entity"
           },
           "field": {
             "title": "Field",
@@ -10841,8 +10896,15 @@
             "type": "integer"
           },
           "revision": {
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
           }
         },
         "required": [
@@ -10859,10 +10921,17 @@
       "ImportedInputOut": {
         "properties": {
           "entity": {
-            "description": "Its ID there: it isn't here.",
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Its source ID, subject to read access here.",
+            "title": "Entity"
           },
           "name": {
             "title": "Name",
@@ -10873,8 +10942,15 @@
             "type": "integer"
           },
           "revision": {
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
           }
         },
         "required": [
@@ -10983,6 +11059,87 @@
           "optional"
         ],
         "title": "InputOut",
+        "type": "object"
+      },
+      "InstalledFormatOut": {
+        "properties": {
+          "canonical": {
+            "title": "Canonical",
+            "type": "string"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extensions",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "media_types": {
+            "description": "The canonical media type followed by its aliases.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "parsers": {
+            "description": "Installed actions whose file inputs accept the format.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parsers",
+            "type": "array"
+          },
+          "reader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reader"
+          },
+          "signatures": {
+            "items": {
+              "$ref": "#/components/schemas/FileSignatureOut"
+            },
+            "title": "Signatures",
+            "type": "array"
+          },
+          "viewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "canonical",
+          "media_types",
+          "extensions",
+          "signatures",
+          "reader",
+          "viewer",
+          "parsers"
+        ],
+        "title": "InstalledFormatOut",
         "type": "object"
       },
       "IntakeIn": {
@@ -12455,7 +12612,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Its fields' values, as its type's schema says.",
+            "description": "Its fields' values, as its type's schema says. A reference to an entity you can't read is the string `unreadable` instead of an ID.",
             "title": "Values",
             "type": "object"
           }
@@ -12524,10 +12681,14 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "The other record, if there is one.",
+            "description": "The other record's ID, or `unreadable` if you can't read it.",
             "title": "Counterpart"
           },
           "created_at": {
@@ -12593,6 +12754,10 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -12610,10 +12775,14 @@
                 "type": "string"
               },
               {
+                "const": "unreadable",
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "What a draw went into, such as an analysis or an experiment.",
+            "description": "What a draw went into. An unreadable record is shown as `unreadable`.",
             "title": "Used In"
           },
           "user": {
@@ -14457,7 +14626,14 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/RegistrationOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RegistrationOut"
+                },
+                {
+                  "$ref": "#/components/schemas/RegistrationStatusOut"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -14479,7 +14655,7 @@
           "items",
           "next_cursor"
         ],
-        "title": "Page[RegistrationOut]",
+        "title": "Page_RegistrationOut_",
         "type": "object"
       },
       "Page_RegistryEntryOut_": {
@@ -14863,7 +15039,14 @@
         "properties": {
           "items": {
             "items": {
-              "$ref": "#/components/schemas/UploadOut"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/UploadOut"
+                },
+                {
+                  "$ref": "#/components/schemas/UploadStatusOut"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -14885,7 +15068,7 @@
           "items",
           "next_cursor"
         ],
-        "title": "Page[UploadOut]",
+        "title": "Page_UploadOut_",
         "type": "object"
       },
       "Page_UserOut_": {
@@ -16399,6 +16582,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",
@@ -18800,7 +18984,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -18813,7 +18997,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -18829,9 +19013,17 @@
             "type": "string"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it.",
+            "title": "Project"
           },
           "size": {
             "title": "Size",
@@ -18858,18 +19050,67 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "uri",
           "version",
-          "size",
-          "state",
-          "file",
-          "error",
-          "created_at"
+          "size"
         ],
         "title": "RegistrationOut",
+        "type": "object"
+      },
+      "RegistrationStatusOut": {
+        "description": "Your job status when the file is outside your current access.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed, if you can still read the details.",
+            "title": "Error",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it became, once ready and readable."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "checking",
+              "ready",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "created_at",
+          "file",
+          "error"
+        ],
+        "title": "RegistrationStatusOut",
         "type": "object"
       },
       "RegistryCan": {
@@ -19785,7 +20026,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/ChangeOut"
             },
-            "description": "What this revision changed.",
+            "description": "What this revision changed, as you can read it.",
             "title": "Changes",
             "type": "object"
           },
@@ -19832,6 +20073,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",
@@ -19920,7 +20162,7 @@
           },
           "values": {
             "additionalProperties": true,
-            "description": "Every field's value as it was at this revision.",
+            "description": "Every field's value as it was at this revision. References to entities you can't read are shown as `unreadable`.",
             "title": "Values",
             "type": "object"
           },
@@ -20004,6 +20246,7 @@
             "enum": [
               "created",
               "edited",
+              "migrated",
               "archived",
               "restored",
               "curated",
@@ -20937,7 +21180,7 @@
           },
           "reason": {
             "default": "",
-            "description": "Why, for the record.",
+            "description": "The operator's reason. Required when changing an input whose lock was lifted.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
@@ -21325,7 +21568,7 @@
           },
           "reason": {
             "default": "",
-            "description": "Why, for the record.",
+            "description": "The operator's reason. Required when changing an input whose lock was lifted.",
             "maxLength": 2000,
             "title": "Reason",
             "type": "string"
@@ -21346,9 +21589,17 @@
       "RunInclusionOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "field": {
             "description": "The reference.",
@@ -21356,8 +21607,15 @@
             "type": "string"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "index": {
             "description": "Its place in the reference, from 0: a list's can be more.",
@@ -21375,9 +21633,16 @@
             "type": "integer"
           },
           "revision": {
-            "description": "The revision the run read.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision read, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [
@@ -21395,22 +21660,44 @@
       "RunInputOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "name": {
             "title": "Name",
             "type": "string"
           },
           "revision": {
-            "description": "The revision the run read.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The revision read, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [
@@ -25015,9 +25302,16 @@
             "type": "string"
           },
           "document": {
-            "description": "What was signed, exactly: canonical JSON (RFC 8785), format iki/signature/v1.",
-            "title": "Document",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The exact canonical JSON (iki/signature/v1) when the reader can identify the entry it names.",
+            "title": "Document"
           },
           "entry_revision": {
             "anyOf": [
@@ -26490,7 +26784,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -26509,7 +26803,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -26568,18 +26862,18 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "size",
           "sha256",
-          "state",
           "part_size",
           "part_count",
-          "file",
-          "error",
-          "created_at",
-          "expires_at",
           "parts"
         ],
         "title": "StartedOut",
@@ -27060,7 +27354,7 @@
             "type": "string"
           },
           "locks": {
-            "description": "Locks the record against value edits, archiving, restoring and moving. A declared `on_edit` permits a reasoned correction.",
+            "description": "Locks the record against value edits, archiving, restoring and moving. An unsigned lock may declare a reasoned correction through `on_edit`.",
             "title": "Locks",
             "type": "boolean"
           },
@@ -27077,7 +27371,7 @@
                 "type": "null"
               }
             ],
-            "description": "The state this field returns to when an editable value changes. The correction needs a reason and permission to enter this state (ADR 0179).",
+            "description": "The state this field returns to on a value edit under an unsigned lock. The correction needs a reason and permission to enter this state (ADR 0179).",
             "title": "On Edit"
           },
           "reason": {
@@ -27522,7 +27816,7 @@
             "type": "string"
           },
           "structure": {
-            "description": "The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).",
+            "description": "The file field holding coordinates in a format that declares the structure-mmcif or structure-pdb viewer.",
             "title": "Structure",
             "type": "string"
           },
@@ -27990,12 +28284,14 @@
                 "type": "null"
               }
             ],
-            "description": "The entity whose change fired it; null on a schedule.",
+            "description": "The visible entity whose change fired it.",
             "title": "Entity"
           },
           "event": {
             "enum": [
               "entity.created",
+              "entity.registered",
+              "entity.state_changed",
               "entity.updated",
               "schedule"
             ],
@@ -28021,7 +28317,7 @@
                 "type": "null"
               }
             ],
-            "description": "The revision the change made; null on a schedule.",
+            "description": "The revision of the visible entity whose change fired it.",
             "title": "Revision"
           },
           "scheduled_for": {
@@ -28316,7 +28612,7 @@
                 "type": "null"
               }
             ],
-            "description": "Its reference naming what its amount is of, such as a lot's molecule: a transfer into one of its records takes only that entity's, and its aliquots are of it too.",
+            "description": "The reference field that identifies the material, or id if the record itself is the material. Transfers and aliquots retain that material identity.",
             "title": "Material"
           },
           "unit": {
@@ -28768,7 +29064,7 @@
             "type": "string"
           },
           "error": {
-            "description": "Why it failed.",
+            "description": "Why it failed, if you can still read the details.",
             "title": "Error",
             "type": "string"
           },
@@ -28787,7 +29083,7 @@
                 "type": "null"
               }
             ],
-            "description": "The file it became, once ready."
+            "description": "The file it became, once ready and readable."
           },
           "id": {
             "format": "uuid",
@@ -28811,9 +29107,17 @@
             "type": "integer"
           },
           "project": {
-            "format": "uuid",
-            "title": "Project",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was added. Null if you can't see it.",
+            "title": "Project"
           },
           "sha256": {
             "title": "Sha256",
@@ -28838,20 +29142,79 @@
         },
         "required": [
           "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error",
           "project",
           "name",
           "media_type",
           "size",
           "sha256",
-          "state",
           "part_size",
-          "part_count",
-          "file",
-          "error",
-          "created_at",
-          "expires_at"
+          "part_count"
         ],
         "title": "UploadOut",
+        "type": "object"
+      },
+      "UploadStatusOut": {
+        "description": "Your job status when the file is outside your current access.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "description": "Why it failed, if you can still read the details.",
+            "title": "Error",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unfinished then, it's cancelled.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file it became, once ready and readable."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "checking",
+              "ready",
+              "failed",
+              "cancelled",
+              "expired"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "created_at",
+          "expires_at",
+          "file",
+          "error"
+        ],
+        "title": "UploadStatusOut",
         "type": "object"
       },
       "UsedByCountOut": {
@@ -30746,22 +31109,44 @@
       "WorkflowInputOut": {
         "properties": {
           "entity": {
-            "format": "uuid",
-            "title": "Entity",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record ID when you can read it.",
+            "title": "Entity"
           },
           "hrid": {
-            "title": "Hrid",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hrid"
           },
           "name": {
             "title": "Name",
             "type": "string"
           },
           "revision": {
-            "description": "Its revision when the workflow started.",
-            "title": "Revision",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The starting revision, shown with its record.",
+            "title": "Revision"
           }
         },
         "required": [
@@ -31647,7 +32032,7 @@
     },
     "/api/v1/actions/{name}/runs": {
       "post": {
-        "description": "Queue a run. Everything is checked first: your role for the action's tier, that it can\nrun on this deployment, its inputs (entities you can read, of the right types, not archived,\nand editable by you where it changes them) and its params. A run reads only what's in its\nproject: inputs from other projects need `add_to_project`.",
+        "description": "Queue a run. Everything is checked first: your role for the action's tier, that it can\nrun on this deployment, its inputs (entities you can read, of the right types, not archived,\nand editable by you where it changes them) and its params. Give the operator's reason if\nan input it changes has been unlocked. Iki records that reason on the revision. Inputs from\nother projects need `add_to_project`.",
         "operationId": "iki_server_api_runs_launch_run",
         "parameters": [
           {
@@ -38050,12 +38435,12 @@
             }
           },
           {
-            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
             "in": "query",
             "name": "format",
             "required": false,
             "schema": {
-              "description": "Media types, such as application/x-abi, or image/* for any image.",
+              "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
               "items": {
                 "type": "string"
               },
@@ -38394,7 +38779,7 @@
     },
     "/api/v1/files/formats": {
       "get": {
-        "description": "The media types of the files ``GET /files`` would list, whatever its ``format``,\nwith how many of each: what its Format filter offers.",
+        "description": "Format labels and counts for readable files matching the other filters. Aliases\ncount together. A file of an undeclared type keeps its media type as its label.",
         "operationId": "iki_server_api_files_file_formats",
         "parameters": [
           {
@@ -38829,6 +39214,41 @@
           }
         ],
         "summary": "The runs that used a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/formats": {
+      "get": {
+        "description": "Core and plugin formats, in recognition order for shared filename extensions.",
+        "operationId": "iki_server_api_files_installed_formats",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstalledFormatOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The installed file formats",
         "tags": [
           "files"
         ]
@@ -43754,7 +44174,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RegistrationOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/RegistrationOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RegistrationStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47726,7 +48154,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47768,7 +48204,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },
@@ -47778,7 +48222,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadOut"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/UploadOut"
+                    },
+                    {
+                      "$ref": "#/components/schemas/UploadStatusOut"
+                    }
+                  ],
+                  "title": "Response"
                 }
               }
             },

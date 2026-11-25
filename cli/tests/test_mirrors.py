@@ -15,6 +15,7 @@ import pytest
 from iki_cli import fetch
 from iki_cli.main import main
 from iki_spec import first_party, naming
+from iki_spec.lockfile import LockedPlugin
 
 ROOT = Path(__file__).parents[2]
 CANONICAL = naming.IKI_REPOSITORY
@@ -76,7 +77,18 @@ def _environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 def build(tmp_path: Path, sha: str, *mirrors: str) -> int:
     flags = [arg for url in mirrors for arg in ("--mirror", url)]
     out = str(tmp_path / "plugins")
-    return main(["deploy", "build", str(deployment(tmp_path, sha)), "-o", out, *flags])
+    return main(
+        [
+            "deploy",
+            "build",
+            str(deployment(tmp_path, sha)),
+            "-o",
+            out,
+            "--workers",
+            str(tmp_path / "workers"),
+            *flags,
+        ]
+    )
 
 
 def test_ikis_plugin_comes_from_the_mirror_and_says_so(
@@ -91,6 +103,8 @@ def test_ikis_plugin_comes_from_the_mirror_and_says_so(
     # The lockfile still names Iki's repository; the build records the mirror.
     assert entry["git"] == CANONICAL
     assert entry["sha"] == sha
+    assert (registry / "bundles" / f"iki__dna-{sha}.tar.gz").is_file()
+    assert (tmp_path / "workers/plugins/iki__dna/plugin.yaml").is_file()
     assert entry["fetched_from"] == url
     assert f"MIRRORS = [{url!r}]" in (registry / "__init__.py").read_text()
 
@@ -121,6 +135,18 @@ def test_a_mirror_cant_serve_a_commit_of_its_own(
     assert not (tmp_path / "plugins").exists()
 
 
+def test_selecting_a_mirror_checks_its_tree_even_when_the_lock_names_that_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, sha = mirror(tmp_path, "cached")
+    plugin = LockedPlugin("iki/dna", "active", git=CANONICAL, sha=sha, path="plugins/dna")
+    # The build has this commit in its cache, but its CLI has no approved tree for it.
+    monkeypatch.setattr(fetch, "_cache", lambda cache, source: tmp_path / "cached" / ".git")
+    monkeypatch.setattr(first_party, "trees", lambda name: frozenset())
+    with pytest.raises(fetch.FetchError, match="isn't one Iki's repository has had"):
+        fetch.fetch(plugin, tmp_path, tmp_path / "out", protocols=("file",), mirrors=[CANONICAL])
+
+
 def test_the_list_holds_this_checkouts_tree(tmp_path: Path) -> None:
     _, sha = mirror(tmp_path, "mirror")
     tree = git(tmp_path / "mirror", "rev-parse", f"{sha}:plugins/dna")
@@ -136,6 +162,41 @@ def test_gits_own_config_cant_quietly_send_ikis_repository_elsewhere(
     err = capsys.readouterr().err
     assert f"git's config sends {CANONICAL} to {url}" in err
     assert "Name a mirror of Iki's repository" in err
+
+
+@pytest.mark.parametrize(
+    "effective",
+    [
+        "ssh://git@git.example.org/2222/Org/Repo.git",
+        "ssh://git@git.example.org:2222/org/Repo.git",
+        "https://git.example.org:2222/Org/Repo.git",
+    ],
+)
+def test_fetch_checks_the_scheme_port_and_path_git_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, effective: str
+) -> None:
+    mirror_url = "ssh://git@git.example.org:2222/Org/Repo.git"
+    plugin = LockedPlugin("iki/dna", "active", git=CANONICAL, sha="a" * 40)
+    git_client = fetch._Git(tmp_path / "cache", fetch.PROTOCOLS)
+    monkeypatch.setattr(git_client, "effective", lambda url: effective)
+    with pytest.raises(fetch.FetchError, match="git's config sends"):
+        git_client.check_not_rewritten(plugin, mirror_url)
+
+
+@pytest.mark.parametrize(
+    ("mirror_url", "effective"),
+    [
+        ("ssh://git@git.example.org:22/Org/Repo.git/", "git@GIT.example.org:/Org/Repo"),
+        ("https://git.example.org/Org/Repo.git", "https://ci@GIT.example.org:443/Org/Repo"),
+    ],
+)
+def test_fetch_accepts_credential_and_spelling_changes_to_the_same_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mirror_url: str, effective: str
+) -> None:
+    plugin = LockedPlugin("iki/dna", "active", git=CANONICAL, sha="a" * 40)
+    git_client = fetch._Git(tmp_path / "cache", fetch.PROTOCOLS)
+    monkeypatch.setattr(git_client, "effective", lambda url: effective)
+    git_client.check_not_rewritten(plugin, mirror_url)
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,275 @@
+---
+title: File formats
+description: Extensions, media types, readers and viewers for the formats Iki ships.
+---
+
+{/* Generated from plugin manifests by make core. */}
+
+Your deployment's `GET /api/v1/formats` lists the formats and actions its installed
+plugins provide. Signatures below give hexadecimal bytes and their offsets from the
+start of a file. Actions appear under each format their declared file inputs accept.
+
+## ABI trace
+
+- Format ID `iki/core.abif`
+- Canonical media type `application/x-abi`
+- Extensions `.ab1`, `.abi`, `.fsa`
+- Byte signatures `41424946` at byte 0
+- Metadata reader `abif`
+- Actions `iki/dna.align_reads`, `iki/protein.align_reads`
+
+## BAM
+
+- Format ID `iki/core.bam`
+- Canonical media type `application/x-bam`
+- Extensions `.bam`
+- Metadata reader `sam`
+
+## CML
+
+- Format ID `iki/core.cml`
+- Canonical media type `chemical/x-cml`
+- Extensions `.cml`
+
+## CSV
+
+- Format ID `iki/core.csv`
+- Canonical media type `text/csv`
+- Extensions `.csv`
+- Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/oligo.import_oligonucleotides`, `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.record_measurement`, `iki/stability.schedule_pulls`, `iki/strains.import_base_strains`
+
+## Excel
+
+- Format ID `iki/core.xlsx`
+- Canonical media type `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+- Extensions `.xlsx`
+
+## Excel 97–2003
+
+- Format ID `iki/core.xls`
+- Canonical media type `application/vnd.ms-excel`
+- Extensions `.xls`
+- Actions `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`
+
+## FASTA (unspecified alphabet)
+
+- Format ID `iki/core.fasta`
+- Canonical media type `text/x-fasta`
+- Extensions `.fasta`, `.fa`
+- Viewer `alignment`
+
+## FASTQ
+
+- Format ID `iki/core.fastq`
+- Canonical media type `text/x-fastq`
+- Extensions `.fastq`, `.fq`
+- Actions `iki/dna.align_reads`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/protein.align_reads`, `iki/sequencing.summarize_fastq`
+
+## FCS
+
+- Format ID `iki/core.fcs`
+- Canonical media type `application/vnd.isac.fcs`
+- Extensions `.fcs`, `.lmd`
+- Byte signatures `464353312e30` at byte 0, `464353322e30` at byte 0, `464353332e30` at byte 0, `464353332e31` at byte 0, `464353332e32` at byte 0
+- Metadata reader `fcs`
+
+## GenBank
+
+- Format ID `iki/core.genbank`
+- Canonical media type `chemical/seq-na-genbank`
+- Extensions `.gb`, `.gbk`
+- Actions `iki/dna.import_sequences`
+
+## gzip
+
+- Format ID `iki/core.gzip`
+- Canonical media type `application/gzip`
+- Media type aliases `application/x-gzip`
+- Extensions `.gz`, `.fastq.gz`, `.fq.gz`
+- Actions `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/proteomics.import_search`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_result`
+
+## HDF5
+
+- Format ID `iki/core.hdf5`
+- Canonical media type `application/vnd.hdfgroup.hdf5`
+- Media type aliases `application/x-hdf5`
+- Extensions `.h5`, `.hdf5`
+
+## JCAMP-DX
+
+- Format ID `iki/core.jcamp-dx`
+- Canonical media type `chemical/x-jcamp-dx`
+- Extensions `.jdx`, `.dx`, `.jcamp`
+- Metadata reader `jcamp-dx`
+
+## JPEG
+
+- Format ID `iki/core.jpeg`
+- Canonical media type `image/jpeg`
+- Extensions `.jpg`, `.jpeg`
+- Byte signatures `ffd8ff` at byte 0
+- Metadata reader `image`
+- Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.schedule_pulls`
+
+## JSON
+
+- Format ID `iki/core.json`
+- Canonical media type `application/json`
+- Extensions `.json`
+
+## Macro-enabled Excel workbook
+
+- Format ID `iki/core.xlsm`
+- Canonical media type `application/vnd.ms-excel.sheet.macroenabled.12`
+- Extensions `.xlsm`
+
+## mmCIF
+
+- Format ID `iki/core.mmcif`
+- Canonical media type `chemical/x-mmcif`
+- Extensions `.cif`, `.mmcif`
+- Viewer `structure-mmcif`
+- Actions `iki/protein.assign_secondary_structure`, `iki/protein.import_structure`
+
+## MOL
+
+- Format ID `iki/core.mol`
+- Canonical media type `chemical/x-mdl-molfile`
+- Extensions `.mol`
+
+## MOL2
+
+- Format ID `iki/core.mol2`
+- Canonical media type `application/vnd.sybyl.mol2`
+- Media type aliases `chemical/x-mol2`
+- Extensions `.mol2`
+
+## mzML
+
+- Format ID `iki/core.mzml`
+- Canonical media type `application/x-mzml`
+- Extensions `.mzml`
+- Metadata reader `mzml`
+
+## nucleotide FASTA
+
+- Format ID `iki/core.nucleotide-fasta`
+- Canonical media type `chemical/seq-na-fasta`
+- Extensions `.fasta`, `.fa`, `.fna`
+- Viewer `alignment`
+- Actions `iki/dna.align_reads`, `iki/dna.consensus`, `iki/dna.import_sequences`, `iki/lots.record_plasmid_verification`, `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/protein.align_reads`, `iki/protein.consensus`
+
+## Parquet
+
+- Format ID `iki/core.parquet`
+- Canonical media type `application/vnd.apache.parquet`
+- Extensions `.parquet`
+- Byte signatures `50415245` at byte 0, `50415231` at byte 0
+
+## PDB
+
+- Format ID `iki/core.pdb`
+- Canonical media type `chemical/x-pdb`
+- Extensions `.pdb`, `.ent`
+- Viewer `structure-pdb`
+- Actions `iki/protein.assign_secondary_structure`, `iki/protein.import_structure`
+
+## PDF
+
+- Format ID `iki/core.pdf`
+- Canonical media type `application/pdf`
+- Extensions `.pdf`
+- Actions `iki/biologics_ms.characterize`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.record_measurement`, `iki/stability.schedule_pulls`
+
+## plain-text
+
+- Format ID `iki/core.text`
+- Canonical media type `text/plain`
+- Extensions `.txt`, `.log`, `.aln`, `.a3m`, `.sto`, `.fasta`, `.fa`
+- Viewer `alignment`
+- Actions `iki/biologics_ms.characterize`, `iki/cell_lines.import_parental_line`, `iki/dna.align_reads`, `iki/dna.consensus`, `iki/dna.import_sequences`, `iki/equipment.record_instrument_use`, `iki/equipment.trace_failed_calibrations`, `iki/lots.record_plasmid_verification`, `iki/mouse_strains.register_mgi_strain`, `iki/oligo.import_oligonucleotides`, `iki/plasmid_sequencing.verify_plasmid_consensus`, `iki/plasmid_sequencing.verify_plasmid_reads`, `iki/plate_assays.assign_dilution_series`, `iki/plate_assays.commit_reader`, `iki/plate_assays.preview_reader`, `iki/protein.align_reads`, `iki/protein.consensus`, `iki/protein.import_proteins`, `iki/proteomics.import_search`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/sequencing.summarize_fastq`, `iki/sequencing_analysis.import_result`, `iki/small_molecule.import_sdf`, `iki/stability.record_measurement`, `iki/strains.import_base_strains`
+
+## PNG
+
+- Format ID `iki/core.png`
+- Canonical media type `image/png`
+- Extensions `.png`
+- Byte signatures `89504e470d0a1a0a` at byte 0
+- Actions `iki/biologics_ms.characterize`, `iki/lots.compute_conjugate_lot`, `iki/lots.compute_oligo_lot`, `iki/lots.compute_plasmid_prep`, `iki/lots.compute_polymer_lot`, `iki/lots.compute_protein_lot`, `iki/lots.record_plasmid_verification`, `iki/qc_release.open_release`, `iki/qc_release.prepare_certificate`, `iki/qc_release.record_test`, `iki/reagents.receive_delivery`, `iki/stability.schedule_pulls`
+
+## protein FASTA
+
+- Format ID `iki/core.protein-fasta`
+- Canonical media type `chemical/seq-aa-fasta`
+- Extensions `.fasta`, `.fa`, `.faa`
+- Viewer `alignment`
+- Actions `iki/dna.consensus`, `iki/lots.record_plasmid_verification`, `iki/protein.consensus`, `iki/protein.import_proteins`
+
+## SAM
+
+- Format ID `iki/core.sam`
+- Canonical media type `text/x-sam`
+- Extensions `.sam`
+- Metadata reader `sam`
+
+## SDF
+
+- Format ID `iki/core.sdf`
+- Canonical media type `chemical/x-mdl-sdfile`
+- Extensions `.sdf`
+- Actions `iki/oligo.import_oligonucleotides`, `iki/small_molecule.import_sdf`
+
+## SMILES
+
+- Format ID `iki/core.smiles`
+- Canonical media type `chemical/x-daylight-smiles`
+- Extensions `.smi`
+
+## SnapGene
+
+- Format ID `iki/core.snapgene`
+- Canonical media type `application/x-snapgene`
+- Extensions `.dna`
+- Byte signatures `090000000e536e617047656e65` at byte 0
+- Actions `iki/dna.import_sequences`
+
+## TIFF
+
+- Format ID `iki/core.tiff`
+- Canonical media type `image/tiff`
+- Extensions `.tif`, `.tiff`, `.ome.tif`, `.ome.tiff`
+- Byte signatures `49492a00` at byte 0, `4d4d002a` at byte 0, `49492b00` at byte 0, `4d4d002b` at byte 0
+- Metadata reader `image`
+
+## TSV
+
+- Format ID `iki/core.tsv`
+- Canonical media type `text/tab-separated-values`
+- Extensions `.tsv`
+- Actions `iki/biologics_ms.characterize`, `iki/mouse_strains.register_mgi_strain`, `iki/proteomics.import_search`, `iki/sequencing_analysis.import_result`
+
+## VCF
+
+- Format ID `iki/core.vcf`
+- Canonical media type `text/x-vcf`
+- Extensions `.vcf`
+- Actions `iki/sequencing_analysis.import_result`
+
+## XYZ
+
+- Format ID `iki/core.xyz`
+- Canonical media type `chemical/x-xyz`
+- Extensions `.xyz`
+
+## Zeiss CZI
+
+- Format ID `iki/core.czi`
+- Canonical media type `application/x-czi`
+- Extensions `.czi`
+- Byte signatures `5a495352415746494c45` at byte 0
+
+## ZIP
+
+- Format ID `iki/core.zip`
+- Canonical media type `application/zip`
+- Extensions `.zip`

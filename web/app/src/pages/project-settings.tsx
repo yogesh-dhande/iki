@@ -83,7 +83,7 @@ function Details({ project }: { project: Project }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
   const save = usePatchProject(project);
-  const form = useForm(save.error);
+  const form = useForm(save.error, save.isPending);
 
   function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();

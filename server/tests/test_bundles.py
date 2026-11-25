@@ -234,6 +234,20 @@ def test_an_edit_while_it_exports_isnt_half_in_the_bundle(
     assert [(h["revision"], h["values"]["method"]) for h in values] == [(1, "xray"), (2, "nmr")]
 
 
+def test_a_bundle_with_a_reference_the_exporter_cannot_read_is_refused(
+    lab: dict[str, Any], tmp_path: Path
+) -> None:
+    ProjectMembership.objects.filter(
+        project=lab["elsewhere"].owner_project,
+        user=lab["alice"],
+    ).delete()
+    with pytest.raises(export.ExportError, match="refers to a record you can't read") as refused:
+        exported(lab, tmp_path)
+    assert str(lab["elsewhere"].pk) not in str(refused.value)
+    assert lab["elsewhere"].hrid not in str(refused.value)
+    assert not (tmp_path / "bundle.tar.gz").exists()
+
+
 def test_only_a_project_admin_exports_with_a_reason_and_a_key(
     lab: dict[str, Any], tmp_path: Path, settings: Any
 ) -> None:

@@ -544,12 +544,16 @@ export function WorkflowRunPage() {
               <dt>Inputs</dt>
               <dd>
                 <ul className="value-list" aria-label="Inputs">
-                  {run.inputs.map((i) => (
-                    <li key={`${i.name}-${i.entity}`}>
+                  {run.inputs.map((i, index) => (
+                    <li key={`${i.name}-${String(index)}`}>
                       {i.name}:{" "}
-                      <Link to="/entities/$ref/" params={{ ref: i.hrid }}>
-                        {i.hrid}
-                      </Link>
+                      {i.hrid ? (
+                        <Link to="/entities/$ref/" params={{ ref: i.hrid }}>
+                          {i.hrid}
+                        </Link>
+                      ) : (
+                        "An entity you can’t read"
+                      )}
                     </li>
                   ))}
                 </ul>

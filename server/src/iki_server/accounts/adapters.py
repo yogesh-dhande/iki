@@ -18,6 +18,7 @@
 from dataclasses import dataclass, replace
 from typing import Any
 
+import requests
 import structlog
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
@@ -34,6 +35,7 @@ from iki_server.accounts.models import (
     claim_placeholder,
 )
 from iki_server.audit import log as audit
+from iki_server.http import same_origin_redirects
 
 logger = structlog.get_logger("iki.accounts")
 
@@ -133,6 +135,10 @@ def sign_in_error(
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
+    def get_requests_session(self) -> requests.Session:
+        session: requests.Session = super().get_requests_session()
+        return same_origin_redirects(session)
+
     def list_apps(
         self, request: HttpRequest | None, provider: str | None = None, client_id: str | None = None
     ) -> list[Any]:
