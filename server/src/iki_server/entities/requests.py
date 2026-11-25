@@ -567,7 +567,10 @@ def send(user: User, locked: Entity, values: Mapping[str, Any]) -> None:
         _link(user, Entity.objects.get(pk=record), request.service, locked)
 
 
-MATERIAL_REFUSAL = "Choose a sample or tube on this request, or a recorded aliquot of its material."
+MATERIAL_REFUSAL = (
+    "Choose a sample or tube on this request, or another requested material. "
+    "You can also choose a recorded aliquot of that material or a sample drawn from either."
+)
 
 
 def materials_of(request: Entity, revision: int | None = None) -> set[uuid.UUID]:
@@ -598,7 +601,7 @@ def covers(materials: set[uuid.UUID], material: uuid.UUID | None) -> bool:
 
 
 def covered_subjects(entity: Entity, values: Mapping[str, Any]) -> list[str]:
-    """Commissioned subjects this result covers, including through nested aliquots."""
+    """Commissioned subjects this result covers, including through sample draws and aliquots."""
     result = result_spec(entity.type)
     if result is None or not result.material:
         return []
@@ -617,9 +620,11 @@ def covered_subjects(entity: Entity, values: Mapping[str, Any]) -> list[str]:
 
 
 def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> Iterator[uuid.UUID]:
-    """A requested record or its physical derivative through an immutable aliquot chain."""
+    """The commissioned records reached through a sample's draw and its material's aliquot chain."""
     from iki_server.amounts.models import Movement, MovementKind
+    from iki_server.entities.values import subtypes
 
+    samples = subtypes("iki/samples.Sample")
     seen: set[uuid.UUID] = set()
     pending = [material] if materials and material is not None else []
     while pending:
@@ -629,6 +634,15 @@ def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> 
         seen.add(child)
         if child in materials:
             yield child
+        record = Entity.objects.filter(pk=child, registry__isnull=True).first()
+        if record is not None and record.type in samples:
+            # The draw debits entity_id. A tube's contents may also appear on it as source_id.
+            pending.extend(
+                Movement.objects.filter(used_in_id=child, kind=MovementKind.DRAWN).values_list(
+                    "entity_id", flat=True
+                )
+            )
+            continue
         parent = (
             Movement.objects.filter(entity_id=child, kind=MovementKind.ALIQUOT)
             .values_list("counterpart_id", flat=True)
@@ -636,16 +650,15 @@ def _covered_subjects(materials: set[uuid.UUID], material: uuid.UUID | None) -> 
         )
         if parent is not None:
             pending.append(parent)
-        else:
-            pending.extend(_declared_parents(child))
+        elif record is not None:
+            pending.extend(_declared_parents(record))
 
 
-def _declared_parents(child_id: uuid.UUID) -> list[uuid.UUID]:
+def _declared_parents(child: Entity) -> list[uuid.UUID]:
     """A registered aliquot's source, as declared by the source type's amount."""
     from iki_server.entities import services
 
-    child = Entity.objects.filter(pk=child_id, registry__isnull=True).first()
-    if child is None or child.type not in registry.types():
+    if child.type not in registry.types():
         return []
     kind = registry.types()[child.type]
     lineage = {t.qualified_name for t in [kind, *registry.ancestors(kind)]}
