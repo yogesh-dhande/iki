@@ -1324,10 +1324,10 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
             # (ADR 0138), as a create's does.
             cursor.execute(
                 "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
-                " via, client, reason, submitted, created_at)"
+                " via, client, reason, submitted, created_at, history_seen)"
                 " SELECT uuidv7(), s.entity_id, 1, 'created',"
                 "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(own)s) ORDER BY c),"
-                "  %(user)s, 'run', '', %(reason)s, p.submitted, now()"
+                "  %(user)s, 'run', '', %(reason)s, p.submitted, now(), (SELECT iki_history_seen())"
                 f" FROM {table} s JOIN iki_import_resolved r USING (line)"
                 " LEFT JOIN iki_import_spelled p USING (line)"
                 " WHERE r.new AND s.type = %(type)s ORDER BY s.line",
@@ -1583,10 +1583,11 @@ def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, A
     names = sorted(n for p in form.parts if p.entry for n in p.fields)
     cursor.execute(
         "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, user_id,"  # noqa: S608 - ours; values are parameters
-        " via, client, reason, project_id, created_at)"
+        " via, client, reason, project_id, created_at, history_seen)"
         " SELECT uuidv7(), r.entry_id, 1, 'created',"
         "  ARRAY(SELECT c FROM unnest(s.changed) c WHERE c = ANY(%(names)s) ORDER BY c),"
-        f"  %(user)s, 'run', '', %(reason)s, %(project)s, now() {making} AND s.type = %(type)s"
+        "  %(user)s, 'run', '', %(reason)s, %(project)s, now(), (SELECT iki_history_seen())"
+        f" {making} AND s.type = %(type)s"
         " ORDER BY s.line",
         {**params, "names": names, "type": type_name},
     )

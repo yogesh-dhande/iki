@@ -27,16 +27,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from functools import cache
 from typing import TYPE_CHECKING, Any
 
 import structlog
 
 from iki_server.entities import checking, registry, requests
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision, RevisionKind, RuleHold
 from iki_server.entities.values import shape
-from iki_server.plugins.models import HistoryChange
 from iki_spec import rules as spec_rules
 from iki_spec.model import Field, Guard, State
 
@@ -88,26 +87,7 @@ def _change(revision: Revision, frm: str, to: str) -> dict[str, Any]:
 def _history(
     entity: Entity, states: Mapping[str, Field], values: Mapping[str, Any], *, with_edits: bool
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, list[dict[str, Any]]]]]:
-    from iki_server.signatures.services import history_changes
-
-    renames = (
-        [
-            change
-            for change in history_changes(entity, 0)
-            if change.kind == HistoryChange.Kind.RENAME and not change.part.endswith("#entry")
-        ]
-        if with_edits
-        else []
-    )
-
-    def current_name(name: str, at: datetime) -> str:
-        # Append-only revisions keep the spelling at the time. The history table now
-        # has the name the intervening migrations gave it, as a field-specific guard does.
-        for change in renames:
-            if change.made_at > at and name == change.name:
-                name = change.to
-        return name
-
+    names = FieldNames.for_type(entity.type)
     history: dict[str, list[dict[str, Any]]] = {name: [] for name in states}
     edits: list[dict[str, Any]] = []
     # An entry points into the one chronological edit list. Re-entry replaces its offset.
@@ -120,15 +100,13 @@ def _history(
     for revision in revisions.order_by("number"):
         if revision.kind == RevisionKind.CREATED:
             created = revision
-        elif (name := current_name(revision.state_field, revision.created_at)) in states:
+        elif (name := names.current(revision.state_field, revision.history_seen)) in states:
             history[name].append(_change(revision, revision.state_from, revision.state_to))
             starts[name, revision.state_to] = len(edits)
-        if with_edits:
-            names = (current_name(n, revision.created_at) for n in revision.changed_fields)
-            if fields := [n for n in names if n not in states]:
-                edits.append(
-                    {"by": str(revision.user_id) if revision.user_id else "", "fields": fields}
-                )
+        if with_edits and (fields := [n for n in names.changed(revision) if n not in states]):
+            edits.append(
+                {"by": str(revision.user_id) if revision.user_id else "", "fields": fields}
+            )
     if created is not None:
         # Where this record actually started, even after a change to the type's default.
         for name, f in states.items():

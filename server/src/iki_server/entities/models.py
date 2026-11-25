@@ -496,6 +496,10 @@ class Revision(models.Model):
     #: 1 for the entity's creation, then 2, 3, ...
     number = models.PositiveIntegerField()
     kind = models.CharField(max_length=16, choices=RevisionKind.choices)
+    # The database stamps every writer, including bulk imports and SQL migrations.
+    history_seen = models.PositiveBigIntegerField(
+        db_default=models.Func(function="iki_history_seen")
+    )
     #: The fields whose values this revision set.
     changed_fields = ArrayField(models.CharField(max_length=63), default=list, blank=True)
     user = models.ForeignKey(

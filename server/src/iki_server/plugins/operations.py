@@ -157,6 +157,8 @@ class _StateOperation(migrations.operations.base.Operation):
                 " new text, reason text) ON COMMIT DROP"
             )
             schema_editor.execute(f"INSERT INTO iki_moving {moving}", params)
+            # The database stamps history_seen when present. Archived operations can
+            # also run against the earlier revision table during an initial migration.
             schema_editor.execute(
                 "INSERT INTO iki_revision (id, entity_id, number, kind, changed_fields, via,"
                 " client, reason, state_field, state_from, state_to, created_at)"

@@ -1775,6 +1775,69 @@ def refused(build: Path, database: str) -> str:
     return result.stderr
 
 
+def test_revisions_follow_field_names_through_upgrade_and_rollback(
+    lab: Path, database: str
+) -> None:
+    made("lab", "--no-input", cwd=lab.parent)
+    first = build_to(lab.parent, "v1", "lab")
+    deployed(first, database)
+    orm(
+        first,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.org.models import ProjectMembership, ProjectRole
+        user = User.objects.create_user("a@example.com", "A")
+        ProjectMembership.objects.create(project=project, user=user, role=ProjectRole.ADMIN)
+        e = services.create(user, "acme/lab.Sample", project, {"name": "S1", "count": 3}).entity
+        services.update(user, e, {"name": "S2"}, expected_revision=1)
+        result = None
+        """,
+    )
+    write_sample(lab, ("  name: {", "  title: {"))
+    made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
+    second = build_to(lab.parent, "v2", "lab")
+    deployed(second, database)
+    read = """
+from django.test import Client
+from iki_server.accounts.models import User
+client = Client()
+client.force_login(User.objects.get(email="a@example.com"))
+def get(path):
+    response = client.get("/api/v1/entities/SMP-000001/" + path, secure=True)
+    assert response.status_code == 200, response.content
+    return response.json()
+result = [
+    get("revisions/1")["changes"][field],
+    get("revisions/2")["changes"],
+    get("provenance")[field]["number"],
+    [r["number"] for r in get("revisions?field=" + field)["items"]],
+]
+"""
+    before = {"before": None, "after": "S1"}
+    edit = {"before": "S1", "after": "S2"}
+    assert run(second, database, "field = 'title'\n" + read) == [before, {"title": edit}, 2, [2, 1]]
+    run(
+        second,
+        database,
+        """
+        from iki_server.accounts.models import User
+        from iki_server.entities import services
+        from iki_server.entities.models import Entity
+        record = Entity.objects.get(hrid="SMP-000001")
+        services.update(User.objects.get(email="a@example.com"), record,
+                        {"title": "S3"}, expected_revision=2)
+        result = None
+        """,
+    )
+    deployed(first, database)
+    assert run(first, database, "field = 'name'\n" + read) == [before, {"name": edit}, 3, [3, 2, 1]]
+    assert query(
+        database, "SELECT changed_fields, history_seen FROM iki_revision ORDER BY number"
+    ) == [(["count", "name"], 0), (["name"], 0), (["title"], 1)]
+
+
 def test_rollback_requires_matching_live_and_history_renames(lab: Path, database: str) -> None:
     made("lab", "--no-input", cwd=lab.parent)
     first = build_to(lab.parent, "v1", "lab")

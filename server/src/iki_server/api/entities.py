@@ -70,6 +70,7 @@ from iki_server.entities import (
     states,
     unique,
 )
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import (
     Entity,
     ProjectLink,
@@ -3129,12 +3130,12 @@ class TrailFilter(Schema):
     )
 
     def applied(
-        self, revisions: QuerySet[Revision], *, disclosed: Q | None = None
+        self, revisions: QuerySet[Revision], names: FieldNames, *, disclosed: Q | None = None
     ) -> QuerySet[Revision]:
         """``revisions``, narrowed. A person is matched only among those ``disclosed``
         says who made, so narrowing by them tells no more than reading each would."""
         if self.field:
-            revisions = revisions.filter(changed_fields__contains=[self.field])
+            revisions = revisions.filter(names.setting(self.field))
         if self.person:
             revisions = revisions.filter(user_id=self.person)
             if disclosed is not None:
@@ -3160,17 +3161,18 @@ def list_revisions(
     a person made, or that set a field, as its audit trail's filters do (ADR 0176)."""
     me = caller(request)
     entity = _find(me, ref, project)
-    revisions = trail.applied(Revision.objects.filter(entity=entity)).select_related(
+    names = FieldNames.for_type(entity.type)
+    revisions = trail.applied(Revision.objects.filter(entity=entity), names).select_related(
         "user", "agent"
     )
     result = page(revisions, params, key="number", newest_first=True)
     made = _runs_of(me, result["items"])
-    states = revision_states(result["items"])
+    states = revision_states(result["items"], {entity.type: names})
     held = _holds_opened(me, entity, result["items"])
     submitted = _submissions(me, result["items"])
     result["items"] = [
         {
-            **_revision(r, made, states=states, submitted=submitted.get(r.pk)),
+            **_revision(r, made, names=names, states=states, submitted=submitted.get(r.pk)),
             "holds": held.get(r.number, []),
         }
         for r in result["items"]
@@ -3224,14 +3226,21 @@ def project_changes(
     values = services.current_values_of(entities) if entities else {}
     submitted = _submissions(me, revisions)
     made = _runs_of(me, revisions)
-    states = revision_states(revisions)
+    by_type = {t: FieldNames.for_type(t) for t in {e.type for e in entities}}
+    states = revision_states(revisions, by_type)
     out = []
     for r in revisions:
         fields = shape(r.entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.get(r.entity_id, {}).items()}
         out.append(
             {
-                **_revision(r, made, states=states, submitted=submitted.get(r.pk)),
+                **_revision(
+                    r,
+                    made,
+                    names=by_type[r.entity.type],
+                    states=states,
+                    submitted=submitted.get(r.pk),
+                ),
                 "entity": {
                     "id": r.entity.pk,
                     "hrid": r.entity.hrid,
@@ -3313,6 +3322,7 @@ def get_revision(
         **_revision(
             revision,
             _runs_of(me, [revision]),
+            names=FieldNames.for_type(entity.type),
             submitted=_submissions(me, [revision]).get(revision.pk),
         ),
         "holds": _holds_opened(me, entity, [revision]).get(revision.number, []),
@@ -3429,6 +3439,7 @@ def _revision(
     revision: Revision,
     runs: dict[tuple[Any, int], dict[str, Any]],
     *,
+    names: FieldNames,
     entity: Entity | None = None,
     projects: set[Any] | None = None,
     states: dict[Any, dict[str, Any]] | None = None,
@@ -3439,12 +3450,12 @@ def _revision(
     revisions pass their ``states``, from :func:`revision_states`, found for all at once."""
     of_entry = entity is not None and revision.entity_id != entity.pk
     if of_entry and not services.discloses(revision, projects or set()):
-        return undisclosed(revision)
+        return undisclosed(revision, names)
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": of_entry,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": revision.user,
         "via": revision.via,
         "client": revision.client,
@@ -3479,7 +3490,9 @@ def _submissions(me: User, revisions: Iterable[Revision]) -> dict[Any, dict[str,
     }
 
 
-def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
+def revision_states(
+    revisions: list[Revision], by_type: dict[str, FieldNames] | None = None
+) -> dict[Any, dict[str, Any]]:
     """What each state change among the revisions did, by revision ID: its field, its
     states, and the signatures that set it (ADR 0126). Their entities' types and their
     signatures are found for all of them at once, in two queries however many there are."""
@@ -3489,13 +3502,15 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     types = dict(
         Entity.objects.filter(pk__in={r.entity_id for r in changed}).values_list("pk", "type")
     )
+    if by_type is None:
+        by_type = {t: FieldNames.for_type(t) for t in set(types.values())}
     wanted = {i for r in changed for i in r.signatures or ()}
     carried = (
         {s.pk: s for s in signing_models.Signature.objects.filter(pk__in=wanted)} if wanted else {}
     )
     return {
         r.pk: {
-            **services.state_change(types[r.entity_id], r),
+            **services.state_change(types[r.entity_id], r, by_type[types[r.entity_id]]),
             "signatures": [
                 {
                     "id": i,
@@ -3511,14 +3526,14 @@ def revision_states(revisions: list[Revision]) -> dict[Any, dict[str, Any]]:
     }
 
 
-def undisclosed(revision: Revision) -> dict[str, Any]:
+def undisclosed(revision: Revision, names: FieldNames) -> dict[str, Any]:
     """A registry entry's revision as told to a reader it isn't disclosed to: what it set,
     not who, how or when (ADR 0115)."""
     return {
         "number": revision.number,
         "kind": revision.kind,
         "entry": True,
-        "changed_fields": revision.changed_fields,
+        "changed_fields": names.changed(revision),
         "user": None,
         "via": "",
         "client": "",
@@ -3546,13 +3561,16 @@ def get_provenance(request: HttpRequest, ref: str) -> dict[str, dict[str, Any]]:
     found = {n: r for n, r in services.provenance(entity).items() if n in fields}
     made = _runs_of(me, found.values())
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
-    states = revision_states(list(found.values()))
+    names = FieldNames.for_type(entity.type)
+    entry_names = FieldNames.for_type(entity.type, entry=True) if entity.entry_id else names
+    states = revision_states(list(found.values()), {entity.type: names})
     submitted = _submissions(me, found.values())
     return {
         name: _revision(
             revision,
             made,
             entity=entity,
+            names=names if revision.entity_id == entity.pk else entry_names,
             projects=readable,
             states=states,
             submitted=submitted.get(revision.pk),

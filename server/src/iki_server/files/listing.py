@@ -44,6 +44,7 @@ from django.db.models.functions import Collate, Lower
 
 from iki_server.accounts.models import User
 from iki_server.entities import access, registry
+from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import shape
 from iki_server.files.models import File, FileUse
@@ -399,11 +400,11 @@ def held_spans(entity: Entity, file_id: uuid.UUID) -> list[Span]:
         .values_list("revision", flat=True)
         .first()
     ) or 1
-    names = set(fields)
+    names = FieldNames.for_type(entity.type, entry=entity.registry_id is not None)
     changes = [
         r.number
         for r in Revision.objects.filter(entity=entity, number__gte=first).order_by("number")
-        if r.number == first or names & set(r.changed_fields)
+        if r.number == first or fields.keys() & names.changed(r)
     ]
     spans: list[Span] = []
     open_from: int | None = None
