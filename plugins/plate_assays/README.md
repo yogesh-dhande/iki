@@ -11,7 +11,8 @@ retain those identifiers for comparison with the approved release criterion.
 ## Set up review
 
 Install `iki/plate_assays` with its declared dependencies and bind
-`iki/plate_assays.assay-tools` to a backend worker. Apply the dose-response
+`iki/plate_assays.assay-tools` to a backend worker. For the dose-response starter, also install
+`iki/samples` with its dependencies to provide the example stock and materials. Apply the
 starter in the assay project to choose Research or Regulated QC, assign lab
 roles and fit apigenin and daidzein against firefly luciferase. The example plate holds three
 replicates at eleven concentrations per compound, plus positive and negative controls. The

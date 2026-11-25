@@ -34,9 +34,9 @@ The `dose-response` recipe version `1.2.0` uses
 `iki/requests.ResearchRequest` or `iki/requests.QCRequest` for receipt and delivery and
 `iki/plate_assays` for the plate, reader measurements and fit. The two
 projects must be distinct, share a registry and permit sharing. Creating the
-example also needs permission to edit the requesting project. The synthetic
-reader data, the measured wells, and the analyst's exclusion decisions can
-all be followed from the eventual result.
+example also needs permission to edit the requesting project. The signed fit
+links to the deposited activity measurements, each assigned well and any
+exclusions. The example stock balance and sample draw are training quantities.
 
 ### Selecting and changing a flow
 
