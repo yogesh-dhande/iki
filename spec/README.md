@@ -77,6 +77,12 @@ with a letter. The namespace is your lab's or company's.
   package `iki_plugin_iki__protein`, its code's directory in a worker's
   bundle, and its secrets' keys (`iki__dna.NCBI_API_KEY`).
 
+The first-party catalog contains the plugins at `plugins/<name>` and the
+built-in `iki/core`. CI checks that the directories and manifest names
+match the first-party name list. A lab can copy a worked example, give it
+a name in its own namespace and deploy a commit from its own repository.
+See the [author examples](../examples/plugins/README.md).
+
 ### Lab roles
 
 A plugin can declare lab roles: who may decide something in a lab, such as
@@ -1313,10 +1319,13 @@ tiers can still use their manifest's Python or conda environment.
 
 ## Workflows
 
-A workflow runs several of the plugin's actions as one (ADR 0079). Each step
-runs an action, by its name in the plugin, and says where each of its inputs
-comes from: the workflow's input (`$inputs.<name>`), the entities a step
-created of a type (`$steps.<id>.created.<Type>`), or what a step was given
+A workflow runs several of its own plugin's actions as one (ADR 0079).
+Each step names an action declared in that plugin. Dependencies can supply
+the types those actions read or write. To run actions belonging to several
+plugins in sequence, call them from a client.
+
+A step can read the workflow's input (`$inputs.<name>`), the entities an
+earlier step created of a type (`$steps.<id>.created.<Type>`), or what a step was given
 (`$steps.<id>.inputs.<name>`), once that step has run. A param takes a value,
 or the workflow's param (`$params.<name>`); a value that starts with `$` is
 written `$$`.
@@ -1735,6 +1744,19 @@ a tree Iki's repository has had, as
 [`first_party_trees.json`](src/iki_spec/first_party_trees.json) lists them
 ([ADR 0114](../docs/adr/0114-ikis-own-plugins-can-come-from-a-mirror.md)).
 `make first-party` adds a plugin's tree when it changes.
+
+Production builds check the source of every active and detached entry.
+A production pin to one of these directories in Iki's repository or a
+configured mirror raises `test-only-source`, even at a Git commit.
+
+- `examples/plugins/` and `plugin-template/`
+- `spec/tests/`, `server/tests/` and `deploy/dev/fixtures/`
+- `deploy/live/plugins/live_check/`
+
+Deploy a lab's adaptation from its own repository under its own name.
+To build the official sources in CI or a live check, pass `--test-only`.
+A local directory also requires `--allow-local`. See
+[ADR 0218](../docs/adr/0218-first-party-plugins-and-author-examples.md).
 
 ## A deployment's compute
 
@@ -2477,7 +2499,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                         | Lockfiles                       |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`                                                                                                                                                                                                                                                                                                                                                   | Actions                         |
 | `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |

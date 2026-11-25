@@ -38,10 +38,12 @@ from __future__ import annotations
 
 import posixpath
 import re
+import subprocess
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from iki_spec import API_VERSION, naming, schemas
 from iki_spec.problems import Path as DocPath
@@ -138,8 +140,18 @@ class _Problems:
         )
 
 
-def load_lock(file: Path, name: str | None = None) -> LockResult:
-    """Read and check a lockfile. ``name`` is how problems refer to it (default: the path)."""
+def load_lock(
+    file: Path,
+    name: str | None = None,
+    *,
+    mirrors: Sequence[str] = (),
+    test_only: bool = False,
+) -> LockResult:
+    """Read and check a lockfile. Only a test build may pin Iki's teaching and test trees.
+
+    ``mirrors`` are the deployment's configured mirrors of Iki's repository.
+    ``name`` is how problems refer to the lockfile (default: the path).
+    """
     name = name or str(file)
     problems = _Problems(name)
     if not file.is_file():
@@ -191,6 +203,8 @@ def load_lock(file: Path, name: str | None = None) -> LockResult:
         return LockResult(None, problems.problems)
     plugins = [LockedPlugin(**entry) for entry in data["plugins"]]
     _check(plugins, document, file.parent, problems)
+    if not test_only:
+        _check_distribution(plugins, document, file.parent, mirrors, problems)
     lock = Lock(file=file, plugins=tuple(plugins))
     return LockResult(lock if not problems.problems else None, problems.problems)
 
@@ -286,6 +300,103 @@ def _check_source(
             (*at, "path"),
             hint="Give it relative to the repository's root, without `..`.",
         )
+
+
+# Repo-relative directories reserved for author examples, test fixtures and live tools.
+_TEST_ROOTS = tuple(
+    PurePosixPath(path)
+    for path in (
+        "examples/plugins",
+        "plugin-template",
+        "spec/tests",
+        "server/tests",
+        "deploy/dev/fixtures",
+        "deploy/live/plugins/live_check",
+    )
+)
+
+
+def _check_distribution(
+    plugins: list[LockedPlugin],
+    document: Document,
+    directory: Path,
+    mirrors: Sequence[str],
+    problems: _Problems,
+) -> None:
+    official = {_source_repository(url) for url in (naming.IKI_REPOSITORY, *mirrors)}
+    for index, plugin in enumerate(plugins):
+        if plugin.state == "purged":
+            continue
+        if plugin.local is not None:
+            path = _local_test_path(directory / plugin.local, official)
+            key = "local"
+        elif plugin.git and _source_repository(plugin.git) in official and plugin.path:
+            path = _test_path(PurePosixPath(posixpath.normpath(plugin.path)))
+            key = "path"
+        else:
+            continue
+        if path is not None:
+            problems.add(
+                "test-only-source",
+                f"`{plugin.name}` pins `{path}` in Iki's repository, which is for tests "
+                "and plugin authors.",
+                document,
+                ("plugins", index, key),
+                hint="Copy the plugin to your lab's repository, give it your namespace, and "
+                "pin your reviewed copy. For a test build, pass `--test-only`.",
+            )
+
+
+def _test_path(path: PurePosixPath) -> PurePosixPath | None:
+    return path if any(path.is_relative_to(root) for root in _TEST_ROOTS) else None
+
+
+def _source_repository(url: str) -> tuple[str, int | None, str]:
+    """Identify an official source across HTTPS and SSH spellings, retaining nonstandard ports."""
+    url = url.strip()
+    if "://" not in url and re.match(r"[^/@:]+@[^/:]+:", url):
+        host, path = url.split(":", 1)
+        url = f"ssh://{host}/{path}"
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower().rstrip(".")
+        port = parts.port
+    except ValueError:
+        return "", None, url
+    if (parts.scheme, port) in {("https", 443), ("ssh", 22)}:
+        port = None
+    path = posixpath.normpath("/" + unquote(parts.path).lstrip("/"))
+    # GitHub repository names are case insensitive. A lab's Git host can distinguish case.
+    if host == "github.com":
+        path = path.lower()
+    return host, port, path.removesuffix(".git")
+
+
+def _local_test_path(
+    directory: Path, official: set[tuple[str, int | None, str]]
+) -> PurePosixPath | None:
+    """Check a resolved local pin relative to its own checkout, including Git worktrees."""
+    source = directory.resolve()
+    for root in (source, *source.parents):
+        checkout = (root / ".git").exists()
+        # A source archive has Iki's layout but no Git metadata.
+        iki_source = (root / "spec/src/iki_spec/lockfile.py").is_file()
+        if not (checkout or iki_source):
+            continue
+        # On a case-insensitive checkout, alternate case reaches the same official directory.
+        path = _test_path(PurePosixPath(source.relative_to(root).as_posix().lower()))
+        if path is not None and checkout:
+            # Read the checkout's recorded origin, independent of Git's transport rewrites.
+            result = subprocess.run(  # noqa: S603
+                ["git", "-C", str(root), "config", "--local", "--get", "remote.origin.url"],  # noqa: S607
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                return path if _source_repository(result.stdout) in official else None
+        return path if iki_source else None
+    return None
 
 
 def _check_credentials(data: dict[str, Any], document: Document, problems: _Problems) -> bool:

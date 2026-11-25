@@ -270,8 +270,16 @@ another version built.
 | `--images FILE`                | Also list the images its container-tier runs use, for its build to approve.    |
 | `--environments-dir DIRECTORY` | Where the worker image builds environments (default `/opt/iki/envs`).          |
 | `--allow-local`                | Accept `local:` plugins, for development. Servers refuse them unless told to.  |
+| `--test-only`                  | Accept Iki's example, template and fixture sources for CI and live tests.      |
 | `--mirror URL`                 | Fetch Iki's own plugins from this mirror of Iki's repository. Repeatable.      |
 | `--cache DIRECTORY`            | Where to keep fetched repositories (default `~/.cache/iki/git`).               |
+
+By default, the build checks every active and detached pin against the teaching
+and fixture directories in Iki's repository and its configured mirrors. To deploy
+a recipe, copy it to your repository, give it your lab's plugin identity and pin
+the reviewed commit. CI and live tests can use official fixtures with
+`--test-only`. For a fixture from a local checkout, pass both `--test-only` and
+`--allow-local`.
 
 `--images` includes the applicable deployment-supplied digest for each
 container template whose environment requests an image. The list is for

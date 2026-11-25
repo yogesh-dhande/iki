@@ -95,6 +95,11 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         help="Accept plugins from local directories (development only).",
     )
     build.add_argument(
+        "--test-only",
+        action="store_true",
+        help="Accept Iki's example, template and test plugin sources for a CI or live test.",
+    )
+    build.add_argument(
         "--mirror",
         action="append",
         default=[],
@@ -144,17 +149,17 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
     file: Path = args.deployment
     if file.is_dir():
         file = file / FILENAME
-    result = load_lock(file)
-    if result.lock is None or not result.ok:
-        write_problems(err, result.problems, file.parent, {str(file): file})
-        return 1
-    lock = result.lock
     mirrors: list[str] = list(dict.fromkeys(args.mirror))
     for url in mirrors:
         why = fetching.check_mirror(url, fetching.PROTOCOLS)
         if why is not None:
             err.write(f"error: --mirror {why}.\n")
             return 1
+    result = load_lock(file, mirrors=mirrors, test_only=args.test_only)
+    if result.lock is None or not result.ok:
+        write_problems(err, result.problems, file.parent, {str(file): file})
+        return 1
+    lock = result.lock
     if lock.has_local and not args.allow_local:
         names = ", ".join(p.name for p in lock.plugins if p.local is not None)
         err.write(

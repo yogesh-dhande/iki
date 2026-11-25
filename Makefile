@@ -36,10 +36,10 @@ check: check-workflows check-chart check-infra check-deps check-web check-python
 .PHONY: check-workflows
 check-workflows: ## Lint GitHub workflows (actionlint, zizmor)
 	uvx --from actionlint-py==1.7.12.25 actionlint
-	uvx --from actionlint-py==1.7.12.25 actionlint plugin-template/.github/workflows/*.yml \
-	  deploy/config-template/.github/workflows/*.yml
-	uvx zizmor==1.32.0 --persona=auditor .github/ plugin-template/.github/ \
-	  deploy/config-template/.github/
+	shopt -s nullglob; workflows=({plugin-template,deploy/config-template,examples/plugins/*}/.github/workflows/*.{yml,yaml}); \
+	  uvx --from actionlint-py==1.7.12.25 actionlint "$${workflows[@]}"
+	shopt -s nullglob; workflows=(.github/ plugin-template/.github/ deploy/config-template/.github/ examples/plugins/*/.github/); \
+	  uvx zizmor==1.32.0 --persona=auditor $(if $(GITHUB_ACTIONS),--format=github) "$${workflows[@]}"
 
 .PHONY: check-deps
 check-deps: ## Vulnerabilities and licenses in every lockfile (osv-scanner, cargo-deny)
@@ -111,6 +111,8 @@ check-python: test-browsers test-wasm ## Ruff, mypy (strict), workspace imports 
 	uv run mypy
 	@# A surrounding VM gate can collect traces for the whole command in its own directory.
 	IKI_GATE=1 $(if $(IKI_BROWSER_ARTIFACTS),,scripts/ci/with-browser-traces.sh) uv run pytest $(PYTEST_PARALLEL)
+	IKI_WORKER="$${IKI_WORKER:-$${IKI_WORKER_BIN:-$(CURDIR)/worker/target/debug/iki-worker}}" \
+	  uv run --locked python scripts/ci/check_plugin_examples.py
 
 .PHONY: core
 core: ## Regenerate the core plugin's app in the server, and make its migrations

@@ -507,6 +507,7 @@ def build_plugins(
             "--workers",
             str(out / "worker"),
             "--allow-local",
+            "--test-only",
         ],
         check=True,
         cwd=REPO,

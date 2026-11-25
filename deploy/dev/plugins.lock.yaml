@@ -1,5 +1,5 @@
 # The dev cluster's plugins. Tilt builds them with
-# `iki deploy build deploy/dev --allow-local` into the server image.
+# `iki deploy build deploy/dev --allow-local --test-only` into the server image.
 #
 # A plugin being developed comes from its directory, so changing it rebuilds
 # the cluster's image. Deployments pin plugins to commits instead.

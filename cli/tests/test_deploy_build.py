@@ -11,9 +11,10 @@ import pytest
 
 from iki_cli import fetch
 from iki_cli.main import main
-from iki_spec import modules
+from iki_spec import modules, naming
 
-PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
+ROOT = Path(__file__).parents[2]
+PLUGINS = ROOT / "spec" / "tests" / "plugins"
 URL = "https://git.example/acme/plugins.git"
 
 
@@ -460,6 +461,96 @@ def test_migrations_must_be_complete(
     err = capsys.readouterr().err
     assert "Add field notes to sequence" in err
     assert "run `iki plugin makemigrations`, commit the migration, and pin that commit" in err
+
+
+@pytest.mark.parametrize(
+    ("repository", "state", "mirrors", "official"),
+    [
+        (naming.IKI_REPOSITORY, "active", [], True),
+        (
+            "https://mirror.example/iki.git",
+            "detached",
+            ["--mirror", "https://mirror.example/iki.git"],
+            True,
+        ),
+        (URL, "active", [], False),
+    ],
+)
+@pytest.mark.usefixtures("allow_file")
+def test_building_a_pinned_recipe(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    repository: str,
+    state: str,
+    mirrors: list[str],
+    official: bool,
+) -> None:
+    # A lab can copy a recipe, rename it and keep its directory layout. Only Iki's
+    # repository and its configured mirrors reserve examples/plugins for teaching.
+    repo = tmp_path / "repository"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(repo))
+    path = "examples/plugins/reader_check"
+    recipe = repo / path
+    shutil.copytree(ROOT / "deploy/live/plugins/live_check", recipe)
+    manifest = recipe / "plugin.yaml"
+    manifest.write_text(manifest.read_text().replace("acme/live_check", "acme/reader_check"))
+    git(repo, "add", ".")
+    git(repo, "-c", "user.name=t", "-c", "user.email=t@example.org", "commit", "-qm", "recipe")
+    sha = git(repo, "rev-parse", "HEAD")
+    (tmp_path / "gitconfig").write_text(f'[url "file://{repo}"]\n\tinsteadOf = {repository}\n')
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - name: acme/reader_check\n    git: {repository}\n"
+        f"    path: {path}\n    sha: {sha}\n    state: {state}\n"
+    )
+
+    server, workers = tmp_path / "server", tmp_path / "workers"
+    command = [
+        "deploy",
+        "build",
+        str(tmp_path),
+        "-o",
+        str(server),
+        "--workers",
+        str(workers),
+        *mirrors,
+    ]
+    if official:
+        assert main(command) == 1
+        diagnostic = capsys.readouterr().err
+        assert "acme/reader_check" in diagnostic and "--test-only" in diagnostic
+        assert not server.exists() and not workers.exists()
+        command.append("--test-only")
+    assert main(command) == 0, capsys.readouterr().err
+    registry = server / "iki_installed_plugins"
+    (entry,) = json.loads((registry / "lock.json").read_text())["plugins"]
+    assert (entry["name"], entry["sha"], entry["state"]) == ("acme/reader_check", sha, state)
+    assert (registry / "bundles" / f"acme__reader_check-{sha}.tar.gz").is_file()
+    assert (workers / "plugins/acme__reader_check/plugin.yaml").is_file()
+
+
+def test_building_an_official_local_fixture_requires_both_switches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checkout = tmp_path / "iki"
+    git(tmp_path, "init", "--quiet", "--initial-branch=main", str(checkout))
+    git(checkout, "remote", "add", "origin", naming.IKI_REPOSITORY)
+    fixture = Path("deploy/live/plugins/live_check")
+    live_check = checkout / fixture
+    shutil.copytree(ROOT / fixture, live_check)
+    (tmp_path / "plugins.lock.yaml").write_text(
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        f"  - {{name: acme/live_check, local: {live_check}, state: detached}}\n"
+    )
+    server, workers = tmp_path / "server", tmp_path / "workers"
+    build = ["deploy", "build", str(tmp_path), "-o", str(server), "--workers", str(workers)]
+    for flag, needed in (("--allow-local", "--test-only"), ("--test-only", "--allow-local")):
+        assert main([*build, flag]) == 1
+        assert needed in capsys.readouterr().err
+        assert not server.exists() and not workers.exists()
+    assert main([*build, "--allow-local", "--test-only"]) == 0, capsys.readouterr().err
+    assert (server / "iki_plugin_acme__live_check").is_dir()
+    assert (workers / "plugins/acme__live_check/plugin.yaml").is_file()
 
 
 def test_local_plugins_are_for_development(

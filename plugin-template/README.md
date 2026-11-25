@@ -113,6 +113,9 @@ plugins:
     state: active
 ```
 
-For your own plugin, use its name, repository and commit. CI builds the
+For your own plugin, use its name, repository and commit. Production builds
+refuse a pin to the template directory in Iki's repository or a configured
+mirror. The [author examples](https://github.com/yogesh-dhande/iki/tree/main/examples/plugins)
+describe how to adapt a worked recipe and test the copy. CI builds the
 plugins into the deployment's image, checking them
 together. The deployment migrates the database on its next rollout.
