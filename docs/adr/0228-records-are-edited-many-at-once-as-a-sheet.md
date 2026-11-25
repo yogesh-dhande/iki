@@ -100,10 +100,10 @@ problem with a link to its cell.
 
 ### 2. Save shows what changes, takes a reason, and writes all of it or none
 
-Save opens a review of every change, old value to new, with the new rows and
-where each goes, and every problem. It needs a reason, kept on every
-revision. A row a plugin's rule holds for review needs the hold's reason too
-(ADR 0127). A sheet with problems can't be saved.
+A sheet with problems, or changes still being checked, can't be saved. Save
+opens a review of every change, old value to new, with the new rows, where
+each goes and how much it holds. It needs a reason, kept on every revision. A
+row a plugin's rule holds for review needs the hold's reason too (ADR 0127).
 
 `POST /projects/{id}/sheet-edits` takes what the check read, not the text:
 each row's values as read, the revision of each record the person reviewed,
