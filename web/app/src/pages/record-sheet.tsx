@@ -168,6 +168,8 @@ export function RecordSheet({
   }));
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [checkProblem, setCheckProblem] = useState<Problem>();
+  // Asking again for a check that couldn't be made: each ask, one more.
+  const [asks, setAsks] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [reason, setReason] = useState("");
@@ -234,7 +236,7 @@ export function RecordSheet({
     };
     // The rows waiting are what `waitingKey` says.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waitingKey, project.id, type.name]);
+  }, [waitingKey, asks, project.id, type.name]);
 
   // Leaving the page with changes unsaved asks first, as the browser does.
   const dirty = sending.size > 0;
@@ -869,7 +871,14 @@ export function RecordSheet({
       </p>
       {checkProblem ? (
         <div className="alert alert-error" role="alert">
-          <p>{checkProblem.detail}</p>
+          <p>The changes couldn’t be checked: {checkProblem.detail}</p>
+          <Button
+            onClick={() => {
+              setAsks((n) => n + 1);
+            }}
+          >
+            Check again
+          </Button>
         </div>
       ) : null}
       <div
