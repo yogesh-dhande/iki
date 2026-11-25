@@ -410,11 +410,9 @@ out.
   molecule is its bases, its topology and its strand count, so a linear or
   single-stranded product isn't what a plan closing a duplex circle makes, however its
   bases read.
-- **A result stands for the plan it was found from.** A plan's method, enzymes, backbone
-  or inserts changing checks it again, and a check that can't reach a result clears the
-  old one rather than leaving it to be read as current. Built and Verified each need the
-  plan to match at that moment, not only when it was first checked — Verified locks the
-  record, so what it attests has to hold then.
+- Editing the method, enzymes, backbone, inserts or product clears the previous result.
+  A successful recheck records the comparison for the edited plan. If a recheck cannot
+  reach a result, the comparison stays empty and the run explains why.
 
 Nothing here models partly double-stranded molecules beyond an end's overhang,
 methylation, star activity or a nick left by a ligation: a plan whose ends don't pair

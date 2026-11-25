@@ -778,10 +778,7 @@ def test_a_check_settles_a_plan_that_makes_several_circles(
 
 
 def test_a_check_that_cant_reach_a_result_clears_the_old_one(tmp_path: Path) -> None:
-    """A plan checked once keeps its result until a check finds otherwise, and Checked,
-    Built and Verified all read that flag. A plan edited into one Iki doesn't work out --
-    here a Gateway reaction -- leaves a stale result standing, so the check clears it
-    along with the length and junctions it was found with."""
+    """An inconclusive check clears the comparison, length, topology and junctions."""
     puc, _, _ = read("L09137.2")
     checked, log = command(
         tmp_path,
