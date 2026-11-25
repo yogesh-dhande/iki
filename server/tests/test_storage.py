@@ -27,6 +27,7 @@ from iki_server.org.models import LabRoleGrant, Project, ProjectRole
 from iki_server.storage import labels, services
 from iki_server.storage.grids import NotAPosition, Shape
 from iki_server.storage.models import Event, Place, ReconciliationLine
+from iki_server.webhooks import services as webhooks
 
 pytestmark = pytest.mark.django_db
 
@@ -380,13 +381,8 @@ def test_a_path_stops_at_a_place_the_reader_cant_open(lab: Lab) -> None:
     project_data = deliveries(requester)[-1].payload["data"]
     org_data = deliveries(org)[-1].payload["data"]
     assert project_data["from"] is None and project_data["to"] is None
-    assert project_data["reason"] == org_data["reason"] == "Moved after inspection"
-    for key, position in (("from", "A1"), ("to", "B2")):
-        assert org_data[key] == {
-            "container": cryo["id"],
-            "hrid": cryo["hrid"],
-            "position": position,
-        }
+    assert project_data["reason"] == "Moved after inspection"
+    assert org_data == {key: project_data[key] for key in ("entity", "kind", "actor", "agent")}
     where = lab.api("editor").get(f"/entities/{tubes[0]['id']}/location").json()
     assert where == {
         "path": [],
@@ -607,14 +603,22 @@ def test_receiving_a_request_checks_each_tube_takes_custody_and_reports_back(lab
 
 
 def test_upgrade_filters_existing_movement_deliveries_and_notices(lab: Lab) -> None:
+    org_migration = import_module(
+        "iki_server.webhooks.migrations.0003_organization_movement_notifications"
+    ).Migration("0003", "iki_webhooks")
+    with connection.schema_editor() as schema_editor:
+        schema_editor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+        org_migration.unapply(ProjectState(), schema_editor)
     requester = make_webhook(lab.world, "https://hooks.example.com/project", ["storage.moved"])
     org = make_webhook(
         lab.world, "https://hooks.example.com/org", ["storage.moved"], org_level=True
     )
     visible = box(lab.api("editor"), lab.world.project)
     hidden = box(lab.api("tech"), lab.core)
+    identifiers = {"entity": {"id": visible["id"]}, "kind": "moved", "actor": None, "agent": None}
     payload = {
         "data": {
+            **identifiers,
             "from": {"container": visible["id"], "hrid": visible["hrid"], "position": "A1"},
             "to": {"container": hidden["id"], "hrid": hidden["hrid"], "position": "B2"},
             "reason": "Received",
@@ -640,8 +644,34 @@ def test_upgrade_filters_existing_movement_deliveries_and_notices(lab: Lab) -> N
         "",
         f"/storage/receive/{ask['id']}/",
     )
-    assert deliveries(org)[0].payload == payload
-    assert deliveries(requester)[0].payload["data"] == {**payload["data"], "to": None}
+    project_payload = {**payload, "data": {**payload["data"], "to": None}}
+    assert deliveries(requester)[0].payload == project_payload
+
+    # Existing deliveries may still be displayed, retried or sent again after an upgrade.
+    amount_identifiers = {**identifiers, "kind": "drawn"}
+    amount = {
+        "type": "entity.amount_moved",
+        "timestamp": "2026-01-01T12:00:00Z",
+        "data": {**amount_identifiers, "balance": "12", "counterpart": hidden["hrid"]},
+    }
+    for hook in (requester, org):
+        hook.deliveries.create(message_id="msg_amount", event="entity.amount_moved", payload=amount)
+    with connection.schema_editor() as schema_editor:
+        org_migration.apply(ProjectState(), schema_editor)
+    assert requester.deliveries.get(message_id="msg_saved").payload == project_payload
+    assert requester.deliveries.get(message_id="msg_amount").payload == amount
+    assert org.deliveries.get(message_id="msg_saved").payload == {**payload, "data": identifiers}
+    assert org.deliveries.get(message_id="msg_amount").payload == {
+        **amount,
+        "data": amount_identifiers,
+    }
+    # Old pods may still submit a detailed body after the migration has committed.
+    later = org.deliveries.create(
+        message_id="msg_later", event="entity.amount_moved", payload=amount
+    )
+    resent = webhooks.redeliver(later, by=lab.world.users["org_admin"])
+    later.refresh_from_db()
+    assert later.payload == resent.payload == {**amount, "data": amount_identifiers}
 
 
 # --- Reconciling --------------------------------------------------------------------------------

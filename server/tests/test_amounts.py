@@ -395,6 +395,9 @@ def test_a_transfer_names_the_other_record_only_where_it_can_be_read(world: Worl
         chosen=["entity.amount_moved"],
         by=lab.users["core_admin"],
     )
+    org_hook = make(
+        world, "https://hooks.example.com/ledger", ["entity.amount_moved"], org_level=True
+    )
     editor = lab.api("editor")
     moved = editor.post(
         f"/entities/{source['id']}/amount/transfer",
@@ -413,6 +416,10 @@ def test_a_transfer_names_the_other_record_only_where_it_can_be_read(world: Worl
     (notice,) = deliveries(hook)
     assert notice.payload["data"]["entity"]["id"] == target["id"]
     assert notice.payload["data"]["counterpart"] == "unreadable"
+    outgoing, incoming = [delivery.payload["data"] for delivery in deliveries(org_hook)]
+    assert (outgoing["entity"]["id"], outgoing["kind"]) == (source["id"], "transferred_out")
+    assert (incoming["entity"]["id"], incoming["kind"]) == (target["id"], "transferred_in")
+    assert set(outgoing) == set(incoming) == {"entity", "kind", "actor", "agent"}
 
 
 def test_a_split_makes_aliquots_holding_exactly_what_it_loses(world: World) -> None:

@@ -268,6 +268,10 @@ def _queue(
         payload=payload,
         redelivered_by=redelivered_by,
     )
+    if webhook.project_id is None and event in {"storage.moved", "entity.amount_moved"}:
+        # The database stores only the organization notification, even during a rolling
+        # deploy. Return the same body the receiver and the delivery log will see.
+        delivery.refresh_from_db(fields=["payload"])
     deliver.enqueue(str(delivery.pk))
     return delivery
 
