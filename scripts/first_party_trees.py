@@ -21,7 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from iki_spec import first_party, naming
+from iki_spec import first_party
 
 ROOT = Path(__file__).resolve().parents[1]
 LIST = ROOT / "spec" / "src" / "iki_spec" / first_party.FILENAME
@@ -50,8 +50,8 @@ def current() -> dict[str, str]:
     """Each of Iki's fetched plugins (all but the core plugin, which ships with the
     server), with its tree."""
     return {
-        name: tree(f"plugins/{naming.short_name(name)}")
-        for name in sorted(naming.FIRST_PARTY - {naming.CORE})
+        name: tree(directory.relative_to(ROOT).as_posix())
+        for name, directory in first_party.catalog(ROOT / "plugins").items()
     }
 
 
@@ -60,7 +60,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="Fail if a tree is missing.")
     args = parser.parse_args(argv)
     listed: dict[str, list[str]] = json.loads(LIST.read_text("utf-8"))["trees"]
-    missing = {name: t for name, t in current().items() if t not in listed.get(name, [])}
+    try:
+        trees = current()
+    except ValueError as error:
+        sys.stderr.write(f"{error}\n")
+        return 1
+    missing = {name: t for name, t in trees.items() if t not in listed.get(name, [])}
     if args.check:
         for name, t in missing.items():
             sys.stderr.write(f"{name}'s tree {t} isn't listed: run `make first-party`.\n")
