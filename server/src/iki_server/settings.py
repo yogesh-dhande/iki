@@ -262,7 +262,8 @@ if IKI_RUNS_VM_CLOUD == "gcp" and IKI_RUNS_VM_OWNER:
 
 def _named_mirror(url: str, named: list[str]) -> bool:
     """Whether ``url`` is one of ``named``, however each is written."""
-    return any(repository(url) == repository(m) for m in named)
+    remote = repository(url)
+    return remote is not None and any(remote == repository(m) for m in named)
 
 
 if find_spec("iki_installed_plugins") is not None:

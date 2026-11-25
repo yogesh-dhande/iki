@@ -34,6 +34,12 @@ including at a Git SHA and on configured mirrors. CI and live tools can
 pass `--test-only` to build these sources. Local development paths require
 the separate `--allow-local` option.
 
+The distribution check uses the same Git endpoint as mirror verification
+(ADR 0114), including its scheme, host, port and SSH login. It also
+recognizes spellings that lead back to a teaching source, such as URL
+escapes, dot segments and case variants on GitHub. A local pin is checked
+against its checkout's recorded origin.
+
 ## Consequences
 
 A lab copies a recipe into its own repository, names it in the lab's

@@ -42,7 +42,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from iki_spec import API_VERSION, naming, schemas
@@ -56,6 +56,7 @@ __all__ = [
     "Lock",
     "LockResult",
     "LockedPlugin",
+    "Repository",
     "load_lock",
     "lock_to_dict",
     "redact_credentials",
@@ -323,19 +324,38 @@ def _check_distribution(
     mirrors: Sequence[str],
     problems: _Problems,
 ) -> None:
-    official = {_source_repository(url) for url in (naming.IKI_REPOSITORY, *mirrors)}
+    official = {
+        source
+        for url in (*_iki_repository_urls(), *mirrors)
+        if (source := _source_repository(url)) is not None
+    }
     for index, plugin in enumerate(plugins):
         if plugin.state == "purged":
             continue
         if plugin.local is not None:
-            path = _local_test_path(directory / plugin.local, official)
+            local = _local_test_source(directory / plugin.local)
+            if local is None:
+                continue
+            path, url = local
             key = "local"
-        elif plugin.git and _source_repository(plugin.git) in official and plugin.path:
-            path = _test_path(PurePosixPath(posixpath.normpath(plugin.path)))
+        elif plugin.git and plugin.path:
+            candidate = _test_path(PurePosixPath(posixpath.normpath(plugin.path)))
+            if candidate is None:
+                continue
+            path, url = candidate, plugin.git
             key = "path"
         else:
             continue
-        if path is not None:
+        source = _source_repository(url)
+        if source is None:
+            problems.add(
+                "unrecognized-source",
+                f"Iki can't identify the repository for `{plugin.name}` at `{path}`.",
+                document,
+                ("plugins", index, "git" if key == "path" else key),
+                hint="Use a recognized Git repository address for this source.",
+            )
+        elif source in official:
             problems.add(
                 "test-only-source",
                 f"`{plugin.name}` pins `{path}` in Iki's repository, which is for tests "
@@ -351,31 +371,13 @@ def _test_path(path: PurePosixPath) -> PurePosixPath | None:
     return path if any(path.is_relative_to(root) for root in _TEST_ROOTS) else None
 
 
-def _source_repository(url: str) -> tuple[str, int | None, str]:
-    """Identify an official source across HTTPS and SSH spellings, retaining nonstandard ports."""
-    url = url.strip()
-    if "://" not in url and re.match(r"[^/@:]+@[^/:]+:", url):
-        host, path = url.split(":", 1)
-        url = f"ssh://{host}/{path}"
-    try:
-        parts = urlsplit(url)
-        host = (parts.hostname or "").lower().rstrip(".")
-        port = parts.port
-    except ValueError:
-        return "", None, url
-    if (parts.scheme, port) in {("https", 443), ("ssh", 22)}:
-        port = None
-    path = posixpath.normpath("/" + unquote(parts.path).lstrip("/"))
-    # GitHub repository names are case insensitive. A lab's Git host can distinguish case.
-    if host == "github.com":
-        path = path.lower()
-    return host, port, path.removesuffix(".git")
+def _source_repository(url: str) -> Repository | None:
+    """Include Git host/path aliases when excluding teaching sources from a deployment."""
+    return _parse_repository(url, distribution=True)
 
 
-def _local_test_path(
-    directory: Path, official: set[tuple[str, int | None, str]]
-) -> PurePosixPath | None:
-    """Check a resolved local pin relative to its own checkout, including Git worktrees."""
+def _local_test_source(directory: Path) -> tuple[PurePosixPath, str] | None:
+    """Resolve a local teaching path and read its own checkout's recorded origin."""
     source = directory.resolve()
     for root in (source, *source.parents):
         checkout = (root / ".git").exists()
@@ -394,8 +396,12 @@ def _local_test_path(
                 check=False,
             )
             if result.returncode == 0:
-                return path if _source_repository(result.stdout) in official else None
-        return path if iki_source else None
+                origin = result.stdout.removesuffix("\n")
+                if origin and ":" not in origin.partition("/")[0]:
+                    # Git also accepts filesystem paths as local checkout origins.
+                    origin = (root / origin).resolve().as_uri()
+                return path, origin
+        return (path, naming.IKI_REPOSITORY) if iki_source and path is not None else None
     return None
 
 
@@ -432,7 +438,10 @@ def url_credentials(url: str) -> str | None:
     try:
         parts = urlsplit(url.strip())
     except ValueError:
-        return None  # not a URL urllib reads; git and the schema refuse it
+        # Even an unreadable authority can contain credentials. Hide its source line.
+        if "@" in url:
+            return "malformed user information"
+        return "a query or fragment" if "?" in url or "#" in url else None
     if parts.scheme.lower() not in ("http", "https", "ssh"):
         return None  # scp-like ssh, git@host:path, has no place for a password
     if parts.password is not None:
@@ -450,13 +459,17 @@ def without_credentials(url: str) -> str:
     try:
         parts = urlsplit(url.strip())
     except ValueError:
-        return redact_credentials(url)
+        return "[invalid Git URL]"
     scheme = parts.scheme.lower()
     if url_credentials(url) is None:
         return url
     host = parts.hostname or ""
     host = f"[{host}]" if ":" in host else host
-    netloc = f"{host}:{parts.port}" if parts.port else host
+    try:
+        port = parts.port
+    except ValueError:
+        return f"{scheme}://{host}/[invalid port]"
+    netloc = f"{host}:{port}" if port is not None else host
     if scheme == "ssh" and parts.username:
         netloc = f"{parts.username}@{netloc}"
     return urlunsplit(parts._replace(netloc=netloc, query="", fragment=""))
@@ -471,6 +484,17 @@ _USERINFO = re.compile(
 def redact_credentials(text: str) -> str:
     """``text`` with any URL's user, token or password taken out."""
     return _USERINFO.sub(lambda m: m.group(1) or f"{m.group(2)}@", text)
+
+
+def _iki_repository_urls() -> tuple[str, str, str]:
+    # ADR 0113 names the HTTPS and SSH endpoints of Iki's own GitHub repository.
+    # The host accepts both absolute SSH URLs and home-relative scp paths for it.
+    origin = urlsplit(naming.IKI_REPOSITORY)
+    return (
+        naming.IKI_REPOSITORY,
+        f"ssh://git@{origin.hostname}{origin.path}",
+        f"git@{origin.hostname}:{origin.path.removeprefix('/')}",
+    )
 
 
 def _check_first_party(
@@ -493,7 +517,10 @@ def _check_first_party(
     if plugin.state == "purged" or plugin.local is not None or plugin.git is None:
         return  # nothing fetched; a local directory is for development only
     expected = f"plugins/{short}"
-    if repository(plugin.git) != repository(naming.IKI_REPOSITORY):
+    remote = repository(plugin.git)
+    if remote is None or all(
+        remote != repository(candidate) for candidate in _iki_repository_urls()
+    ):
         problems.add(
             "first-party-source",
             f"{plugin.name} is one of Iki's plugins, so it comes from Iki's repository, "
@@ -513,16 +540,71 @@ def _check_first_party(
         )
 
 
-def repository(url: str) -> str:
-    """A git URL as ``host/owner/repository``, however it's written: https or ssh, with or
-    without ``.git``."""
-    text = url.strip().removesuffix("/").removesuffix(".git").lower()
-    for prefix in ("https://", "ssh://"):
-        text = text.removeprefix(prefix)
-    user, at, rest = text.partition("@")
-    text = rest if at and "/" not in user else text
-    host, colon, path = text.partition(":")
-    return f"{host}/{path}" if colon and "/" not in host else text
+class Repository(NamedTuple):
+    scheme: str
+    host: str
+    port: int | None
+    path: str
+    # SSH accounts can serve different repositories or have different home directories.
+    ssh_user: str | None
+
+
+_DEFAULT_PORTS = {"https": 443, "ssh": 22, "file": None}
+_SCP = re.compile(r"(?P<authority>(?:[A-Za-z0-9._-]+@)?(?:[A-Za-z0-9.-]+|\[[^]]+\])):(?P<path>.+)")
+_HOST_PORT = re.compile(r"(?:\[[^]]*:[^]]*\]|[^@:/\[\]]+)(?::[0-9]+)?")
+
+
+def repository(url: str) -> Repository | None:
+    """Git's remote endpoint and repository path, or None for an unsupported address.
+
+    HTTPS userinfo supplies credentials. On SSH the login and the distinction between
+    absolute and home-relative paths can select which repository the server opens.
+    """
+    return _parse_repository(url, distribution=False)
+
+
+def _parse_repository(url: str, *, distribution: bool) -> Repository | None:
+    if any(ord(c) <= 32 or ord(c) == 127 for c in url) or any(c in url for c in "?#\\"):
+        return None
+    scp = None
+    if "://" not in url:
+        scp = _SCP.fullmatch(url)
+        if scp is None or scp["path"].startswith(":"):
+            return None
+        url = "ssh://" + scp["authority"]
+    try:
+        parts = urlsplit(url)
+        scheme, host, port = parts.scheme, (parts.hostname or "").lower(), parts.port
+    except ValueError:
+        return None
+    if scheme not in _DEFAULT_PORTS or (not host and scheme != "file"):
+        return None
+    authority = parts.netloc.rsplit("@", 1)[-1]
+    if parts.netloc and not _HOST_PORT.fullmatch(authority):
+        return None
+    if port is None:
+        port = _DEFAULT_PORTS[scheme]
+    # SCP paths use literal percent signs. SSH URLs use percent escapes.
+    path = scp["path"].replace("%", "%25") if scp is not None else parts.path
+    user = parts.username if scheme == "ssh" else None
+    if distribution:
+        # Only the distribution refusal considers alternate spellings a server can resolve.
+        # Keep scheme, login, port and SSH home-relative versus absolute paths distinct.
+        if "%" in parts.netloc:
+            decoded = unquote(parts.netloc)
+            if any(decoded.count(c) != parts.netloc.count(c) for c in ":@/\\?#[]"):
+                return None  # Decoding a delimiter could select another endpoint.
+            if user is not None:
+                user = unquote(user)
+        host = unquote(host).lower().removesuffix(".")
+        path = unquote(path)
+        if scheme == "ssh":
+            # Git's SSH URL form /~/path selects the login's home, as does scp's ~/path.
+            path = re.sub(r"^/?~/", "", path)
+        path = posixpath.normpath("/" + path.lstrip("/") if path.startswith("/") else path)
+        if host == "github.com":
+            path = path.lower()
+    return Repository(scheme, host, port, path.removesuffix("/").removesuffix(".git"), user)
 
 
 def _check_settings(

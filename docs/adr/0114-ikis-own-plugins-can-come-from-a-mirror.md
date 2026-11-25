@@ -108,8 +108,15 @@ them to git's credential helper, as CI does for plugin repositories.
 fetched from a mirror missing from `IKI_PLUGIN_MIRRORS`, every server
 process refuses to start, the migrate Job included, so nothing is
 migrated. This holds even if someone changed the CI workflow to pass a
-mirror of their own. Mirrors match however they're written: https or ssh,
-with or without `.git`.
+mirror of their own.
+
+**Matching a mirror endpoint.** Name the transport used by the build in
+`IKI_PLUGIN_MIRRORS`. HTTPS and SSH are separate entries. Hostnames are
+case-insensitive. An explicit HTTPS port 443 or SSH port 22 matches the
+omitted port. Any other port is part of the endpoint. Repository paths
+preserve case and can end in `.git` or a slash. On SSH, use the same login
+and path, including whether the path starts at the root or the user's home.
+An HTTPS credential helper can supply credentials for the named endpoint.
 
 ## Consequences
 
