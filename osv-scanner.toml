@@ -13,15 +13,6 @@ attack isn't reachable. The fix is minimatch 11, which ESLint's config-array doe
 accept yet. Remove this once ESLint moves to minimatch 11."""
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2026-0592"
-ignoreUntil = 2026-11-25T00:00:00Z
-reason = """url 2.5.8: a stack overflow in Url::origin() on nested blob: URLs. iki-worker \
-reaches url only through ureq and its cookie store, and talks only to the server it's \
-configured with and the addresses that server gives it, never a blob: URL from outside, so \
-the overflow isn't reachable. The fix, url 2.5.9, was released on 2026-11-20 and is under \
-the three-day minimum age until 2026-11-23. Remove this and take 2.5.9 then."""
-
-[[IgnoredVulns]]
 id = "RUSTSEC-2026-0594"
 ignoreUntil = 2026-11-28T00:00:00Z
 reason = """cookie 0.18.2: private cookies sealed with AES-256-GCM can repeat a nonce across \
