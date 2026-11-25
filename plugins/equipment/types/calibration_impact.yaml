@@ -4,13 +4,13 @@ kind: EntityType
 name: CalibrationImpact
 label: Calibration impact
 label_plural: Calibration impacts
-schema_version: 1
+schema_version: 2
 hrid: { prefix: EQI }
 description: A result that needs a separate disposition after a failed calibration. The signed original remains part of the evidence.
 fields:
   key:
     { type: string, max_length: 64, computed: true, immutable: true, unique: true, indexed: true }
-  instrument: { type: ref, to: iki/example_lims.Instrument, required: true, immutable: true }
+  instrument: { type: ref, to: Instrument, required: true, immutable: true }
   failure: { type: ref, to: EquipmentService, required: true, immutable: true }
   failure_revision: { type: int, min: 1, computed: true, immutable: true }
   use: { type: ref, to: InstrumentUse, required: true, immutable: true }
@@ -35,7 +35,7 @@ fields:
     states:
       recorded:
         label: Recorded
-        set_by: [iki/example_lims.engineer, reviewer, qa]
+        set_by: [iki/lab_roles.engineer, reviewer, qa]
         reason: required
         guards:
           correctable:
@@ -60,7 +60,7 @@ fields:
             message: Record a reasoned disposition for the QA signer.
       submitted:
         label: Submitted
-        set_by: [iki/example_lims.engineer]
+        set_by: [iki/lab_roles.engineer]
         locks: true
         on_edit: recorded
         signatures: [{ meaning: authorship }]

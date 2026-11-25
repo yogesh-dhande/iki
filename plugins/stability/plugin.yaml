@@ -1,14 +1,14 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/stability
-version: 0.1.1
+version: 0.2.0
 title: Stability studies
 description: Design lot stability studies, schedule storage pulls and trend signed measurements.
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
   iki/lots: { types: { Lot: ">=2" } }
-  iki/example_lims: { types: { Tube: ">=1" } }
+  iki/inventory: { types: { Tube: ">=1" } }
 settings:
   review_flow:
     type: enum

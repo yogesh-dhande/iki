@@ -1,0 +1,47 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+apiVersion: iki/v1
+kind: EntityType
+name: Box
+label: Box
+label_plural: Boxes
+schema_version: 1
+description: >-
+  A cryobox of tubes (ADR 0180): 9 × 9 for 2 mL cryovials, 10 × 10 for 1.5 mL
+  tubes, its positions A1 to I9 or A1 to J10, along each row. Its shape is set
+  as it's made, so no tube is ever outside it.
+hrid: { prefix: BOX }
+storage:
+  holds: [Tube]
+  grid: { rows: rows, columns: columns, labels: letter_number, order: by_row }
+  barcode: barcode
+  label: "{{ contents }}"
+fields:
+  name: { type: string, required: true, max_length: 100, indexed: true }
+  rows:
+    type: int
+    required: true
+    immutable: true
+    min: 1
+    max: 16
+    default: 9
+    description: How many rows of tubes it has, lettered from A.
+  columns:
+    type: int
+    required: true
+    immutable: true
+    min: 1
+    max: 24
+    default: 9
+    description: How many tubes each row holds, numbered from 1.
+  barcode:
+    type: string
+    max_length: 64
+    unique: true
+    indexed: true
+    description: The code on its lid or side, if it has one; its HRID otherwise.
+  contents:
+    type: string
+    max_length: 200
+    description: What it's for, such as "Lot 12 release retains".
+display:
+  title: "{{ name }}"

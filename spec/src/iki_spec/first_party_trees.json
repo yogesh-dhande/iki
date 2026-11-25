@@ -28,7 +28,8 @@
     ],
     "iki/cell_lines": [
       "669310dacb04752cb1ccdebab110ff578a8dc7b8",
-      "ab194ddef2f93264f02aead3960a6a8cb3970731"
+      "ab194ddef2f93264f02aead3960a6a8cb3970731",
+      "eee95a5629fd9753512dbcfd55d5956e810f6830"
     ],
     "iki/complex": [
       "780a4315f60f3e764568272e9b0c9b2f0083cea7",
@@ -86,46 +87,8 @@
     ],
     "iki/equipment": [
       "6c7cf1848e82a5cacc7cce2d83a9be2683b4fa7d",
-      "69a323cfd49c01123880284c99ee0e6129e62dc4"
-    ],
-    "iki/example_lims": [
-      "51ee81013451aafb10f4a1f377049d01ba0ee19c",
-      "9911eaab301520379f2467f31cfba445616f773a",
-      "9f0024cacb9a269456a219a3182f8b59d446e25e",
-      "8c001aaa6bca938db59e54fd733469551bfa7f8b",
-      "52a8ddaeee1eaf95416d1aa696d5fe4bcf4eea03",
-      "b81d91fe5e7ce036f81e7a72af478df8da5d3d92",
-      "2619b8a619dfa88fde21b8aa0ec88a44328bc3ee",
-      "92d052f581a47e0ca0b054b815d92b552eb096dd",
-      "20c96a987e60ba3f2d1b33d928ffa3e9a45ffb18",
-      "ef40cb1c68837eb62b3e38778f98654a6efe1f59",
-      "4ec10e9aa3beb725ce20ccc94904cc541b10f17d",
-      "377f54f40d71081afac41d752697af37496aa2f4",
-      "abf29a6a1ca42bb782498aabf91cc62a2e1a4378",
-      "08d841126ea504bc76ba606de672eeadb35279ee",
-      "4536f75ff458126bee70644834f4dd292d7321fb",
-      "7216afb1f6855e2da47569abfc048876ab8a268a",
-      "89a92609d1fbf90c2076beaae59b8ad03ee08c76",
-      "1d462b16b3197f307c7098d2152b65e8e8d8bc3f",
-      "ccb6b1733587e132cf48b5734131149f3a04db2d",
-      "70a99498332a3f77090d24e7750ba1f3c56b3a5e",
-      "9df5aa50ef6fa037bae85b2eb15b7cbc9e8a87c1",
-      "9b5c636000fa1ddb5b4fa70e744142f99980c3bf",
-      "8adf565d2327dcda53d519ba118a785542e73269",
-      "899a51a355aab67b65712456d13bbf3989ac207e",
-      "290f1cb2db6d11b0478c73e617801e5fa3862e24",
-      "74286ce370c1103ccc430c9a8c6b11ade8fbf03d",
-      "96854afe3660320499829355a23249ba5745a704",
-      "7b4f7364bbb568b36e92e38cc909058c7c8c8884",
-      "58837b9feecb68b3324a9fbe09b7d1fb33fce679",
-      "cdf6cf7c785203442331d4b09537dfa083ebb1fe",
-      "f3824ad96b39e09c3818798a87dac0ab7daafa80",
-      "bd47d99052dafd7c6e45369362c74701789aaeb0",
-      "d751c35b1fdccd2ed48239b2208c1509a4b4a1e0",
-      "84c7988757e592f138e339c86065369328febc63",
-      "53ea67324c618fea9cfb26efa846c0c0ba75c079",
-      "d6f8bfb055ff15d1bfb7813e461f04fd640ac645",
-      "220776a7eb92523ef4b958045325ad05f2322283"
+      "69a323cfd49c01123880284c99ee0e6129e62dc4",
+      "3bd911738839c77d8d8ffb94a2230f855d453891"
     ],
     "iki/example_models": [
       "3667e222ea15d2c33f34083206e6896ad8e78d36",
@@ -138,13 +101,13 @@
       "01509ec29a0074c88468f31ce381f2bd9a78f8e8"
     ],
     "iki/inventory": [
-      "b4cca08ffdc0fdcabf46c5543dd41a8a09094075"
+      "e7f6773993968f2b856707af7e7e473c9582d968"
     ],
     "iki/lab_roles": [
       "c955bd40d3e006f643b385d5c7d53a00387f49f1"
     ],
     "iki/lims_connector_example": [
-      "423067770dfe04fd480350f09a7f991bf852ae32"
+      "eb06be14c9a48e5bb3cfc5843aa3e1525659f78d"
     ],
     "iki/lots": [
       "a834be1e2af8eb1955104121169203bf085bcf71",
@@ -165,7 +128,8 @@
     ],
     "iki/mouse_strains": [
       "6a2ea62961cfe738c1ce948814081f567048abf1",
-      "46e3c75721fe6c1a607b2454067c4ff85465bac9"
+      "46e3c75721fe6c1a607b2454067c4ff85465bac9",
+      "263580e98b415a14e2197374ff8d40ec727ea2ae"
     ],
     "iki/oligo": [
       "3804a8ced0f9764313127d3d73f0d387f755b5a7",
@@ -237,7 +201,8 @@
       "405409b50eacfadde31af379e833d129417e2ba8",
       "f597f5d741e14560244f0356372ad9109868d4de",
       "269c1978ba467bce4a32ff28ee4fab3993a036ec",
-      "075f46ebf48ce11e377c47a343a789c319e61386"
+      "075f46ebf48ce11e377c47a343a789c319e61386",
+      "00ecf0e1aabf04c99726aac6fb62641db51150e8"
     ],
     "iki/polymer": [
       "cc56225c938a51b2f7fe385320b7216e50a6cb15",
@@ -273,10 +238,10 @@
       "f292f6ca2072e01c3e5c31de06097104633b0b83"
     ],
     "iki/requests": [
-      "08687690fdb72012b82e1ed469fb323557895d1d"
+      "5d24f32501808eb7a909d0f81f818cfae5b49395"
     ],
     "iki/samples": [
-      "5890be3d58157dc7ac2949073b1fe613621560c0"
+      "cbed6e2b90a1af6f6a9794a8dde8a790e46a5a72"
     ],
     "iki/sequencing": [
       "a5c9e5eb42fa4e5d19bcecbfceddcb8213cd8dd0"
@@ -304,11 +269,13 @@
     ],
     "iki/stability": [
       "e23b71ea2dd677bb7ed337854f2a834ff9157eda",
-      "3c77239d873f8516d5d1cb3111fff9c4dbe53bd1"
+      "3c77239d873f8516d5d1cb3111fff9c4dbe53bd1",
+      "c15cd1a9d57174a9d97e21fb9109a6a652238cbd"
     ],
     "iki/strains": [
       "ffd3bb13863247881360620a7098022d1b29b317",
-      "2aa2a9c053514bd4c9308d6d9748915fccf35788"
+      "2aa2a9c053514bd4c9308d6d9748915fccf35788",
+      "81e5efd89008737d60595a4b6f72defc1f826d33"
     ]
   }
 }

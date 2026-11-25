@@ -8,7 +8,7 @@ method, in their recorded reporting units.
 
 ## Configure the workflow
 
-Install the plugin with Lots and Example LIMS. At deployment, choose
+Install the plugin with Lots and Inventory. At deployment, choose
 `review_flow: research` (the default) or `review_flow: regulated_qc` in its
 settings. The schedule pins this choice for the life of its study.
 

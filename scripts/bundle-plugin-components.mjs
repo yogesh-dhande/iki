@@ -6,7 +6,7 @@ import { rolldown } from "rolldown";
 
 const root = resolve(import.meta.dirname, "..");
 const components = [
-  "example_lims/booking-calendar",
+  "equipment/booking-calendar",
   "oligo/chemistry",
   "oligo/duplex",
   "complex/composition",

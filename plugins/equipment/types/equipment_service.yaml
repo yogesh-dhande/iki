@@ -4,12 +4,12 @@ kind: EntityType
 name: EquipmentService
 label: Equipment service
 label_plural: Equipment service records
-schema_version: 1
+schema_version: 2
 hrid: { prefix: EQS }
 description: A planned calibration or maintenance appointment and the signed evidence of what happened.
 due: due_on
 fields:
-  instrument: { type: ref, to: iki/example_lims.Instrument, required: true, immutable: true }
+  instrument: { type: ref, to: Instrument, required: true, immutable: true }
   kind:
     {
       type: enum,
@@ -35,7 +35,7 @@ fields:
     immutable: true
   performed_by:
     type: person
-    role: iki/example_lims.engineer
+    role: iki/lab_roles.engineer
     assignment: { field: review, states: [scheduled] }
     description: The project's engineer who performed and signs the work.
   performed_at: { type: datetime, label: Performed at, indexed: true }
@@ -67,7 +67,7 @@ fields:
     states:
       scheduled:
         label: Scheduled
-        set_by: [iki/example_lims.engineer, reviewer, qa]
+        set_by: [iki/lab_roles.engineer, reviewer, qa]
         reason: required
         guards:
           correctable:
@@ -75,7 +75,7 @@ fields:
             message: Return an appointment awaiting review or release for correction.
       cancelled:
         label: Cancelled
-        set_by: [iki/example_lims.engineer]
+        set_by: [iki/lab_roles.engineer]
         locks: true
         reason: required
         guards:
@@ -86,7 +86,7 @@ fields:
             message: Cancel a scheduled appointment before recording its findings.
       signed_off:
         label: Signed off
-        set_by: [iki/example_lims.engineer]
+        set_by: [iki/lab_roles.engineer]
         locks: true
         signatures:
           [
@@ -104,7 +104,7 @@ fields:
             message: The performing engineer signs the recorded Research service with its time, report and outcome.
       submitted:
         label: Submitted
-        set_by: [iki/example_lims.engineer]
+        set_by: [iki/lab_roles.engineer]
         locks: true
         on_edit: scheduled
         signatures:

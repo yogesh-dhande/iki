@@ -30,7 +30,7 @@ inputs:
             values: { of: 00000000-0000-7000-8003-000000000011 }
         assignments.tube:
           # The harness allocates the study and the included lot the first two IDs.
-          - values: { lot: 00000000-0000-7000-8003-000000000002 }
+          - values: { contents: 00000000-0000-7000-8003-000000000002 }
 expect:
   output:
     updates:

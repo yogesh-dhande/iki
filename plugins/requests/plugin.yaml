@@ -8,5 +8,5 @@ description: Work sent between projects, private service work items and released
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
-  iki/inventory: {}
+  iki/inventory: { types: { Tube: ">=1" } }
   iki/lab_roles: {}

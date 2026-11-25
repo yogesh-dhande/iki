@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: AssayPlate
 label: Assay plate
-schema_version: 3
+schema_version: 4
 hrid: { prefix: APL }
 description: The reader export and the samples, dilution series and controls assigned to its wells.
 fields:
@@ -17,11 +17,11 @@ fields:
     description: One CSV matrix of BMG MARS endpoint absorbance (OD) or normalized activity (%).
   request:
     type: ref
-    to: iki/example_lims.AnalysisRequest
+    to: iki/requests.Request
     description: The analytical request these measurements will answer, when the plate is run for a requester.
   reagent_tube:
     type: ref
-    to: iki/example_lims.Tube
+    to: iki/inventory.Tube
     immutable: true
     description: The tube of reagent used for this plate.
   assignments:

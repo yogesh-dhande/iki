@@ -31,7 +31,7 @@ Each result keeps the flow selected when it was created.
    concentrations of samples in a series. **Assign a dilution series** fills
    an empty block from its starting well, nominal concentration, fold dilution
    and number of concentrations. Replicates occupy parallel rows or columns.
-   If the assay answers a request, select the submitted analysis request.
+   If the assay answers a request, select the submitted Research or QC request matching the review flow.
 2. Attach a BMG LABTECH MARS endpoint CSV, exported with the absorbance display
    set to OD, or attach a matrix headed `Normalized activity (%)`. Choose **Preview** and inspect the measured and assigned wells.
    Resolve missing, repeated and unassigned wells, then commit the preview.

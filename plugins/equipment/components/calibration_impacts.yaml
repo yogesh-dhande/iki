@@ -22,7 +22,7 @@ slots:
       where: { field: use, op: eq, value: "{{ entity }}" }
       sort: measurement_at
   - slot: entity.tab
-    type: iki/example_lims.AnalysisResult
+    type: iki/requests.QCDeliverable
     search:
       where: { field: result, op: eq, value: "{{ entity }}" }
       sort: measurement_at

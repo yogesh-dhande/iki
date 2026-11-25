@@ -8,6 +8,6 @@ description: Portions drawn from tubes or lots for work, their measurements and 
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
-  iki/inventory: {}
+  iki/inventory: { types: { Tube: ">=1" } }
   iki/lab_roles: {}
   iki/lots: { types: { Lot: ">=2" } }

@@ -8,7 +8,7 @@ description: >-
   Select all calibration records relevant to the interval, including any recovery, and any
   existing impact cases for the uses being checked.
 inputs:
-  instrument: { type: iki/example_lims.Instrument }
+  instrument: { type: Instrument }
   calibrations: { type: EquipmentService, cardinality: many, max: 1000, label: Service history }
   uses:
     { type: InstrumentUse, cardinality: many, max: 1000, optional: true, label: Instrument uses }

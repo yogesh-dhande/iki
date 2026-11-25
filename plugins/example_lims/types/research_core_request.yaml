@@ -1,9 +1,0 @@
-# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
-apiVersion: iki/v1
-kind: EntityType
-name: ResearchCoreRequest
-label: Research core request
-extends: CoreFacilityRequest
-schema_version: 1
-description: Protein production or sequencing with one signed review of each deliverable.
-hrid: { prefix: RCR }

@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Action
+name: hold_withdrawn
+label: Hold stock derived from a withdrawn tube
+description: Applies the source tube's hold to its downstream stock in this project.
+inputs:
+  source: { type: Tube }
+  tubes: { type: Tube, cardinality: many, optional: true }
+effects:
+  updates:
+    - { input: source, fields: [hold_reason] }
+    - { input: tubes, fields: [on_hold, hold_reason] }
+runs_on: { tier: backend, environment: stock-tools }
+command: [python, ./scripts/hold.py]
+retries: { max: 2, on: [worker_lost, interrupted] }
+timeout: 10m
