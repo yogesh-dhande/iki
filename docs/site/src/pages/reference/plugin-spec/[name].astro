@@ -6,7 +6,7 @@ import Toc from "../../../components/Toc.astro";
 import Doc from "../../../layouts/Doc.astro";
 import { render } from "../../../lib/markdown.ts";
 import { github } from "../../../lib/repo.ts";
-import { GROUPS, SCHEMAS, SPEC, spec } from "../../../lib/spec.ts";
+import { GROUPS, SCHEMAS, SPEC, spec, typeAnchor, typeKeys } from "../../../lib/spec.ts";
 
 export function getStaticPaths() {
   return spec().map((page) => ({ params: { name: page.name }, props: { page } }));
@@ -18,6 +18,7 @@ const toc = [
   ...page.sections.map((section) => ({ id: section.id, label: section.title })),
   ...(page.byType.length ? [{ id: "by-type", label: "Keys by field type" }] : []),
 ];
+const byType = page.byType.length > 0 ? typeKeys(page) : undefined;
 const what = page.kind ? `A ${page.kind} manifest` : page.title;
 ---
 
@@ -73,36 +74,65 @@ const what = page.kind ? `A ${page.kind} manifest` : page.title;
       )}
     </section>
   ))}
-  {page.byType.length > 0 && (
+  {byType && (
     <section id="by-type" aria-labelledby="by-type-h" class="part">
       <h2 id="by-type-h">Keys by field type</h2>
+      <p class="section-desc">
+        Every type takes{" "}
+        {byType.shared.map((key, index) => (
+          <>
+            {index > 0 && (index === byType.shared.length - 1 ? " and " : ", ")}
+            <a href={`#${key}`}>
+              <code>{key}</code>
+            </a>
+          </>
+        ))}
+        , except where its row says. Each type's own keys follow, with what each means; a key's link
+        goes to all of it.
+      </p>
       <div class="table" tabindex="0" role="region" aria-label="The keys each field type takes">
         <table>
           <caption class="sr-only">The keys each field type takes</caption>
           <thead>
             <tr>
               <th scope="col">Type</th>
-              <th scope="col">Keys it takes</th>
+              <th scope="col">Its own keys</th>
             </tr>
           </thead>
           <tbody>
-            {page.byType.map((row) => (
-              <tr>
-                <td>
+            {byType.rows.map((row) => (
+              <tr id={typeAnchor(row.type)}>
+                <th scope="row">
                   <code>{row.type}</code>
-                </td>
+                </th>
                 <td class="type-keys">
-                  {row.keys
-                    .filter((key) => key !== "type")
-                    .map((key, index) => (
-                      <>
-                        {index > 0 && ", "}
-                        <a href={`#${key}`}>
+                  {row.own.length > 0 ? (
+                    <ul>
+                      {row.own.map((key) => (
+                        <li>
+                          <a href={`#${key.id}`}>
+                            <code>{key.name}</code>
+                          </a>
+                          {key.required && <span class="required">required</span>}{" "}
+                          <Fragment set:html={render(key.summary, { inline: true })} />
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>None: only the keys every type takes.</p>
+                  )}
+                  {row.without.length > 0 && (
+                    <p class="muted without">
+                      It doesn't take{" "}
+                      {row.without.map((key, index) => (
+                        <>
+                          {index > 0 && (index === row.without.length - 1 ? " or " : ", ")}
                           <code>{key}</code>
-                        </a>
-                        {row.required.includes(key) && " (required)"}
-                      </>
-                    ))}
+                        </>
+                      ))}
+                      .
+                    </p>
+                  )}
                 </td>
               </tr>
             ))}
@@ -143,10 +173,28 @@ const what = page.kind ? `A ${page.kind} manifest` : page.title;
     margin: 10px 0 0;
     font-size: 14px;
   }
-  .type-keys {
-    line-height: 1.8;
+  .type-keys ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .type-keys p {
+    margin: 0;
   }
   .type-keys code {
     font-size: 12px;
+  }
+  .type-keys .without {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+  .required {
+    margin-left: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
   }
 </style>

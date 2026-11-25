@@ -74,7 +74,7 @@ const BY_NAME: Record<string, string> = {
   role_label: "QA",
   action: "iki/plate_assays.fit_curve",
   action_label: "Fit a dose-response curve",
-  workflow: "iki/protein.translate_and_characterize",
+  workflow: "acme/protein_translation.translate_and_characterize",
   plugin: "iki/plate_assays",
   plugin_version: "1.4.0",
   plugin_sha: "3f9c2e71a4b05d6c8e1f2a3b4c5d6e7f8a9b0c1d",
@@ -189,7 +189,7 @@ const NAMES: [RegExp, string][] = [
   [/Plugin/, "iki/plate_assays"],
   [/EntityType|TypeOut|TypeIn/, "iki/plate_assays.RequestedQCAssayResult"],
   [/Action/, "iki/plate_assays.fit_curve"],
-  [/Workflow/, "iki/protein.translate_and_characterize"],
+  [/Workflow/, "acme/protein_translation.translate_and_characterize"],
   [/Team/, "Assay development"],
   [/Registry/, "Biologics registry"],
   [/Webhook/, "LIMS results feed"],
@@ -275,7 +275,8 @@ export function pathValue(path: string, name: string): string {
   if (name === "name") {
     if (path.startsWith("/api/v1/actions/")) return "iki/plate_assays.fit_curve";
     if (path.startsWith("/api/v1/entity-types/")) return "iki/plate_assays.RequestedQCAssayResult";
-    if (path.startsWith("/api/v1/workflows/")) return "iki/protein.translate_and_characterize";
+    if (path.startsWith("/api/v1/workflows/"))
+      return "acme/protein_translation.translate_and_characterize";
     if (path.startsWith("/api/v1/components/")) return "iki/plate_assays.plate_map";
     if (path.startsWith("/api/v1/outside-apis/")) return "iki/example_models.foldcloud";
     if (path.startsWith("/api/v1/plugins/")) return "iki/plate_assays";

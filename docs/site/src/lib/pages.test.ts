@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { api } from "./api.ts";
 import { anchors, pluginHref, plugins } from "./plugins.ts";
 import { ROOT } from "./repo.ts";
-import { specPages } from "./spec.ts";
+import { specPages, typeAnchor } from "./spec.ts";
 
 const CONTENT = fileURLToPath(new URL("../content/", import.meta.url));
 
@@ -81,7 +81,7 @@ const specKeys = new Map(
     page.href,
     new Set([
       ...page.sections.flatMap((section) => [section.id, ...section.keys.map((key) => key.id)]),
-      ...(page.byType.length ? ["by-type"] : []),
+      ...(page.byType.length ? ["by-type", ...page.byType.map((row) => typeAnchor(row.type))] : []),
     ]),
   ]),
 );

@@ -122,7 +122,8 @@
             }
           }
         }
-      ]
+      ],
+      "description": "The job: the lease iki-worker holds and its limits, or, as staged for the command, only its ID, timeout and resources."
     },
     "command": {
       "type": "array",

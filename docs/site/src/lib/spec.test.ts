@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  firstSentence,
   GROUPS,
   loadSchemas,
   specPages,
+  typeKeys,
   type Group,
   type Key,
   type Schema,
@@ -91,6 +93,34 @@ describe("the plugin spec reference, from the repository's schemas", () => {
     expect(string?.keys).toEqual(expect.arrayContaining(["unique", "link", "pattern_help"]));
     expect(page("field").byType.find((row) => row.type === "enum")?.required).toContain("values");
     expect(page("settings").byType).toEqual([]);
+  });
+
+  it("says once what every field type takes, then each type's own keys with what they mean", () => {
+    const { shared, rows } = typeKeys(page("field"));
+    expect(shared).toEqual(expect.arrayContaining(["label", "description", "required", "removed"]));
+    expect(shared).not.toContain("type");
+    const quantity = rows.find((row) => row.type === "quantity");
+    expect(quantity?.own.map((k) => k.name)).toEqual(
+      expect.arrayContaining(["unit", "display_unit", "min", "max", "default"]),
+    );
+    expect(quantity?.own.find((k) => k.name === "unit")?.required).toBe(true);
+    expect(quantity?.own.every((k) => k.summary.length > 0)).toBe(true);
+    const state = rows.find((row) => row.type === "state");
+    expect(state?.without).toEqual(expect.arrayContaining(["required", "immutable", "computed"]));
+    // Every key a type takes is shown: shared, or its own.
+    for (const row of page("field").byType) {
+      const shown = rows.find((r) => r.type === row.type);
+      const listed = new Set([
+        ...shared.filter((k) => !shown?.without.includes(k)),
+        ...(shown?.own.map((k) => k.name) ?? []),
+      ]);
+      expect(row.keys.filter((k) => k !== "type").every((k) => listed.has(k))).toBe(true);
+    }
+  });
+
+  it("cuts a description at its first sentence, not at a full stop in code", () => {
+    expect(firstSentence("Its `a.b` value. More.")).toBe("Its `a.b` value.");
+    expect(firstSentence("No stop")).toBe("No stop");
   });
 
   it("says when a key is allowed only with another's value", () => {

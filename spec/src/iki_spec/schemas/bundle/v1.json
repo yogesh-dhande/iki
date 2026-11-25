@@ -537,7 +537,8 @@
           ]
         },
         "has_been_locked": {
-          "type": "boolean"
+          "type": "boolean",
+          "description": "Whether a state has ever locked it, even if none does now. Iki keeps this once it's true."
         },
         "archived_at": {
           "description": "When it was archived, or null if it isn't.",

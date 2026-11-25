@@ -232,15 +232,15 @@
           "minimum": 1
         },
         "min": {
-          "description": "The smallest allowed value.",
+          "description": "For a number or a quantity: the smallest value allowed, in a quantity's `unit`.",
           "type": "number"
         },
         "max": {
-          "description": "The largest allowed value.",
+          "description": "For a number or a quantity: the largest value allowed, in a quantity's `unit`.",
           "type": "number"
         },
         "values": {
-          "description": "The allowed values.",
+          "description": "For an enum: the values it may hold, in the order forms offer them. Each starts with a letter or digit, then letters, digits and `_ . + -`.",
           "type": "array",
           "minItems": 1,
           "maxItems": 500,
@@ -295,7 +295,7 @@
           "$ref": "#/$defs/roleRef"
         },
         "items": {
-          "description": "What each item of the list is.",
+          "description": "What each item of the list is: a value type with its options, such as `{ type: ref, to: iki/inventory.Tube }`, without the field's own keys such as `required`; or a row of typed fields, `type: row`.",
           "$ref": "#/$defs/item"
         },
         "min_items": {

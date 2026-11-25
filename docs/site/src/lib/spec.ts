@@ -667,6 +667,72 @@ function byTypeOf(generator: Generator, at: At, page: string): SpecPage["byType"
   return found;
 }
 
+/** The anchor of a field type's row in "Keys by field type": `type-string`. */
+export function typeAnchor(type: string): string {
+  return `type-${type}`;
+}
+
+/** One field type's keys as "Keys by field type" shows them: its own, each with the first
+ * sentence of what it means, and which of the keys nearly every type takes it doesn't. */
+export interface TypeKeys {
+  type: string;
+  own: { name: string; id: string; summary: string; required: boolean }[];
+  without: string[];
+}
+
+/** The keys a page's types share (every type's, or all but one's), and each type's own:
+ * what tells one type's options from another's. */
+export function typeKeys(page: SpecPage): { shared: string[]; rows: TypeKeys[] } {
+  const rows = page.byType;
+  const count = new Map<string, number>();
+  for (const row of rows) {
+    for (const key of row.keys) count.set(key, (count.get(key) ?? 0) + 1);
+  }
+  const shared = [...count.keys()].filter(
+    (key) => key !== "type" && (count.get(key) ?? 0) >= rows.length - 1,
+  );
+  const top = new Map(
+    page.sections.flatMap((section) =>
+      section.keys.filter((key) => key.depth === 0).map((key) => [key.name, key] as const),
+    ),
+  );
+  return {
+    shared,
+    rows: rows.map((row) => ({
+      type: row.type,
+      own: row.keys
+        .filter((key) => key !== "type" && !shared.includes(key))
+        .map((name) => {
+          const key = top.get(name);
+          return {
+            name,
+            id: key?.id ?? name,
+            summary: firstSentence(key?.description ?? ""),
+            required: row.required.includes(name),
+          };
+        }),
+      without: shared.filter((key) => !row.keys.includes(key)),
+    })),
+  };
+}
+
+/** A description's first sentence: up to its first full stop outside code. */
+export function firstSentence(markdown: string): string {
+  let inCode = false;
+  for (let at = 0; at < markdown.length; at += 1) {
+    const char = markdown[at];
+    if (char === "`") inCode = !inCode;
+    if (
+      !inCode &&
+      char === "." &&
+      (at + 1 === markdown.length || /\s/.test(markdown[at + 1] ?? ""))
+    ) {
+      return markdown.slice(0, at + 1);
+    }
+  }
+  return markdown;
+}
+
 /** Every object definition with keys, in every schema: what the pages must reach. */
 function definitions(schemas: Map<string, Schema>): string[] {
   const found: string[] = [];
@@ -725,6 +791,7 @@ export function specPages(
     const sections = page.sections.flatMap((s) => [s.id, `${s.id}-h`]);
     for (const id of [
       ...fixed,
+      ...page.byType.map((row) => typeAnchor(row.type)),
       ...sections,
       ...page.sections.flatMap((s) => s.keys.map((k) => k.id)),
     ]) {
