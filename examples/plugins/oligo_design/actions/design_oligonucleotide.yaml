@@ -11,7 +11,7 @@ description: >-
   properties.
 inputs:
   monomers:
-    type: Monomer
+    type: iki/oligo.Monomer
     schema: ">=1"
     cardinality: many
     max: 500
@@ -86,11 +86,11 @@ params:
     label: Purpose
 effects:
   creates:
-    - { type: Monomer, cardinality: many }
-    - { type: Oligonucleotide }
+    - { type: iki/oligo.Monomer, cardinality: many }
+    - { type: iki/oligo.Oligonucleotide }
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
 runs_on: { tier: backend, environment: oligo-tools }
-command: [python, ./scripts/oligos.py, design]
+command: [python, ./scripts/design.py]
 deterministic: true
 timeout: 10m

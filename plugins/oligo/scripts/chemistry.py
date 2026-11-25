@@ -35,7 +35,7 @@ from helm import Helm, HelmError, Node, Polymer, node_of
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors, rdCIPLabeler
 
-RDLogger.DisableLog("rdApp.*")
+RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 #: The library Iki seeds the registry of monomers from (see data/README.md).
 LIBRARY = Path(__file__).resolve().parent.parent / "data" / "monomers.json"
@@ -237,7 +237,7 @@ class MissingError(HelmError):
 
 def bonds(helm: Helm) -> list[tuple[tuple[str, int], int, tuple[str, int], int]]:
     """Each bond HELM makes: (polymer, node index) and R number at each end."""
-    out = []
+    out: list[tuple[tuple[str, int], int, tuple[str, int], int]] = []
     for p in helm.polymers:
         backbone = [n for n in p.nodes if n.branch_of is None]
         out.extend(
@@ -437,7 +437,7 @@ def average_weight(mol: Chem.Mol) -> float:
 
 
 def monoisotopic_mass(mol: Chem.Mol) -> float:
-    return float(Descriptors.ExactMolWt(mol))
+    return float(Descriptors.ExactMolWt(mol))  # type: ignore[attr-defined]
 
 
 # --- Nucleotides --------------------------------------------------------------------------
@@ -622,7 +622,7 @@ def modifications(built: Built) -> list[str]:
         if n.nucleotide and n.base is None:
             counts[ABASIC] += 1
         for m in [n.sugar, n.base, n.linker, *n.others]:
-            if modified(m):
+            if m is not None and modified(m):
                 counts[m.name] += 1
     out = [f"{name} ({count})" for name, count in sorted(counts.items())]
     for where, groups in ends(built).items():
