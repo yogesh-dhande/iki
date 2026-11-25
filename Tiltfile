@@ -17,7 +17,7 @@ plugin_deps = [
 ]
 chart_values = ['deploy/dev/values-dev.yaml']
 if fixtures == '1':
-    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'plugin-template']
+    plugin_deps += ['deploy/dev/fixtures', 'examples/plugins/hosted_models', 'examples/plugins/lims_connector', 'plugin-template']
     chart_values.append('deploy/dev/fixtures/values.yaml')
 
 # --- Dependencies -------------------------------------------------------------
@@ -34,7 +34,7 @@ k8s_yaml([
 if fixtures == '1':
     k8s_yaml([
         'deploy/dev/fixtures/namespaces.yaml',
-        'deploy/dev/manifests/fake-lims.yaml',
+        'deploy/dev/fixtures/fake-lims.yaml',
         'deploy/dev/fixtures/fake-foldcloud.yaml',
         'deploy/dev/manifests/shared-filesystem.yaml',
         'deploy/dev/manifests/bucket.yaml',

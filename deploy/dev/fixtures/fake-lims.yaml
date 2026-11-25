@@ -1,11 +1,9 @@
-# A fake LIMS for the dev cluster, with the REST API the example LIMS connector
-# talks to (plugins/lims_connector_example/scripts/lims.py): GET /api/v1/proteins, a
-# page at a time, and PATCH /api/v1/proteins/<id>, with the bearer token in
-# iki-run-secrets. It answers at https://fake-lims.iki.svc, with a certificate
-# from the dev CA up.sh made, so runs reach it as they would a lab's LIMS:
-# through the egress proxy, checking TLS end to end. GET /requests on port
-# 8080 lists the last 200 API requests (without the token), for you and
-# e2e.sh. Development only.
+# The dev-ci fixture for examples/plugins/lims_connector. GET /api/v1/proteins
+# returns one page and PATCH /api/v1/proteins/<id> updates a record. Both
+# requests require the connector's bearer token from iki-run-secrets.
+# Runs reach https://fake-lims.iki.svc through the egress proxy and check
+# its TLS certificate against the dev CA. GET /requests on port 8080 lists
+# the last 200 requests for e2e.sh, with credentials omitted.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,7 +20,7 @@ data:
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from urllib.parse import parse_qs, unquote, urlsplit
 
-    TOKEN = open("/secrets/iki__lims_connector_example.LIMS_TOKEN").read().strip()
+    TOKEN = open("/secrets/acme__lims_connector.LIMS_TOKEN").read().strip()
     PAGE = 2
     lock = threading.Lock()
     received = collections.deque(maxlen=200)
@@ -180,12 +178,7 @@ spec:
           secret:
             secretName: iki-run-secrets
             items:
-              [
-                {
-                  key: iki__lims_connector_example.LIMS_TOKEN,
-                  path: iki__lims_connector_example.LIMS_TOKEN,
-                },
-              ]
+              - { key: acme__lims_connector.LIMS_TOKEN, path: acme__lims_connector.LIMS_TOKEN }
 ---
 apiVersion: v1
 kind: Service

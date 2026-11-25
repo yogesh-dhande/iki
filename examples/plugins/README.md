@@ -14,6 +14,8 @@ Iki's installable first-party plugins live in [`plugins/`](../../plugins).
 - [Independent construct review](construct_review/README.md) adds a reviewed Assembly
   for labs that require someone other than the builder or a later editor to verify a
   matching comparison and lock the record.
+- [LIMS connector](lims_connector/README.md) imports changed proteins from a
+  LIMS and sends name changes back under the project’s chosen policy.
 - [Oligonucleotide design](oligo_design/README.md) registers a strand from its
   known bases and a lab’s standard pattern of modifications.
 - [Protein translation](protein_translation/README.md) chains translation and
