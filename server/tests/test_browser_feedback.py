@@ -47,7 +47,10 @@ def settled(page: Page, reading: set[Request]) -> None:
 
 
 def press(page: Page, target: Any) -> None:
-    """Puts the pointer down at the middle of `target`, where it is now."""
+    """Puts the pointer down at the middle of `target`, where it is now, once it's scrolled
+    into the window as a person would have it (the Overview's Requests card is its last, so
+    below the fold at the default 1280x720)."""
+    target.scroll_into_view_if_needed()
     box = target.bounding_box()
     assert box, "it isn't drawn"
     page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
