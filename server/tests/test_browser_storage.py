@@ -27,6 +27,7 @@ import pytest
 from org_world import World
 from playwright.sync_api import APIResponse, Page, Request, Route, expect
 from test_browser import (  # noqa: F401 - fixtures
+    NEXT_FRAMES,
     PAGE_ERRORS,
     _orm_beside_playwright,
     assert_clean,
@@ -1293,6 +1294,52 @@ def test_drawing_from_and_moving_a_tube_whose_label_another_shares(
     move.get_by_role("button", name="Move it").click()
     move.wait_for(state="hidden")
     assert where(ours) == (spare["hrid"], 1, 1)
+    page.context.close()
+
+
+def test_draw_holds_still_as_the_box_map_comes_above_it(open_as: Any, world: World) -> None:
+    """A tube's page draws where it is, then its box's map, the last of its reads, in the card
+    above Volume. A press on Draw as the map comes ends on Draw, and opens it: the map comes
+    once it's let go. It didn't: the map pushed Draw down under the press, which ended on
+    the card and drew nothing (Firefox lost the click in a full run)."""
+    kept = twins(world)
+    ours, retains = kept["ours"], kept["retains"]
+    page: Page = open_as("admin", f"/entities/{ours['hrid']}/")
+    # Tall enough that Draw is in the window unscrolled: a browser's scroll anchoring then
+    # can't keep it in place for the map, as it would below the fold.
+    page.set_viewport_size({"width": 1440, "height": 1600})
+    draw = page.get_by_role("region", name="Volume").get_by_role("button", name="Draw")
+    grid = page.get_by_role(
+        "grid", name=f"Kinase retains’s positions, with {ours['hrid']}’s marked"
+    )
+    held: list[Route] = []
+    box_read = f"**/api/v1/storage/containers/{retains['hrid']}"
+    page.route(box_read, lambda route: held.append(route))
+    with page.expect_request(box_read):
+        page.reload()
+    page.get_by_role("navigation", name=f"Where {ours['hrid']} is").wait_for()
+    draw.wait_for()
+    page.evaluate(NEXT_FRAMES)
+    assert grid.count() == 0
+    assert page.evaluate("window.scrollY") == 0
+    drawn = draw.bounding_box()
+    assert drawn
+    page.mouse.move(drawn["x"] + drawn["width"] / 2, drawn["y"] + drawn["height"] / 2)
+    page.mouse.down()
+    with page.expect_response(box_read):
+        held[0].continue_()
+    page.unroute(box_read)
+    # The map's read is in: it would be drawn by now.
+    page.evaluate(NEXT_FRAMES)
+    page.evaluate(NEXT_FRAMES)
+    pressed = draw.bounding_box()
+    page.mouse.up()
+    assert pressed == drawn, f"Draw drawn at {drawn}, then at {pressed} when let go."
+    dialog = page.get_by_role("alertdialog")
+    expect(dialog.get_by_role("textbox", name="How much")).to_be_visible()
+    # And once it's let go, the map.
+    expect(grid).to_be_visible()
+    checked(page)
     page.context.close()
 
 
