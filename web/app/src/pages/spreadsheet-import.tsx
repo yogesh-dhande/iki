@@ -32,6 +32,7 @@ import { formatSize, inSentence, typesQuery, type EntityType } from "../entities
 import { FilePicker } from "../file-picker";
 import { UploadStatus } from "../file-upload";
 import { usePageTitle } from "../layout";
+import { useMedia } from "../media";
 import {
   CHOICES,
   columnName,
@@ -57,8 +58,7 @@ import {
   startImport,
   STATES,
   useImportSaves,
-  WORKBOOK_ACCEPT,
-  WORKBOOK_TYPES,
+  WORKBOOK_FORMATS,
   type Choose,
   type ImportSaves,
   type Outcome,
@@ -174,6 +174,7 @@ export function ChooseWorkbook({
   onStarted: (made: SheetImport) => void;
 }) {
   const id = useId();
+  const media = useMedia();
   const choices = importableTypes(types);
   const [type, setType] = useState(given && choices.some((t) => t.name === given) ? given : "");
   const [file, setFile] = useState<File>();
@@ -199,13 +200,12 @@ export function ChooseWorkbook({
     const controller = new AbortController();
     transfer.current = controller;
     try {
-      const kind = /\.(csv|tsv|txt)$/i.test(chosen.name) ? "text/csv" : WORKBOOK_TYPES[0];
       const uploaded = await upload(
         chosen,
         project.id,
         setProgress,
         controller.signal,
-        kind,
+        WORKBOOK_FORMATS,
         acquiredAt,
       );
       onStarted(await startImport(project.id, uploaded.id, type));
@@ -290,7 +290,7 @@ export function ChooseWorkbook({
               ref={input}
               id={`${id}-file`}
               type="file"
-              accept={WORKBOOK_ACCEPT}
+              accept={media.accept(WORKBOOK_FORMATS)}
               disabled={starting !== undefined}
               aria-invalid={error ? "true" : undefined}
               aria-describedby={error ? `${id}-error` : `${id}-help`}
@@ -332,7 +332,7 @@ export function ChooseWorkbook({
         }}
         projectId={project.id}
         label="the import"
-        takes={{ accepts: WORKBOOK_TYPES, maxSize: WORKBOOK_MAX_SIZE }}
+        takes={{ accepts: WORKBOOK_FORMATS, maxSize: WORKBOOK_MAX_SIZE }}
         onChoose={([chosen]) => {
           if (chosen) void pick(chosen.id, chosen.name);
         }}

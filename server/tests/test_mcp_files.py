@@ -69,7 +69,7 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
     filters = {
         "project": str(world.project.pk),
         "q": "pLaTe",
-        "format": ["chemical/*", "image/*"],
+        "format": ["iki/core.pdb", "image/*"],
         "acquired_from": "2026-03-14",
         "acquired_to": "2026-03-31",
     }
@@ -90,7 +90,9 @@ async def test_find_files_matches_the_files_list_and_counts(world: World) -> Non
     assert count == {"total": 2, "more_than_total": False}
     assert {key: first[key] for key in count} == count
     assert first["formats"] == await browser("/files/formats", **filters)
-    assert {"media_type": "text/csv", "count": 1} in first["formats"]
+    assert {"id": "iki/core.csv", "label": "CSV", "media_type": "text/csv", "count": 1} in first[
+        "formats"
+    ]
     second = data(
         await tool(
             token, "find_files", **filters, sort="name", limit=1, cursor=first["next_cursor"]
@@ -147,7 +149,10 @@ async def test_file_tools_respect_project_membership_and_the_grant(
 
         found = data(await call("find_files"))
         assert [row["id"] for row in found["items"]] == [str(allowed.pk)]
-        assert found["total"] == 1 and found["formats"] == [{"media_type": "text/csv", "count": 1}]
+        assert found["total"] == 1
+        assert found["formats"] == [
+            {"id": "iki/core.csv", "label": "CSV", "media_type": "text/csv", "count": 1}
+        ]
         for name in ("get_file", "get_file_download_link"):
             missing = error(await call(name, file_id=str(uuid4())))
             assert "(404, not_found)" in missing

@@ -1841,6 +1841,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/files", fixed("/files"), row(200)),
     ("GET", "/files/count", fixed("/files/count"), row(200)),
     ("GET", "/files/formats", fixed("/files/formats"), row(200)),
+    ("GET", "/formats", fixed("/formats"), row(200)),
     ("GET", "/files/{file_id}", file(), readers(200)),
     ("GET", "/files/{file_id}/records", file("/records"), readers(200)),
     ("GET", "/files/{file_id}/runs", file("/runs"), readers(200)),

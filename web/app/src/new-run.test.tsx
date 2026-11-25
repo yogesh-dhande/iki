@@ -434,7 +434,14 @@ describe("starting a run", () => {
     };
     answer("GET /api/v1/files", page([fasta]));
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
-    answer("GET /api/v1/files/formats", [{ media_type: "chemical/seq-aa-fasta", count: 1 }]);
+    answer("GET /api/v1/files/formats", [
+      {
+        id: "iki/core.protein-fasta",
+        label: "protein FASTA",
+        media_type: "chemical/seq-aa-fasta",
+        count: 1,
+      },
+    ]);
     answer("POST /api/v1/actions/iki/protein.import_proteins/runs", () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
     answer("GET /api/v1/runs/RUN-000001/attempts", []);

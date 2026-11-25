@@ -296,9 +296,10 @@ if first is not None:
         print(run["hrid"], run["roles"])
 ```
 
-`q` matches part of the name, ignoring case. `format` accepts a media type,
-a family such as `image/*`, or a list of either. Both acquisition dates are
-inclusive and accept Python dates or ISO date strings. `sample` and `run`
+`q` matches part of the name, ignoring case. `format` accepts an installed
+format ID such as `iki/core.csv`, a media type, a family such as `image/*`, or
+a list of these. Both acquisition dates are inclusive and accept Python
+dates or ISO date strings. `sample` and `run`
 take an ID or HRID. Use `accepts` and `max_size` (bytes) to match a field
 or action parameter. Omit `project` to include every file you can read.
 `list` accepts `sort` (`newest`, `oldest`, `name`, `name_desc`, `acquired`
@@ -346,7 +347,7 @@ size, media type and SHA-256.
 
 ```python
 project = "kinase-atlas"
-coordinates = iki.files.upload("abl.pdb", project=project, media_type="chemical/x-pdb")
+coordinates = iki.files.upload("abl.pdb", project=project)
 
 # An entity's file field takes the ID.
 structure = iki.entities.create(
@@ -360,8 +361,9 @@ run = iki.run("iki/protein.import_structure", project=project, params={"file": c
 You can also pass an open binary file or stream. The SDK reads from its
 current position and leaves it open. It restores the position of a seekable
 stream and uses a temporary file for a stream it can read only once.
-Give an unnamed stream a filename with `name=`. For scientific formats,
-set `media_type=` to a type the field or action accepts.
+Give an unnamed stream a filename with `name=`. Iki recognizes registered
+formats from their bytes and filenames. You can supply a media type explicitly,
+for example `media_type="chemical/seq-aa-fasta"` for a protein `.fasta` file.
 
 Uploading requires project Editor access and the `write` scope. A reader
 who tries to upload gets `iki.Forbidden`. If Iki rejects the bytes during

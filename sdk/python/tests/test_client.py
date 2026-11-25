@@ -770,8 +770,14 @@ def test_registration_timeout_leaves_the_version_being_checked(
     assert len(fake.requests) == 1
 
 
-def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_path: Path) -> None:
-    path = tmp_path / "empty.txt"
+@pytest.mark.parametrize(
+    ("declared", "sent"),
+    [(None, "application/octet-stream"), ("chemical/x-pdb", "chemical/x-pdb")],
+)
+def test_an_empty_upload_is_already_ready(
+    fake: FakeIki, client: Client, tmp_path: Path, declared: str | None, sent: str
+) -> None:
+    path = tmp_path / "empty.pdb"
     path.touch()
     digest = hashlib.sha256(b"").hexdigest()
     record = {"id": "f1", "name": path.name, "size": 0, "sha256": digest}
@@ -781,11 +787,11 @@ def test_an_empty_upload_is_already_ready(fake: FakeIki, client: Client, tmp_pat
         {"id": "u1", "state": "ready", "file": record, "parts": [], "part_count": 0},
     )
 
-    assert client.files.upload(path, project=PROJECT) == record
+    assert client.files.upload(path, project=PROJECT, media_type=declared) == record
     assert fake.body("POST", "/api/v1/uploads") == {
         "project": PROJECT,
         "name": path.name,
-        "media_type": "text/plain",
+        "media_type": sent,
         "size": 0,
         "sha256": digest,
     }

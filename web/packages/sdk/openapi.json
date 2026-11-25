@@ -7772,7 +7772,7 @@
             "title": "Cursor"
           },
           "format": {
-            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
             "items": {
               "type": "string"
             },
@@ -8212,6 +8212,24 @@
         "title": "FileRowOut",
         "type": "object"
       },
+      "FileSignatureOut": {
+        "properties": {
+          "hex": {
+            "title": "Hex",
+            "type": "string"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "offset",
+          "hex"
+        ],
+        "title": "FileSignatureOut",
+        "type": "object"
+      },
       "FiredEntityOut": {
         "properties": {
           "hrid": {
@@ -8519,12 +8537,30 @@
             "title": "Count",
             "type": "integer"
           },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The declared format ID, when installed.",
+            "title": "Id"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
           "media_type": {
             "title": "Media Type",
             "type": "string"
           }
         },
         "required": [
+          "id",
+          "label",
           "media_type",
           "count"
         ],
@@ -11023,6 +11059,87 @@
           "optional"
         ],
         "title": "InputOut",
+        "type": "object"
+      },
+      "InstalledFormatOut": {
+        "properties": {
+          "canonical": {
+            "title": "Canonical",
+            "type": "string"
+          },
+          "extensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extensions",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "media_types": {
+            "description": "The canonical media type followed by its aliases.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "parsers": {
+            "description": "Installed actions whose file inputs accept the format.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Parsers",
+            "type": "array"
+          },
+          "reader": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reader"
+          },
+          "signatures": {
+            "items": {
+              "$ref": "#/components/schemas/FileSignatureOut"
+            },
+            "title": "Signatures",
+            "type": "array"
+          },
+          "viewer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Viewer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "canonical",
+          "media_types",
+          "extensions",
+          "signatures",
+          "reader",
+          "viewer",
+          "parsers"
+        ],
+        "title": "InstalledFormatOut",
         "type": "object"
       },
       "IntakeIn": {
@@ -27699,7 +27816,7 @@
             "type": "string"
           },
           "structure": {
-            "description": "The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB (chemical/x-pdb).",
+            "description": "The file field holding coordinates in a format that declares the structure-mmcif or structure-pdb viewer.",
             "title": "Structure",
             "type": "string"
           },
@@ -38318,12 +38435,12 @@
             }
           },
           {
-            "description": "Media types, such as application/x-abi, or image/* for any image.",
+            "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
             "in": "query",
             "name": "format",
             "required": false,
             "schema": {
-              "description": "Media types, such as application/x-abi, or image/* for any image.",
+              "description": "Format IDs, media types such as application/x-abi, or image/* for any image.",
               "items": {
                 "type": "string"
               },
@@ -38662,7 +38779,7 @@
     },
     "/api/v1/files/formats": {
       "get": {
-        "description": "The media types of the files ``GET /files`` would list, whatever its ``format``,\nwith how many of each: what its Format filter offers.",
+        "description": "Format labels and counts for readable files matching the other filters. Aliases\ncount together. A file of an undeclared type keeps its media type as its label.",
         "operationId": "iki_server_api_files_file_formats",
         "parameters": [
           {
@@ -39097,6 +39214,41 @@
           }
         ],
         "summary": "The runs that used a file",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/api/v1/formats": {
+      "get": {
+        "description": "Core and plugin formats, in recognition order for shared filename extensions.",
+        "operationId": "iki_server_api_files_installed_formats",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstalledFormatOut"
+                  },
+                  "title": "Response",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "The installed file formats",
         "tags": [
           "files"
         ]

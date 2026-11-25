@@ -228,31 +228,20 @@ fn fetch(
     Ok(())
 }
 
-/// A media type from a file's extension, for `$file`s that don't give one.
-fn guess_media_type(path: &Path) -> &'static str {
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or_default();
-    match extension.to_ascii_lowercase().as_str() {
-        "pdb" | "ent" => "chemical/x-pdb",
-        "cif" | "mmcif" => "chemical/x-mmcif",
-        "sdf" | "mol" => "chemical/x-mdl-sdfile",
-        "fasta" | "fa" | "faa" | "fna" => "text/x-fasta",
-        "csv" => "text/csv",
-        "tsv" => "text/tab-separated-values",
-        "json" => "application/json",
-        "txt" | "log" | "aln" | "a3m" | "sto" => "text/plain",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "tif" | "tiff" => "image/tiff",
-        "pdf" => "application/pdf",
-        "gz" => "application/gzip",
-        "zip" => "application/zip",
-        "h5" | "hdf5" => "application/x-hdf5",
-        "parquet" => "application/vnd.apache.parquet",
-        _ => "application/octet-stream",
-    }
+const OCTET_STREAM: &str = "application/octet-stream";
+
+/// Offline jobs use the generated core registry. Leased jobs use the deployment's registry
+/// when the server checks the uploaded bytes, including formats installed by plugins.
+fn local_media_type(name: &str) -> &'static str {
+    let lower = name
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    iki_protocol::CORE_FILE_EXTENSIONS
+        .iter()
+        .find(|(suffix, _)| lower.len() > suffix.len() && lower.ends_with(*suffix))
+        .map_or(OCTET_STREAM, |(_, media_type)| media_type)
 }
 
 /// A `$file` reference in output.json, once checked.
@@ -261,7 +250,7 @@ struct Made {
     /// Its path in `IKI_OUT_DIR`.
     relative: String,
     name: String,
-    media_type: String,
+    media_type: Option<String>,
 }
 
 /// What a `{"$file": …}` value names, if it's a file in `out_dir`.
@@ -293,7 +282,7 @@ fn resolve(
     let name = text("name")
         .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))
         .unwrap_or_else(|| "file".to_owned());
-    let media_type = text("media_type").unwrap_or_else(|| guess_media_type(&path).to_owned());
+    let media_type = text("media_type");
     let relative = path
         .strip_prefix(&root)
         .map(|p| p.to_string_lossy().into_owned())
@@ -408,7 +397,7 @@ pub fn describe_results(
         Ok(serde_json::json!({
             "$file": made.relative,
             "name": made.name,
-            "media_type": made.media_type,
+            "media_type": made.media_type.as_deref().unwrap_or_else(|| local_media_type(&made.name)),
             "size": size,
             "sha256": sha256,
             "path": made.path.to_string_lossy(),
@@ -436,10 +425,9 @@ pub fn describe_local(
     let name = source
         .file_name()
         .map_or_else(|| "file".to_owned(), |n| n.to_string_lossy().into_owned());
-    entry.entry("name").or_insert_with(|| name.into());
-    entry
-        .entry("media_type")
-        .or_insert_with(|| guess_media_type(&source).into());
+    let name = entry.entry("name").or_insert_with(|| name.into());
+    let inferred = local_media_type(name.as_str().unwrap_or_default());
+    entry.entry("media_type").or_insert_with(|| inferred.into());
     if !entry.contains_key("size") || !entry.contains_key("sha256") {
         let (size, sha256) = digest(&source).map_err(|e| format!("couldn't read {given}: {e}."))?;
         entry.entry("size").or_insert_with(|| size.into());
@@ -498,7 +486,11 @@ fn upload(
     let body = UploadIn {
         lease_token: lease.token.to_owned(),
         name: made.name.clone(),
-        media_type: made.media_type.clone(),
+        media_type: made
+            .media_type
+            .as_deref()
+            .unwrap_or(OCTET_STREAM)
+            .to_owned(),
         size: i64::try_from(size).unwrap_or(i64::MAX),
         sha256,
     };
@@ -620,7 +612,7 @@ pub fn upload_artifact(
     let body = ArtifactIn {
         lease_token: lease.token.to_owned(),
         path: relative.to_owned(),
-        media_type: guess_media_type(path).to_owned(),
+        media_type: OCTET_STREAM.to_owned(),
         size: i64::try_from(size).unwrap_or(i64::MAX),
         sha256,
     };
@@ -833,8 +825,8 @@ mod tests {
         };
         let made = resolve(&reference("sub/model.pdb"), &out).unwrap();
         assert_eq!(
-            (made.name.as_str(), made.media_type.as_str()),
-            ("model.pdb", "chemical/x-pdb")
+            (made.name.as_str(), made.media_type.as_deref()),
+            ("model.pdb", None)
         );
         assert!(resolve(&reference("../secret"), &out).is_err());
         assert!(resolve(&reference("sub"), &out).is_err());
@@ -848,10 +840,21 @@ mod tests {
         let named = serde_json::json!({"$file": "sub/model.pdb", "name": "a.cif", "media_type": "chemical/x-mmcif"});
         let made = resolve(named.as_object().unwrap(), &out).unwrap();
         assert_eq!(
-            (made.name.as_str(), made.media_type.as_str()),
-            ("a.cif", "chemical/x-mmcif")
+            (made.name.as_str(), made.media_type.as_deref()),
+            ("a.cif", Some("chemical/x-mmcif"))
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn offline_files_follow_the_core_format_declarations() {
+        assert_eq!(local_media_type("ligand.MOL"), "chemical/x-mdl-molfile");
+        assert_eq!(local_media_type("library.sdf"), "chemical/x-mdl-sdfile");
+        assert_eq!(local_media_type("sequences.fasta"), "chemical/seq-na-fasta");
+        assert_eq!(local_media_type("sequences.faa"), "chemical/seq-aa-fasta");
+        assert_eq!(local_media_type("reads.FASTQ.GZ"), "application/gzip");
+        assert_eq!(local_media_type(".mol"), OCTET_STREAM);
+        assert_eq!(local_media_type("unknown"), OCTET_STREAM);
     }
 
     #[test]

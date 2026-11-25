@@ -19,7 +19,7 @@ export const FILES = ["files"] as const;
 /** How a list of files is narrowed: what its toolbar and its address hold. */
 export interface FileFilter {
   q: string;
-  /** Media types, each exact or a family such as `image/*`. */
+  /** Format IDs, media types or families such as `image/*`. */
   format: string[];
   acquiredFrom?: string | undefined;
   acquiredTo?: string | undefined;

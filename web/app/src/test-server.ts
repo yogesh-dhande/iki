@@ -4,6 +4,16 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
+import core from "../../../server/src/iki_plugin_iki__core/manifest.json";
+
+/** The test deployment uses the same generated declarations that ship with the server. */
+export const CORE_FORMATS: Schemas["InstalledFormatOut"][] = Object.values(core.plugin.formats).map(
+  (format) => {
+    const [canonical] = format.media_types;
+    if (!canonical) throw new Error(`Missing canonical media type for ${format.id}.`);
+    return { ...format, canonical, parsers: [] };
+  },
+);
 
 /** JSON to answer with, a Response, or a function of the request giving either. */
 type Answer = unknown;

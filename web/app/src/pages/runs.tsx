@@ -29,7 +29,7 @@ import { machineTime, money } from "../costs";
 import { ENTITIES, formatSize, typeLabel, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
-import { media } from "../media";
+import { useMedia } from "../media";
 import { consentFor, destinations, SendsOutside, type Statement } from "../outside-apis";
 import {
   actionLabel,
@@ -1060,6 +1060,7 @@ function ParamValue({
   items?: string | null | undefined;
   value: unknown;
 }) {
+  const media = useMedia(type === "file");
   if (type === "list" && items === "file" && Array.isArray(value)) {
     return (
       <ul className="param-files">

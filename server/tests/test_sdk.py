@@ -265,6 +265,7 @@ def test_a_notebook_finds_the_same_files_as_the_files_list_and_reads_their_uses(
     filters: list[dict[str, Any]] = [
         {"q": "pLaTe"},
         {"format": ["chemical/*", "text/plain"]},
+        {"format": ["iki/core.pdb"]},
         {"acquired_from": date(2026, 3, 15)},
         {"acquired_to": "2026-03-14"},
         {"sample": specimen.hrid},

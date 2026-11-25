@@ -16,6 +16,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
 from iki_spec import naming
+from iki_spec.formats import FormatRegistry
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
@@ -38,6 +39,12 @@ def plugins() -> dict[str, Plugin]:
             plugin = plugin_from_dict(data["plugin"])
             out[plugin.name] = plugin
     return out
+
+
+@cache
+def file_formats() -> FormatRegistry:
+    """The formats and file parsers in this deployment's compiled manifests."""
+    return FormatRegistry(plugins().values())
 
 
 @cache

@@ -83,6 +83,62 @@ match the first-party name list. A lab can copy a worked example, give it
 a name in its own namespace and deploy a commit from its own repository.
 See the [author examples](../examples/plugins/README.md).
 
+### File formats
+
+Declare a file format once under `formats` in `plugin.yaml`. A format's ID
+is the plugin's full name, a dot, and the local format name. Local names
+start with a lowercase letter and use lowercase letters, digits and hyphens.
+The [plugin template](../plugin-template/plugin.yaml) declares
+`acme/example.tube-scan` for the tabular files its rack scanner writes.
+
+```yaml
+formats:
+  tube-scan:
+    label: Tube scanner export
+    media_types: [application/x-acme-tube-scan]
+    extensions: [.tubescan]
+    signatures: [{ hex: "545542455343414e09" }]
+```
+
+Keep the format ID stable across plugin versions. The first `media_types`
+entry is canonical. If it changes, retain the previous spelling as an alias
+after the canonical entry. Existing files keep their recorded media type.
+The alias lets fields accept those files and format filters find them
+alongside new uploads. Iki reserves `application/octet-stream` for
+unspecified content. Extensions
+include the leading dot and can have multiple parts, such as `.fastq.gz`.
+A signature gives an exact sequence of bytes in hexadecimal and an optional
+byte `offset` from the start (default zero). The example looks for the ASCII
+header `TUBESCAN` followed by a tab. Each signature can be up to 256 bytes
+long and must fit within the first 4,096 bytes. A ZIP header
+alone, for example, occurs in many unrelated formats. If you declare any
+signatures, cover every valid variant. Iki checks the longest matching byte
+signature first, then the longest matching extension, case-insensitively.
+It refuses ambiguous byte matches of equal length and a specific media type
+that contradicts the bytes. If the filename or stated media type identifies
+a format with signatures, at least one must occur in the file.
+
+Use the format ID in the `media_types` of a file field, a file parameter, or
+the items of a list of files. To use another plugin's format, list its owner
+in `dependencies`. Every deployment already has `iki/core`. The field or
+parameter sets its own size limit.
+
+```yaml
+fields:
+  scan: { type: file, media_types: [acme/example.tube-scan], max_size: 20MiB }
+```
+
+Exact media types and wildcards such as `image/*` also work. Iki derives the
+actions that accept a format from their file parameters and the file fields
+of their input record types. A deployment refuses two plugins that claim the
+same extension or media type.
+
+A format can name a built-in metadata `reader` and a `viewer` that understands
+its contents. For a record tab, [configure the viewer](#viewers) under the
+type's `display.viewers` so it knows which field to show. See the
+[generated format reference](../docs/site/src/content/reference/file-formats.mdx) for the IDs,
+aliases, readers, viewers and actions that ship with Iki.
+
 ### Lab roles
 
 A plugin can declare lab roles: who may decide something in a lab, such as
@@ -899,7 +955,7 @@ type's history. Identity fields can't be removed.
 | `date`     |                                                                 | Defaults are written `YYYY-MM-DD`.                                                                            |
 | `datetime` |                                                                 | Always with a time zone. No default.                                                                          |
 | `quantity` | `unit` (required), `display_unit`, `min`, `max`                 | Stored in `unit`, a UCUM code. `min`/`max` are in that unit.                                                  |
-| `file`     | `media_types`, `max_size`                                       | Such as `[application/json, image/*]` and `2GiB` (at most 5 TiB).                                             |
+| `file`     | `media_types`, `max_size`                                       | Format IDs or media types, e.g. `[iki/core.fastq, image/*]`, and up to 5 TiB.                                 |
 | `ref`      | `to` (required)                                                 | Another entity, of type `to` or its subtypes; `iki/core.Entity` for any. Or a list of types: any one of them. |
 | `person`   | `role`, `assignment`                                            | Someone in the record's project. See [People in records](#people-in-records).                                 |
 | `list`     | `items` (required), `min_items`, `max_items`                    | `items` is a type and its options, without the flags, or a row (below). No lists of lists.                    |
@@ -1544,8 +1600,8 @@ display:
 | Viewer      | Fields                                                                                                                                                                                                                                                                                |
 | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sequence`  | `sequence`: a string with format `dna_sequence`, `rna_sequence` or `protein_sequence`. `features` (optional): a json field of regions, each with `type`, `start`, `end`, `name`, `strand`. `tracks` (optional): json fields of one number per residue, each with an optional `label`. |
-| `structure` | `structure`: a file field whose `media_types` are `chemical/x-mmcif`, `chemical/x-pdb` or both.                                                                                                                                                                                       |
-| `alignment` | `alignment`: a file field whose `media_types` are FASTA (`chemical/seq-aa-fasta`, `chemical/seq-na-fasta`, `text/plain`). `rows` (optional): a list of references, the sequences headed by their HRIDs. `reference` (optional): a reference, the row pinned at the top.               |
+| `structure` | `structure` names a file field accepting formats that use the `structure-pdb` or `structure-mmcif` viewer.                                                                                                                                                                            |
+| `alignment` | `alignment` names a file field accepting formats that use the `alignment` viewer, including FASTA and plain text. Optional `rows` lists references to the sequences headed by their HRIDs. Optional `reference` names the row pinned at the top.                                      |
 
 The sequence viewer shows the residues in rows of 60, in groups of 10, as
 they're stored (an RNA's U stays U), with its length in bp for DNA, nt for RNA
@@ -2255,10 +2311,12 @@ command made:
 { "structure": { "$file": "relaxed.pdb", "media_type": "chemical/x-pdb" } }
 ```
 
-`$file` is a path inside `IKI_OUT_DIR`; `name` defaults to its last part,
-and `media_type` to a guess from its extension. The worker uploads it for
-this run and puts the new file's ID in its place, so only files this run
-uploaded can be attached. Iki writes all of it in one transaction, or none.
+`$file` is a path inside `IKI_OUT_DIR`. The default `name` is its last part.
+The worker sends the action's `media_type` when given. Otherwise the server
+recognizes the format by signature, then by extension, using the deployment's
+registry. The worker uploads the file for this run and puts the new file's
+ID in its place, so only files this run uploaded can be attached. Iki
+writes all of it in one transaction, or none.
 A message can name the input `entity` it's about. One at level `error`
 fails that entity's run, which then writes nothing.
 
@@ -2500,6 +2558,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
+| `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |

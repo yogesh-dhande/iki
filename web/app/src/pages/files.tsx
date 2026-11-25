@@ -25,7 +25,7 @@ import {
 } from "../files";
 import { usePageTitle } from "../layout";
 import { useReadableProjects } from "../lists";
-import { media } from "../media";
+import { useMedia } from "../media";
 import { useProject } from "./project-overview";
 import { StatusBadge } from "./runs";
 import {
@@ -139,6 +139,7 @@ function Origin({ file }: { file: FileDetail }) {
 /** A file: what it is, when its data was acquired, where it came from, and what uses it. */
 export function FilePage() {
   const { id } = useParams({ from: "/files/$id" });
+  const media = useMedia();
   const found = useQuery(fileQuery(id));
   const file = found.data;
   usePageTitle(file ? file.name : "File");

@@ -24,7 +24,7 @@ import {
   type FileSort,
   type Takes,
 } from "./files";
-import { media } from "./media";
+import { formatsQuery } from "./media";
 import { SearchBox, ToolbarSelect } from "./pages/entity-filters";
 import { Button, Loading, ProblemAlert, RelativeTime } from "./ui";
 
@@ -96,10 +96,14 @@ export function FileTable({
   actions?: ReactNode;
   caption: string;
 }) {
+  const catalog = useQuery(formatsQuery);
+  const media = catalog.data;
   const unknown = Boolean(across?.slug && !projectId);
-  const files = useInfiniteQuery({ ...filesQuery(projectId, filter, takes), enabled: !unknown });
-  const count = useQuery({ ...fileCountQuery(projectId, filter, takes), enabled: !unknown });
-  const formats = useQuery({ ...fileFormatsQuery(projectId, filter, takes), enabled: !unknown });
+  const requestTakes = takes && media ? { ...takes, accepts: media.choices(takes.accepts) } : takes;
+  const enabled = !unknown && (!takes?.accepts.length || Boolean(media));
+  const files = useInfiniteQuery({ ...filesQuery(projectId, filter, requestTakes), enabled });
+  const count = useQuery({ ...fileCountQuery(projectId, filter, requestTakes), enabled });
+  const formats = useQuery({ ...fileFormatsQuery(projectId, filter, requestTakes), enabled });
   const types = useQuery(typesQuery).data ?? [];
   const samples = types.filter((t) => t.sample && !t.abstract).map((t) => t.name);
   const items = files.data?.pages.flatMap((p) => p.items) ?? [];
@@ -116,15 +120,16 @@ export function FileTable({
   const set = (change: Partial<FileFilter>) => {
     onFilter({ ...filter, ...change });
   };
-  const chosenFormat = filter.format.join(",");
+  // Existing links use media types. IDs and aliases select the same facet.
+  const chosenFormat = filter.format.map((type) => media?.get(type)?.canonical ?? type).join(",");
   const formatOptions = [
     { value: "", label: "Any" },
     ...(formats.data ?? []).map((f) => ({
       value: f.media_type,
-      label: `${media.named(f.media_type)} (${f.count.toLocaleString()})`,
+      label: `${f.label} (${f.count.toLocaleString()})`,
     })),
     ...(chosenFormat && !(formats.data ?? []).some((f) => f.media_type === chosenFormat)
-      ? [{ value: chosenFormat, label: filter.format.map((f) => media.named(f)).join(", ") }]
+      ? [{ value: chosenFormat, label: filter.format.map((f) => media?.named(f) ?? f).join(", ") }]
       : []),
   ];
   const total = count.data
@@ -267,14 +272,15 @@ export function FileTable({
         </div>
       ) : null}
       {unknown ? <p className="empty">There’s no project {across?.slug} you can read.</p> : null}
+      {catalog.error ? <ProblemAlert problem={problemOf(catalog.error)} /> : null}
       {files.error ? <ProblemAlert problem={problemOf(files.error)} /> : null}
-      {files.isPending && !unknown ? <Loading label="Loading files…" /> : null}
+      {files.isPending && !unknown && !catalog.error ? <Loading label="Loading files…" /> : null}
       {files.isSuccess && items.length === 0 ? (
         <p className="muted empty">
           {searched
             ? "No files match. Try another part of the name, or fewer filters."
             : takes?.accepts.length
-              ? `No ${media.either(takes.accepts)} files here yet. Upload one instead.`
+              ? `No ${media?.either(takes.accepts) ?? takes.accepts.join(", ")} files here yet. Upload one instead.`
               : projectId
                 ? "No files yet. Files uploaded to this project, or held by its records, are listed here."
                 : "No files you can read yet."}
@@ -313,6 +319,7 @@ export function FileTable({
                 <FileRowView
                   key={file.id}
                   file={file}
+                  formatLabel={media?.named(file.media_type) ?? file.media_type}
                   pick={pick}
                   projectName={
                     across && !projectId
@@ -342,10 +349,12 @@ export function FileTable({
 
 function FileRowView({
   file,
+  formatLabel,
   pick,
   projectName,
 }: {
   file: FileRow;
+  formatLabel: string;
   pick: Picking | undefined;
   projectName: string | undefined;
 }) {
@@ -398,7 +407,7 @@ function FileRowView({
       </td>
       {projectName !== undefined ? <td className="muted">{projectName}</td> : null}
       <td className="muted" title={file.media_type}>
-        {media.named(file.media_type)}
+        {formatLabel}
       </td>
       <td className="list-table-end muted">{formatSize(file.size)}</td>
       <td className={file.acquired ? undefined : "muted"}>

@@ -254,7 +254,7 @@
           "$ref": "https://ikisci.org/schemas/unit/v1"
         },
         "media_types": {
-          "description": "The media types the file may have, such as `application/json` or `image/*`.",
+          "description": "The format IDs or media types the file may have, such as `iki/core.fastq`, `application/json` or `image/*`.",
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,

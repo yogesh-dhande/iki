@@ -51,13 +51,24 @@ def read(
             f"The manifest is for {proposed.name}, but the requested plugin is {name}."
         )
     _named("pluginName", name)
-    plugin_version = {
+    manifest: dict[str, Any] = {
         "apiVersion": API_VERSION,
         "kind": "Plugin",
         "name": name,
         "version": proposed.version,
     }
-    if issues := schemas.check("plugin", plugin_version):
+    # Compiled manifests include qualified IDs and explicit defaults. Check the
+    # original declaration schema too, including the supported readers and viewers.
+    if proposed.formats:
+        manifest["formats"] = {
+            key.removeprefix(f"{name}."): {
+                k: v
+                for k, v in value.items()
+                if k not in {"id", "order"} and v is not None and (k != "signatures" or v)
+            }
+            for key, value in plugin["formats"].items()
+        }
+    if issues := schemas.check("plugin", manifest):
         raise ValueError(issues[0].message)
 
     if installed is None:

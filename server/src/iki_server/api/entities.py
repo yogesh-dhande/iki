@@ -428,8 +428,8 @@ class StructureViewerOut(Schema):
     viewer: Literal["structure"] = Field(description="`structure`: a 3D structure, in Mol*.")
     label: str = Field(description="What its tab is called.")
     structure: str = Field(
-        description="The file field holding the structure: mmCIF (chemical/x-mmcif) or PDB "
-        "(chemical/x-pdb)."
+        description="The file field holding coordinates in a format that declares "
+        "the structure-mmcif or structure-pdb viewer."
     )
 
 

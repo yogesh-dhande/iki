@@ -513,7 +513,8 @@ def test_file_fields_take_a_file_the_caller_can_read(world: World) -> None:
     assert body["errors"] == [
         {
             "pointer": "#/values/structure",
-            "detail": "must be chemical/x-mmcif or chemical/x-pdb, and this file is text/plain.",
+            "detail": "must be chemical/x-mmcif, chemical/x-pdb or Model coordinates, "
+            "and this file is text/plain.",
         }
     ]
 

@@ -144,6 +144,69 @@ def test_rolling_back_a_finish_preserves_the_staged_input_for_a_retry(
     assert not storage.exists(upload.staging_key)
 
 
+def test_upload_recognises_bytes_before_the_name_and_uses_the_registered_reader(
+    world: World, s3: Any
+) -> None:
+    from test_file_acquired import realistic_ab1
+
+    added = add(
+        api_as(world),
+        world,
+        realistic_ab1(),
+        name="download.csv",
+        media_type="application/octet-stream",
+    )
+    assert added["media_type"] == added["file"]["media_type"] == "application/x-abi"
+    assert added["file"]["acquired"]["source"] == "abif"
+
+
+@pytest.mark.parametrize(
+    ("name", "sent", "expected"),
+    [
+        ("RESULT.MOL", "application/octet-stream", "chemical/x-mdl-molfile"),
+        ("result.FA", "chemical/seq-aa-fasta", "chemical/seq-aa-fasta"),
+        ("result.fa", "text/plain", "text/plain"),
+        ("result.fasta", "text/x-fasta", "text/x-fasta"),
+        ("result.faa", "text/plain", "chemical/seq-aa-fasta"),
+        ("result.fna", "text/plain", "chemical/seq-na-fasta"),
+        ("report.lab-report", "application/x-lab-report", "application/x-lab-report"),
+        ("structure.pdb", "application/vnd.palm", "chemical/x-pdb"),
+        ("page.html", "application/octet-stream", "text/html"),
+        ("data:report,summary", "application/octet-stream", "application/octet-stream"),
+    ],
+)
+def test_an_empty_upload_uses_the_same_registry_fallbacks(
+    world: World, s3: Any, name: str, sent: str, expected: str
+) -> None:
+    started = start(api_as(world), world, b"", name=name, media_type=sent)
+    assert started.status_code == 201, started.content
+    body = started.json()
+    assert body["media_type"] == body["file"]["media_type"] == expected
+
+
+@pytest.mark.parametrize(
+    ("data", "name", "media_type", "why"),
+    [
+        (b"ABIF" + bytes(64), "download", "text/csv", "application/x-abi"),
+        (b"not an ABI trace", "download", "application/x-abi", "signature"),
+        (b"not an ABI trace", "A01.ab1", "application/octet-stream", "signature"),
+    ],
+)
+def test_format_mismatch_is_terminal_and_discards_the_staged_object(
+    world: World, s3: Any, data: bytes, name: str, media_type: str, why: str
+) -> None:
+    api = api_as(world)
+    started = start(api, world, data, name=name, media_type=media_type).json()
+    send(started, data)
+    api.post(f"/uploads/{started['id']}/complete")
+    run_tasks()
+    upload = api.get(f"/uploads/{started['id']}").json()
+    assert upload["state"] == "failed" and upload["file"] is None
+    assert why in upload["error"]
+    assert keys(s3) == [] and not Blob.objects.exists()
+    assert services.check(started["id"]) == "nothing to check"
+
+
 def test_large_files_go_in_parts(world: World, s3: Any, small_parts: int) -> None:
     data = bytes(range(256)) * (small_parts * 2 // 256) + b"tail"
     api = api_as(world)

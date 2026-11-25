@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import mimetypes
 import os
 import time
 from collections.abc import Iterator
@@ -67,9 +66,7 @@ def upload(
                     json={
                         "project": project_id,
                         "name": name,
-                        "media_type": media_type
-                        or mimetypes.guess_type(name)[0]
-                        or "application/octet-stream",
+                        "media_type": media_type or "application/octet-stream",
                         "size": size,
                         "sha256": sha256,
                         **({"acquired_at": acquired_at} if acquired_at else {}),

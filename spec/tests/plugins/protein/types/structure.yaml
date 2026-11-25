@@ -5,7 +5,10 @@ schema_version: 1
 hrid: { prefix: PST }
 fields:
   structure:
-    { type: file, media_types: [chemical/x-mmcif, chemical/x-pdb], max_size: 2GiB, required: true }
+    type: file
+    media_types: [chemical/x-mmcif, chemical/x-pdb, acme/protein.model-pdb]
+    max_size: 2GiB
+    required: true
   method: { type: enum, values: [xray, nmr, cryo_em, predicted] }
   resolution: { type: quantity, unit: Ao, min: 0 }
   chains: { type: list, items: { type: ref, to: Protein }, min_items: 1 }
